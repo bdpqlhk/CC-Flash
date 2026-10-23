@@ -1,0 +1,1141 @@
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import QRCode from "qrcode";
+
+/* ---------- 环境 ---------- */
+const isDesktop = "__TAURI_INTERNALS__" in window;
+// 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
+const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || 8765}` : ""));
+function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
+/* 当前设备昵称(供日志/请求头使用) */
+function deviceNick() { return nickInput.value.trim() || autoNick; }
+
+/* ---------- 视图切换 ---------- */
+const view = ref("files");   // files | chat | service
+function setView(v) { view.value = v; }
+
+/* ---------- 外观主题 ---------- */
+const THEMES = [
+    { id: "default",  name: "深空蓝",   preview: "linear-gradient(135deg,#0d1017,#1a2233)" },
+    { id: "graphite", name: "石墨灰",   preview: "linear-gradient(135deg,#15171b,#2a2f38)" },
+    { id: "aurora",   name: "极光蓝",   preview: "linear-gradient(135deg,#0e1520,#12365e)" },
+    { id: "eye",      name: "护眼暖黑", preview: "linear-gradient(135deg,#191611,#3a3222)" },
+    { id: "purple",   name: "暗夜紫",   preview: "linear-gradient(135deg,#15121d,#33265a)" },
+];
+const theme = ref("default");
+function applyTheme(t) {
+    if (t && t !== "default") document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
+}
+function setTheme(id) {
+    theme.value = id;
+    applyTheme(id);
+    try { localStorage.setItem("wft-theme", id); } catch (e) {}
+}
+try { theme.value = localStorage.getItem("wft-theme") || "default"; } catch (e) {}
+
+/* ---------- 手机端(窄屏): 悬浮球 + 底部聊天面板 ---------- */
+const mq = window.matchMedia("(max-width: 980px)");
+const isNarrow = ref(mq.matches);
+const chatOpen = ref(false);
+// 手机聊天面板打开时锁定背后页面, 防止滑动穿透带动共享文件页滚动
+watch(chatOpen, v => { document.body.style.overflow = v ? "hidden" : ""; });
+function onMqChange(e) {
+  isNarrow.value = e.matches;
+  if (!e.matches) closeChat();   // 回到宽屏时自动收起手机聊天面板
+}
+if (typeof mq.addEventListener === "function") mq.addEventListener("change", onMqChange);
+else if (typeof mq.addListener === "function") mq.addListener(onMqChange);
+function openChat() {
+  chatOpen.value = true;
+  seenChat.value = chatCount.value;
+  nextTick(scrollChats);
+}
+function closeChat() { chatOpen.value = false; }
+function scrollChats() {
+  for (const id of ["chatMessages", "chatMessagesSheet"]) {
+    const c = document.getElementById(id);
+    if (c) c.scrollTop = c.scrollHeight;
+  }
+}
+
+/* ---------- 服务控制(桌面) ---------- */
+const running = ref(false);
+const port = ref(0);
+const lanIp = ref("--");
+const logs = ref([]);
+const portInput = ref(8765);
+const shareInput = ref("");
+const freeSpace = ref("--");
+async function refreshControl() {
+  // 窗口就绪竞态下 invoke 可能短暂失败, 自动重试
+  for (let i = 0; i < 10; i++) {
+    try {
+      const d = isDesktop
+        ? await tauriInvoke("control_status_cmd")
+        : await (await fetch("/api/info")).json();
+      running.value = d.running;
+      port.value = d.port;
+      lanIp.value = d.ip;
+      if (d.share) shareInput.value = d.share;
+      if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
+      if (!running.value && d.port) portInput.value = d.port;
+      genQr();
+      return;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+}
+async function startServer() {
+  if (!isDesktop) { showToast("请在桌面端控制服务", "error"); return; }
+  try {
+    // 先应用共享目录(含持久化), 再启动 —— 否则输入框里的目录从未生效过
+    const s = await tauriInvoke("set_share_dir_cmd", { path: shareInput.value });
+    if (!s.ok) { showToast(s.error || "共享目录无效", "error"); return; }
+    const d = await tauriInvoke("control_start_cmd", { port: Number(portInput.value) || null });
+    if (d.ok) { running.value = true; port.value = d.port; genQr(); showToast("服务已启动"); }
+    else showToast(d.error || "启动失败", "error");
+  } catch (e) {
+    console.error("启动服务异常:", e);
+    showToast("启动服务异常: " + (e.message || e), "error");
+  }
+}
+function openShareDir() {
+  tauriInvoke("open_path_cmd", { path: shareInput.value })
+    .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); });
+}
+function openFile(name) {
+  const dir = shareInput.value.replace(/\/+$/, "");
+  tauriInvoke("open_path_cmd", { path: dir + "/" + name })
+    .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); });
+}
+function copyFileToClipboard(name) {
+  tauriInvoke("copy_file_cmd", { name })
+    .then(d => d.ok ? showToast("已复制到剪贴板，可在访达/资源管理器中粘贴") : showToast(d.error || "复制失败", "error"));
+}
+async function stopServer() {
+  if (!isDesktop) { running.value = false; return; }
+  try {
+    await tauriInvoke("control_stop_cmd");
+    running.value = false;
+    showToast("服务已停止");
+  } catch (e) {
+    console.error("停止服务异常:", e);
+    showToast("停止服务异常", "error");
+  }
+}
+function openBrowser() {
+  if (!running.value) { showToast("服务未启动", "error"); return; }
+  tauriInvoke("open_url_cmd", { url: shareUrl.value })
+    .then(d => {
+      if (d.ok) showToast("已在系统浏览器打开");
+      else { showToast(d.error || "打开失败，尝试备用方式", "error"); window.open(shareUrl.value, "_blank"); }
+    })
+    .catch(() => { window.open(shareUrl.value, "_blank"); });
+}
+
+/* ---------- 二维码 ---------- */
+const qrData = ref("");
+async function genQr() {
+  if (!running.value) return;
+  try { qrData.value = await QRCode.toDataURL(shareUrl.value, { margin: 1, width: 220 }); } catch (e) {}
+}
+const qrShow = ref(false);
+function openQr() { genQr(); qrShow.value = true; }
+
+/* ---------- 复制(降级兼容) ---------- */
+function fallbackCopy(text, okMsg) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) {}
+  ta.remove();
+  showToast(ok ? okMsg : "复制失败，请手动复制", ok ? "success" : "error");
+}
+function copyText(text, okMsg) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => showToast(okMsg)).catch(() => fallbackCopy(text, okMsg));
+  } else fallbackCopy(text, okMsg);
+}
+const shareUrl = computed(() => `http://${lanIp.value}:${port.value}`);
+const copied = ref(false);
+function copyUrl() {
+  if (!running.value) { showToast("服务未启动", "error"); return; }
+  const text = shareUrl.value
+    + "\n\n🔔 温馨提示：请确保分享方和接收方在同一 Wi-Fi 下打开（不要使用魔法哦～）"
+    + "\n👀 一定要看：文件请尽快下载到本地，共享文件不保证长期有效。";
+  copyText(text, "链接和提示已复制，发给同一局域网的小伙伴即可打开");
+  copied.value = true;
+  setTimeout(() => { copied.value = false; }, 1500);
+}
+
+/* ---------- 文件列表 ---------- */
+const allFiles = ref([]);
+const sortBy = ref("time");
+const PAGE_SIZE = 8;
+const currentPage = ref(1);
+const refreshing = ref(false);
+
+function extFor(n) { const p = n.lastIndexOf("."); return p >= 0 ? n.slice(p + 1).toLowerCase() : ""; }
+function isImage(n) { return ["jpg","jpeg","png","gif","svg","webp","bmp","ico"].includes(extFor(n)); }
+function iconFor(n) {
+  const map = { pdf:"PDF",doc:"DOC",docx:"DOC",xls:"XLS",xlsx:"XLS",ppt:"PPT",pptx:"PPT",
+    exe:"EXE",msi:"MSI",dmg:"DMG",apk:"APK",mp4:"VID",mov:"VID",avi:"VID",mkv:"VID",webm:"VID",
+    mp3:"AUD",wav:"AUD",flac:"AUD",aac:"AUD",ogg:"AUD",zip:"ZIP",rar:"RAR","7z":"7Z",tar:"TAR",gz:"GZ",
+    py:"PY",js:"JS",ts:"TS",java:"JV",go:"GO",rs:"RS",c:"C",cpp:"CPP",html:"HTM",css:"CSS",
+    json:"JSN",xml:"XML",md:"MD",sql:"SQL",txt:"TXT",csv:"CSV",psd:"PSD",ai:"AI",sketch:"SK",fig:"FIG" };
+  return map[extFor(n)] || "FILE";
+}
+function fmtSize(b) {
+  if (b === 0) return "0 B";
+  const u = ["B","KB","MB","GB","TB"];
+  let i = 0, v = b;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i === 0 ? 0 : 1) + " " + u[i];
+}
+function fmtTime(ts) {
+  const d = new Date(ts * 1000), now = new Date(), diff = now - d;
+  if (diff < 60000) return "刚刚";
+  if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+  return d.toLocaleDateString("zh-CN") + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
+const sortedFiles = computed(() => {
+  const arr = [...allFiles.value];
+  if (sortBy.value === "time") arr.sort((a, b) => b.modified - a.modified);
+  else if (sortBy.value === "name") arr.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  else if (sortBy.value === "size") arr.sort((a, b) => b.size - a.size);
+  return arr;
+});
+const totalPages = computed(() => Math.max(1, Math.ceil(sortedFiles.value.length / PAGE_SIZE)));
+const pageFiles = computed(() => {
+  const cur = Math.min(Math.max(1, currentPage.value), totalPages.value);
+  const s = (cur - 1) * PAGE_SIZE;
+  return sortedFiles.value.slice(s, s + PAGE_SIZE);
+});
+const pageItems = computed(() => {
+  const t = totalPages.value, cur = currentPage.value, items = [];
+  if (t <= 7) { for (let i = 1; i <= t; i++) items.push(i); return items; }
+  items.push(1);
+  if (cur > 3) items.push("…");
+  for (let i = Math.max(2, cur - 1); i <= Math.min(t - 1, cur + 1); i++) items.push(i);
+  if (cur < t - 2) items.push("…");
+  items.push(t);
+  return items;
+});
+function goPage(p) { currentPage.value = p; }
+function setSort(s) { sortBy.value = s; currentPage.value = 1; }
+
+const stats = computed(() => ({
+  count: allFiles.value.length,
+  size: fmtSize(allFiles.value.reduce((s, f) => s + (f.size || 0), 0)),
+}));
+
+/* ---------- 批量选择 ---------- */
+const selected = ref(new Set());
+const selectedCount = computed(() => selected.value.size);
+const pageAllSelected = computed(() =>
+  pageFiles.value.length > 0 && pageFiles.value.every(f => selected.value.has(f.name))
+);
+function toggleSel(name) {
+  const s = new Set(selected.value);
+  s.has(name) ? s.delete(name) : s.add(name);
+  selected.value = s;
+}
+function toggleAll() {
+  const page = pageFiles.value.map(f => f.name);
+  const allOn = page.length > 0 && page.every(n => selected.value.has(n));
+  const s = new Set(selected.value);
+  page.forEach(n => allOn ? s.delete(n) : s.add(n));
+  selected.value = s;
+}
+function clearSel() { selected.value = new Set(); }
+
+let loadingFiles = false;
+async function loadFiles(manual = false) {
+  if (loadingFiles) return;   // 上一轮在途不重复拉
+  loadingFiles = true;
+  if (manual) refreshing.value = true;
+  try {
+    // 昵称走 URL 参数: 避免 X-Nickname 自定义头触发 CORS 预检, 刷新只需一次往返
+    const r = await fetch(apiBase.value + "/api/files?nick=" + encodeURIComponent(deviceNick()));
+    const d = await r.json();
+    allFiles.value = d.files || [];
+    // 清理已不存在的选中项
+    if (selected.value.size) {
+      const names = new Set(allFiles.value.map(f => f.name));
+      const keep = [...selected.value].filter(n => names.has(n));
+      if (keep.length !== selected.value.size) selected.value = new Set(keep);
+    }
+  } catch (e) { console.error(e); }
+  loadingFiles = false;
+  if (manual) refreshing.value = false;
+}
+
+/* ---------- 分享: 全平台统一复制链接(带温馨提示话术) ---------- */
+async function shareFile(name) {
+  const base = isDesktop ? `http://${lanIp.value}:${port.value}` : location.origin;
+  const url = base + "/api/download/" + encodeURIComponent(name);
+  const note = "\n🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。";
+  copyText(url + note, "分享链接已复制：" + name);
+}
+
+/* ---------- 下载(浏览器端): fetch 回来再触发保存, 才有"下载完成"时机 ---------- */
+async function downloadFileWeb(name) {
+  const url = apiBase.value + "/api/download/" + encodeURIComponent(name);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const len = Number(r.headers.get("Content-Length") || 0);
+    if (len > 1024 * 1024 * 1024) {
+      // 超大文件退回浏览器原生下载(流式省内存, 但无完成回调)
+      try { r.body?.cancel(); } catch (e) {}
+      window.location.href = url;
+      showToast("大文件较大，已交由浏览器直接下载");
+      return;
+    }
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    showToast(`已下载：${name}${len ? " (" + fmtSize(len) + ")" : ""}`);
+  } catch (e) {
+    showToast("下载失败：" + (e.message || e), "error");
+  }
+}
+
+/* ---------- 删除(单个 / 批量) ---------- */
+const delTargets = ref([]);
+const showDel = ref(false);
+function confirmDelete(name) { delTargets.value = [name]; showDel.value = true; }
+function confirmDeleteSelected() {
+  if (!selected.value.size) return;
+  delTargets.value = [...selected.value];
+  showDel.value = true;
+}
+function closeDel() { showDel.value = false; delTargets.value = []; }
+async function doDelete() {
+  const targets = delTargets.value;
+  showDel.value = false;
+  let ok = 0, fail = 0;
+  for (const n of targets) {
+    try {
+      const r = await fetch(apiBase.value + "/api/delete/" + encodeURIComponent(n), { method: "DELETE" });
+      r.ok ? ok++ : fail++;
+    } catch (e) { fail++; }
+  }
+  if (fail) showToast(`删除完成：成功 ${ok} 个，失败 ${fail} 个`, "error");
+  else showToast(targets.length > 1 ? `已删除 ${ok} 个文件` : "已删除 「" + targets[0] + "」");
+  selected.value = new Set();
+  loadFiles();
+}
+
+/* ---------- 上传 ---------- */
+const uploads = ref([]);
+let upSeq = 0;
+const dragOver = ref(false);
+function pickFiles() { document.getElementById("fileInput").click(); }
+function onPick(e) { handleFiles(e.target.files); e.target.value = ""; }
+function onDrop(e) { dragOver.value = false; handleFiles(e.dataTransfer.files); }
+function handleFiles(list) {
+  if (!list || !list.length) return;
+  for (const f of Array.from(list)) uploadFile(f);
+}
+function uploadFile(file) {
+  const id = "up-" + Date.now() + "-" + upSeq++;
+  uploads.value.push({ id, name: file.name, pct: 0, speed: "", status: "waiting" });
+  const stat = () => uploads.value.find(u => u.id === id);
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", apiBase.value + "/api/upload", true);
+    xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+    xhr.setRequestHeader("X-File-Size", String(file.size));
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    const t0 = Date.now();
+    xhr.upload.onprogress = (e) => {
+      const it = stat(); if (!it) return;
+      it.status = "uploading";
+      if (e.lengthComputable) {
+        it.pct = Math.round((e.loaded / e.total) * 100);
+        const sp = e.loaded / Math.max((Date.now() - t0) / 1000, 0.1);
+        it.speed = fmtSize(sp) + "/s";
+      }
+    };
+    xhr.onload = () => {
+      const it = stat(); if (!it) return;
+      if (xhr.status === 200) {
+        it.pct = 100; it.status = "done";
+        currentPage.value = 1; loadFiles();
+        setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, 1500);
+      } else {
+        it.status = "error";
+        showToast("上传失败: " + file.name, "error");
+      }
+    };
+    xhr.onerror = () => {
+      const it = stat(); if (!it) return;
+      it.status = "error";
+      showToast("上传失败: " + file.name, "error");
+    };
+    const it = stat();
+    it.status = "uploading";
+    xhr.send(file);
+  } catch (e) {
+    console.error("上传异常:", e);
+    const it = stat(); if (!it) return;
+    it.status = "error";
+    showToast("上传出错: " + (e && e.message ? e.message : "未知错误"), "error");
+  }
+}
+function onPaste(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const files = [];
+  for (const item of items) { if (item.kind === "file") files.push(item.getAsFile()); }
+  if (files.length) handleFiles(files);
+}
+
+/* ---------- 聊天 ---------- */
+const chatMsgs = ref([]);
+const chatInput = ref("");
+const nickInput = ref("");
+const seenChat = ref(0);
+const chatCount = ref(0);
+const chatBox = ref(null);
+const unread = computed(() => Math.max(0, chatCount.value - seenChat.value));
+const curNick = computed(() => nickInput.value.trim() || autoNick);
+function avatarFor(nick) {
+  const pool = ["😀","😄","😁","🤠","😎","🤓","🥳","😴","🙃","😇","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐧","🦉","🦄","🐙"];
+  let h = 0;
+  const s = nick || "匿名用户";
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return pool[Math.abs(h) % pool.length];
+}
+const autoNick = (() => {
+  try {
+    let n = localStorage.getItem("lft-nick-auto") || "";
+    if (!n) {
+      const ua = navigator.userAgent;
+      let os = "设备";
+      if (/iPhone/i.test(ua)) os = "iPhone";
+      else if (/iPad/i.test(ua)) os = "iPad";
+      else if (/Android/i.test(ua)) os = "Android";
+      else if (/Macintosh|Mac OS X/i.test(ua)) os = "Mac";
+      else if (/Windows/i.test(ua)) os = "Windows";
+      else if (/Linux/i.test(ua)) os = "Linux";
+      let br = "";
+      if (/Edg\//.test(ua)) br = " Edge";
+      else if (/Chrome\//.test(ua)) br = " Chrome";
+      else if (/Firefox\//.test(ua)) br = " Firefox";
+      else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) br = " Safari";
+      n = `${os}${br}-${Math.floor(1000 + Math.random() * 9000)}`;
+      localStorage.setItem("lft-nick-auto", n);
+    }
+    return n;
+  } catch (e) { return "匿名用户"; }
+})();
+try { nickInput.value = localStorage.getItem("lft-nick") || autoNick; } catch (e) {}
+function saveNick() {
+  try { localStorage.setItem("lft-nick", nickInput.value.trim()); } catch (e) {}
+}
+/* 聊天文本链接化: 先转义防 XSS, 再把 URL 包成可点击链接(桌面走系统浏览器) */
+function escHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+/* 轻量 Markdown: 围栏代码块 / 行内代码 / 粗体 / 斜体 / 删除线 / 链接 */
+function mdChat(raw) {
+  let s = escHtml(String(raw));
+  const stash = [];
+  const keep = (html) => { stash.push(html); return `\u0000${stash.length - 1}\u0000`; };
+  s = s.replace(/```[\w+-]*\r?\n?([\s\S]*?)```/g,
+    (m0, code) => keep(`<pre class="chat-code"><code>${code.replace(/\n+$/, "")}</code></pre>`));
+  s = s.replace(/`([^`\n]+)`/g, (m0, c) => keep(`<code class="chat-inline">${c}</code>`));
+  s = s.replace(/(https?:\/\/[^\s<>\u0000]+)/gi,
+    (u) => `<span class="chat-link" data-url="${u}" title="点击跳转到浏览器">${u}</span>`);
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  s = s.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
+  s = s.replace(/\n/g, "<br>");
+  return s.replace(/\u0000(\d+)\u0000/g, (m0, i) => stash[Number(i)]);
+}
+const displayMsgs = computed(() => chatMsgs.value.map(m => ({ ...m, html: mdChat(m.message) })));
+document.addEventListener("click", (e) => {
+  const link = e.target.closest(".chat-link");
+  if (!link) return;
+  const url = link.dataset.url;
+  if (!url) return;
+  if (isDesktop) {
+    tauriInvoke("open_url_cmd", { url })
+      .then(d => {
+        if (d.ok) showToast("已在系统浏览器打开");
+        else window.open(url, "_blank");
+      })
+      .catch(() => { window.open(url, "_blank"); });
+  } else {
+    window.open(url, "_blank");
+  }
+});
+/* 清空显示: 仅清本窗口(与 PyQt 镜像清空语义一致); 新消息到达后恢复显示 */
+const chatCleared = ref(false);
+const clearedAt = ref(0);
+function clearChatDisplay() {
+  chatCleared.value = true;
+  clearedAt.value = chatCount.value;
+  showToast("已清空数据（不影响其他设备与服务端记录）");
+}
+async function loadChat() {
+  try {
+    const r = await fetch(apiBase.value + "/api/chat?nick=" + encodeURIComponent(deviceNick()));
+    const d = await r.json();
+    const msgs = d.messages || [];
+    const old = chatCount.value;
+    if (chatCleared.value && msgs.length > clearedAt.value) chatCleared.value = false;
+    chatMsgs.value = chatCleared.value && msgs.length <= clearedAt.value ? [] : msgs;
+    chatCount.value = msgs.length;
+    if (view.value === "chat" || chatOpen.value || (!isDesktop && !isNarrow)) seenChat.value = chatCount.value;
+    if (msgs.length !== old || !loadChat._init) {
+      loadChat._init = true;
+      nextTick(scrollChats);
+    }
+  } catch (e) { console.error(e); }
+}
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  const nickname = curNick.value;
+  saveNick();
+  try {
+    const r = await fetch(apiBase.value + "/api/chat?nick=" + encodeURIComponent(nickname), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname, message: text }),
+    });
+    const d = await r.json();
+    if (d.ok) { chatInput.value = ""; loadChat(); }
+    else showToast(d.error || "发送失败", "error");
+  } catch (e) { showToast("发送失败", "error"); }
+}
+
+/* ---------- 提示 ---------- */
+const toasts = ref([]);
+let toastSeq = 0;
+function showToast(msg, type = "success") {
+  const id = ++toastSeq;
+  toasts.value.push({ id, msg, type });
+  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 2400);
+}
+
+/* ---------- 生命周期 ---------- */
+let chatTimer = null;
+let logTimer = null;
+let filesTimer = null;
+onMounted(() => {
+  document.addEventListener("paste", onPaste);
+  // F5 刷新文件列表(输入框聚焦时除外)
+  const f5 = (e) => {
+    if (e.key === "F5" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
+      e.preventDefault(); loadFiles();
+    }
+  };
+  document.addEventListener("keydown", f5);
+  onUnmounted(() => document.removeEventListener("keydown", f5));
+  if (isDesktop) {
+    refreshControl();
+    logTimer = setInterval(refreshLogs, 2000);
+  }
+  loadFiles();
+  loadChat();
+  chatTimer = setInterval(loadChat, 3000);
+  refreshStatus();
+  statusTimer = setInterval(refreshStatus, 5000);
+  filesTimer = setInterval(() => loadFiles(false), 5000);  // 文件列表自动同步(其他设备上传也能看到)
+});
+onUnmounted(() => {
+  document.removeEventListener("paste", onPaste);
+  document.body.style.overflow = "";
+  clearInterval(chatTimer);
+  clearInterval(logTimer);
+  clearInterval(statusTimer);
+  clearInterval(filesTimer);
+});
+
+async function refreshLogs() {
+  try {
+    const r = await fetch(apiBase.value + "/api/control/logs");
+    const d = await r.json();
+    logs.value = d.logs || [];
+  } catch (e) {}
+}
+
+async function clearLogs() {
+  try {
+    if (isDesktop) await tauriInvoke("control_clear_logs_cmd");
+    else await fetch(apiBase.value + "/api/control/logs/clear", { method: "POST" });
+    logs.value = [];
+    showToast("日志已清空");
+  } catch (e) {
+    showToast("清空日志失败", "error");
+  }
+}
+
+/* ---------- 运行状态/IP 定期刷新: DHCP 换 IP 后地址栏/二维码/统计保持最新 ---------- */
+let statusTimer = null;
+let lastLanIp = "";
+let statusFail = 0;
+const offline = ref(false);   // 浏览器端与服务失联(服务停止/地址变更)
+async function refreshStatus() {
+  try {
+    const d = isDesktop
+      ? await tauriInvoke("control_status_cmd")
+      : await (await fetch("/api/info")).json();
+    statusFail = 0;
+    offline.value = false;
+    running.value = d.running;
+    port.value = d.port;
+    if (d.share && document.activeElement?.tagName !== "INPUT") shareInput.value = d.share;
+    if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
+    const ip = d.ip || "";
+    if (ip && ip !== lanIp.value) {
+      const first = !lastLanIp;
+      const changed = lastLanIp && lastLanIp !== "127.0.0.1";
+      lanIp.value = ip;
+      lastLanIp = ip;
+      genQr();
+      if (changed && !first && running.value) {
+        showToast(`本机 IP 已变为 ${ip}，手机请改用新地址访问`, "error");
+      }
+    } else if (ip) {
+      lastLanIp = ip;
+    }
+  } catch (e) {
+    // 浏览器端连续失败 → 判定与服务失联
+    if (!isDesktop && ++statusFail >= 2) offline.value = true;
+  }
+}
+</script>
+
+<template>
+  <div class="shell">
+    <!-- ===== 侧边栏(仅桌面壳) ===== -->
+    <aside v-if="isDesktop" class="sidebar">
+      <div class="brand">
+        <div class="logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
+        <div class="t">CC-Flash</div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item" :class="{ active: view === 'files' }" @click="setView('files')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件共享
+        </button>
+        <button v-if="!isNarrow" class="nav-item" :class="{ active: view === 'chat' }" @click="setView('chat')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>聊天室
+          <span v-if="unread > 0 && view !== 'chat'" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
+        </button>
+        <button v-if="!isNarrow" class="nav-item svc" :class="{ active: view === 'service' }" @click="setView('service')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务与日志
+        </button>
+      </nav>
+      <div class="side-foot">
+        <div class="side-status" :class="{ on: running }">
+          <span class="d"></span>{{ running ? `运行中 :${port}` : "已停止" }}
+        </div>
+        <div class="side-ver">v1.0.0 · Tauri</div>
+      </div>
+    </aside>
+
+    <!-- ===== 主区 ===== -->
+    <main class="main" :class="{ 'chat-full': isDesktop && view === 'chat', 'web': !isDesktop }">
+      <!-- 顶部栏(桌面壳):标题一行 + 地址栏独占一行(保证地址完整展示) -->
+      <div v-if="isDesktop" class="topbar">
+        <div class="topbar-head">
+          <h2>{{ view === "files" ? "文件共享" : view === "chat" ? "聊天室" : "服务与日志" }}</h2>
+          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备可访问下方地址" : "服务未启动 —— 到「服务与日志」页启动" }}</div>
+        </div>
+        <div class="topbar-url">
+          <span class="chip" :class="running ? 'run' : 'stop'">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
+          </span>
+          <div class="url-box">
+            <span class="protocol">HTTP</span>
+            <input class="url-text" :value="running ? shareUrl : '服务未启动'" readonly @click="$event.target.select()" />
+          </div>
+          <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
+                  aria-label="复制链接" @click="copied || copyUrl()">
+            <svg v-if="!copied" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+          <button class="icon-btn" title="显示二维码" aria-label="显示二维码" @click="openQr">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="14" y1="17" x2="14" y2="21"/><line x1="17" y1="21" x2="21" y2="21"/><line x1="21" y1="17" x2="21" y2="21"/></svg>
+          </button>
+          <button v-if="isDesktop" class="icon-btn" title="在系统浏览器打开网页端" aria-label="在浏览器打开网页端" @click="openBrowser">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 网页端头部(PyQt 风格): 标题 + 地址栏 + 状态统计 -->
+      <template v-else>
+        <!-- 断连横幅: 服务停止/地址变更时, 给已打开的旧页面明确提示 -->
+        <div v-if="offline" class="offline-banner">
+          ⚠️ 与服务的连接已断开 —— 服务可能已停止，或电脑地址已变更。请在电脑上查看最新地址后重新打开本页。
+        </div>
+        <header class="web-head">
+          <div class="web-logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
+          <div>
+            <h2>CC-Flash</h2>
+            <div class="sub">局域网高速文件共享</div>
+          </div>
+        </header>
+        <div class="card web-top">
+          <div class="web-urlrow">
+          <span class="chip" :class="running ? 'run' : 'stop'">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
+          </span>
+          <div class="url-box">
+            <span class="protocol">HTTP</span>
+            <input class="url-text" :value="running ? shareUrl : '服务未启动'" readonly @click="$event.target.select()" />
+          </div>
+          <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
+                  aria-label="复制链接" @click="copied || copyUrl()">
+            <svg v-if="!copied" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+          <button class="icon-btn" title="显示二维码" aria-label="显示二维码" @click="openQr">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="14" y1="17" x2="14" y2="21"/><line x1="17" y1="21" x2="21" y2="21"/><line x1="21" y1="17" x2="21" y2="21"/></svg>
+          </button>
+        </div>
+        <div class="web-stats">
+          <div class="stat-cell"><div class="s-label">本机 IP</div><div class="s-val ip">{{ lanIp }}</div></div>
+          <div class="stat-cell"><div class="s-label">端口</div><div class="s-val">{{ port || "--" }}</div></div>
+          <div class="stat-cell"><div class="s-label">文件数</div><div class="s-val">{{ stats.count }}</div></div>
+          <div class="stat-cell"><div class="s-label">总大小</div><div class="s-val">{{ stats.size }}</div></div>
+        </div>
+        </div>
+      </template>
+
+      <!-- 文件共享 -->
+      <template v-if="isDesktop && view === 'files'">
+        <div v-if="isDesktop && !running" class="warn-banner">
+          <span>🔒 服务未启动 —— 手机暂时无法访问</span>
+          <button class="btn btn-primary" @click="setView('service')">去启动</button>
+        </div>
+        <div class="card">
+          <h3>上传文件</h3>
+          <div class="dropzone" :class="{ 'drag-over': dragOver }" @click="pickFiles"
+               @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false"
+               @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
+            <div class="ic">⬆️</div>
+            <h5>点击选择文件 或 拖拽到此处</h5>
+            <p>支持多选 · 可直接 Ctrl+V / Cmd+V 粘贴文件 · 无大小与类型限制</p>
+            <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
+          </div>
+          <div v-for="u in uploads" :key="u.id" class="upload-item">
+            <div class="up-line">
+              <span class="up-name">{{ u.name }}</span>
+              <span class="up-status" :class="u.status">
+                {{ u.status === "uploading" ? u.pct + "% " + u.speed
+                 : u.status === "waiting" ? "等待中"
+                 : u.status === "done" ? "完成" : u.speed || "失败" }}
+              </span>
+            </div>
+            <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="list-head">
+            <div class="lh-left">
+              <h3>共享文件</h3>
+              <span class="badge">{{ stats.count }} 个文件</span>
+            </div>
+            <div class="lh-right">
+              <label v-if="pageFiles.length" class="sel-all" title="全选/取消本页">
+                <input type="checkbox" :checked="pageAllSelected" @change="toggleAll" />全选
+              </label>
+              <div class="sort-group">
+                <button class="sort-btn" :class="{ active: sortBy === 'time' }" @click="setSort('time')">最新</button>
+                <button class="sort-btn" :class="{ active: sortBy === 'name' }" @click="setSort('name')">名称</button>
+                <button class="sort-btn" :class="{ active: sortBy === 'size' }" @click="setSort('size')">大小</button>
+              </div>
+              <button v-if="selectedCount > 0" class="btn btn-del" style="height:28px;padding:0 12px"
+                      @click="confirmDeleteSelected" title="删除选中的文件">
+                🗑 删除选中 ({{ selectedCount }})
+              </button>
+              <button v-if="selectedCount > 0" class="refresh-btn" title="取消选择" @click="clearSel">✕</button>
+              <button class="refresh-btn" :class="{ spinning: refreshing }" title="刷新文件列表" @click="loadFiles(true)">↻</button>
+            </div>
+          </div>
+          <div v-if="pageFiles.length === 0" class="empty-state">
+            <div class="es-icon">📦</div>
+            <h4>还没有文件</h4>
+            <p>拖拽文件到上方区域开始传输</p>
+            <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
+          </div>
+          <div v-else>
+            <div v-for="f in pageFiles" :key="f.name" class="file-row" @dblclick="isDesktop && openFile(f.name)">
+              <label class="sel-box" @click.stop>
+                <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
+              </label>
+              <div class="file-thumb">
+                <img v-if="isImage(f.name)" :src="apiBase + '/api/download/' + encodeURIComponent(f.name)" loading="lazy"
+                     @error="$event.target.style.display = 'none'" />
+                <span class="icon-overlay">{{ iconFor(f.name) }}</span>
+              </div>
+              <div class="file-info">
+                <div class="fname" :title="f.name" @click="shareFile(f.name)">{{ f.name }}</div>
+                <div class="fmeta">
+                  <span>{{ fmtSize(f.size) }}</span><span>{{ fmtTime(f.modified) }}</span>
+                  <span v-if="isImage(f.name)" style="color:var(--warning);font-size:10px">预览</span>
+                </div>
+              </div>
+              <div class="file-btns">
+                <!-- 桌面端: 打开 + 复制 + 删除 + 分享 -->
+                <template v-if="isDesktop">
+                  <button class="btn-act fb-open" title="打开文件（系统默认程序）" @click="openFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
+                  <button class="btn-act fb-copy" title="复制文件到剪贴板（可在访达/资源管理器粘贴）" @click="copyFileToClipboard(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></button>
+                  <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+                  <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
+                </template>
+              </div>
+            </div>
+            <div class="pagination" v-if="totalPages > 1">
+              <button class="page-btn" :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
+              <template v-for="(it, i) in pageItems" :key="i">
+                <span v-if="it === '…'" class="page-ellipsis">…</span>
+                <button v-else class="page-btn" :class="{ active: it === currentPage }" @click="goPage(it)">{{ it }}</button>
+              </template>
+              <button class="page-btn" :disabled="currentPage === totalPages" @click="goPage(currentPage + 1)">›</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="hint-card">
+          <h4>使用说明</h4>
+          <ol>
+            <li>电脑点「启动服务」（服务与日志页），手机扫码或输入地址打开本页</li>
+            <li>上传：拖拽 / 点击选择 / Ctrl+V 粘贴截图，均支持批量</li>
+            <li>下载：点蓝色按钮；分享：点绿色按钮（手机拉起系统分享，电脑复制链接）</li>
+            <li>聊天在左侧「聊天室」，手机/电脑消息实时互通</li>
+          </ol>
+        </div>
+      </template>
+
+      <!-- 聊天室 -->
+      <template v-if="isDesktop && view === 'chat'">
+        <div class="chat-card">
+          <div class="chat-header">
+            <h3>💬 聊天室 · 局域网内实时互通</h3>
+            <div class="chat-head-right">
+              <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
+                      @click="clearChatDisplay">清空数据</button>
+              <span class="avatar-chip" title="头像由昵称自动生成">{{ avatarFor(curNick) }}</span>
+              <div class="chat-nickname">
+                <span style="font-size:11px;color:var(--text3)">昵称:</span>
+                <input v-model="nickInput" placeholder="匿名用户" maxlength="20" title="输入昵称，会自动记住" @change="saveNick" />
+              </div>
+            </div>
+          </div>
+          <div class="chat-messages" ref="chatBox">
+            <div v-if="displayMsgs.length === 0" class="chat-empty">👋 还没有消息，发一条打个招呼吧</div>
+            <div v-for="m in displayMsgs" :key="m.id" class="chat-message">
+              <span class="msg-avatar">{{ avatarFor(m.nickname) }}</span>
+              <div class="msg-body">
+                <div class="chat-nick">{{ m.nickname }}</div>
+                <div class="chat-text" v-html="m.html"></div>
+                <div class="chat-time">{{ fmtTime(m.timestamp) }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" maxlength="2000"
+                   @keydown.enter.prevent="sendChat" />
+            <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- 服务与日志 -->
+      <template v-if="isDesktop && view === 'service'">
+        <div class="svc-top">
+          <!-- 服务控制 -->
+          <div class="card svc-ctrl">
+            <div class="svc-head">
+              <div class="svc-status-row">
+                <span class="chip" :class="running ? 'run' : 'stop'">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
+                </span>
+                <span v-if="running" class="svc-url">{{ shareUrl }}</span>
+                <button v-if="running" class="icon-btn svc-copy-btn" :class="{ 'icon-ok': copied }"
+                        :title="copied ? '已复制' : '复制地址'" aria-label="复制地址" @click="copied || copyUrl()">
+                  <svg v-if="!copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+              </div>
+              <div class="svc-hint">同一 Wi-Fi 下的设备用浏览器打开即可使用</div>
+            </div>
+            <div class="svc-fields">
+              <div class="svc-field">
+                <label>端口</label>
+                <input class="svc-input" v-model="portInput" :disabled="running" maxlength="5" />
+                <div class="field-hint">被占用自动顺延</div>
+              </div>
+              <div class="svc-field grow">
+                <label>共享目录</label>
+                <div class="dir-row">
+                  <input class="svc-input" style="flex:1;min-width:0" v-model="shareInput" :disabled="running" :title="shareInput" />
+                  <button class="btn btn-ghost" :disabled="running" @click="openShareDir">打开</button>
+                </div>
+                <div class="field-hint">💾 可用 {{ freeSpace }} · 修改目录需重启服务生效</div>
+              </div>
+            </div>
+            <div class="svc-actions">
+              <button class="btn btn-primary" :disabled="running" @click="startServer">启动服务</button>
+              <button class="btn btn-danger" :disabled="!running" @click="stopServer">停止服务</button>
+              <button class="btn btn-ghost" :disabled="!running" @click="openShareDir">打开共享目录</button>
+            </div>
+          </div>
+          <!-- 手机扫码直达 -->
+          <div class="card svc-qr">
+            <h3>手机扫码直达</h3>
+            <img v-if="qrData" class="qr-img" :src="qrData" alt="QR" />
+            <div v-else class="qr-empty">启动服务后<br />显示二维码</div>
+            <div class="qr-caption">手机 / 平板同一 Wi-Fi 下扫码打开</div>
+          </div>
+        </div>
+        <!-- 服务日志: 独占整行 -->
+        <div class="card svc-log-card">
+          <div class="list-head">
+            <h3>服务日志</h3>
+            <button class="btn btn-ghost" style="height:28px" title="清空服务日志显示（不影响服务运行）"
+                    @click="clearLogs">清空日志</button>
+          </div>
+          <div class="svc-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:0;min-height:0">
+            <div class="logs" style="flex:1;height:auto">{{ logs.length ? logs.join("\n") : "HTTP 请求与服务事件…" }}</div>
+          </div>
+        </div>
+        <!-- 皮肤设置 -->
+        <div class="card svc-skin">
+          <h3>皮肤设置</h3>
+          <div class="theme-row">
+            <button v-for="t in THEMES" :key="t.id" class="theme-sw" :class="{ active: theme === t.id }"
+                    :title="t.name" @click="setTheme(t.id)">
+              <span class="sw" :style="{ background: t.preview }"></span>
+              <span>{{ t.name }}</span>
+            </button>
+          </div>
+          <div class="sub-hint">主题即时生效并自动记忆，所有页面同步换色</div>
+        </div>
+        <!-- 关于 -->
+        <div class="card svc-about">
+          <h3>关于</h3>
+          <p class="about-text">CC-Flash（曹操是快😂）—— 局域网文件互传工具：电脑启动服务，手机/平板/电脑浏览器打开地址即可上传/下载/分享/聊天。</p>
+        </div>
+      </template>
+
+      <!-- 网页端(PyQt 风格): 左列上传+文件, 右列聊天室 -->
+      <div v-if="!isDesktop" class="web-cols">
+        <div class="web-lcol">
+          <div class="card">
+            <h3>上传文件</h3>
+            <div class="dropzone" :class="{ 'drag-over': dragOver }" @click="pickFiles"
+                 @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false"
+                 @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
+              <div class="ic">⬆️</div>
+              <h5>点击选择文件 或 拖拽到此处</h5>
+              <p>支持多选 · 可直接 Ctrl+V / Cmd+V 粘贴文件 · 无大小与类型限制</p>
+              <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
+            </div>
+            <div v-for="u in uploads" :key="u.id" class="upload-item">
+              <div class="up-line">
+                <span class="up-name">{{ u.name }}</span>
+                <span class="up-status" :class="u.status">
+                  {{ u.status === "uploading" ? u.pct + "% " + u.speed
+                   : u.status === "waiting" ? "等待中"
+                   : u.status === "done" ? "完成" : u.speed || "失败" }}
+                </span>
+              </div>
+              <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="list-head">
+              <div class="lh-left">
+                <h3>共享文件</h3>
+                <span class="badge">{{ stats.count }} 个文件</span>
+              </div>
+              <div class="lh-right">
+                <label v-if="pageFiles.length" class="sel-all" title="全选/取消本页">
+                  <input type="checkbox" :checked="pageAllSelected" @change="toggleAll" />全选
+                </label>
+                <div class="sort-group">
+                  <button class="sort-btn" :class="{ active: sortBy === 'time' }" @click="setSort('time')">最新</button>
+                  <button class="sort-btn" :class="{ active: sortBy === 'name' }" @click="setSort('name')">名称</button>
+                  <button class="sort-btn" :class="{ active: sortBy === 'size' }" @click="setSort('size')">大小</button>
+                </div>
+                <button v-if="selectedCount > 0" class="btn btn-del" style="height:28px;padding:0 12px"
+                        @click="confirmDeleteSelected" title="删除选中的文件">
+                  🗑 删除选中 ({{ selectedCount }})
+                </button>
+                <button v-if="selectedCount > 0" class="refresh-btn" title="取消选择" @click="clearSel">✕</button>
+                <button class="refresh-btn" :class="{ spinning: refreshing }" title="刷新文件列表" @click="loadFiles(true)">↻</button>
+              </div>
+            </div>
+            <div v-if="pageFiles.length === 0" class="empty-state">
+              <div class="es-icon">📦</div>
+              <h4>还没有文件</h4>
+              <p>拖拽文件到上方区域开始传输</p>
+              <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
+            </div>
+            <div v-else>
+              <div v-for="f in pageFiles" :key="f.name" class="file-row">
+                <label class="sel-box" @click.stop>
+                  <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
+                </label>
+                <div class="file-thumb">
+                  <img v-if="isImage(f.name)" :src="apiBase + '/api/download/' + encodeURIComponent(f.name)" loading="lazy"
+                       @error="$event.target.style.display = 'none'" />
+                  <span class="icon-overlay">{{ iconFor(f.name) }}</span>
+                </div>
+                <div class="file-info">
+                  <div class="fname" :title="f.name" @click="shareFile(f.name)">{{ f.name }}</div>
+                  <div class="fmeta">
+                    <span>{{ fmtSize(f.size) }}</span><span>{{ fmtTime(f.modified) }}</span>
+                    <span v-if="isImage(f.name)" style="color:var(--warning);font-size:10px">预览</span>
+                  </div>
+                </div>
+                <div class="file-btns">
+                  <!-- 浏览器端: 下载 + 删除 + 分享 -->
+                  <button class="btn-act fb-dl" title="下载" @click="downloadFileWeb(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                  <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+                  <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
+                </div>
+              </div>
+              <div class="pagination" v-if="totalPages > 1">
+                <button class="page-btn" :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
+                <template v-for="(it, i) in pageItems" :key="i">
+                  <span v-if="it === '…'" class="page-ellipsis">…</span>
+                  <button v-else class="page-btn" :class="{ active: it === currentPage }" @click="goPage(it)">{{ it }}</button>
+                </template>
+                <button class="page-btn" :disabled="currentPage === totalPages" @click="goPage(currentPage + 1)">›</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="web-rcol">
+          <div class="chat-card">
+            <div class="chat-header">
+              <h3>💬 聊天室</h3>
+              <div class="chat-head-right">
+                <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
+                        @click="clearChatDisplay">清空数据</button>
+                <span class="avatar-chip" title="头像由昵称自动生成">{{ avatarFor(curNick) }}</span>
+                <div class="chat-nickname">
+                  <span style="font-size:11px;color:var(--text3)">昵称:</span>
+                  <input v-model="nickInput" placeholder="匿名用户" maxlength="20" title="输入昵称，会自动记住" @change="saveNick" />
+                </div>
+              </div>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+              <div v-if="displayMsgs.length === 0" class="chat-empty">👋 还没有消息，发一条打个招呼吧</div>
+              <div v-for="m in displayMsgs" :key="m.id" class="chat-message">
+                <span class="msg-avatar">{{ avatarFor(m.nickname) }}</span>
+                <div class="msg-body">
+                  <div class="chat-nick">{{ m.nickname }}</div>
+                  <div class="chat-text" v-html="m.html"></div>
+                  <div class="chat-time">{{ fmtTime(m.timestamp) }}</div>
+                </div>
+              </div>
+            </div>
+            <div class="chat-input-area">
+              <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" maxlength="2000"
+                     @keydown.enter.prevent="sendChat" />
+              <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 悬浮球(手机端) -->
+  <button v-if="isNarrow && !chatOpen" class="chat-fab" title="聊天室" @click="openChat">
+    💬<span v-show="unread > 0" class="fab-badge">{{ unread > 99 ? "99+" : unread }}</span>
+  </button>
+
+  <!-- 底部聊天面板(手机端) -->
+  <div class="chat-sheet" :class="{ open: chatOpen }">
+    <div class="sheet-backdrop" @click="closeChat"></div>
+    <div class="sheet-panel">
+      <div class="sheet-handle" @click="closeChat"><div class="handle-bar"></div></div>
+      <div id="sheet-chat-host">
+        <div class="chat-card in-sheet">
+          <div class="chat-header">
+            <h2>📝 聊天室</h2>
+            <div class="chat-head-right">
+              <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
+                      @click="clearChatDisplay">清空数据</button>
+              <span class="avatar-chip">{{ avatarFor(curNick) }}</span>
+              <div class="chat-nickname">
+                <span style="font-size:11px;color:var(--text3)">昵称:</span>
+                <input v-model="nickInput" placeholder="匿名用户" maxlength="20" title="输入昵称，会自动记住" @change="saveNick" />
+              </div>
+              <button class="icon-btn sheet-only" title="收起" aria-label="收起聊天面板" @click="closeChat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessagesSheet">
+            <div v-if="displayMsgs.length === 0" class="chat-empty">👋 还没有消息，发一条打个招呼吧</div>
+            <div v-for="m in displayMsgs" :key="m.id" class="chat-message">
+              <span class="msg-avatar">{{ avatarFor(m.nickname) }}</span>
+              <div class="msg-body">
+                <div class="chat-nick">{{ m.nickname }}</div>
+                <div class="chat-text" v-html="m.html"></div>
+                <div class="chat-time">{{ fmtTime(m.timestamp) }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" maxlength="2000"
+                   @keydown.enter.prevent="sendChat" />
+            <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 二维码弹窗 -->
+  <div v-if="qrShow" class="dialog-overlay" @click.self="qrShow = false">
+    <div class="dialog-box">
+      <h4>扫描二维码在手机上打开</h4>
+      <img v-if="qrData" class="qr-img" :src="qrData" alt="QR" />
+      <p style="word-break:break-all">{{ shareUrl }}</p>
+      <p style="font-size:12px;color:var(--text2);margin:0">🔔 请确保在同一 Wi-Fi 下打开；文件请尽快下载到本地</p>
+      <div class="dialog-actions"><button class="btn btn-ghost" @click="qrShow = false">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- 删除确认 -->
+  <div v-if="showDel" class="dialog-overlay" @click.self="showDel = false">
+    <div class="dialog-box">
+      <h4>删除文件</h4>
+      <p>{{ delTargets.length > 1
+        ? `确定删除选中的 ${delTargets.length} 个文件吗？此操作不可撤销。`
+        : `确定删除 ${delTargets[0]} 吗？此操作不可撤销。` }}</p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" @click="showDel = false">取消</button>
+        <button class="btn btn-danger" @click="doDelete">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container">
+    <div v-for="t in toasts" :key="t.id" class="toast-msg" :class="'toast-' + t.type">{{ t.msg }}</div>
+  </div>
+</template>

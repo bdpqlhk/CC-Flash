@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC-Flash · 技术实现文档 v1.0.0</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
+  --blue:#2e70ef; --blue-bg:#eef4ff; --green:#0f9d58; --green-bg:#e9f7ef;
+  --orange:#c77700; --orange-bg:#fff6e8; --red:#d64541; --red-bg:#fdecec;
+  --code:#0d1017; --code-text:#d5dbe5;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14.5px;line-height:1.75}
+.layout{display:flex;max-width:1240px;margin:0 auto;gap:24px;padding:24px}
+nav.toc{width:240px;flex-shrink:0;position:sticky;top:24px;align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 8px;max-height:calc(100vh - 48px);overflow-y:auto}
+nav.toc h3{font-size:12px;color:var(--text2);letter-spacing:2px;padding:0 10px 8px}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--text2);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--blue-bg);color:var(--blue)}
+main{flex:1;min-width:0}
+header.doc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 30px;margin-bottom:20px}
+header.doc h1{font-size:24px;letter-spacing:-0.3px}
+header.doc .meta{margin-top:8px;color:var(--text2);font-size:13px;display:flex;gap:18px;flex-wrap:wrap}
+header.doc .meta b{color:var(--text)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 30px;margin-bottom:20px}
+h2{font-size:19px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+h2 .no{color:var(--blue);margin-right:8px}
+h3{font-size:15.5px;margin:20px 0 8px}
+p{margin:8px 0}
+ul,ol{margin:8px 0 8px 22px}
+li{margin:4px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+th{background:#f0f3f8;text-align:left;padding:9px 12px;border:1px solid var(--line);font-weight:600;white-space:nowrap}
+td{padding:8px 12px;border:1px solid var(--line);vertical-align:top}
+tr:nth-child(even) td{background:#fafbfd}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:#eef1f6;padding:2px 6px;border-radius:5px;color:#c7254e}
+pre{background:var(--code);color:var(--code-text);border-radius:10px;padding:14px 18px;overflow-x:auto;font-size:12.5px;line-height:1.7;margin:10px 0}
+pre code{background:none;color:inherit;padding:0}
+.callout{border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13.5px;border:1px solid}
+.callout b{display:block;margin-bottom:4px}
+.c-info{background:var(--blue-bg);border-color:#c9dcff;color:#1d4fb8}
+.c-tip{background:var(--green-bg);border-color:#bfe6cf;color:#0b6e40}
+.c-warn{background:var(--orange-bg);border-color:#f2ddb0;color:#96600a}
+.c-danger{background:var(--red-bg);border-color:#f2c3c1;color:#a83330}
+.small{font-size:12.5px;color:var(--text2)}
+@media (max-width:900px){nav.toc{display:none}.layout{padding:12px}}
+@media print{nav.toc{display:none}section{border:none;padding:10px 0}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+<h3>目 录</h3>
+<a href="#s1">1. 系统架构总览</a>
+<a href="#s2">2. 目录结构与工程配置</a>
+<a href="#s3">3. Rust 服务层 · 全局状态与生命周期</a>
+<a href="#s4">4. Rust 服务层 · HTTP 路由全表</a>
+<a href="#s5">5. 关键流程实现（上传/下载/聊天/删除）</a>
+<a href="#s6">6. 路径安全设计</a>
+<a href="#s7">7. 日志系统实现</a>
+<a href="#s8">8. Tauri 壳层（命令/托盘/通知）</a>
+<a href="#s9">9. 前端实现（Vue3）</a>
+<a href="#s10">10. 与 Python 版协议对照</a>
+<a href="#s11">11. 构建与发布</a>
+<a href="#s12">12. 设计取舍与已知事项</a>
+</nav>
+<main>
+<header class="doc">
+<h1>CC-Flash · 技术实现文档</h1>
+<div class="meta">
+<span>版本：<b>v1.0.0（Tauri 线）</b></span>
+<span>文档日期：<b>2026-10-23</b></span>
+<span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
+<span>平台：<b>macOS 已出包 · Windows 待验</b></span>
+</div>
+</header>
+
+<!-- ================= 1 ================= -->
+<section id="s1">
+<h2><span class="no">1</span>系统架构总览</h2>
+<pre>
+┌──────────────────────────────────────────────────────────────┐
+│                    Tauri 2 桌面壳 (lib.rs)                    │
+│   托盘(显示/启停/打开网页/退出) · 关窗收纳 · 系统通知 · 命令桥   │
+└───────────────┬──────────────────────────────┬───────────────┘
+                │ invoke (IPC, 免端口/CORS)      │ async_runtime
+┌───────────────▼──────────────┐   ┌───────────▼───────────────┐
+│   Vue3 前端 (App.vue 单文件)   │   │  axum 文件服务 (server.rs) │
+│ 桌面形态(侧栏三页)             │◄──┤ 0.0.0.0:8765(占用自动+1)   │
+│ 网页形态(单页双栏) ← 同一份代码 │   │ 静态资源: rust_embed ../dist│
+│ 手机形态(悬浮球+底部面板)       │   │ 文件/聊天/日志/控制 API      │
+└──────────────────────────────┘   └───────────┬───────────────┘
+                                               │ HTTP
+                                   ┌───────────▼───────────────┐
+                                   │ 手机/平板/电脑 浏览器访客     │
+                                   └───────────────────────────┘
+</pre>
+<ul>
+<li><b>一份前端，三种形态</b>：<code>isDesktop</code>（<code>__TAURI_INTERNALS__ in window</code>）区分桌面壳与浏览器；<code>isNarrow</code>（≤980px）区分手机布局；</li>
+<li><b>API 访问方式</b>：桌面壳走 <code>invoke</code>（IPC）；浏览器走相对路径 <code>fetch</code>；桌面壳内访问 HTTP API 用 <code>apiBase = http://127.0.0.1:{port}</code>；</li>
+<li><b>静态资源</b>：debug 时 rust_embed 运行时读 <code>../dist</code>；release 编译期嵌入二进制；</li>
+<li><b>共享目录</b>：默认 <code>~/CC-Flash</code>，可改。</li>
+</ul>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="s2">
+<h2><span class="no">2</span>目录结构与工程配置</h2>
+<pre>
+cc-flash/
+├── package.json                 # dev/build/tauri/check 脚本
+├── vite.config.js  index.html   # Vue3 + Vite
+├── src/
+│   ├── App.vue                  # 全部 UI 与逻辑（单文件，~1000 行）
+│   ├── style.css                # 主题变量 + 全部样式（含 5 套皮肤）
+│   └── main.js
+├── docs/                        # 本三份文档
+├── public/logo.png              # 应用 logo
+└── src-tauri/
+    ├── Cargo.toml               # axum/tokio/chrono/fs2/tauri2 …
+    ├── tauri.conf.json          # 窗口 1180×840(最小560×520), bundle.active=true
+    ├── icons/                   # 已生成全平台图标
+    └── src/
+        ├── main.rs              # 入口 → lan_transfer_lib::run()
+        ├── lib.rs               # 托盘/通知/命令注册/自启动
+        └── server.rs            # 局域网服务全部实现（~700 行）
+</pre>
+<table>
+<tr><th>脚本</th><th>作用</th></tr>
+<tr><td><code>npm run dev</code></td><td>Vite 前端热更（tauri dev 的前置）</td></tr>
+<tr><td><code>npm run tauri dev</code></td><td>桌面开发：前端热更 + Rust 增量编译 + 自动起服务</td></tr>
+<tr><td><code>npm run check</code></td><td><code>cargo check</code> 快速校验 Rust 编译</td></tr>
+<tr><td><code>npm run tauri build</code></td><td>发布：vite build → release 编译 → .app + .dmg 打包</td></tr>
+</table>
+<div class="callout c-tip"><b>关键依赖</b> axum 0.7（HTTP）、tokio（异步运行时）、tower-http CORS（桌面壳跨源调用）、rust-embed 8（静态资源）、mime_guess、percent-encoding、fs2（磁盘空间）、chrono（本地时间日志）、tauri-plugin-notification。</div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="s3">
+<h2><span class="no">3</span>Rust 服务层 · 全局状态与生命周期</h2>
+<h3>3.1 全局状态（OnceLock + Mutex / Atomic）</h3>
+<table>
+<tr><th>状态</th><th>类型</th><th>说明</th></tr>
+<tr><td><code>chat_log()</code></td><td><code>Mutex&lt;VecDeque&lt;ChatMsg&gt;&gt;</code></td><td>聊天记录，上限 200 条（id 自增、昵称、内容、时间戳、IP）</td></tr>
+<tr><td><code>req_log()</code></td><td><code>Mutex&lt;VecDeque&lt;String&gt;&gt;</code></td><td>服务日志，上限 1000 条</td></tr>
+<tr><td><code>PORT</code></td><td><code>AtomicU16</code></td><td>当前服务端口</td></tr>
+<tr><td><code>running_slot()</code></td><td><code>Mutex&lt;Option&lt;ServerHandle&gt;&gt;</code></td><td>ServerHandle = { port, shutdown: oneshot::Sender, task: JoinHandle }</td></tr>
+<tr><td><code>share_dir()</code></td><td>—</td><td>共享目录（默认 ~/CC-Flash，可 set）</td></tr>
+</table>
+<h3>3.2 启动流程 <code>start(preferred: Option&lt;u16&gt;)</code></h3>
+<ol>
+<li>已在运行 → 直接返回当前端口（幂等）；</li>
+<li>创建共享目录（失败报「共享目录不可用」）；</li>
+<li>候选端口序列：<code>preferred, preferred+1..+20</code> → 再扫 <code>8765..8785</code>，去重后逐个 <code>bind("0.0.0.0", p)</code>；</li>
+<li>记录端口 → 写日志「服务已启动 端口 N 目录 …」/「首选端口 X 被占用，已顺延至 N」/「共享目录当前 N 个文件 · 访问地址: …」；</li>
+<li><code>router(share).into_make_service_with_connect_info::&lt;SocketAddr&gt;()</code> 注入连接信息（日志取来源 IP 用）；</li>
+<li><code>axum::serve</code> + <code>with_graceful_shutdown</code>（oneshot 通道），任务句柄存入 running_slot。</li>
+</ol>
+<h3>3.3 停止 / 自启 / 状态</h3>
+<ul>
+<li><code>stop()</code>：取走 handle → 发 shutdown → 写「服务已停止」；task 为 daemon 语义不等待；</li>
+<li><code>autostart()</code>：应用启动时 <code>start(None)</code>，失败只打 stderr 不阻断 GUI；</li>
+<li><code>status()</code> → <code>(running, PORT, lan_ip())</code>。</li>
+</ul>
+<h3>3.4 局域网 IP 探测 <code>lan_ip()</code></h3>
+<pre>
+UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip()
+</pre>
+<p>UDP connect 不实际发包，由路由表判定出口网卡 IP；失败回退 <code>127.0.0.1</code>。<b>每次调用都重新探测</b>——这是"IP 变化检测"需求的基石：服务不重启也能拿到最新 IP。</p>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="s4">
+<h2><span class="no">4</span>Rust 服务层 · HTTP 路由全表</h2>
+<table>
+<tr><th>方法</th><th>路径</th><th>功能</th><th>要点</th></tr>
+<tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>读目录 → name/size/modified(JSON 时间秒)，按修改时间倒序</td></tr>
+<tr><td>GET</td><td><code>/api/download/:name</code></td><td>下载</td><td>流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>（浏览器进度/前端预知大小）；MIME 按扩展名猜</td></tr>
+<tr><td>POST</td><td><code>/api/upload</code></td><td>上传</td><td><code>X-Filename</code>(URL编码) + <code>X-File-Size</code>；磁盘预检；流式写盘；失败/中断删半截文件；完成返回 {ok,name,size}</td></tr>
+<tr><td>DELETE</td><td><code>/api/delete/:name</code></td><td>删除</td><td>safe_name + 越界校验后删文件</td></tr>
+<tr><td>GET</td><td><code>/api/chat</code></td><td>拉取聊天</td><td>返回全部（≤200）消息数组</td></tr>
+<tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、记录来源 IP；返回自增 id</td></tr>
+<tr><td>GET</td><td><code>/api/info</code></td><td>服务信息</td><td>{ip, port, running}——网页端状态轮询用</td></tr>
+<tr><td>GET</td><td><code>/api/control/status</code></td><td>状态</td><td>{running, port, ip}</td></tr>
+<tr><td>POST</td><td><code>/api/control/start</code></td><td>启动</td><td>JSON {port?}</td></tr>
+<tr><td>POST</td><td><code>/api/control/stop</code></td><td>停止</td><td>—</td></tr>
+<tr><td>GET</td><td><code>/api/control/logs</code></td><td>拉日志</td><td>desktop 每 2s 轮询</td></tr>
+<tr><td>POST</td><td><code>/api/control/logs/clear</code></td><td>清日志</td><td>清空后写入「日志已清空」标记</td></tr>
+<tr><td>GET</td><td><code>/favicon.ico</code></td><td>图标</td><td>—</td></tr>
+<tr><td>GET</td><td><code>/*</code>（fallback）</td><td>静态页面</td><td>rust_embed 嵌入的 ../dist</td></tr>
+<tr><td colspan="4" class="small">全局：CorsLayer::permissive（桌面壳跨源调用 API）；日志中间件（见第 7 节）</td></tr>
+</table>
+
+<h3>4.1 Tauri 命令（IPC，桌面壳专用）</h3>
+<table>
+<tr><th>命令</th><th>功能</th></tr>
+<tr><td><code>control_status_cmd</code></td><td>running/port/ip/share/free/total 一次性打包返回（控制台数据源）</td></tr>
+<tr><td><code>control_start_cmd(port?)</code></td><td>启动服务</td></tr>
+<tr><td><code>control_stop_cmd</code></td><td>停止服务</td></tr>
+<tr><td><code>control_clear_logs_cmd</code></td><td>清空日志</td></tr>
+<tr><td><code>set_share_dir_cmd(path)</code></td><td>校验目录存在后切换共享目录</td></tr>
+<tr><td><code>open_path_cmd(path)</code></td><td>系统程序打开文件/目录</td></tr>
+<tr><td><code>open_url_cmd(url)</code></td><td>系统浏览器打开 URL（顶栏"打开浏览器"按钮/分享兜底）</td></tr>
+<tr><td><code>copy_file_cmd(name)</code></td><td>复制文件本体到剪贴板：macOS osascript / Windows PowerShell Set-Clipboard / Linux 未支持</td></tr>
+</table>
+<div class="callout c-warn"><b>踩坑记录</b>invoke 参数键必须与 Rust 端参数名完全一致——曾因缺 <code>url</code> 键报 "command open_url_cmd missing required key url" 导致按钮无响应（用户调试截图定位）。</div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="s5">
+<h2><span class="no">5</span>关键流程实现</h2>
+<h3>5.1 上传（流式 + 预检 + 自清理）</h3>
+<pre>
+HEAD 头校验 → safe_name(X-Filename) ─非法→ 400
+→ X-File-Size &gt; fs2::available_space ─是→ 400 + 日志「上传拒绝」
+→ path.exists()? 记录覆盖标记
+→ File::create（失败→500+日志）
+→ 日志「上传开始 (声明大小) ← IP · 覆盖同名文件」
+→ while chunk = body_stream.next(): 写入累加 written
+   ├─ 写失败 → remove_file + 日志「上传失败…已清理半截文件」→ 500
+   └─ 客户端断开 → remove_file + 日志「上传中断…已清理半截文件」→ 500
+→ sync_all → 日志「上传完成 (大小, 耗时ms)」→ 200 {ok,name,size}
+</pre>
+<h3>5.2 下载</h3>
+<pre>
+safe_name → safe_join_existing(共享目录内且存在) → File::open
+→ 日志「下载 (大小) ← IP」
+→ headers: Content-Type / Content-Disposition(attachment; filename*=UTF-8'') /
+   Cache-Control: no-cache / Content-Length(显式)
+→ Body::from_stream(ReaderStream 1MB)
+</pre>
+<h3>5.3 聊天收发</h3>
+<pre>
+POST: trim → 空消息 400 → 昵称 chars().take(20)（空则"匿名用户"）→ 消息 take(2000)
+    → id = 上一条+1 → ChatMsg{..., ip} 入队（&gt;200 pop_front）
+    → 日志「聊天 {昵称}: {内容前40字}… ← IP」
+GET:  返回 Vec&lt;ChatMsg&gt;
+</pre>
+<h3>5.4 删除</h3>
+<pre>
+safe_name → safe_join_existing → remove_file
+→ 成功: 日志「删除 {名} ← IP」；失败: 日志「删除失败 …」→ 500
+</pre>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="s6">
+<h2><span class="no">6</span>路径安全设计</h2>
+<p>所有接受文件名的接口（下载/删除/上传/复制）统一走两道防线，等价于 Python 版双重防护：</p>
+<ol>
+<li><b><code>safe_name(raw)</code></b>：percent_decode → 把 <code>\</code> 归一为 <code>/</code> → 取 <code>Path::file_name()</code> basename → 拒绝空 / "." / ".."；</li>
+<li><b><code>safe_join_existing(share, name)</code></b>：拼路径后 <code>canonicalize()</code>，校验结果必须以共享目录 canonicalize 前缀开头（防符号链接/编码绕过越界）。</li>
+</ol>
+<div class="callout c-info"><b>为什么上传不需要第二道</b>上传的落盘路径 = <code>share.join(name)</code>，name 已经是 basename（第一道保证不越界），且目标固定在共享目录根部。</div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="s7">
+<h2><span class="no">7</span>日志系统实现</h2>
+<h3>7.1 数据结构与格式</h3>
+<ul>
+<li>环形缓冲 <code>VecDeque&lt;String&gt;</code>，上限 1000；</li>
+<li>前缀 <code>[HH:MM:SS.mmm]</code>——<code>chrono::Local::now().format("%H:%M:%S%.3f")</code> 本地时间（修复旧版 UTC 简化展示）；</li>
+<li>业务行由各 handler 主动写入；请求行由中间件统一写入。</li>
+</ul>
+<h3>7.2 请求日志中间件（from_fn）</h3>
+<pre>
+提取: ConnectInfo&lt;SocketAddr&gt;(来源) · method · path · query
+      · X-Nickname 昵称 · User-Agent → device_kind(设备)
+计时 → next.run → 计算 ms / 状态码 / Content-Length(人类可读, 无则 "-")
+噪音豁免(GET): /api/chat · /api/info · /api/control/logs · /favicon.ico
+输出: "GET /path?q → 200 1.5 KB 12ms ← 10.161.x.x (Mac Chrome-2569·Mac)"
+</pre>
+<h3>7.3 设备识别 <code>device_kind(ua)</code></h3>
+<p>UA 关键字映射：iPhone / iPad / Android / MicroMessenger→微信内置 / Macintosh→Mac / Windows / Linux，均未命中→「未知设备」。昵称存在时显示 <code>{昵称}·{设备}</code>。</p>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="s8">
+<h2><span class="no">8</span>Tauri 壳层（lib.rs）</h2>
+<h3>8.1 托盘</h3>
+<ul>
+<li>菜单：显示主窗口 / 启动·停止服务（toggle）/ 打开网页（<code>http://{lan_ip}:{port}</code>）/ 退出；</li>
+<li><b>关窗 = 收纳</b>：<code>CloseRequested</code> 事件 <code>prevent_close</code> + <code>hide()</code>，服务保持运行；首次收纳发系统通知（tauri-plugin-notification）告知退出方式。</li>
+</ul>
+<h3>8.2 启动序列</h3>
+<ol>
+<li>注册 notification 插件与全部命令（generate_handler!）；</li>
+<li>构建托盘与菜单事件；</li>
+<li>主窗口绑定关闭事件；</li>
+<li><code>server::autostart()</code> 自动拉起服务（端口被占自动顺延），结果打 stderr：<code>[wft] 服务已启动: http://ip:port</code>。</li>
+</ol>
+</section>
+
+<!-- ================= 9 ================= -->
+<section id="s9">
+<h2><span class="no">9</span>前端实现（Vue3 · App.vue）</h2>
+<h3>9.1 运行模式判定</h3>
+<table>
+<tr><th>标志</th><th>判定</th><th>影响</th></tr>
+<tr><td><code>isDesktop</code></td><td><code>"__TAURI_INTERNALS__" in window</code></td><td>侧栏三页 vs 网页单页；invoke vs fetch；文件按钮组差异</td></tr>
+<tr><td><code>isNarrow</code></td><td><code>matchMedia("(max-width:980px)")</code> 监听</td><td>手机布局：导航精简、悬浮球+底部面板、地址行两行式</td></tr>
+</table>
+<h3>9.2 主要响应式状态</h3>
+<table>
+<tr><th>状态</th><th>用途</th></tr>
+<tr><td><code>allFiles / sortedFiles / pageFiles</code></td><td>文件列表（每页 8 条，时间/名称/中文 locale 排序，智能页码）</td></tr>
+<tr><td><code>uploads</code></td><td>上传任务队列（XHR 上报进度/速率，四态）</td></tr>
+<tr><td><code>running / port / lanIp / shareInput / freeSpace</code></td><td>服务状态（5s 轮询刷新）</td></tr>
+<tr><td><code>logs</code></td><td>服务日志（2s 轮询）</td></tr>
+<tr><td><code>chatMsgs / displayMsgs / seenChat / chatCount / unread</code></td><td>聊天（3s 轮询；清空显示= clearedAt 截断，新消息自动恢复）</td></tr>
+<tr><td><code>nickInput / curNick / autoNick</code></td><td>昵称（localStorage 记忆；自动昵称 = 系统+浏览器-随机4位）</td></tr>
+<tr><td><code>refreshing / offline</code></td><td>手动刷新旋转态 / 浏览器端与服务失联标志（连续 2 次状态请求失败置位）</td></tr>
+<tr><td><code>selected / sortBy / currentPage</code></td><td>批量选择 / 排序 / 分页</td></tr>
+<tr><td><code>theme / qrData / qrShow / toasts / copied</code></td><td>皮肤 / 二维码（本地 canvas 生成）/ 提示 / 复制成功态</td></tr>
+</table>
+<h3>9.3 轮询与 IP 变化检测</h3>
+<table>
+<tr><th>定时器</th><th>周期</th><th>内容</th></tr>
+<tr><td>chatTimer</td><td>3s</td><td>loadChat（所有端）</td></tr>
+<tr><td>logTimer</td><td>2s</td><td>refreshLogs（仅桌面）</td></tr>
+<tr><td>statusTimer</td><td>5s</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace；<b>IP 变化 → lanIp 更新 + genQr() 重生成二维码 + toast「本机 IP 已变为 …，手机请改用新地址访问」</b>；浏览器端连续 2 次失败 → <code>offline=true</code> 顶部断连横幅（成功自动清除）</td></tr>
+<tr><td>filesTimer</td><td>5s</td><td>loadFiles(false) 文件列表自动同步——其他设备上传/删除在各端自动呈现；<code>loadFiles(manual)</code> 仅手动刷新时置 <code>refreshing</code> 触发按钮旋转动效，自动轮询不转</td></tr>
+</table>
+<h3>9.4 上传实现</h3>
+<ul>
+<li>XMLHttpRequest 以获取 <code>upload.onprogress</code>（百分比 + 速率计算）；并发多文件队列；</li>
+<li>拖拽（drop/dragover）、<code>#fileInput</code> 点击选择、<code>document paste</code> 事件（剪贴板截图直接传）；</li>
+<li>请求头 <code>X-Filename</code>（encodeURIComponent）与 <code>X-File-Size</code>。</li>
+</ul>
+<h3>9.5 主题系统</h3>
+<ul>
+<li><code>:root</code> 定义全套 CSS 变量；皮肤 = <code>[data-theme="..."]</code> 覆盖变量；<code>setTheme</code> 写 <code>documentElement.dataset.theme</code> + localStorage(<code>wft-theme</code>)；</li>
+<li>每套皮肤覆盖：bg/card/border/<b>text·text2·text3（三级文字色与主题同色相）</b>/accent 系；</li>
+<li>语义色（success/danger/warning）全局共用。</li>
+</ul>
+<h3>9.6 动效实现要点</h3>
+<pre>
+/* 三圆点波浪: 6/8/10px, 依次延迟 0.18s, 点亮时 scale(1.2)+发光 */
+.chip.run .dots i { animation: dotWave 1.2s ease-in-out infinite; }
+.chip.run .dots i:nth-child(2) { animation-delay: .18s }
+.chip.run .dots i:nth-child(3) { animation-delay: .36s }
+@keyframes dotWave { 0%,100%{transform:scale(.55);opacity:.4}
+                     40%{transform:scale(1.2);opacity:1;box-shadow:0 0 10px currentColor} }
+</pre>
+<h3>9.7 滚动穿透处理（手机面板）</h3>
+<ul>
+<li><code>watch(chatOpen)</code> → <code>document.body.style.overflow = "hidden"/""</code>（卸载兜底恢复）；</li>
+<li><code>.sheet-panel / 消息区 { overscroll-behavior: contain }</code>。</li>
+</ul>
+<h3>9.8 其他实现细节</h3>
+<ul>
+<li>二维码本地生成（qrcode 库 → canvas dataURL），不依赖外网；</li>
+<li>文件类型徽标映射表（pdf/doc/xls/mp4/mp3/zip/py…40+ 扩展名 → 2–3 字母徽标），图片扩展名显示缩略图+「预览」；</li>
+<li>相对时间格式化（刚刚/n 分钟前/n 小时前/日期+时间）；</li>
+<li>聊天链接化：先 <code>escHtml</code> 再正则包 URL（桌面端点击 open_url_cmd 系统浏览器打开）；</li>
+<li>头像：昵称 hash(31 进制) → 24 emoji 池取模；</li>
+<li>浏览器端下载：fetch→blob→objectURL 触发保存（完成 toast 带 <code>fmtSize</code>），Content-Length&gt;1GB 先 <code>body.cancel()</code> 回退 <code>location.href</code> 原生下载。</li>
+<li>列表头结构 <code>list-head &gt; lh-left(标题+计数徽标) + lh-right(操作控件)</code>，窄屏 lh-right 换行防溢出；窄屏统计格（stat-cell）恢复独立描边小卡 2×2。</li>
+<li>断连横幅 <code>.offline-banner</code>：fixed 顶部琥珀色，z-index 940（低于聊天面板 950），仅浏览器模式可能触发。</li>
+</ul>
+</section>
+
+<!-- ================= 10 ================= -->
+<section id="s10">
+<h2><span class="no">10</span>与 Python 版（v2 线）协议对照</h2>
+<table>
+<tr><th>API</th><th>行为</th><th>一致性</th></tr>
+<tr><td>GET /api/files</td><td>名称/大小/修改时间，倒序</td><td>✅</td></tr>
+<tr><td>GET /api/download/:name</td><td>流式下载，RFC5987 中文名（新增显式 Content-Length）</td><td>✅（超集）</td></tr>
+<tr><td>POST /api/upload</td><td>X-Filename 头 + 原始体；磁盘预检；失败清理半截文件</td><td>✅</td></tr>
+<tr><td>GET/POST /api/chat</td><td>昵称≤20 字，消息≤2000 字，保留 200 条</td><td>✅</td></tr>
+<tr><td>DELETE /api/delete/:name</td><td>删除</td><td>✅</td></tr>
+<tr><td>GET /api/info · /api/control/*</td><td>控制台/状态用（无鉴权，可信局域网模型）</td><td>🆕 本版扩展（新增 logs/clear）</td></tr>
+</table>
+</section>
+
+<!-- ================= 11 ================= -->
+<section id="s11">
+<h2><span class="no">11</span>构建与发布</h2>
+<pre>
+npm run tauri build
+  ├─ beforeBuildCommand: npm run build   (vite → dist/)
+  ├─ cargo build --release               (静态嵌入 dist)
+  └─ bundle
+      ├─ macOS  .app  13.54 MiB   src-tauri/target/release/bundle/macos/
+      └─ macOS  .dmg   5.93 MiB   src-tauri/target/release/bundle/dmg/
+</pre>
+<ul>
+<li><code>bundle.active: true</code>（图标已生成后开启）；窗口配置 1180×840，最小 560×520；</li>
+<li>产物仅 aarch64（Apple Silicon）；Intel/Windows 需在对应平台构建；</li>
+<li>dev 模式 <code>npm run tauri dev</code>：修改 Rust 自动重编译重启，前端 HMR。</li>
+</ul>
+</section>
+
+<!-- ================= 12 ================= -->
+<section id="s12">
+<h2><span class="no">12</span>设计取舍与已知事项</h2>
+<table>
+<tr><th>事项</th><th>说明</th></tr>
+<tr><td>无鉴权</td><td>可信局域网模型，控制接口与文件接口均无鉴权；切勿暴露公网</td></tr>
+<tr><td>轮询 vs 推送</td><td>聊天 3s/日志 2s/状态 5s 轮询，协议与 Python 版一致；WebSocket 为后续可选演进</td></tr>
+<tr><td>App.vue 单文件</td><td>全部 UI/逻辑集中一个 SFC（约 1000 行）——体量可控，若继续膨胀建议拆组件</td></tr>
+<tr><td>dead_code 警告</td><td><code>free_space()</code> 保留未用（disk_space 已覆盖），编译有 1 条无害警告</td></tr>
+<tr><td>日志时间</td><td>chrono 本地时间毫秒（已修复旧版 UTC 展示）</td></tr>
+<tr><td>Linux 剪贴板</td><td>copy_file_cmd 暂不支持 Linux（返回明确错误）</td></tr>
+<tr><td>大文件下载</td><td>浏览器端 &gt;1GB 回退原生下载（防 blob 内存膨胀），无完成回调属浏览器限制</td></tr>
+<tr><td>后续演进项<br>（暂不实施）<br><span class="small">mDNS 域名发现</span></td><td>目标：IP 变化后旧地址失效，改用固定名 <code>http://wft.local:{port}</code> 自动跟随。实现要点：<code>mdns-sd = "0.13"</code>（纯 Rust 无系统依赖）在 <code>start()</code> 时注册 <code>_http._tcp</code> 服务实例（host=<code>wft.local.</code>，addr=当前 IP），后台任务比对 <code>lan_ip()</code> 变化后 unregister+re-register，<code>stop()</code> 时注销；断连横幅加提示语。<b>工作量：60–80 行 Rust，约半天。</b>已知边界：Android 浏览器不解析 .local（系统限制）；禁多播网络失效；同网段多实例需冲突改名（wft-xxxx.local）；端口变更仍需手写（浏览器不读 SRV）。优先级中低——iPhone/桌面用户收益明确，安卓场景现有断连横幅+二维码路径更可靠。</td></tr>
+</table>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash v1.0.0 · 技术实现文档 · 2026-10-23 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
+</main>
+</div>
+</body>
+</html>

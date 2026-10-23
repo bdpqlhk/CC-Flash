@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC-Flash · 需求设计文档 v1.0.0</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
+  --blue:#2e70ef; --blue-bg:#eef4ff; --green:#0f9d58; --green-bg:#e9f7ef;
+  --orange:#c77700; --orange-bg:#fff6e8; --red:#d64541; --red-bg:#fdecec;
+  --code:#0d1017; --code-text:#d5dbe5;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14.5px;line-height:1.75}
+.layout{display:flex;max-width:1240px;margin:0 auto;gap:24px;padding:24px}
+nav.toc{width:240px;flex-shrink:0;position:sticky;top:24px;align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 8px;max-height:calc(100vh - 48px);overflow-y:auto}
+nav.toc h3{font-size:12px;color:var(--text2);letter-spacing:2px;padding:0 10px 8px}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--text2);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--blue-bg);color:var(--blue)}
+main{flex:1;min-width:0}
+header.doc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 30px;margin-bottom:20px}
+header.doc h1{font-size:24px;letter-spacing:-0.3px}
+header.doc .meta{margin-top:8px;color:var(--text2);font-size:13px;display:flex;gap:18px;flex-wrap:wrap}
+header.doc .meta b{color:var(--text)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 30px;margin-bottom:20px}
+h2{font-size:19px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+h2 .no{color:var(--blue);margin-right:8px}
+h3{font-size:15.5px;margin:20px 0 8px}
+h4{font-size:14px;margin:14px 0 6px;color:var(--text)}
+p{margin:8px 0;color:var(--text)}
+ul,ol{margin:8px 0 8px 22px}
+li{margin:4px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+th{background:#f0f3f8;text-align:left;padding:9px 12px;border:1px solid var(--line);font-weight:600;white-space:nowrap}
+td{padding:8px 12px;border:1px solid var(--line);vertical-align:top}
+tr:nth-child(even) td{background:#fafbfd}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:#eef1f6;padding:2px 6px;border-radius:5px;color:#c7254e}
+pre{background:var(--code);color:var(--code-text);border-radius:10px;padding:14px 18px;overflow-x:auto;font-size:12.5px;line-height:1.7;margin:10px 0}
+pre code{background:none;color:inherit;padding:0}
+.callout{border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13.5px;border:1px solid}
+.callout b{display:block;margin-bottom:4px}
+.c-info{background:var(--blue-bg);border-color:#c9dcff;color:#1d4fb8}
+.c-tip{background:var(--green-bg);border-color:#bfe6cf;color:#0b6e40}
+.c-warn{background:var(--orange-bg);border-color:#f2ddb0;color:#96600a}
+.c-danger{background:var(--red-bg);border-color:#f2c3c1;color:#a83330}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;vertical-align:1px}
+.t-must{background:var(--red-bg);color:var(--red)}
+.t-should{background:var(--orange-bg);color:var(--orange)}
+.t-could{background:var(--blue-bg);color:var(--blue)}
+.t-ok{background:var(--green-bg);color:var(--green)}
+.small{font-size:12.5px;color:var(--text2)}
+@media (max-width:900px){nav.toc{display:none}.layout{padding:12px}}
+@media print{nav.toc{display:none}section{border:none;padding:10px 0}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+<h3>目 录</h3>
+<a href="#s1">1. 项目背景与目标</a>
+<a href="#s2">2. 用户角色与使用场景</a>
+<a href="#s3">3. 功能需求总览</a>
+<a href="#s4">4. 文件共享模块</a>
+<a href="#s5">5. 聊天室模块</a>
+<a href="#s6">6. 服务控制模块</a>
+<a href="#s7">7. 服务日志模块</a>
+<a href="#s8">8. 网页端(浏览器)模块</a>
+<a href="#s9">9. 移动端适配模块</a>
+<a href="#s10">10. 外观与动效规范</a>
+<a href="#s11">11. 文案规范</a>
+<a href="#s12">12. 非功能需求</a>
+<a href="#s13">13. 安全模型与边界</a>
+<a href="#s14">14. 平台差异矩阵</a>
+<a href="#s15">15. 验收标准</a>
+<a href="#s16">16. 设计取舍与已知边界</a>
+</nav>
+<main>
+<header class="doc">
+<h1>CC-Flash · 需求设计文档</h1>
+<div class="meta">
+<span>版本：<b>v1.0.0（Tauri 重构线）</b></span>
+<span>文档日期：<b>2026-10-23</b></span>
+<span>状态：<b>已实现，macOS 包已出</b></span>
+<span>前身：<b>lan-file-transfer-v2（PyQt6 版 56MB）</b></span>
+</div>
+</header>
+
+<!-- ================= 1 ================= -->
+<section id="s1">
+<h2><span class="no">1</span>项目背景与目标</h2>
+<p>同一 Wi-Fi 下的多台设备（手机 / 平板 / 电脑）之间经常需要快速互传文件、传一句话/一个链接。传统方案（微信文件传输助手、AirDrop、网盘）分别存在登录负担、生态限制、速度慢的问题。本项目提供一个<b>零登录、零公网、开箱即用</b>的局域网传输工具：</p>
+<ul>
+<li>电脑上启动服务，自动生成访问地址与二维码；</li>
+<li>手机 / 平板 / 电脑<b>用浏览器扫码即可访问</b>，无需安装任何 App；</li>
+<li>支持文件上传 / 下载 / 删除 / 分享，以及一个轻量聊天室。</li>
+</ul>
+<h3>1.1 重构目标（为什么用 Tauri 重写）</h3>
+<table>
+<tr><th>维度</th><th>PyQt6 旧版（v2 线）</th><th>Tauri 新版（本线）</th></tr>
+<tr><td>安装包体积</td><td>约 56 MB</td><td class="small">目标 5–12 MB；实际 <b>dmg 5.9 MB / .app 13.5 MB</b> ✅</td></tr>
+<tr><td>技术栈</td><td>Python + PyQt6（桌面 UI 即网页的替代）</td><td>Rust(axum) 后端 + Vue3 前端 + Tauri 2 壳</td></tr>
+<tr><td>网页端</td><td>独立 webui 模块</td><td>与桌面端同一份 Vue 页面，按运行环境自适应双形态</td></tr>
+<tr><td>协议兼容</td><td>—</td><td>与 Python 版 API 协议完全一致（见技术文档第 10 节）</td></tr>
+</table>
+
+<h3>1.2 产品原则</h3>
+<ul>
+<li><b>零配置</b>：安装即用，端口/目录全自动，端口被占自动顺延；</li>
+<li><b>零学习成本</b>：所有操作一目了然，文案口语化（"保姆级"标准）；</li>
+<li><b>可信赖的反馈</b>：每个动作都有 toast 提示（上传/下载/复制/清空/错误），服务状态常驻可见（三圆点脉冲徽标）；</li>
+<li><b>低刺激视觉</b>：全局深色主题，5 套可切换皮肤，颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
+</ul>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="s2">
+<h2><span class="no">2</span>用户角色与使用场景</h2>
+<table>
+<tr><th>角色</th><th>入口</th><th>典型诉求</th></tr>
+<tr><td><b>服务发起者</b>（电脑用户）</td><td>Tauri 桌面窗口</td><td>启停服务、改端口/共享目录、看谁在访问（日志）、生成二维码给别人、管理文件、参与聊天</td></tr>
+<tr><td><b>访客</b>（手机/平板/电脑浏览器）</td><td>扫码或输入地址打开的网页</td><td>快速上传照片/文档、下载需要的文件、拿到分享链接、临时聊天</td></tr>
+</table>
+<h3>2.1 核心场景</h3>
+<ol>
+<li><b>照片回传</b>：手机拍的照片 → 浏览器上传 → 电脑立即取用；</li>
+<li><b>资料分发</b>：电脑把安装包/文档放进共享目录 → 同事扫码下载；</li>
+<li><b>链接传递</b>：电脑上复制的长链接 → 粘到聊天室 → 手机点开；</li>
+<li><b>临时接力</b>：开会时把会议纪要丢进聊天室，所有人立即可见可复制。</li>
+</ol>
+<div class="callout c-info"><b>运行形态说明</b>
+桌面窗口关闭 = 收纳到系统托盘（服务不停，首次会发系统通知）；托盘菜单「退出」才是真正结束。这是与 PyQt 版对齐的行为。</div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="s3">
+<h2><span class="no">3</span>功能需求总览</h2>
+<table>
+<tr><th>编号</th><th>模块</th><th>需求</th><th>优先级</th><th>状态</th></tr>
+<tr><td>FR-01</td><td rowspan="7">文件共享</td><td>多途径上传：点击选择 / 拖拽 / Ctrl+V·Cmd+V 粘贴 / 多选，带进度条与实时速率</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-02</td><td>文件列表：文件类型徽标（FILE/PDF/VID…）、大小、相对时间、图片缩略图与「预览」</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（每页 8 条，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-07</td><td>文件列表自动同步：所有端每 5 秒自动刷新，任何设备上传/删除都能在各端自动呈现；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-04</td><td>按平台差异化操作按钮：桌面=打开/复制/删除/分享；浏览器=下载/删除/分享</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-05</td><td>上传前磁盘空间预检，空间不足明确拒绝；上传中断自动清理半截文件</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-12</td><td>消息内 URL 自动识别为可点击链接（先转义防 XSS，桌面端点击走系统浏览器）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-20</td><td rowspan="5">服务控制</td><td>一键启动/停止；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 8765–8785）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-21</td><td>共享目录可查看与更换（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-22</td><td>运行状态徽标常驻（三圆点波浪动效），出现在桌面顶栏、网页顶栏与服务控制卡</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡（IP 变化自动重生成）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-24</td><td>关窗收托盘、托盘菜单（显示窗口 / 启停服务 / 打开网页 / 退出）、首次收纳系统通知</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-30</td><td rowspan="3">服务日志</td><td>逐请求记录：方法/路径/状态/大小/耗时/来源 IP/设备与昵称；业务事件（上传开始/完成/中断/拒绝、下载、删除、聊天、启停）独立记录；本地时间带毫秒</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-31</td><td>高频轮询噪音豁免（聊天、状态、日志拉取、favicon）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-32</td><td>「清空日志」按钮，清空后保留一条标记线确认生效</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-40</td><td rowspan="4">网页端</td><td>电脑浏览器：PyQt 风格单页——标题头部、状态徽标+地址栏+四格统计同卡、左文件右聊天 1:1 双栏</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-41</td><td>手机浏览器：单列堆叠 + 右下角悬浮球（未读数）+ 底部聊天面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-42</td><td>面板打开时锁定背景滚动，面板内滑动不穿透；每 5s 刷新状态/IP；窄屏统计为 2×2 独立描边小卡</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-43</td><td>断连横幅：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 10s）即在顶部展示醒目提示「与服务失去连接」，恢复可达自动消失（桌面端走进程内通信，无此场景）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-50</td><td>外观</td><td>5 套深色皮肤（深空蓝/石墨灰/极光蓝/护眼暖黑/暗夜紫），即时生效并记忆，三级文字色随主题色相联动</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+</table>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="s4">
+<h2><span class="no">4</span>文件共享模块</h2>
+<h3>4.1 上传</h3>
+<ul>
+<li>入口：拖拽区点击、拖放文件、粘贴事件（截图直接 Ctrl+V / Cmd+V）、多选；</li>
+<li>每项展示：文件名、状态（等待中 / 百分比+速率 / 完成 / 失败原因）、进度条；</li>
+<li>协议：<code>POST /api/upload</code>，文件名放请求头 <code>X-Filename</code>（URL 编码），声明大小放 <code>X-File-Size</code>；</li>
+<li>服务端先做磁盘空间预检：声明大小 &gt; 可用空间 → 明确拒绝并写日志「上传拒绝」；</li>
+<li>流式落盘（1MB 分块），客户端中断/写盘失败自动删除半截文件并写日志。</li>
+</ul>
+<h3>4.2 下载与分享</h3>
+<ul>
+<li>浏览器端：<code>GET /api/download/:name</code>，响应带 <code>Content-Disposition attachment</code>（RFC5987 支持中文）与 <code>Content-Length</code>（浏览器可显示进度）；</li>
+<li>分享：任何端点击「分享」= 复制下载链接到剪贴板，自动附加话术：
+<div class="callout c-tip" style="margin-top:8px"><b>固定话术（需求原文）</b>「🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。」</div>
+</li>
+</ul>
+<h3>4.3 操作按钮 · 平台差异（需求原文还原）</h3>
+<div class="callout c-info"><b>需求原文</b>「在手机/电脑浏览器上共享文件展示的线性图标只需要有 下载、删除、分享 按钮；Tauri 桌面窗口展示的线性图标有：打开、复制、删除、分享 按钮。」</div>
+<table>
+<tr><th>按钮</th><th>桌面窗口</th><th>浏览器</th><th>行为</th></tr>
+<tr><td>打开</td><td>✅ 文件夹线性图标</td><td>—（无文件系统能力）</td><td>调用系统默认程序打开该文件</td></tr>
+<tr><td>复制</td><td>✅ 剪贴板线性图标</td><td>—</td><td>复制<b>文件本体</b>到系统剪贴板，可在访达/资源管理器直接粘贴（macOS 走 osascript，Windows 走 PowerShell）</td></tr>
+<tr><td>下载</td><td>—（桌面走「打开/复制」路径，需求不含此项）</td><td>✅</td><td>保存到本地；大文件（&gt;1GB）自动转浏览器原生流式下载</td></tr>
+<tr><td>删除</td><td>✅</td><td>✅</td><td>弹确认框（防误删），支持批量</td></tr>
+<tr><td>分享</td><td>✅ 绿色，保持不改动</td><td>✅ 绿色</td><td>复制链接（见 4.2）</td></tr>
+</table>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="s5">
+<h2><span class="no">5</span>聊天室模块</h2>
+<ul>
+<li><b>收发</b>：所有端 3 秒轮询一次；服务端保留最近 200 条；昵称截取前 20 字，消息截取前 2000 字；</li>
+<li><b>昵称</b>：可手动输入并记忆；未设置时自动生成（如 <code>Mac Chrome-2569</code>：系统 + 浏览器 + 随机 4 位数，存 localStorage）；</li>
+<li><b>头像</b>：昵称哈希 → 24 个 emoji 池映射，同昵称恒定同头像；</li>
+<li><b>未读</b>：悬浮球角标显示未读数（99+ 封顶）；电脑端在聊天页时、手机面板打开时自动消红点；</li>
+<li><b>链接化</b>：先 HTML 转义再匹配 URL 包裹为链接（防 XSS）；桌面窗口点击链接用系统浏览器打开；</li>
+<li><b>清空数据</b>：仅清空本窗口显示（与 PyQt「清空显示」语义一致），不影响服务端与他人；期间若又有新消息则自动恢复显示。</li>
+</ul>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="s6">
+<h2><span class="no">6</span>服务控制模块</h2>
+<h3>6.1 服务控制卡（自上而下）</h3>
+<ol>
+<li><b>状态区</b>：运行徽标（三圆点波浪动效）+ 访问地址（等宽字体、点击全选、一键复制）+ 提示语「同一 Wi-Fi 下的设备用浏览器打开即可使用」；</li>
+<li><b>配置区</b>：端口（运行中锁定，被占用自动顺延）、共享目录（可换、悬停看全路径、「打开」按钮直达文件夹）、可用空间与「修改目录需重启服务生效」提示；</li>
+<li><b>操作区</b>：启动服务（蓝色主按钮）/ 停止服务（红色危险按钮）/ 打开共享目录；</li>
+<li><b>二维码卡</b>：白底大二维码（204px，贴边展示），未启动时显示虚线占位；caption「手机 / 平板同一 Wi-Fi 下扫码打开」。</li>
+</ol>
+<h3>6.2 IP 变化可靠性需求（FR-60）</h3>
+<p>服务绑定 <code>0.0.0.0</code>，DHCP 换 IP 不会中断服务，但客户端手里的旧地址会失联（表现为连接超时）。因此要求：</p>
+<ul>
+<li>前端每 5 秒刷新一次状态；检测到 IP 变化 → 地址栏/二维码/统计立即换新，并弹醒目提示「本机 IP 已变为 x.x.x.x，手机请改用新地址访问」；</li>
+<li>已打开的旧页面无法自救（旧 IP 已失联），必须以桌面端提示的新地址重开——这是本需求的边界。</li>
+</ul>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="s7">
+<h2><span class="no">7</span>服务日志模块</h2>
+<ul>
+<li><b>逐请求行</b>：<code>方法 路径 → 状态码 大小 耗时 ← 来源IP (昵称·设备)</code>，设备由 UA 识别（iPhone/iPad/Android/微信内置/Mac/Windows/Linux），昵称取 <code>X-Nickname</code> 请求头；</li>
+<li><b>业务行</b>：上传开始（含声明大小、是否覆盖同名、来源）/ 上传完成（大小+耗时）/ 上传失败·中断（含清理动作）/ 上传拒绝（空间不足）/ 下载（大小+来源）/ 下载失败 / 删除 / 删除失败 / 聊天（昵称+内容预览≤40字）/ 服务启停 / 端口顺延 / 目录文件数 / 日志已清空；</li>
+<li><b>时间</b>：本地时间，精确到毫秒（chrono）；</li>
+<li><b>容量</b>：环形缓冲 1000 条，超出淘汰最旧；</li>
+<li><b>豁免名单</b>：聊天轮询、<code>/api/info</code> 状态轮询、日志拉取自身、favicon —— 不记录，防止刷屏；</li>
+<li><b>清空</b>：按钮清空后写入一条「日志已清空」标记，便于确认生效。</li>
+</ul>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="s8">
+<h2><span class="no">8</span>网页端（浏览器）模块</h2>
+<h3>8.1 电脑浏览器布局（对照 PyQt 版）</h3>
+<ol>
+<li>标题头部：应用 logo + 「CC-Flash / 局域网高速文件共享」；</li>
+<li>顶部大卡：状态徽标 + 地址栏（HTTP 前缀 + 完整地址）+ 复制 + 二维码按钮；下方四格统计（本机 IP 蓝色 / 端口 / 文件数 / 总大小 白色），无边框分格；</li>
+<li>内容区左右 <b>1:1 双栏</b>：左=上传拖拽卡 + 共享文件卡；右=聊天室卡（满高、输入框贴底、头部含清空数据按钮）。</li>
+</ol>
+<h3>8.2 手机浏览器布局（保持不变项）</h3>
+<ul>
+<li>单列堆叠：顶部卡（地址行两行式：徽标+按钮一行，地址栏独占一行保证 IP 完整）→ 2×2 统计（每格独立描边小卡）→ 上传 → 文件（计数徽标在「共享文件」标题后）；</li>
+<li>聊天：右下角悬浮球（含未读角标）→ 底部面板（85vh），头部「聊天室标题 | 清空数据 | ✕」，第二行头像+昵称；</li>
+<li>关闭钮为 32px 圆形幽灵钮，常态中性灰、悬停泛红；面板打开锁定背景滚动。</li>
+</ul>
+</section>
+
+<!-- ================= 9 ================= -->
+<section id="s9">
+<h2><span class="no">9</span>移动端适配模块</h2>
+<table>
+<tr><th>交互</th><th>需求描述</th></tr>
+<tr><td>悬浮球</td><td>58px 渐变圆球固定右下角，带未读角标；点击打开底部面板</td></tr>
+<tr><td>底部面板</td><td>85vh 高、上圆角 20px、下拉手柄可点击收起、蒙层点击收起</td></tr>
+<tr><td>滚动隔离</td><td>面板打开锁定 body 滚动；消息区滚动到底/顶不穿透（overscroll-behavior: contain）</td></tr>
+<tr><td>安全区</td><td>输入区适配 iOS 底部安全区（env(safe-area-inset-bottom)）</td></tr>
+</table>
+</section>
+
+<!-- ================= 10 ================= -->
+<section id="s10">
+<h2><span class="no">10</span>外观与动效规范</h2>
+<h3>10.1 皮肤系统</h3>
+<p>5 套低刺激深色皮肤，通过 <code>data-theme</code> 切换 CSS 变量实现，即时生效并记忆（localStorage）：</p>
+<table>
+<tr><th>皮肤</th><th>主色气质</th><th>文字三级色</th></tr>
+<tr><td>深空蓝（默认）</td><td>蓝 #4f8af7</td><td>蓝灰系（与主色同色相）</td></tr>
+<tr><td>石墨灰</td><td>沉稳蓝 #5b9bd5</td><td>中性灰（不偏色）</td></tr>
+<tr><td>极光蓝</td><td>青蓝 #38bdf8</td><td>冷蓝灰</td></tr>
+<tr><td>护眼暖黑</td><td>豆绿 #6fbf8f</td><td><b>暖米灰（低蓝光）</b></td></tr>
+<tr><td>暗夜紫</td><td>紫 #a78bfa</td><td>紫灰</td></tr>
+</table>
+<h3>10.2 动效规范</h3>
+<table>
+<tr><th>元素</th><th>动效</th><th>参数</th></tr>
+<tr><td>运行徽标（运行中）</td><td><b>三圆点波浪</b>：6/8/10px 由小到大，依次点亮放大 1.2 倍并发光，波浪从左向右推进</td><td>1.2s 循环，相邻延迟 0.18s</td></tr>
+<tr><td>运行徽标（底色）</td><td>深绿底 + 绿描边 + 内外双层光晕</td><td>静态</td></tr>
+<tr><td>停止徽标</td><td>三颗灰点静止 + 「○ 已停止」</td><td>无动画</td></tr>
+<tr><td>复制按钮</td><td>点击后瞬时变绿色 ✓（成功态）</td><td>1.5s 后还原</td></tr>
+<tr><td>刷新按钮</td><td>手动刷新加载期间整体旋转（转圈）并变主题蓝，结束还原</td><td>0.7s/圈，随加载时长</td></tr>
+<tr><td>卡片入场</td><td>淡入上移</td><td>0.25s ease</td></tr>
+<tr><td>面板呼出</td><td>底部上滑</td><td>0.3s cubic-bezier(0.32,0.72,0.32,1)</td></tr>
+<tr><td>Toast</td><td>右下角滑入，左侧彩条区分成功/错误</td><td>停留 2.4s</td></tr>
+</table>
+<h3>10.3 图标规范</h3>
+<ul>
+<li>全部使用 15–17px SVG 线性图标（feather 风格，stroke 2），不用 emoji 充当功能图标；</li>
+<li>线性图标<b>按动作着色区分</b>：下载=蓝、删除=红、分享=绿（分享按钮样式保持不改动）、打开/复制=中性灰；</li>
+<li>「打开浏览器」= 地球（globe）线性图标——语义是"浏览器"，不是外链箭头；</li>
+<li>文件行「复制」= 剪贴板图标（板子+夹子+内容行），与顶栏「复制链接」的双矩形明确区分。</li>
+</ul>
+</section>
+
+<!-- ================= 11 ================= -->
+<section id="s11">
+<h2><span class="no">11</span>文案规范</h2>
+<table>
+<tr><th>场景</th><th>固定文案</th></tr>
+<tr><td>分享链接附言</td><td>「📎 {文件名} —— 来自 CC-Flash 的分享」+「🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。」</td></tr>
+<tr><td>服务页副提示</td><td>「同一 Wi-Fi 下的设备用浏览器打开即可使用」</td></tr>
+<tr><td>二维码卡</td><td>「手机扫码直达」/「手机 / 平板同一 Wi-Fi 下扫码打开」</td></tr>
+<tr><td>清空类动作</td><td>「清空数据」「清空日志」+ 提示均注明「不影响其他设备与服务端记录 / 不影响服务运行」</td></tr>
+<tr><td>托盘通知</td><td>「CC-Flash 仍在运行……退出请用其菜单中的『退出』。」</td></tr>
+</table>
+</section>
+
+<!-- ================= 12 ================= -->
+<section id="s12">
+<h2><span class="no">12</span>非功能需求</h2>
+<table>
+<tr><th>维度</th><th>指标 / 要求</th><th>现状</th></tr>
+<tr><td>体积</td><td>安装包 5–12 MB</td><td>dmg 5.9MB ✅</td></tr>
+<tr><td>传输性能</td><td>流式分块（1MB），不整载入内存；大文件下载（浏览器）可显示进度</td><td>✅</td></tr>
+<tr><td>反馈完备</td><td>所有用户动作有可见结果（toast / 状态变化 / 日志）</td><td>✅</td></tr>
+<tr><td>容错</td><td>端口冲突自动顺延；上传中断清理；磁盘不足拒绝；窗口就绪竞态自动重试</td><td>✅</td></tr>
+<tr><td>浏览器兼容</td><td>兼容约 2017 年起的内核（Safari 10.1+ 及国产套壳），旧内核给出升级提示</td><td>✅（v2 线经验沿用）</td></tr>
+<tr><td>状态新鲜度</td><td>状态/IP 5s 刷新；日志 2s；聊天 3s；文件列表 5s 自动同步</td><td>✅</td></tr>
+</table>
+</section>
+
+<!-- ================= 13 ================= -->
+<section id="s13">
+<h2><span class="no">13</span>安全模型与边界</h2>
+<div class="callout c-warn"><b>信任模型</b>
+与 v2.0.x Python 版一致：<b>可信局域网</b>使用。控制台接口（启停/日志/清空）与文件接口均无鉴权——请只在可信 Wi-Fi 下使用，不要把端口暴露到公网。</div>
+<h3>13.1 内置防护</h3>
+<ul>
+<li><b>路径穿越双重防护</b>：URL 解码 → 取 basename（拒绝空/./..）→ 与共享目录拼接后 canonicalize 校验前缀越界；</li>
+<li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>
+<li><b>资源上限</b>：聊天 200 条 / 昵称 20 字 / 消息 2000 字 / 日志 1000 条；</li>
+<li><b>删除确认</b>：所有删除必须经确认框。</li>
+</ul>
+</section>
+
+<!-- ================= 14 ================= -->
+<section id="s14">
+<h2><span class="no">14</span>平台差异矩阵</h2>
+<table>
+<tr><th>能力</th><th>桌面窗口</th><th>电脑浏览器</th><th>手机浏览器</th></tr>
+<tr><td>文件上传</td><td>✅ 四途径</td><td>✅ 四途径</td><td>✅ 选择/拍照</td></tr>
+<tr><td>文件下载</td><td>—（用打开/复制）</td><td>✅ fetch+完成提示，&gt;1GB 原生下载</td><td>✅ 原生下载</td></tr>
+<tr><td>打开文件</td><td>✅ 系统程序</td><td>—</td><td>—</td></tr>
+<tr><td>复制文件</td><td>✅ 剪贴板</td><td>—</td><td>—</td></tr>
+<tr><td>分享</td><td>复制链接</td><td>复制链接</td><td>复制链接</td></tr>
+<tr><td>聊天入口</td><td>左侧「聊天室」页</td><td>右侧聊天栏</td><td>悬浮球 + 底部面板</td></tr>
+<tr><td>服务启停/日志/皮肤</td><td>✅「服务与日志」页</td><td>—</td><td>—</td></tr>
+<tr><td>地址展示</td><td>顶栏 + 服务卡</td><td>顶部大卡</td><td>顶部卡两行式</td></tr>
+</table>
+</section>
+
+<!-- ================= 15 ================= -->
+<section id="s15">
+<h2><span class="no">15</span>验收标准（摘要）</h2>
+<ol>
+<li>安装 dmg 后双击即用，无依赖安装；关窗后手机仍可访问（托盘常驻）；</li>
+<li>手机扫码 3 秒内打开可用页面；上传 100MB 文件有实时进度，完成后桌面列表自动出现；</li>
+<li>桌面端四个按钮、浏览器三个按钮与需求矩阵完全一致，点击均有响应与反馈；</li>
+<li>分享在桌面端/电脑浏览器/手机上均为复制链接且自带话术；</li>
+<li>改 Wi-Fi（换 IP）后 5 秒内桌面端弹出提示且二维码已更新；</li>
+<li>日志含每次上传/下载/删除/聊天的明细与来源，清空后有标记线；</li>
+<li>5 套皮肤切换即时生效；窄屏（375px 宽）下地址完整、聊天面板无滚动穿透。</li>
+</ol>
+</section>
+
+<!-- ================= 16 ================= -->
+<section id="s16">
+<h2><span class="no">16</span>设计取舍与已知边界</h2>
+<table>
+<tr><th>事项</th><th>取舍 / 边界</th></tr>
+<tr><td>无鉴权</td><td>对齐 v2.0.x 信任模型；如需公网/半可信网络，需另行加配对令牌（v2.1 思路）</td></tr>
+<tr><td>轮询而非推送</td><td>聊天 3s / 日志 2s / 状态 5s 轮询，实现简单且协议与 Python 版一致；WebSocket 留待后续</td></tr>
+<tr><td>大文件下载阈值</td><td>浏览器端 &gt;1GB 回退原生下载（避免 blob 占内存），此场景无"完成"回调，会明确提示</td></tr>
+<tr><td>聊天持久化</td><td>仅内存 200 条，服务重启即清空（定位为临时接力，不做历史存档）</td></tr>
+<tr><td>跨平台</td><td>macOS 已出包验证；Windows（WebView2/MSVC）待验</td></tr>
+<tr><td>后续演进项<br>（暂不实施）</td><td><b>mDNS 域名发现（wft.local）</b>：IP 变化后旧书签/旧页面自动跟随新地址。方案：Rust 侧引入 <code>mdns-sd</code> 广播 <code>_http._tcp</code> + A 记录，复用 5s 探测在 IP 变化时重注册，断连横幅加"试试 wft.local"提示。<b>成本：约 60–80 行 / 半天。</b>硬限制：① Android 浏览器不解析 .local 主机名（系统限制），安卓用户无感；② 企业/访客网络常禁多播则静默失效；③ 同网段多实例名称冲突；④ 端口仍需手写（浏览器不读 SRV）。<b>触发条件：使用人群以 iPhone + 电脑为主时再做</b>；安卓为主的现有"断连横幅 + 桌面端新二维码"路径已更可靠。</td></tr>
+</table>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash v1.0.0 · 需求设计文档 · 2026-10-23 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+</main>
+</div>
+</body>
+</html>

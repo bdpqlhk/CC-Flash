@@ -1,0 +1,40 @@
+[package]
+name = "wlan-flash-transfer-tauri"
+version = "1.0.0"
+description = "局域网文件互传(Tauri 重构版)"
+edition = "2021"
+
+[lib]
+name = "lan_transfer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "CC-Flash"
+path = "src/main.rs"
+
+# 发布构建体积优化: 去符号 + LTO + 单编译单元 + 尺寸优先
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
+panic = "abort"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs"] }
+tower-http = { version = "0.6", features = ["cors"] }
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["io"] }
+rust-embed = "8"
+mime_guess = "2"
+percent-encoding = "2"
+fs2 = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

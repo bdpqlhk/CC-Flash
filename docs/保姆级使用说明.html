@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC-Flash · 保姆级使用说明 v1.0.0</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
+  --blue:#2e70ef; --blue-bg:#eef4ff; --green:#0f9d58; --green-bg:#e9f7ef;
+  --orange:#c77700; --orange-bg:#fff6e8; --red:#d64541; --red-bg:#fdecec;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.8}
+.layout{display:flex;max-width:1240px;margin:0 auto;gap:24px;padding:24px}
+nav.toc{width:250px;flex-shrink:0;position:sticky;top:24px;align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 8px;max-height:calc(100vh - 48px);overflow-y:auto}
+nav.toc h3{font-size:12px;color:var(--text2);letter-spacing:2px;padding:0 10px 8px}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--text2);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--blue-bg);color:var(--blue)}
+main{flex:1;min-width:0}
+header.doc{background:linear-gradient(135deg,#eef4ff,#f4f0ff);border:1px solid var(--line);border-radius:14px;padding:28px 30px;margin-bottom:20px}
+header.doc h1{font-size:25px;letter-spacing:-0.3px}
+header.doc .meta{margin-top:8px;color:var(--text2);font-size:13px}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 30px;margin-bottom:20px}
+h2{font-size:19px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+h2 .no{display:inline-block;background:var(--blue);color:#fff;border-radius:8px;width:28px;height:28px;text-align:center;line-height:28px;font-size:14px;margin-right:10px}
+h3{font-size:15.5px;margin:20px 0 8px;color:var(--blue)}
+p{margin:8px 0}
+ul,ol{margin:8px 0 8px 24px}
+li{margin:5px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+th{background:#f0f3f8;text-align:left;padding:9px 12px;border:1px solid var(--line);font-weight:600}
+td{padding:8px 12px;border:1px solid var(--line);vertical-align:top}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:#eef1f6;padding:2px 6px;border-radius:5px;color:#c7254e}
+kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:12.5px}
+.step{display:flex;gap:14px;margin:14px 0}
+.step .n{flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;text-align:center;line-height:30px;font-weight:700}
+.callout{border-radius:10px;padding:12px 16px;margin:12px 0;font-size:14px;border:1px solid}
+.callout b{display:block;margin-bottom:4px}
+.c-info{background:var(--blue-bg);border-color:#c9dcff;color:#1d4fb8}
+.c-tip{background:var(--green-bg);border-color:#bfe6cf;color:#0b6e40}
+.c-warn{background:var(--orange-bg);border-color:#f2ddb0;color:#96600a}
+.c-danger{background:var(--red-bg);border-color:#f2c3c1;color:#a83330}
+.qa{border-left:4px solid var(--blue);background:#fafbff;border-radius:0 10px 10px 0;padding:12px 16px;margin:12px 0}
+.qa .q{font-weight:700;margin-bottom:6px}
+.btn-demo{display:inline-block;font-size:12.5px;font-weight:600;padding:3px 14px;border-radius:8px;margin:0 3px}
+.b-blue{background:#3b7cf0;color:#fff}.b-red{background:#f2596b;color:#fff}
+.b-ghost{background:rgba(120,130,150,.12);color:#4a5262}.b-green{background:#34c97c;color:#fff}
+.small{font-size:12.5px;color:var(--text2)}
+@media (max-width:900px){nav.toc{display:none}.layout{padding:12px}}
+@media print{nav.toc{display:none}section{border:none;padding:10px 0}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+<h3>目 录</h3>
+<a href="#s1">1. 这是什么软件？</a>
+<a href="#s2">2. 安装（macOS）</a>
+<a href="#s3">3. 三步上手（最快路径）</a>
+<a href="#s4">4. 桌面端 · 文件共享页</a>
+<a href="#s5">5. 桌面端 · 聊天室</a>
+<a href="#s6">6. 桌面端 · 服务与日志页</a>
+<a href="#s7">7. 手机端使用全攻略</a>
+<a href="#s8">8. 托盘与退出</a>
+<a href="#s9">9. 皮肤与外观</a>
+<a href="#s10">10. 常见问题 FAQ</a>
+<a href="#s11">11. 快捷键与小技巧</a>
+<a href="#s12">12. 安全须知</a>
+</nav>
+<main>
+<header class="doc">
+<h1>👋 CC-Flash · 保姆级使用说明</h1>
+<div class="meta">v1.0.0 · 局域网高速文件互传 · 电脑开机当服务器，手机扫码就能传</div>
+</header>
+
+<!-- ================= 1 ================= -->
+<section id="s1">
+<h2><span class="no">1</span>这是什么软件？</h2>
+<p>一个装在电脑上的「局域网文件驿站」：<b>电脑启动服务后，同一 Wi-Fi 下的手机、平板、其他电脑用浏览器扫码，就能互相传文件、发消息</b>——不用登录、不用数据线、不用装 App、不走外网（速度就是你路由器的速度）。</p>
+<table>
+<tr><th>你能做什么</th><th>举例</th></tr>
+<tr><td>📷 手机照片回传电脑</td><td>拍完照扫码上传，电脑立刻拿到原图</td></tr>
+<tr><td>📄 电脑资料分发</td><td>安装包、文档丢进共享目录，同事扫码自取</td></tr>
+<tr><td>🔗 链接/文字接力</td><td>电脑上的长链接发到聊天室，手机一点就开</td></tr>
+<tr><td>💬 临时群聊</td><td>开会时所有人扫码进聊天室，纪要即发即见</td></tr>
+</table>
+<div class="callout c-warn"><b>使用前提（很重要）</b>手机和电脑必须连的是<b>同一个 Wi-Fi / 同一个路由器</b>。公司访客网络与办公内网隔离时互访不通。</div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="s2">
+<h2><span class="no">2</span>安装（macOS）</h2>
+<div class="step"><div class="n">1</div><div>拿到 <code>CC-Flash_1.0.0_aarch64.dmg</code>，双击打开。</div></div>
+<div class="step"><div class="n">2</div><div>把 <b>CC-Flash</b> 拖入「应用程序」文件夹。</div></div>
+<div class="step"><div class="n">3</div><div>首次打开若提示「无法验证开发者」：在启动台右键点它 → <b>打开</b> → 再点「打开」即可（仅第一次需要）。</div></div>
+<p class="small">Windows 版（.msi/.exe）将在 Windows 平台验证后提供。</p>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="s3">
+<h2><span class="no">3</span>三步上手（最快路径）</h2>
+<div class="step"><div class="n">1</div><div><b>打开软件</b> —— 服务自动启动。窗口顶部出现绿色的「<b>● 运行中</b>」徽标和一行地址（如 <code>http://192.168.1.8:8765</code>）。三颗跳动的小圆点 = 服务活着。</div></div>
+<div class="step"><div class="n">2</div><div><b>手机扫码</b> —— 点顶栏的二维码按钮 ▦，用手机相机扫码；或直接在手机浏览器输入窗口里那行地址。</div></div>
+<div class="step"><div class="n">3</div><div><b>开始传</b> —— 手机页面点上传选照片，电脑的「共享文件」列表立刻出现；反过来电脑点文件行的分享按钮，把链接发给手机也能下载。</div></div>
+<div class="callout c-tip"><b>一句话记住</b>电脑是驿站，浏览器是取件码：地址+端口就是一切。</div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="s4">
+<h2><span class="no">4</span>桌面端 · 文件共享页</h2>
+<h3>4.1 上传文件的 4 种方式</h3>
+<ol>
+<li><b>点击上传区</b> → 弹出选文件窗口（可多选）；</li>
+<li><b>拖拽</b> → 把文件从访达拖到虚线框里；</li>
+<li><b>粘贴</b> → 截图后直接 <kbd>Ctrl</kbd>+<kbd>V</kbd> / <kbd>Cmd</kbd>+<kbd>V</kbd>（微信截图、系统截图都行）；</li>
+<li><b>手机上传</b> → 手机打开页面点上传（见第 7 节）。</li>
+</ol>
+<p>上传时会显示<b>进度条 + 百分比 + 实时速率</b>；完成显示「完成」。没有大小和类型限制。</p>
+<h3>4.2 认识文件列表</h3>
+<table>
+<tr><th>元素</th><th>说明</th></tr>
+<tr><td>彩色小徽标（FILE/PDF/VID/ZIP…）</td><td>文件类型一眼识别；图片会直接显示缩略图，并带黄色「预览」</td></tr>
+<tr><td>文件名 / 大小 / 时间</td><td>时间是相对的（刚刚、5 分钟前…）；点文件名可复制分享链接</td></tr>
+<tr><td>排序按钮 <b>最新 | 名称 | 大小</b></td><td>切换列表排序方式</td></tr>
+<tr><td>「N 个文件」（标题旁徽标）</td><td>当前共享文件总数</td></tr>
+<tr><td>↻ 刷新</td><td>手动刷新列表，加载时按钮会转圈；平时<b>每 5 秒自动同步</b>——手机上传的文件桌面会自动出现，一般不用手动点（快捷键 <kbd>F5</kbd>）</td></tr>
+<tr><td>复选框「全选」</td><td>勾选后出现「🗑 删除选中」批量按钮</td></tr>
+<tr><td>页码 ‹ 1 2 … ›</td><td>每页 8 条，文件多时翻页</td></tr>
+</table>
+<h3>4.3 每个操作按钮（悬停有文字提示）</h3>
+<table>
+<tr><th>按钮</th><th>作用</th><th>点完会发生什么</th></tr>
+<tr><td><span class="btn-demo b-ghost">📂 打开</span></td><td>用系统默认程序打开这个文件</td><td>立即打开（如图片进预览、文档进办公软件）</td></tr>
+<tr><td><span class="btn-demo b-ghost">📋 复制</span></td><td>把<b>文件本体</b>复制到剪贴板</td><td>去访达/资源管理器 <kbd>Cmd</kbd>+<kbd>V</kbd> 直接粘贴出文件</td></tr>
+<tr><td><span class="btn-demo b-red">🗑 删除</span></td><td>删除该文件</td><td>弹确认框，确认后列表移除（不可撤销）</td></tr>
+<tr><td><span class="btn-demo b-green">🔗 分享</span></td><td>复制该文件的下载链接</td><td>提示「分享链接已复制」，链接自带温馨提示话术，发给同一 Wi-Fi 的朋友即可下载</td></tr>
+</table>
+<div class="callout c-info"><b>为什么桌面没有「下载」按钮？</b>电脑上你可以直接「打开」或「复制」拿文件，不必经过浏览器下载；「下载」只出现在手机/浏览器端。这是刻意设计。</div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="s5">
+<h2><span class="no">5</span>桌面端 · 聊天室</h2>
+<ul>
+<li>左侧导航点「💬 聊天室」进入；所有打开页面的人（含手机）在同一间聊天室，约 3 秒同步一次；</li>
+<li><b>改昵称</b>：右上角「昵称:」输入框，回车即保存并记住；不改就自动叫「Mac Chrome-2569」这样的名字；</li>
+<li><b>头像</b>：根据昵称自动分配一个 emoji，同昵称永远同头像；</li>
+<li><b>发链接</b>：直接粘贴网址发送，会变成可点击的蓝色链接（电脑点开走系统浏览器）；</li>
+<li><b>清空数据</b>：只清掉<b>自己窗口里</b>的显示，别人的和服务端的记录都在；之后只要有新消息就会恢复显示；</li>
+<li>聊天记录服务端保留最近 200 条，重启服务后清空（定位是临时接力，不做存档）。</li>
+</ul>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="s6">
+<h2><span class="no">6</span>桌面端 · 服务与日志页</h2>
+<h3>6.1 服务控制</h3>
+<table>
+<tr><th>控件</th><th>怎么用</th></tr>
+<tr><td>「● ● 运行中」徽标</td><td>三颗跳动小圆点 = 服务健康；灰色「○ 已停止」= 未启动</td></tr>
+<tr><td>地址行</td><td>点击地址全选，→ 复制按钮一键复制；下方提示「同一 Wi-Fi 下的设备用浏览器打开即可使用」</td></tr>
+<tr><td>端口</td><td>默认 8765；运行中锁定；被别的程序占用会自动顺延到下一个可用端口</td></tr>
+<tr><td>共享目录</td><td>所有传的文件都存在这个文件夹；点「打开」直达；换目录后需停止→启动才生效</td></tr>
+<tr><td>💾 可用空间</td><td>所在磁盘的剩余/总容量；空间不足时上传会被拒绝并提示</td></tr>
+<tr><td><span class="btn-demo b-blue">启动服务</span> <span class="btn-demo b-red">停止服务</span> <span class="btn-demo b-ghost">打开共享目录</span></td><td>三个主操作按钮</td></tr>
+</table>
+<h3>6.2 手机扫码直达</h3>
+<p>白底大二维码，手机相机直接扫；未启动服务时显示占位框。若电脑换了网络（IP 变了），地址和二维码会在 5 秒内<b>自动更新</b>，并弹提示「本机 IP 已变为 …，手机请改用新地址访问」——这时让手机重新扫一次即可。</p>
+<h3>6.3 服务日志</h3>
+<ul>
+<li>谁在上传、谁在下载、谁发了什么、何时启停，全部带时间（精确到 0.001 秒）和来源 IP / 设备名；</li>
+<li>例：<code>[16:12:14.114] 上传完成 照片.jpg (3.2 MB, 820ms) ← 10.161.1.5</code>；</li>
+<li>普通刷新类动作（页面轮询）不会刷屏，请放心看；</li>
+<li>「清空日志」按钮：一键清屏，会留一条「日志已清空」标记。</li>
+</ul>
+<h3>6.4 皮肤设置</h3>
+<p>五套深色主题：深空蓝 / 石墨灰 / 极光蓝 / 护眼暖黑 / 暗夜紫。点色块立即换色并记住选择，手机端页面同步换色。「护眼暖黑」适合夜间长时间使用。</p>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="s7">
+<h2><span class="no">7</span>手机端使用全攻略</h2>
+<h3>7.1 打开页面</h3>
+<p>相机扫桌面上的二维码 → 自动用浏览器打开。可以把页面「添加到主屏幕」当 App 用。</p>
+<h3>7.2 页面长什么样</h3>
+<ul>
+<li>顶部：运行状态徽标 + 地址栏（点一下全选）+ 复制/二维码按钮；下面是四格小卡（本机 IP、端口、文件数、总大小）；</li>
+<li>如果服务停了或电脑地址变了，页面顶部约 10 秒内会出现黄色横幅「与服务失去连接」——去电脑端拿最新地址重新打开即可；</li>
+<li>中部：上传区 + 共享文件列表；</li>
+<li>右下角：<b>💬 悬浮球</b>——聊天入口，有新消息会显示红色未读数。</li>
+</ul>
+<h3>7.3 传文件</h3>
+<ul>
+<li><b>上传</b>：点上传区 → 选照片/文件（可多选，也能现场拍照）；</li>
+<li><b>下载</b>：文件行的蓝色下载按钮，完成后有「已下载」提示；大文件（&gt;1GB）自动转为浏览器直接下载；</li>
+<li><b>删除</b>：红色按钮（有确认框）；</li>
+<li><b>分享</b>：绿色按钮 → 复制该文件的下载链接（自带温馨提示），粘贴发给朋友即可。</li>
+</ul>
+<h3>7.4 聊天面板</h3>
+<ul>
+<li>点悬浮球从底部滑出聊天面板；顶部一排是：标题、<b>清空数据</b>、圆形 ✕（悬停变红）；下面是头像和昵称；</li>
+<li>拖动顶部小横条或点蒙层都能收起面板；面板打开时背后页面不会跟着乱滑；</li>
+<li>有未读消息时悬浮球显示红色数字角标，打开面板自动清零。</li>
+</ul>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="s8">
+<h2><span class="no">8</span>托盘与退出</h2>
+<ul>
+<li>点窗口红色关闭按钮 ≠ 退出：窗口收纳到<b>系统托盘</b>（菜单栏右上角图标），<b>服务继续运行</b>，手机照样能访问；首次收纳会弹系统通知提醒你；</li>
+<li>点托盘图标：显示主窗口 / 启动·停止服务 / 打开网页 / <b>退出</b>；</li>
+<li>想彻底关掉：托盘菜单 →「退出」。</li>
+</ul>
+</section>
+
+<!-- ================= 9 ================= -->
+<section id="s9">
+<h2><span class="no">9</span>皮肤与外观</h2>
+<p>「服务与日志」页底部 → 皮肤设置：五套主题即点即换、自动记忆，桌面和手机页面一起换色。夜间推荐「护眼暖黑」。</p>
+</section>
+
+<!-- ================= 10 ================= -->
+<section id="s10">
+<h2><span class="no">10</span>常见问题 FAQ</h2>
+<div class="qa"><div class="q">Q1：手机打开地址一直转圈 / 提示连接超时（TimedOut）？</div>
+① 确认手机和电脑连的是<b>同一个 Wi-Fi</b>；② 电脑如果换过网络，IP 会变——看桌面端提示的新地址，手机改用新地址；③ 试着 ping 或直接在电脑浏览器里打开该地址自检；④ 公司网络可能开了「AP 隔离」，换个热点试。</div>
+<div class="qa"><div class="q">Q2：窗口右上角 × 了，手机还能用吗？</div>能。关窗只是收进托盘，服务还在跑；彻底退出请用托盘菜单的「退出」。</div>
+<div class="qa"><div class="q">Q3：启动时提示端口被占用？</div>会自动换到下一个可用端口（地址栏里的端口号会变），无需处理。也可停止服务后手动改端口再启动。</div>
+<div class="qa"><div class="q">Q4：上传失败提示「磁盘空间不足」？</div>共享目录所在磁盘满了。清理空间，或把共享目录换到别的盘（改完需重启服务）。</div>
+<div class="qa"><div class="q">Q5：上传到一半断了，文件会坏吗？</div>不会。软件会自动删掉没传完的半截文件并记录日志，重新传即可。</div>
+<div class="qa"><div class="q">Q6：手机上下载大文件没有「已下载」提示？</div>超过 1GB 的文件会改用浏览器原生下载（更省内存），进度看浏览器通知栏——这是浏览器限制，功能不受影响。</div>
+<div class="qa"><div class="q">Q7：聊天记录重启后没了？</div>正常。聊天是临时接力用的，服务端只保留最近 200 条，重启即清空。</div>
+<div class="qa"><div class="q">Q8：别人能看到我的聊天/删我的文件吗？</div>同一 Wi-Fi 下打开页面的人都能操作——这就是「可信局域网」工具的定位。请在可信网络使用，不要把地址发给外网的人。</div>
+<div class="qa"><div class="q">Q9：电脑 IP 变了怎么办？</div>桌面端 5 秒内会弹提示并更新二维码，手机改用新地址重开即可（已打开的旧页面会失联，属正常）。</div>
+<div class="qa"><div class="q">Q10：服务停了之后，手机上已打开的页面会怎样？</div>约 10 秒内页面顶部会出现黄色横幅「与服务失去连接」——服务没了就无法再通信，这是网络原理；到电脑端重新启动服务，横幅会自动消失（前提是地址没变）。</div>
+<div class="qa"><div class="q">Q11：对方上传的文件我这边列表迟迟看不到？</div>列表每 5 秒自动同步；急的话点一下 ↻ 刷新（转圈表示正在拉取）。</div>
+</section>
+
+<!-- ================= 11 ================= -->
+<section id="s11">
+<h2><span class="no">11</span>快捷键与小技巧</h2>
+<table>
+<tr><th>技巧</th><th>说明</th></tr>
+<tr><td><kbd>F5</kbd></td><td>刷新共享文件列表（输入框聚焦时不触发）</td></tr>
+<tr><td><kbd>Cmd/Ctrl</kbd>+<kbd>V</kbd></td><td>直接粘贴截图/文件上传</td></tr>
+<tr><td>双击文件行</td><td>桌面端=用系统程序打开该文件</td></tr>
+<tr><td>点地址框</td><td>自动全选，方便手动复制</td></tr>
+<tr><td>分享话术</td><td>复制的链接自带「同一 Wi-Fi / 尽快下载」提醒，直接转发即可</td></tr>
+<tr><td>手机加桌面</td><td>浏览器菜单 →「添加到主屏幕」，下次一键打开</td></tr>
+</table>
+</section>
+
+<!-- ================= 12 ================= -->
+<section id="s12">
+<h2><span class="no">12</span>安全须知</h2>
+<div class="callout c-danger"><b>请务必阅读</b>
+本工具面向<b>可信局域网</b>（家庭、可信办公网）。同一网络的任何人都能查看/下载/删除共享文件、发言，接口无密码。请勿在公共 Wi-Fi 使用，勿将地址发给外网人员，重要文件传完及时取走。</div>
+<p class="small">默认共享目录：<code>~/CC-Flash</code>。卸载软件前记得先把需要的文件从这里取走。</p>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash v1.0.0 · 保姆级使用说明 · 2026-10-23 · 与《需求设计文档》《技术实现文档》配套阅读</p>
+</main>
+</div>
+</body>
+</html>
