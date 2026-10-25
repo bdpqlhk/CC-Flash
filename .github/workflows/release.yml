@@ -7,6 +7,10 @@ on:
   push:
     tags: ["v*"]
 
+# GITHUB_TOKEN 默认只读, 声明 contents:write 才能创建 Release 并上传产物
+permissions:
+  contents: write
+
 jobs:
   # ---- 桌面端: tauri-action 构建 + 创建/补充 Release ----
   desktop:
