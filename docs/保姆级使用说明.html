@@ -100,7 +100,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <!-- ================= 3 ================= -->
 <section id="s3">
 <h2><span class="no">3</span>三步上手（最快路径）</h2>
-<div class="step"><div class="n">1</div><div><b>打开软件</b> —— 服务自动启动。窗口顶部出现绿色的「<b>● 运行中</b>」徽标和一行地址（如 <code>http://192.168.1.8:8765</code>）。三颗跳动的小圆点 = 服务活着。</div></div>
+<div class="step"><div class="n">1</div><div><b>打开软件</b> —— 服务自动启动。窗口顶部出现绿色的「<b>● 运行中</b>」徽标和一行地址（如 <code>http://192.168.1.8:1688</code>）。三颗跳动的小圆点 = 服务活着。</div></div>
 <div class="step"><div class="n">2</div><div><b>手机扫码</b> —— 点顶栏的二维码按钮 ▦，用手机相机扫码；或直接在手机浏览器输入窗口里那行地址。</div></div>
 <div class="step"><div class="n">3</div><div><b>开始传</b> —— 手机页面点上传选照片，电脑的「共享文件」列表立刻出现；反过来电脑点文件行的分享按钮，把链接发给手机也能下载。</div></div>
 <div class="callout c-tip"><b>一句话记住</b>电脑是驿站，浏览器是取件码：地址+端口就是一切。</div>
@@ -160,8 +160,8 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <tr><th>控件</th><th>怎么用</th></tr>
 <tr><td>「● ● 运行中」徽标</td><td>三颗跳动小圆点 = 服务健康；灰色「○ 已停止」= 未启动</td></tr>
 <tr><td>地址行</td><td>点击地址全选，→ 复制按钮一键复制；下方提示「同一 Wi-Fi 下的设备用浏览器打开即可使用」</td></tr>
-<tr><td>端口</td><td>默认 8765；运行中锁定；被别的程序占用会自动顺延到下一个可用端口</td></tr>
-<tr><td>共享目录</td><td>所有传的文件都存在这个文件夹；点「打开」直达；换目录后需停止→启动才生效</td></tr>
+<tr><td>端口</td><td>默认 1688；运行中锁定；被别的程序占用会自动顺延到下一个可用端口</td></tr>
+<tr><td>共享目录</td><td>所有传的文件都存在这个文件夹；点「打开」直达，或点「选择」弹出系统目录框直接选取（选定即保存）；换目录后需停止→启动才生效</td></tr>
 <tr><td>💾 可用空间</td><td>所在磁盘的剩余/总容量；空间不足时上传会被拒绝并提示</td></tr>
 <tr><td><span class="btn-demo b-blue">启动服务</span> <span class="btn-demo b-red">停止服务</span> <span class="btn-demo b-ghost">打开共享目录</span></td><td>三个主操作按钮</td></tr>
 </table>
@@ -244,6 +244,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <div class="qa"><div class="q">Q10：服务停了之后，手机上已打开的页面会怎样？</div>约 5 秒后整页变成「无信号」测试卡画面——服务没了就无法再通信，这是网络原理；到电脑端重新启动服务，画面会自动恢复（前提是地址没变）。</div>
 <div class="qa"><div class="q">Q11：对方上传的文件我这边列表迟迟看不到？</div>列表每 5 秒自动同步；急的话点一下 ↻ 刷新（转圈表示正在拉取）。删除文件后列表会立即刷新，不用等。</div>
 <div class="qa"><div class="q">Q12：点「检查更新」提示失败？</div>检查更新需要电脑能访问 GitHub。失败不影响软件任何功能；也可以直接去项目的 Releases 页面手动下载最新版。</div>
+<div class="qa"><div class="q">Q13：安卓手机怎么装？</div>到项目 Releases 页下载 <code>CC-Flash-vX.Y.Z-android.apk</code>（约 20MB），传到手机点开安装，系统提示「未知来源」时选择允许即可。注意 APK 与电脑端是配套的：APK 只是操作界面，真正的文件服务仍跑在电脑上——手机装的 APP 也要和电脑连同一个 Wi-Fi。</div>
 </section>
 
 <!-- ================= 11 ================= -->

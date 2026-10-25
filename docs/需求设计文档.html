@@ -147,8 +147,8 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息内 URL 自动识别为可点击链接（先转义防 XSS，桌面端点击走系统浏览器）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-20</td><td rowspan="5">服务控制</td><td>一键启动/停止；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 8765–8785）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-21</td><td>共享目录可查看与更换（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-20</td><td rowspan="5">服务控制</td><td>一键启动/停止；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-21</td><td>共享目录可查看与更换：手动输入或点「选择」弹原生目录框直接选取（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-22</td><td>运行状态徽标常驻（三圆点波浪动效），出现在桌面顶栏、网页顶栏与服务控制卡</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡（IP 变化自动重生成）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-24</td><td>关窗收托盘、托盘菜单（显示窗口 / 启停服务 / 打开网页 / 退出）、首次收纳系统通知</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -164,6 +164,8 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：对接 GitHub Releases，启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-71</td><td>运行参数服务端统一下发：昵称/消息长度上限、轮询间隔等由服务接口携带，网页端自动跟随（改服务端配置重启即全端生效，无需重新构建前端）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-72</td><td rowspan="2">维护</td><td>多平台自动发版：推送 v* 标签自动构建 macOS（.app/.dmg）、Windows（.msi/.exe）、Android（通用 APK，debug 签名可直接安装）并挂载到 Release</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-73</td><td>一键发版脚本：<code>scripts/release.sh X.Y.Z</code> 自动完成升版本/提交/打标签/推送（含网络兜底）并验证构建触发</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 </table>
 </section>
 

@@ -28,7 +28,7 @@ export const NICK_MAX = 20;         // 启动兜底; /api/info 下发 nickMax �
 export const MSG_MAX = 2000;        // 启动兜底; /api/info 下发 msgMax 覆盖(config.rs MSG_MAX_CHARS)
 
 /* ---------- 服务 ---------- */
-export const DEFAULT_PORT = 8765;   // [同步: config.rs DEFAULT_PORT]
+export const DEFAULT_PORT = 1688;   // [同步: config.rs DEFAULT_PORT]
 
 /* ---------- API 路径 ---------- */
 export const API = {

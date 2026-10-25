@@ -18,11 +18,11 @@ pub const POLL_LOGS_MS: u64 = 2000;
 
 // ---- 服务端口 ---- //
 /// 默认端口 [同步: config.js DEFAULT_PORT]
-pub const DEFAULT_PORT: u16 = 8765;
+pub const DEFAULT_PORT: u16 = 1688;
 /// 首选端口被占用时向后顺延探测个数
 pub const PORT_PROBE_EXTRA: u16 = 20;
 /// 兜底扫描范围上界(不含), 即 DEFAULT_PORT..PORT_RANGE_END
-pub const PORT_RANGE_END: u16 = 8786;
+pub const PORT_RANGE_END: u16 = 1708;
 
 // ---- 聊天 ---- //
 /// 服务端保留的聊天条数
