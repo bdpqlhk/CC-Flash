@@ -35,6 +35,8 @@ fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) 
     }
 }
 
+/// 移动端入口: tauri 需要该宏生成 JNI 运行时符号(Android/iOS 胶水层调用)
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())

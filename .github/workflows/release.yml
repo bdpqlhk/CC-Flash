@@ -77,6 +77,9 @@ jobs:
       - name: 定位 Android NDK
         run: echo "NDK_HOME=$(ls -d $ANDROID_HOME/ndk/* | head -1)" >> "$GITHUB_ENV"
 
+      - name: 接受 Android SDK 许可
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+
       - name: 安装前端依赖
         run: npm install
 
@@ -85,7 +88,7 @@ jobs:
         run: npm run tauri android init
 
       - name: 构建 Android debug APK
-        run: npm run tauri android build --apk --debug
+        run: npx tauri android build --apk --debug
 
       - name: 上传 APK 到 Release
         uses: softprops/action-gh-release@v2
