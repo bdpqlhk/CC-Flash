@@ -1,5 +1,5 @@
 # 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
-# 覆盖: macOS(.app/.dmg) · Windows(.msi/.exe) · Android(debug .apk)
+# 覆盖: macOS(.app/.dmg) · Windows(.msi/.exe) · Android(.apk, debug 签名可直接安装)
 # iOS: 真机 ipa 必须 Apple 开发者账号签名(证书配成 Secrets), 有账号后取消注释 ios job 即可
 name: Release 构建
 
@@ -87,13 +87,16 @@ jobs:
         if: ${{ ! hashFiles('src-tauri/gen/android/**') }}
         run: npm run tauri android init
 
-      - name: 构建 Android debug APK
-        run: npx tauri android build --apk --debug
+      - name: 构建 Android release APK(tauri 模板默认 debug 签名, 可直接安装)
+        run: npx tauri android build --apk
+
+      - name: 重命名产物
+        run: cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "CC-Flash-${{ github.ref_name }}-android.apk"
 
       - name: 上传 APK 到 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          files: CC-Flash-${{ github.ref_name }}-android.apk
 
   # ---- iOS(模板): 真机 ipa 需要 Apple 开发者账号 ----
   # 前置: ① 付费开发者账号($99/年) ② 证书.p12 与描述文件.mobileprovision 上传为仓库 Secrets
