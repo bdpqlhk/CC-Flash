@@ -77,12 +77,12 @@ jobs:
       - name: 定位 Android NDK
         run: echo "NDK_HOME=$(ls -d $ANDROID_HOME/ndk/* | head -1)" >> "$GITHUB_ENV"
 
+      - name: 安装前端依赖
+        run: npm install
+
       - name: 初始化 Android 工程(首次)
         if: ${{ ! hashFiles('src-tauri/gen/android/**') }}
         run: npm run tauri android init
-
-      - name: 安装前端依赖
-        run: npm install
 
       - name: 构建 Android debug APK
         run: npm run tauri android build --apk --debug

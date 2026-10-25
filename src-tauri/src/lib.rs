@@ -1,24 +1,28 @@
 //! CC-Flash · Tauri 桌面壳
 //! 职责:托盘(关窗收到托盘,服务不停) + 启动时自动拉起局域网文件服务。
 
+use tauri::Manager;
+// 托盘为桌面专属能力, 移动端构建不编译这部分
+#[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
 };
 use tauri_plugin_notification::NotificationExt;
 
 mod config;
 mod server;
 
+#[cfg(desktop)]
 static TRAY_TIP_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 关窗 = 收到托盘(服务继续运行);托盘菜单「退出」才真正结束进程。
+#[cfg(desktop)]
 fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) {
     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
         api.prevent_close();
         let _ = window.hide();
-        // 首次收起托盘: 系统通知提醒(与 PyQt 版气泡行为一致)
+        // 首次收起托盘: 系统通知提醒
         if !TRAY_TIP_SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed) {
             let _ = window
                 .app_handle()
@@ -45,6 +49,9 @@ pub fn run() {
             server::copy_file_cmd
         ])
         .setup(|app| {
+            // ---- 托盘 + 关窗收纳(桌面专属; 移动端无托盘概念) ----
+            #[cfg(desktop)]
+            {
             // ---- 托盘:显示主窗口 / 启停服务 / 打开网页 / 退出 ----
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let toggle = MenuItem::with_id(app, "toggle", "启动/停止服务", true, None::<&str>)?;
@@ -88,6 +95,7 @@ pub fn run() {
                 let w2 = w.clone();
                 w.on_window_event(move |event| main_window_event(&w2, event));
             }
+            } // #[cfg(desktop)]
 
             // ---- 自动拉起局域网服务(端口被占用自动 +1 重试) ----
             match server::autostart() {
