@@ -8,6 +8,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
+mod config;
 mod server;
 
 static TRAY_TIP_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -23,7 +24,7 @@ fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) 
                 .app_handle()
                 .notification()
                 .builder()
-                .title("CC-Flash 仍在运行")
+                .title(format!("{} 仍在运行", config::APP_NAME))
                 .body("窗口已收到托盘，服务保持运行。点托盘图标可重新打开；退出请用其菜单中的「退出」。")
                 .show();
         }
@@ -51,7 +52,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &toggle, &web, &quit])?;
             let mut tray = TrayIconBuilder::with_id("main-tray")
-                .tooltip("CC-Flash")
+                .tooltip(config::APP_NAME)
                 .menu(&menu)
                 .on_menu_event(|app, ev| match ev.id().as_ref() {
                     "quit" => app.exit(0),

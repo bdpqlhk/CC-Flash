@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CC-Flash · 保姆级使用说明 v1.0.0</title>
+<title>CC-Flash · 保姆级使用说明</title>
 <style>
 :root{
   --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
@@ -71,7 +71,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <main>
 <header class="doc">
 <h1>👋 CC-Flash · 保姆级使用说明</h1>
-<div class="meta">v1.0.0 · 局域网高速文件互传 · 电脑开机当服务器，手机扫码就能传</div>
+<div class="meta">局域网高速文件互传 · 电脑开机当服务器，手机扫码就能传 · 2026-10-25</div>
 </header>
 
 <!-- ================= 1 ================= -->
@@ -91,7 +91,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <!-- ================= 2 ================= -->
 <section id="s2">
 <h2><span class="no">2</span>安装（macOS）</h2>
-<div class="step"><div class="n">1</div><div>拿到 <code>CC-Flash_1.0.0_aarch64.dmg</code>，双击打开。</div></div>
+<div class="step"><div class="n">1</div><div>拿到安装包（如 <code>CC-Flash_aarch64.dmg</code>，版本号见文件名），双击打开。</div></div>
 <div class="step"><div class="n">2</div><div>把 <b>CC-Flash</b> 拖入「应用程序」文件夹。</div></div>
 <div class="step"><div class="n">3</div><div>首次打开若提示「无法验证开发者」：在启动台右键点它 → <b>打开</b> → 再点「打开」即可（仅第一次需要）。</div></div>
 <p class="small">Windows 版（.msi/.exe）将在 Windows 平台验证后提供。</p>
@@ -176,6 +176,13 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 </ul>
 <h3>6.4 皮肤设置</h3>
 <p>五套深色主题：深空蓝 / 石墨灰 / 极光蓝 / 护眼暖黑 / 暗夜紫。点色块立即换色并记住选择，手机端页面同步换色。「护眼暖黑」适合夜间长时间使用。</p>
+<h3>6.5 版本与更新</h3>
+<ul>
+<li>「关于」卡显示<b>当前版本</b>，点「检查更新」会去 GitHub 查询最新版本（需要电脑能访问 GitHub）；</li>
+<li>有新版本会弹框对比当前/最新版本和更新说明，点「<b>前往下载</b>」直接打开下载页；</li>
+<li>平时不用管：软件每天最多自动静默检查一次，有新版才提醒；</li>
+<li>页面底部有版权页脚 <code>© 2026-现在 by hangkun.li</code>。</li>
+</ul>
 </section>
 
 <!-- ================= 7 ================= -->
@@ -186,7 +193,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <h3>7.2 页面长什么样</h3>
 <ul>
 <li>顶部：运行状态徽标 + 地址栏（点一下全选）+ 复制/二维码按钮；下面是四格小卡（本机 IP、端口、文件数、总大小）；</li>
-<li>如果服务停了或电脑地址变了，页面顶部约 10 秒内会出现黄色横幅「与服务失去连接」——去电脑端拿最新地址重新打开即可；</li>
+<li>如果服务停了或电脑地址变了，约 5 秒后整个页面会变成「<b>无信号</b>」测试卡画面（电视没信号那种），并提示去电脑端查看最新地址——重新打开即可；</li>
 <li>中部：上传区 + 共享文件列表；</li>
 <li>右下角：<b>💬 悬浮球</b>——聊天入口，有新消息会显示红色未读数。</li>
 </ul>
@@ -234,8 +241,9 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <div class="qa"><div class="q">Q7：聊天记录重启后没了？</div>正常。聊天是临时接力用的，服务端只保留最近 200 条，重启即清空。</div>
 <div class="qa"><div class="q">Q8：别人能看到我的聊天/删我的文件吗？</div>同一 Wi-Fi 下打开页面的人都能操作——这就是「可信局域网」工具的定位。请在可信网络使用，不要把地址发给外网的人。</div>
 <div class="qa"><div class="q">Q9：电脑 IP 变了怎么办？</div>桌面端 5 秒内会弹提示并更新二维码，手机改用新地址重开即可（已打开的旧页面会失联，属正常）。</div>
-<div class="qa"><div class="q">Q10：服务停了之后，手机上已打开的页面会怎样？</div>约 10 秒内页面顶部会出现黄色横幅「与服务失去连接」——服务没了就无法再通信，这是网络原理；到电脑端重新启动服务，横幅会自动消失（前提是地址没变）。</div>
-<div class="qa"><div class="q">Q11：对方上传的文件我这边列表迟迟看不到？</div>列表每 5 秒自动同步；急的话点一下 ↻ 刷新（转圈表示正在拉取）。</div>
+<div class="qa"><div class="q">Q10：服务停了之后，手机上已打开的页面会怎样？</div>约 5 秒后整页变成「无信号」测试卡画面——服务没了就无法再通信，这是网络原理；到电脑端重新启动服务，画面会自动恢复（前提是地址没变）。</div>
+<div class="qa"><div class="q">Q11：对方上传的文件我这边列表迟迟看不到？</div>列表每 5 秒自动同步；急的话点一下 ↻ 刷新（转圈表示正在拉取）。删除文件后列表会立即刷新，不用等。</div>
+<div class="qa"><div class="q">Q12：点「检查更新」提示失败？</div>检查更新需要电脑能访问 GitHub。失败不影响软件任何功能；也可以直接去项目的 Releases 页面手动下载最新版。</div>
 </section>
 
 <!-- ================= 11 ================= -->
@@ -260,7 +268,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <p class="small">默认共享目录：<code>~/CC-Flash</code>。卸载软件前记得先把需要的文件从这里取走。</p>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash v1.0.0 · 保姆级使用说明 · 2026-10-23 · 与《需求设计文档》《技术实现文档》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 保姆级使用说明 · 2026-10-25 · 与《需求设计文档》《技术实现文档》配套阅读</p>
 </main>
 </div>
 </body>

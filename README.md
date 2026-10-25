@@ -1,69 +1,81 @@
-# CC-Flash · Tauri 重构版(Rust + Vue3)
+# CC-Flash · 局域网高速文件互传
 
-CC-Flash 的 Tauri 重构实验线:**Rust(axum) 重写文件服务核心 + Vue3 重写布局E 网页端**,
-目标体积 ~5-12MB(PyQt6 版为 56MB)。协议与 Python 版完全一致,网页端 API 不变。
+电脑开机当服务器，手机扫码就能传。同一 Wi-Fi 下的手机、平板、电脑用浏览器互相传文件、发消息——**零登录、零公网、开箱即用**，速度就是路由器的速度。
 
-> 状态:**脚手架 + 首版实现,未经完整跨平台验证**。首次构建遇到问题优先对照本文「已知事项」。
+技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**。桌面端安装包 dmg 5.9 MB / .app 13.5 MB。
 
-## 前置要求
+## 功能特性
 
-- Rust 1.77+(rustup)
-- Node.js 18+
-- macOS:Xcode CLT;Windows:WebView2(Win10/11 一般自带)+ MSVC Build Tools
+- 📁 **文件互传**：拖拽 / 点击 / 粘贴上传（进度条+实时速率），流式下载，中文文件名完美支持
+- 💬 **聊天室**：同网段实时消息互通，昵称头像、链接可点击、轻量 Markdown
+- 📱 **三端形态**：桌面窗口（托盘常驻）/ 电脑浏览器双栏 / 手机浏览器单列+悬浮球，同一份页面自适应
+- 🎨 **5 套深色皮肤**：深空蓝 / 石墨灰 / 极光蓝 / 护眼暖黑 / 暗夜紫，即点即换全端同步
+- 🛡 **安全防护**：路径穿越双重防护、聊天消息转义防 XSS、上传磁盘预检+半截文件自清理
+- 🔄 **自动更新检查**：对接 GitHub Releases，发现新版本弹框提示、一键前往下载
+- ⚙️ **配置集中管理**：前后端各一个配置中心，运行参数由服务端统一下发，改一处全端生效
 
-## 开发运行
+## 快速开始
+
+### 用户（下载安装包）
+
+前往 [Releases 页面](https://github.com/bdpqlhk/CC-Flash/releases) 下载对应平台安装包：
+
+- macOS：`.dmg`，双击拖入「应用程序」
+- Windows：`.msi` / `.exe` 安装包或绿色单文件
+
+打开软件服务即自动启动（默认端口 8765，被占用自动顺延），手机扫码或输入窗口里的地址即可使用。
+
+### 开发者（源码构建）
 
 ```bash
-cd tauri
+# 前置：Rust 1.77+ / Node.js 18+ / macOS 需 Xcode CLT；Windows 需 MSVC Build Tools + WebView2
 npm install
-npm run tauri dev     # 前端热更 + Rust 增量编译
+npm run tauri dev      # 开发运行：前端热更 + Rust 增量编译
+npm run check          # cargo check 快速校验 Rust 编译
+npm run tauri build    # 发布构建：自动产出 .app / .dmg / .msi
 ```
 
-应用启动时会自动在 127.0.0.1:8765 起 LAN 服务(被占用自动顺延到 8785),
-窗口内显示「控制台」(状态/地址/二维码/日志),手机浏览器访问同地址即为网页端。
-
-## 打包
-
-```bash
-npm run tauri build
-```
-
-> **图标**:首次打包前需要图标文件。任选一张方形 PNG 执行
-> `npm run tauri icon <图片路径>`(生成到 `src-tauri/icons/`),
-> 再把 `src-tauri/tauri.conf.json` 里 `bundle.active` 改为 `true`。
-
-## 目录
+## 目录结构
 
 ```
-tauri/
-├── package.json / vite.config.js / index.html   Vue3 + Vite 前端
+├── index.html / vite.config.js     # Vue3 + Vite 前端
 ├── src/
-│   ├── App.vue        布局E 页面(控制台/上传/文件分页/三色按钮/聊天/悬浮球)
-│   ├── style.css      布局E 样式
-│   └── main.js
+│   ├── App.vue                     # 全部界面与交互逻辑
+│   ├── config.js                   # 前端配置中心（轮询/阈值/API 路径/文案…）
+│   ├── update.js                   # 版本更新检查（GitHub Releases + 语义化比较）
+│   ├── style.css                   # 主题变量 + 全部样式（含 5 套皮肤）
+│   ├── main.js
+│   └── assets/                     # 内嵌静态资源（如失联提示图）
+├── docs/                           # 需求设计 / 技术实现 / 使用说明 / 历史改动记录
+├── scripts/                        # 多平台打包脚本
 └── src-tauri/
-    ├── Cargo.toml / tauri.conf.json
+    ├── Cargo.toml                  # 版本号唯一来源
+    ├── tauri.conf.json
     └── src/
-        ├── lib.rs      Tauri 壳:托盘 + 关窗收到托盘 + 服务自启
-        ├── server.rs   axum 文件服务:files/download/upload/delete/chat/info/control
-        └── main.rs
+        ├── main.rs
+        ├── lib.rs                  # Tauri 壳：托盘 + 关窗收纳 + 服务自启
+        ├── config.rs               # Rust 配置中心（端口/限制/白名单…，随接口下发前端）
+        └── server.rs               # axum 局域网服务：文件/聊天/日志/控制 API
 ```
 
-## 与 Python 版的协议对照
+## 配置说明
 
-| API | 行为 | 一致性 |
-|---|---|---|
-| GET /api/files | 名称/大小/修改时间,倒序 | ✅ |
-| GET /api/download/:name | 流式下载,RFC5987 中文名 | ✅ |
-| POST /api/upload | 头 X-Filename(URL 编码)+ 原始体;磁盘空间预检;失败清理半截文件 | ✅ |
-| GET/POST /api/chat | 昵称≤20 字,消息≤2000 字,保留 200 条 | ✅ |
-| DELETE /api/delete/:name | 删除 | ✅ |
-| GET /api/info · /api/control/* | Tauri 新增:桌面控制台用(无鉴权,与该版本线信任模型一致) | 🆕 |
+- **服务端**（`src-tauri/src/config.rs`）：端口与顺延范围、聊天保留条数、昵称/消息长度上限、日志容量、共享目录等，是运行参数的唯一事实源；
+- **下发机制**：`GET /api/info` 与桌面端状态接口均携带 `version` 与 `config` 字段，网页端启动后自动跟随服务端参数——改 Rust 配置并重启服务即可，无需重新构建前端；
+- **前端**（`src/config.js`）：仅承载纯界面行为（轮询兜底值、分页大小、话术文案、存储键等），与服务端约定项以 `[同步: …]` 注释互相指向；
+- **版本号**：只在 `src-tauri/Cargo.toml` 修改一处，桌面端展示、更新检查、接口下发全部自动同源。
 
-## 已知事项
+## 安全须知
 
-- `bundle.active` 默认关闭:未生成图标前打不了安装包,dev/`tauri build` 的绿色 exe 不受影响
-- `src-tauri/src/server.rs` 引用 `../dist`(前端构建产物),`npm run tauri build` 会自动先构建前端;
-  单独 `cargo build` 前需至少手动跑过一次 `npm run build`
-- 服务日志为本地时间(chrono),请求行含方法/路径/状态/耗时/来源 IP/设备;聊天与控制台日志轮询不记录
-- 控制台接口无鉴权,信任模型与 v2.0.x Python 版一致(可信局域网使用)
+本工具面向**可信局域网**（家庭、可信办公网）：同一网络的任何人都能查看/下载/删除共享文件、发言，接口无密码。请勿在公共 Wi-Fi 使用，勿将服务地址暴露给外网。
+
+## 文档
+
+- [需求设计文档](docs/需求设计文档.html)
+- [技术实现文档](docs/技术实现文档.html)
+- [保姆级使用说明](docs/保姆级使用说明.html)
+- [整个过程历史改动记录](docs/整个过程历史改动记录_2026-10-23至2026-10-25.html)
+
+---
+
+© 2026-现在 by hangkun.li

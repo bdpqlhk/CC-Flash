@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CC-Flash · 需求设计文档 v1.0.0</title>
+<title>CC-Flash · 需求设计文档</title>
 <style>
 :root{
   --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
@@ -79,10 +79,9 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 需求设计文档</h1>
 <div class="meta">
-<span>版本：<b>v1.0.0（Tauri 重构线）</b></span>
-<span>文档日期：<b>2026-10-23</b></span>
+<span>文档日期：<b>2026-10-25</b></span>
 <span>状态：<b>已实现，macOS 包已出</b></span>
-<span>前身：<b>lan-file-transfer-v2（PyQt6 版 56MB）</b></span>
+<span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
 </header>
 
@@ -95,13 +94,13 @@ pre code{background:none;color:inherit;padding:0}
 <li>手机 / 平板 / 电脑<b>用浏览器扫码即可访问</b>，无需安装任何 App；</li>
 <li>支持文件上传 / 下载 / 删除 / 分享，以及一个轻量聊天室。</li>
 </ul>
-<h3>1.1 重构目标（为什么用 Tauri 重写）</h3>
+<h3>1.1 技术形态</h3>
 <table>
-<tr><th>维度</th><th>PyQt6 旧版（v2 线）</th><th>Tauri 新版（本线）</th></tr>
-<tr><td>安装包体积</td><td>约 56 MB</td><td class="small">目标 5–12 MB；实际 <b>dmg 5.9 MB / .app 13.5 MB</b> ✅</td></tr>
-<tr><td>技术栈</td><td>Python + PyQt6（桌面 UI 即网页的替代）</td><td>Rust(axum) 后端 + Vue3 前端 + Tauri 2 壳</td></tr>
-<tr><td>网页端</td><td>独立 webui 模块</td><td>与桌面端同一份 Vue 页面，按运行环境自适应双形态</td></tr>
-<tr><td>协议兼容</td><td>—</td><td>与 Python 版 API 协议完全一致（见技术文档第 10 节）</td></tr>
+<tr><th>维度</th><th>形态</th></tr>
+<tr><td>技术栈</td><td>Rust(axum) 局域网服务 + Vue3 前端 + Tauri 2 桌面壳</td></tr>
+<tr><td>安装包体积</td><td><b>dmg 5.9 MB / .app 13.5 MB</b>（目标 5–12 MB ✅）</td></tr>
+<tr><td>网页端</td><td>与桌面端同一份 Vue 页面，按运行环境自适应：桌面侧栏三页 / 电脑浏览器双栏 / 手机单列+悬浮球</td></tr>
+<tr><td>页面托管</td><td>前端产物由服务端直接托管，手机扫码即用，无独立部署步骤</td></tr>
 </table>
 
 <h3>1.2 产品原则</h3>
@@ -129,7 +128,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>临时接力</b>：开会时把会议纪要丢进聊天室，所有人立即可见可复制。</li>
 </ol>
 <div class="callout c-info"><b>运行形态说明</b>
-桌面窗口关闭 = 收纳到系统托盘（服务不停，首次会发系统通知）；托盘菜单「退出」才是真正结束。这是与 PyQt 版对齐的行为。</div>
+桌面窗口关闭 = 收纳到系统托盘（服务不停，首次会发系统通知）；托盘菜单「退出」才是真正结束。</div>
 </section>
 
 <!-- ================= 3 ================= -->
@@ -156,12 +155,15 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-30</td><td rowspan="3">服务日志</td><td>逐请求记录：方法/路径/状态/大小/耗时/来源 IP/设备与昵称；业务事件（上传开始/完成/中断/拒绝、下载、删除、聊天、启停）独立记录；本地时间带毫秒</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-31</td><td>高频轮询噪音豁免（聊天、状态、日志拉取、favicon）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-32</td><td>「清空日志」按钮，清空后保留一条标记线确认生效</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-40</td><td rowspan="4">网页端</td><td>电脑浏览器：PyQt 风格单页——标题头部、状态徽标+地址栏+四格统计同卡、左文件右聊天 1:1 双栏</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-40</td><td rowspan="4">网页端</td><td>电脑浏览器：经典工具风格单页——标题头部、状态徽标+地址栏+四格统计同卡、左文件右聊天 1:1 双栏</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-41</td><td>手机浏览器：单列堆叠 + 右下角悬浮球（未读数）+ 底部聊天面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-42</td><td>面板打开时锁定背景滚动，面板内滑动不穿透；每 5s 刷新状态/IP；窄屏统计为 2×2 独立描边小卡</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-43</td><td>断连横幅：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 10s）即在顶部展示醒目提示「与服务失去连接」，恢复可达自动消失（桌面端走进程内通信，无此场景）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-50</td><td>外观</td><td>5 套深色皮肤（深空蓝/石墨灰/极光蓝/护眼暖黑/暗夜紫），即时生效并记忆，三级文字色随主题色相联动</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据，删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-50</td><td rowspan="2">外观</td><td>5 套深色皮肤（深空蓝/石墨灰/极光蓝/护眼暖黑/暗夜紫），即时生效并记忆，三级文字色随主题色相联动</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-51</td><td>页脚版权：桌面与网页端页面底部统一展示「© 2026-现在 by hangkun.li」，内容短时贴底、长时顺延</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：对接 GitHub Releases，启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-71</td><td>运行参数服务端统一下发：昵称/消息长度上限、轮询间隔等由服务接口携带，网页端自动跟随（改服务端配置重启即全端生效，无需重新构建前端）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 </table>
 </section>
 
@@ -204,7 +206,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>头像</b>：昵称哈希 → 24 个 emoji 池映射，同昵称恒定同头像；</li>
 <li><b>未读</b>：悬浮球角标显示未读数（99+ 封顶）；电脑端在聊天页时、手机面板打开时自动消红点；</li>
 <li><b>链接化</b>：先 HTML 转义再匹配 URL 包裹为链接（防 XSS）；桌面窗口点击链接用系统浏览器打开；</li>
-<li><b>清空数据</b>：仅清空本窗口显示（与 PyQt「清空显示」语义一致），不影响服务端与他人；期间若又有新消息则自动恢复显示。</li>
+<li><b>清空数据</b>：仅清空本窗口显示，不影响服务端与他人；期间若又有新消息则自动恢复显示。</li>
 </ul>
 </section>
 
@@ -221,7 +223,7 @@ pre code{background:none;color:inherit;padding:0}
 <h3>6.2 IP 变化可靠性需求（FR-60）</h3>
 <p>服务绑定 <code>0.0.0.0</code>，DHCP 换 IP 不会中断服务，但客户端手里的旧地址会失联（表现为连接超时）。因此要求：</p>
 <ul>
-<li>前端每 5 秒刷新一次状态；检测到 IP 变化 → 地址栏/二维码/统计立即换新，并弹醒目提示「本机 IP 已变为 x.x.x.x，手机请改用新地址访问」；</li>
+<li>前端每 2.5 秒刷新一次状态；检测到 IP 变化 → 地址栏/二维码/统计立即换新，并弹醒目提示「本机 IP 已变为 x.x.x.x，手机请改用新地址访问」；</li>
 <li>已打开的旧页面无法自救（旧 IP 已失联），必须以桌面端提示的新地址重开——这是本需求的边界。</li>
 </ul>
 </section>
@@ -242,7 +244,7 @@ pre code{background:none;color:inherit;padding:0}
 <!-- ================= 8 ================= -->
 <section id="s8">
 <h2><span class="no">8</span>网页端（浏览器）模块</h2>
-<h3>8.1 电脑浏览器布局（对照 PyQt 版）</h3>
+<h3>8.1 电脑浏览器布局</h3>
 <ol>
 <li>标题头部：应用 logo + 「CC-Flash / 局域网高速文件共享」；</li>
 <li>顶部大卡：状态徽标 + 地址栏（HTTP 前缀 + 完整地址）+ 复制 + 二维码按钮；下方四格统计（本机 IP 蓝色 / 端口 / 文件数 / 总大小 白色），无边框分格；</li>
@@ -288,7 +290,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>运行徽标（底色）</td><td>深绿底 + 绿描边 + 内外双层光晕</td><td>静态</td></tr>
 <tr><td>停止徽标</td><td>三颗灰点静止 + 「○ 已停止」</td><td>无动画</td></tr>
 <tr><td>复制按钮</td><td>点击后瞬时变绿色 ✓（成功态）</td><td>1.5s 后还原</td></tr>
-<tr><td>刷新按钮</td><td>手动刷新加载期间整体旋转（转圈）并变主题蓝，结束还原</td><td>0.7s/圈，随加载时长</td></tr>
+<tr><td>刷新按钮</td><td>手动刷新加载期间整体旋转（转圈）并变主题蓝、描边同步点亮，结束还原；最短转一圈防止"看起来没刷新"</td><td>0.55s/圈，最短 600ms</td></tr>
 <tr><td>卡片入场</td><td>淡入上移</td><td>0.25s ease</td></tr>
 <tr><td>面板呼出</td><td>底部上滑</td><td>0.3s cubic-bezier(0.32,0.72,0.32,1)</td></tr>
 <tr><td>Toast</td><td>右下角滑入，左侧彩条区分成功/错误</td><td>停留 2.4s</td></tr>
@@ -324,8 +326,8 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>传输性能</td><td>流式分块（1MB），不整载入内存；大文件下载（浏览器）可显示进度</td><td>✅</td></tr>
 <tr><td>反馈完备</td><td>所有用户动作有可见结果（toast / 状态变化 / 日志）</td><td>✅</td></tr>
 <tr><td>容错</td><td>端口冲突自动顺延；上传中断清理；磁盘不足拒绝；窗口就绪竞态自动重试</td><td>✅</td></tr>
-<tr><td>浏览器兼容</td><td>兼容约 2017 年起的内核（Safari 10.1+ 及国产套壳），旧内核给出升级提示</td><td>✅（v2 线经验沿用）</td></tr>
-<tr><td>状态新鲜度</td><td>状态/IP 5s 刷新；日志 2s；聊天 3s；文件列表 5s 自动同步</td><td>✅</td></tr>
+<tr><td>浏览器兼容</td><td>兼容约 2017 年起的内核（Safari 10.1+ 及国产套壳），旧内核给出升级提示</td><td>✅</td></tr>
+<tr><td>状态新鲜度</td><td>状态/IP 2.5s 刷新（失联判定 = 连续 2 次失败 ≈ 5s）；日志 2s；聊天 3s；文件列表 5s 自动同步；以上间隔支持服务端下发调整</td><td>✅</td></tr>
 </table>
 </section>
 
@@ -333,7 +335,7 @@ pre code{background:none;color:inherit;padding:0}
 <section id="s13">
 <h2><span class="no">13</span>安全模型与边界</h2>
 <div class="callout c-warn"><b>信任模型</b>
-与 v2.0.x Python 版一致：<b>可信局域网</b>使用。控制台接口（启停/日志/清空）与文件接口均无鉴权——请只在可信 Wi-Fi 下使用，不要把端口暴露到公网。</div>
+<b>可信局域网</b>使用。控制台接口（启停/日志/清空）与文件接口均无鉴权——请只在可信 Wi-Fi 下使用，不要把端口暴露到公网。</div>
 <h3>13.1 内置防护</h3>
 <ul>
 <li><b>路径穿越双重防护</b>：URL 解码 → 取 basename（拒绝空/./..）→ 与共享目录拼接后 canonicalize 校验前缀越界；</li>
@@ -378,16 +380,17 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">16</span>设计取舍与已知边界</h2>
 <table>
 <tr><th>事项</th><th>取舍 / 边界</th></tr>
-<tr><td>无鉴权</td><td>对齐 v2.0.x 信任模型；如需公网/半可信网络，需另行加配对令牌（v2.1 思路）</td></tr>
-<tr><td>轮询而非推送</td><td>聊天 3s / 日志 2s / 状态 5s 轮询，实现简单且协议与 Python 版一致；WebSocket 留待后续</td></tr>
+<tr><td>无鉴权</td><td>可信局域网定位；如需公网/半可信网络，需另行加配对令牌（后续演进思路）</td></tr>
+<tr><td>轮询而非推送</td><td>聊天 3s / 日志 2s / 状态 2.5s 轮询，实现简单、兼容性好；WebSocket 留待后续</td></tr>
 <tr><td>大文件下载阈值</td><td>浏览器端 &gt;1GB 回退原生下载（避免 blob 占内存），此场景无"完成"回调，会明确提示</td></tr>
 <tr><td>聊天持久化</td><td>仅内存 200 条，服务重启即清空（定位为临时接力，不做历史存档）</td></tr>
 <tr><td>跨平台</td><td>macOS 已出包验证；Windows（WebView2/MSVC）待验</td></tr>
-<tr><td>后续演进项<br>（暂不实施）</td><td><b>mDNS 域名发现（wft.local）</b>：IP 变化后旧书签/旧页面自动跟随新地址。方案：Rust 侧引入 <code>mdns-sd</code> 广播 <code>_http._tcp</code> + A 记录，复用 5s 探测在 IP 变化时重注册，断连横幅加"试试 wft.local"提示。<b>成本：约 60–80 行 / 半天。</b>硬限制：① Android 浏览器不解析 .local 主机名（系统限制），安卓用户无感；② 企业/访客网络常禁多播则静默失效；③ 同网段多实例名称冲突；④ 端口仍需手写（浏览器不读 SRV）。<b>触发条件：使用人群以 iPhone + 电脑为主时再做</b>；安卓为主的现有"断连横幅 + 桌面端新二维码"路径已更可靠。</td></tr>
+<tr><td>更新检查方式</td><td>采用「GitHub Releases 检查 + 浏览器下载」轻量方案：前端直连 Releases API（免鉴权、支持跨域），发现新版弹框跳转下载页。检查失败一律静默，不影响正常使用；应用内自更新留作后续演进</td></tr>
+<tr><td>后续演进项<br>（暂不实施）</td><td><b>mDNS 域名发现（wft.local）</b>：IP 变化后旧书签/旧页面自动跟随新地址。方案：Rust 侧引入 <code>mdns-sd</code> 广播 <code>_http._tcp</code> + A 记录，复用 2.5s 探测在 IP 变化时重注册，失联画面加"试试 wft.local"提示。<b>成本：约 60–80 行 / 半天。</b>硬限制：① Android 浏览器不解析 .local 主机名（系统限制），安卓用户无感；② 企业/访客网络常禁多播则静默失效；③ 同网段多实例名称冲突；④ 端口仍需手写（浏览器不读 SRV）。<b>触发条件：使用人群以 iPhone + 电脑为主时再做</b>；安卓为主的现有"失联画面 + 桌面端新二维码"路径已更可靠。</td></tr>
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash v1.0.0 · 需求设计文档 · 2026-10-23 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-10-25 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

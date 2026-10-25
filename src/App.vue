@@ -1,11 +1,50 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import QRCode from "qrcode";
+// 失联提示图: 构建期内联为 base64, 服务停止后无需再发请求
+import noSignalImg from "./assets/no-signal.png";
+// 可调参数集中管理(轮询/阈值/路径/文案等)
+import {
+  API, APP_VERSION_FALLBACK, AVATAR_POOL, BLOB_REVOKE_MS, COPIED_RESET_MS, CONTROL_RETRY_MS,
+  CONTROL_RETRY_TIMES, DEFAULT_NICK, DEFAULT_PORT, FOOTER_TEXT, ICON_MAP, IMG_EXTS, LS, MSG_MAX,
+  NARROW_MAX_PX, NICK_MAX, NATIVE_DOWNLOAD_OVER, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
+  POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
+  REL_TIME_MS, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
+  UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS,
+} from "./config";
+import { fetchLatestRelease, isNewer } from "./update";
+
+/* ---------- 运行参数: 下面是启动兜底值, 服务端(/api/info、control_status_cmd)下发后以其为准 ---------- */
+const appVersion = ref("");   // 应用版本, 唯一来源 Cargo.toml, 随状态接口下发
+const cfg = ref({
+  nickMax: NICK_MAX,
+  msgMax: MSG_MAX,
+  defaultNick: DEFAULT_NICK,
+  poll: { chat: POLL_CHAT_MS, files: POLL_FILES_MS, status: POLL_STATUS_MS, logs: POLL_LOGS_MS },
+});
+const _posNum = (v, fb) => (Number.isFinite(v) && v > 0 ? v : fb);
+function applyServerConfig(c) {
+  if (!c || typeof c !== "object") return;
+  const p = c.poll && typeof c.poll === "object" ? c.poll : {};
+  const oldPoll = JSON.stringify(cfg.value.poll);
+  cfg.value = {
+    nickMax: _posNum(c.nickMax, cfg.value.nickMax),
+    msgMax: _posNum(c.msgMax, cfg.value.msgMax),
+    defaultNick: (typeof c.defaultNick === "string" && c.defaultNick) || cfg.value.defaultNick,
+    poll: {
+      chat: _posNum(p.chat, cfg.value.poll.chat),
+      files: _posNum(p.files, cfg.value.poll.files),
+      status: _posNum(p.status, cfg.value.poll.status),
+      logs: _posNum(p.logs, cfg.value.poll.logs),
+    },
+  };
+  if (JSON.stringify(cfg.value.poll) !== oldPoll) startPolling();   // 间隔有变 → 重排定时器
+}
 
 /* ---------- 环境 ---------- */
 const isDesktop = "__TAURI_INTERNALS__" in window;
 // 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
-const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || 8765}` : ""));
+const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || DEFAULT_PORT}` : ""));
 function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
 /* 当前设备昵称(供日志/请求头使用) */
 function deviceNick() { return nickInput.value.trim() || autoNick; }
@@ -30,12 +69,12 @@ function applyTheme(t) {
 function setTheme(id) {
     theme.value = id;
     applyTheme(id);
-    try { localStorage.setItem("wft-theme", id); } catch (e) {}
+    try { localStorage.setItem(LS.theme, id); } catch (e) {}
 }
-try { theme.value = localStorage.getItem("wft-theme") || "default"; } catch (e) {}
+try { theme.value = localStorage.getItem(LS.theme) || "default"; } catch (e) {}
 
 /* ---------- 手机端(窄屏): 悬浮球 + 底部聊天面板 ---------- */
-const mq = window.matchMedia("(max-width: 980px)");
+const mq = window.matchMedia(`(max-width: ${NARROW_MAX_PX}px)`);
 const isNarrow = ref(mq.matches);
 const chatOpen = ref(false);
 // 手机聊天面板打开时锁定背后页面, 防止滑动穿透带动共享文件页滚动
@@ -64,26 +103,28 @@ const running = ref(false);
 const port = ref(0);
 const lanIp = ref("--");
 const logs = ref([]);
-const portInput = ref(8765);
+const portInput = ref(DEFAULT_PORT);
 const shareInput = ref("");
 const freeSpace = ref("--");
 async function refreshControl() {
   // 窗口就绪竞态下 invoke 可能短暂失败, 自动重试
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < CONTROL_RETRY_TIMES; i++) {
     try {
       const d = isDesktop
         ? await tauriInvoke("control_status_cmd")
-        : await (await fetch("/api/info")).json();
+        : await (await fetch(API.info)).json();
       running.value = d.running;
       port.value = d.port;
       lanIp.value = d.ip;
+      if (typeof d.version === "string") appVersion.value = d.version;
+      applyServerConfig(d.config);
       if (d.share) shareInput.value = d.share;
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
       if (!running.value && d.port) portInput.value = d.port;
       genQr();
       return;
     } catch (e) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, CONTROL_RETRY_MS));
     }
   }
 }
@@ -162,32 +203,22 @@ function copyText(text, okMsg) {
 const shareUrl = computed(() => `http://${lanIp.value}:${port.value}`);
 const copied = ref(false);
 function copyUrl() {
-  if (!running.value) { showToast("服务未启动", "error"); return; }
-  const text = shareUrl.value
-    + "\n\n🔔 温馨提示：请确保分享方和接收方在同一 Wi-Fi 下打开（不要使用魔法哦～）"
-    + "\n👀 一定要看：文件请尽快下载到本地，共享文件不保证长期有效。";
+  if (serviceDown()) { showToast("服务未启动", "error"); return; }
+  const text = shareUrl.value + TIP_COPY_URL;
   copyText(text, "链接和提示已复制，发给同一局域网的小伙伴即可打开");
   copied.value = true;
-  setTimeout(() => { copied.value = false; }, 1500);
+  setTimeout(() => { copied.value = false; }, COPIED_RESET_MS);
 }
 
 /* ---------- 文件列表 ---------- */
 const allFiles = ref([]);
 const sortBy = ref("time");
-const PAGE_SIZE = 8;
 const currentPage = ref(1);
 const refreshing = ref(false);
 
 function extFor(n) { const p = n.lastIndexOf("."); return p >= 0 ? n.slice(p + 1).toLowerCase() : ""; }
-function isImage(n) { return ["jpg","jpeg","png","gif","svg","webp","bmp","ico"].includes(extFor(n)); }
-function iconFor(n) {
-  const map = { pdf:"PDF",doc:"DOC",docx:"DOC",xls:"XLS",xlsx:"XLS",ppt:"PPT",pptx:"PPT",
-    exe:"EXE",msi:"MSI",dmg:"DMG",apk:"APK",mp4:"VID",mov:"VID",avi:"VID",mkv:"VID",webm:"VID",
-    mp3:"AUD",wav:"AUD",flac:"AUD",aac:"AUD",ogg:"AUD",zip:"ZIP",rar:"RAR","7z":"7Z",tar:"TAR",gz:"GZ",
-    py:"PY",js:"JS",ts:"TS",java:"JV",go:"GO",rs:"RS",c:"C",cpp:"CPP",html:"HTM",css:"CSS",
-    json:"JSN",xml:"XML",md:"MD",sql:"SQL",txt:"TXT",csv:"CSV",psd:"PSD",ai:"AI",sketch:"SK",fig:"FIG" };
-  return map[extFor(n)] || "FILE";
-}
+function isImage(n) { return IMG_EXTS.includes(extFor(n)); }
+function iconFor(n) { return ICON_MAP[extFor(n)] || "FILE"; }
 function fmtSize(b) {
   if (b === 0) return "0 B";
   const u = ["B","KB","MB","GB","TB"];
@@ -197,9 +228,9 @@ function fmtSize(b) {
 }
 function fmtTime(ts) {
   const d = new Date(ts * 1000), now = new Date(), diff = now - d;
-  if (diff < 60000) return "刚刚";
-  if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
-  if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+  if (diff < REL_TIME_MS.justNow) return "刚刚";
+  if (diff < REL_TIME_MS.minutes) return Math.floor(diff / REL_TIME_MS.justNow) + " 分钟前";
+  if (diff < REL_TIME_MS.hours) return Math.floor(diff / REL_TIME_MS.minutes) + " 小时前";
   return d.toLocaleDateString("zh-CN") + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -255,13 +286,15 @@ function toggleAll() {
 function clearSel() { selected.value = new Set(); }
 
 let loadingFiles = false;
+let reloadQueued = false;   // 在途时又收到刷新请求(如删除后) → 本轮结束后补拉一次, 不丢弃
 async function loadFiles(manual = false) {
-  if (loadingFiles) return;   // 上一轮在途不重复拉
+  if (loadingFiles) { reloadQueued = true; return; }
   loadingFiles = true;
+  const spinStart = Date.now();
   if (manual) refreshing.value = true;
   try {
     // 昵称走 URL 参数: 避免 X-Nickname 自定义头触发 CORS 预检, 刷新只需一次往返
-    const r = await fetch(apiBase.value + "/api/files?nick=" + encodeURIComponent(deviceNick()));
+    const r = await fetch(apiBase.value + API.files + "?nick=" + encodeURIComponent(deviceNick()));
     const d = await r.json();
     allFiles.value = d.files || [];
     // 清理已不存在的选中项
@@ -272,25 +305,30 @@ async function loadFiles(manual = false) {
     }
   } catch (e) { console.error(e); }
   loadingFiles = false;
-  if (manual) refreshing.value = false;
+  // 强制动画至少转一圈: 本地请求毫秒级完成, 否则"看起来没刷新"
+  if (manual) {
+    const wait = Math.max(0, REFRESH_SPIN_MS - (Date.now() - spinStart));
+    setTimeout(() => { refreshing.value = false; }, wait);
+  }
+  if (reloadQueued) { reloadQueued = false; loadFiles(false); }
 }
 
 /* ---------- 分享: 全平台统一复制链接(带温馨提示话术) ---------- */
 async function shareFile(name) {
+  if (serviceDown()) { showToast("服务已停止，无法分享", "error"); return; }   // 停服后链接打不开, 先拦截
   const base = isDesktop ? `http://${lanIp.value}:${port.value}` : location.origin;
-  const url = base + "/api/download/" + encodeURIComponent(name);
-  const note = "\n🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。";
-  copyText(url + note, "分享链接已复制：" + name);
+  const url = base + API.download(name);
+  copyText(url + TIP_SHARE, "分享链接已复制：" + name);
 }
 
 /* ---------- 下载(浏览器端): fetch 回来再触发保存, 才有"下载完成"时机 ---------- */
 async function downloadFileWeb(name) {
-  const url = apiBase.value + "/api/download/" + encodeURIComponent(name);
+  const url = apiBase.value + API.download(name);
   try {
     const r = await fetch(url);
     if (!r.ok) throw new Error("HTTP " + r.status);
     const len = Number(r.headers.get("Content-Length") || 0);
-    if (len > 1024 * 1024 * 1024) {
+    if (len > NATIVE_DOWNLOAD_OVER) {
       // 超大文件退回浏览器原生下载(流式省内存, 但无完成回调)
       try { r.body?.cancel(); } catch (e) {}
       window.location.href = url;
@@ -302,7 +340,7 @@ async function downloadFileWeb(name) {
     a.href = URL.createObjectURL(blob);
     a.download = name;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    setTimeout(() => URL.revokeObjectURL(a.href), BLOB_REVOKE_MS);
     showToast(`已下载：${name}${len ? " (" + fmtSize(len) + ")" : ""}`);
   } catch (e) {
     showToast("下载失败：" + (e.message || e), "error");
@@ -312,9 +350,20 @@ async function downloadFileWeb(name) {
 /* ---------- 删除(单个 / 批量) ---------- */
 const delTargets = ref([]);
 const showDel = ref(false);
-function confirmDelete(name) { delTargets.value = [name]; showDel.value = true; }
+// 服务是否不可用: 桌面看 running(按钮直控), 网页看 offline(失联判定)
+function serviceDown() { return isDesktop ? !running.value : offline.value; }
+// 服务不可用时先拦截删除, 给出友好提示, 而不是请求失败后报一串失败计数
+function offlineGuard() {
+  if (!serviceDown()) return false;
+  showToast("服务已停止，无法删除", "error");
+  return true;
+}
+function confirmDelete(name) {
+  if (offlineGuard()) return;
+  delTargets.value = [name]; showDel.value = true;
+}
 function confirmDeleteSelected() {
-  if (!selected.value.size) return;
+  if (!selected.value.size || offlineGuard()) return;
   delTargets.value = [...selected.value];
   showDel.value = true;
 }
@@ -322,17 +371,18 @@ function closeDel() { showDel.value = false; delTargets.value = []; }
 async function doDelete() {
   const targets = delTargets.value;
   showDel.value = false;
+  if (offlineGuard()) return;   // 弹窗期间服务停掉的兜底
   let ok = 0, fail = 0;
   for (const n of targets) {
     try {
-      const r = await fetch(apiBase.value + "/api/delete/" + encodeURIComponent(n), { method: "DELETE" });
+      const r = await fetch(apiBase.value + API.del(n), { method: "DELETE" });
       r.ok ? ok++ : fail++;
     } catch (e) { fail++; }
   }
   if (fail) showToast(`删除完成：成功 ${ok} 个，失败 ${fail} 个`, "error");
   else showToast(targets.length > 1 ? `已删除 ${ok} 个文件` : "已删除 「" + targets[0] + "」");
   selected.value = new Set();
-  loadFiles();
+  loadFiles(true);   // 手动刷新: 带旋转反馈; 与轮询在途竞争时由补拉机制保证不丢
 }
 
 /* ---------- 上传 ---------- */
@@ -352,7 +402,7 @@ function uploadFile(file) {
   const stat = () => uploads.value.find(u => u.id === id);
   try {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", apiBase.value + "/api/upload", true);
+    xhr.open("POST", apiBase.value + API.upload, true);
     xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
     xhr.setRequestHeader("X-File-Size", String(file.size));
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
@@ -371,7 +421,7 @@ function uploadFile(file) {
       if (xhr.status === 200) {
         it.pct = 100; it.status = "done";
         currentPage.value = 1; loadFiles();
-        setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, 1500);
+        setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
       } else {
         it.status = "error";
         showToast("上传失败: " + file.name, "error");
@@ -410,15 +460,15 @@ const chatBox = ref(null);
 const unread = computed(() => Math.max(0, chatCount.value - seenChat.value));
 const curNick = computed(() => nickInput.value.trim() || autoNick);
 function avatarFor(nick) {
-  const pool = ["😀","😄","😁","🤠","😎","🤓","🥳","😴","🙃","😇","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐧","🦉","🦄","🐙"];
+  const pool = AVATAR_POOL;
   let h = 0;
-  const s = nick || "匿名用户";
+  const s = nick || cfg.value.defaultNick;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return pool[Math.abs(h) % pool.length];
 }
 const autoNick = (() => {
   try {
-    let n = localStorage.getItem("lft-nick-auto") || "";
+    let n = localStorage.getItem(LS.nickAuto) || "";
     if (!n) {
       const ua = navigator.userAgent;
       let os = "设备";
@@ -434,14 +484,14 @@ const autoNick = (() => {
       else if (/Firefox\//.test(ua)) br = " Firefox";
       else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) br = " Safari";
       n = `${os}${br}-${Math.floor(1000 + Math.random() * 9000)}`;
-      localStorage.setItem("lft-nick-auto", n);
+      localStorage.setItem(LS.nickAuto, n);
     }
     return n;
-  } catch (e) { return "匿名用户"; }
+  } catch (e) { return cfg.value.defaultNick; }
 })();
-try { nickInput.value = localStorage.getItem("lft-nick") || autoNick; } catch (e) {}
+try { nickInput.value = localStorage.getItem(LS.nick) || autoNick; } catch (e) {}
 function saveNick() {
-  try { localStorage.setItem("lft-nick", nickInput.value.trim()); } catch (e) {}
+  try { localStorage.setItem(LS.nick, nickInput.value.trim()); } catch (e) {}
 }
 /* 聊天文本链接化: 先转义防 XSS, 再把 URL 包成可点击链接(桌面走系统浏览器) */
 function escHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
@@ -488,7 +538,7 @@ function clearChatDisplay() {
 }
 async function loadChat() {
   try {
-    const r = await fetch(apiBase.value + "/api/chat?nick=" + encodeURIComponent(deviceNick()));
+    const r = await fetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(deviceNick()));
     const d = await r.json();
     const msgs = d.messages || [];
     const old = chatCount.value;
@@ -508,7 +558,7 @@ async function sendChat() {
   const nickname = curNick.value;
   saveNick();
   try {
-    const r = await fetch(apiBase.value + "/api/chat?nick=" + encodeURIComponent(nickname), {
+    const r = await fetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(nickname), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nickname, message: text }),
@@ -525,46 +575,59 @@ let toastSeq = 0;
 function showToast(msg, type = "success") {
   const id = ++toastSeq;
   toasts.value.push({ id, msg, type });
-  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 2400);
+  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, TOAST_MS);
 }
 
 /* ---------- 生命周期 ---------- */
 let chatTimer = null;
 let logTimer = null;
 let filesTimer = null;
+let statusTimer = null;
+/* 轮询定时器统一启停: 服务端下发间隔变化时重排 */
+function startPolling() {
+  stopPolling();
+  chatTimer = setInterval(loadChat, cfg.value.poll.chat);
+  statusTimer = setInterval(refreshStatus, cfg.value.poll.status);   // 失联判定 ≈ OFFLINE_FAILS × 间隔
+  filesTimer = setInterval(() => loadFiles(false), cfg.value.poll.files);  // 文件列表自动同步(其他设备上传也能看到)
+  if (isDesktop) logTimer = setInterval(refreshLogs, cfg.value.poll.logs);
+}
+function stopPolling() {
+  clearInterval(chatTimer);
+  clearInterval(logTimer);
+  clearInterval(statusTimer);
+  clearInterval(filesTimer);
+}
 onMounted(() => {
   document.addEventListener("paste", onPaste);
   // F5 刷新文件列表(输入框聚焦时除外)
   const f5 = (e) => {
     if (e.key === "F5" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
-      e.preventDefault(); loadFiles();
+      e.preventDefault(); loadFiles(true);
     }
   };
   document.addEventListener("keydown", f5);
   onUnmounted(() => document.removeEventListener("keydown", f5));
   if (isDesktop) {
     refreshControl();
-    logTimer = setInterval(refreshLogs, 2000);
+    // 启动静默检查更新: 延迟触发(等 appVersion 下发到位) + 24h 频控, 失败/无更新均无感
+    setTimeout(() => {
+      if (Date.now() - lastCheckedAt() >= UPDATE_CHECK_INTERVAL_MS) checkUpdate(false);
+    }, UPDATE_CHECK_DELAY_MS);
   }
   loadFiles();
   loadChat();
-  chatTimer = setInterval(loadChat, 3000);
   refreshStatus();
-  statusTimer = setInterval(refreshStatus, 5000);
-  filesTimer = setInterval(() => loadFiles(false), 5000);  // 文件列表自动同步(其他设备上传也能看到)
+  startPolling();
 });
 onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
   document.body.style.overflow = "";
-  clearInterval(chatTimer);
-  clearInterval(logTimer);
-  clearInterval(statusTimer);
-  clearInterval(filesTimer);
+  stopPolling();
 });
 
 async function refreshLogs() {
   try {
-    const r = await fetch(apiBase.value + "/api/control/logs");
+    const r = await fetch(apiBase.value + API.logs);
     const d = await r.json();
     logs.value = d.logs || [];
   } catch (e) {}
@@ -573,7 +636,7 @@ async function refreshLogs() {
 async function clearLogs() {
   try {
     if (isDesktop) await tauriInvoke("control_clear_logs_cmd");
-    else await fetch(apiBase.value + "/api/control/logs/clear", { method: "POST" });
+    else await fetch(apiBase.value + API.logsClear, { method: "POST" });
     logs.value = [];
     showToast("日志已清空");
   } catch (e) {
@@ -581,8 +644,43 @@ async function clearLogs() {
   }
 }
 
+/* ---------- 版本更新(桌面端): 检查 → 弹框 → 浏览器下载 ---------- */
+const showUpdate = ref(false);
+const updateInfo = ref(null);      // { latest, notes, url }
+const checkingUpdate = ref(false);
+function markChecked() {
+  try { localStorage.setItem(LS.updateCheck, String(Date.now())); } catch (e) {}
+}
+function lastCheckedAt() {
+  try { return Number(localStorage.getItem(LS.updateCheck)) || 0; } catch (e) { return 0; }
+}
+function curVersion() { return appVersion.value || APP_VERSION_FALLBACK; }
+async function checkUpdate(manual = false) {
+  if (!isDesktop || checkingUpdate.value) return;
+  checkingUpdate.value = true;
+  const rel = await fetchLatestRelease();
+  checkingUpdate.value = false;
+  markChecked();
+  if (!rel) {
+    if (manual) showToast("检查更新失败，需要能访问 GitHub，请稍后再试", "error");
+    return;
+  }
+  if (!isNewer(rel.latest, curVersion())) {
+    if (manual) showToast(`当前已是最新版本 v${curVersion()}`);
+    return;
+  }
+  updateInfo.value = rel;
+  showUpdate.value = true;   // 弹出即记频控: 24h 内"稍后再说"不再打扰
+}
+function goDownload() {
+  const url = updateInfo.value?.url || RELEASES_PAGE;
+  tauriInvoke("open_url_cmd", { url })
+    .then(d => { if (!d.ok) window.open(url, "_blank"); })
+    .catch(() => window.open(url, "_blank"));
+  showUpdate.value = false;
+}
+
 /* ---------- 运行状态/IP 定期刷新: DHCP 换 IP 后地址栏/二维码/统计保持最新 ---------- */
-let statusTimer = null;
 let lastLanIp = "";
 let statusFail = 0;
 const offline = ref(false);   // 浏览器端与服务失联(服务停止/地址变更)
@@ -590,11 +688,13 @@ async function refreshStatus() {
   try {
     const d = isDesktop
       ? await tauriInvoke("control_status_cmd")
-      : await (await fetch("/api/info")).json();
+      : await (await fetch(API.info)).json();
     statusFail = 0;
     offline.value = false;
     running.value = d.running;
     port.value = d.port;
+    if (typeof d.version === "string") appVersion.value = d.version;
+    applyServerConfig(d.config);
     if (d.share && document.activeElement?.tagName !== "INPUT") shareInput.value = d.share;
     if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
     const ip = d.ip || "";
@@ -611,8 +711,18 @@ async function refreshStatus() {
       lastLanIp = ip;
     }
   } catch (e) {
-    // 浏览器端连续失败 → 判定与服务失联
-    if (!isDesktop && ++statusFail >= 2) offline.value = true;
+    // 浏览器端连续失败 → 判定与服务失联: 状态回落为"已停止", 共享列表/聊天数据一并清空不再展示
+    if (!isDesktop && ++statusFail >= OFFLINE_FAILS) {
+      offline.value = true;
+      running.value = false;
+      allFiles.value = [];
+      selected.value = new Set();
+      chatMsgs.value = [];
+      chatCount.value = 0;
+      seenChat.value = 0;
+      chatCleared.value = false;
+      clearedAt.value = 0;
+    }
   }
 }
 </script>
@@ -641,7 +751,7 @@ async function refreshStatus() {
         <div class="side-status" :class="{ on: running }">
           <span class="d"></span>{{ running ? `运行中 :${port}` : "已停止" }}
         </div>
-        <div class="side-ver">v1.0.0 · Tauri</div>
+        <div class="side-ver">{{ appVersion ? "v" + appVersion + " · Tauri" : "Tauri" }}</div>
       </div>
     </aside>
 
@@ -677,10 +787,6 @@ async function refreshStatus() {
 
       <!-- 网页端头部(PyQt 风格): 标题 + 地址栏 + 状态统计 -->
       <template v-else>
-        <!-- 断连横幅: 服务停止/地址变更时, 给已打开的旧页面明确提示 -->
-        <div v-if="offline" class="offline-banner">
-          ⚠️ 与服务的连接已断开 —— 服务可能已停止，或电脑地址已变更。请在电脑上查看最新地址后重新打开本页。
-        </div>
         <header class="web-head">
           <div class="web-logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
           <div>
@@ -833,7 +939,7 @@ async function refreshStatus() {
               <span class="avatar-chip" title="头像由昵称自动生成">{{ avatarFor(curNick) }}</span>
               <div class="chat-nickname">
                 <span style="font-size:11px;color:var(--text3)">昵称:</span>
-                <input v-model="nickInput" placeholder="匿名用户" maxlength="20" title="输入昵称，会自动记住" @change="saveNick" />
+                <input v-model="nickInput" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax" title="输入昵称，会自动记住" @change="saveNick" />
               </div>
             </div>
           </div>
@@ -849,7 +955,7 @@ async function refreshStatus() {
             </div>
           </div>
           <div class="chat-input-area">
-            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" maxlength="2000"
+            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
                    @keydown.enter.prevent="sendChat" />
             <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
           </div>
@@ -931,6 +1037,12 @@ async function refreshStatus() {
         <div class="card svc-about">
           <h3>关于</h3>
           <p class="about-text">CC-Flash（曹操是快😂）—— 局域网文件互传工具：电脑启动服务，手机/平板/电脑浏览器打开地址即可上传/下载/分享/聊天。</p>
+          <div class="about-ver">
+            <span class="ver-chip">当前版本 v{{ curVersion() }}</span>
+            <button class="btn btn-ghost" style="height:28px" :disabled="checkingUpdate" @click="checkUpdate(true)">
+              {{ checkingUpdate ? "检查中…" : "检查更新" }}
+            </button>
+          </div>
         </div>
       </template>
 
@@ -995,7 +1107,7 @@ async function refreshStatus() {
                   <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
                 </label>
                 <div class="file-thumb">
-                  <img v-if="isImage(f.name)" :src="apiBase + '/api/download/' + encodeURIComponent(f.name)" loading="lazy"
+                  <img v-if="isImage(f.name)" :src="apiBase + API.download(f.name)" loading="lazy"
                        @error="$event.target.style.display = 'none'" />
                   <span class="icon-overlay">{{ iconFor(f.name) }}</span>
                 </div>
@@ -1035,7 +1147,7 @@ async function refreshStatus() {
                 <span class="avatar-chip" title="头像由昵称自动生成">{{ avatarFor(curNick) }}</span>
                 <div class="chat-nickname">
                   <span style="font-size:11px;color:var(--text3)">昵称:</span>
-                  <input v-model="nickInput" placeholder="匿名用户" maxlength="20" title="输入昵称，会自动记住" @change="saveNick" />
+                  <input v-model="nickInput" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax" title="输入昵称，会自动记住" @change="saveNick" />
                 </div>
               </div>
             </div>
@@ -1051,13 +1163,16 @@ async function refreshStatus() {
               </div>
             </div>
             <div class="chat-input-area">
-              <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" maxlength="2000"
+              <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
                      @keydown.enter.prevent="sendChat" />
               <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- 页脚: 版权(桌面/网页端共用; 内容不满一屏时贴底) -->
+      <footer class="app-foot">{{ FOOTER_TEXT }}</footer>
     </main>
   </div>
 
@@ -1081,7 +1196,7 @@ async function refreshStatus() {
               <span class="avatar-chip">{{ avatarFor(curNick) }}</span>
               <div class="chat-nickname">
                 <span style="font-size:11px;color:var(--text3)">昵称:</span>
-                <input v-model="nickInput" placeholder="匿名用户" maxlength="20" title="输入昵称，会自动记住" @change="saveNick" />
+                <input v-model="nickInput" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax" title="输入昵称，会自动记住" @change="saveNick" />
               </div>
               <button class="icon-btn sheet-only" title="收起" aria-label="收起聊天面板" @click="closeChat">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1100,7 +1215,7 @@ async function refreshStatus() {
             </div>
           </div>
           <div class="chat-input-area">
-            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" maxlength="2000"
+            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
                    @keydown.enter.prevent="sendChat" />
             <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
           </div>
@@ -1115,7 +1230,7 @@ async function refreshStatus() {
       <h4>扫描二维码在手机上打开</h4>
       <img v-if="qrData" class="qr-img" :src="qrData" alt="QR" />
       <p style="word-break:break-all">{{ shareUrl }}</p>
-      <p style="font-size:12px;color:var(--text2);margin:0">🔔 请确保在同一 Wi-Fi 下打开；文件请尽快下载到本地</p>
+      <p style="font-size:12px;color:var(--text2);margin:0">{{ TIP_QR }}</p>
       <div class="dialog-actions"><button class="btn btn-ghost" @click="qrShow = false">关闭</button></div>
     </div>
   </div>
@@ -1130,6 +1245,30 @@ async function refreshStatus() {
       <div class="dialog-actions">
         <button class="btn btn-ghost" @click="showDel = false">取消</button>
         <button class="btn btn-danger" @click="doDelete">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 失联全屏(网页端): 电视"无信号"测试卡样式, 电脑/手机浏览器表现一致 -->
+  <div v-if="!isDesktop && offline" class="nosignal-overlay">
+    <img class="ns-img" :src="noSignalImg" alt="无信号测试卡" />
+    <h3>📡 无信号</h3>
+    <p class="ns-line">与服务的连接已断开 —— 服务可能已停止，或电脑地址已变更</p>
+    <p class="ns-sub">请在电脑上查看最新地址后重新打开本页</p>
+  </div>
+
+  <!-- 版本更新弹框(桌面端) -->
+  <div v-if="showUpdate" class="dialog-overlay" @click.self="showUpdate = false">
+    <div class="dialog-box update-box">
+      <h4>🚀 发现新版本</h4>
+      <div class="upd-rows">
+        <div class="upd-row"><span class="upd-label">当前版本</span><span class="ver-chip">v{{ curVersion() }}</span></div>
+        <div class="upd-row"><span class="upd-label">最新版本</span><span class="ver-chip new">{{ updateInfo.latest }}</span></div>
+      </div>
+      <pre v-if="updateInfo.notes" class="upd-notes">{{ updateInfo.notes }}</pre>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" @click="showUpdate = false">稍后再说</button>
+        <button class="btn btn-primary" @click="goDownload">前往下载</button>
       </div>
     </div>
   </div>

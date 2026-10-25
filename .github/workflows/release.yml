@@ -1,0 +1,109 @@
+# 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
+# 覆盖: macOS(.app/.dmg) · Windows(.msi/.exe) · Android(debug .apk)
+# iOS: 真机 ipa 必须 Apple 开发者账号签名(证书配成 Secrets), 有账号后取消注释 ios job 即可
+name: Release 构建
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # ---- 桌面端: tauri-action 构建 + 创建/补充 Release ----
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: ""
+          - os: windows-latest
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 安装前端依赖
+        run: npm install
+
+      # tauri-action: vite build → cargo build --release → 打包 → 上传到 Release
+      # tagName 对应已推送的标签, Release 不存在则自动创建
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "CC-Flash ${{ github.ref_name }}"
+          releaseBody: "对应标签 ${{ github.ref_name }} 的自动构建产物。更新说明见 Release 描述。"
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # ---- Android: debug APK(免签名, 手机可直接安装) ----
+  android:
+    needs: desktop          # 等 desktop job 先建好 Release, 再追加 APK 资产
+    runs-on: ubuntu-latest  # runner 自带 Android SDK
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 定位 Android NDK
+        run: echo "NDK_HOME=$(ls -d $ANDROID_HOME/ndk/* | head -1)" >> "$GITHUB_ENV"
+
+      - name: 初始化 Android 工程(首次)
+        if: ${{ ! hashFiles('src-tauri/gen/android/**') }}
+        run: npm run tauri android init
+
+      - name: 安装前端依赖
+        run: npm install
+
+      - name: 构建 Android debug APK
+        run: npm run tauri android build --apk --debug
+
+      - name: 上传 APK 到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+
+  # ---- iOS(模板): 真机 ipa 需要 Apple 开发者账号 ----
+  # 前置: ① 付费开发者账号($99/年) ② 证书.p12 与描述文件.mobileprovision 上传为仓库 Secrets
+  #       (APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_PROVISIONING_PROFILE)
+  # 有账号后取消本 job 注释, 并在 tauri.conf.json / gen/apple 配置签名
+  # ios:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: 20, cache: npm }
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: aarch64-apple-ios
+  #     - uses: Swatinem/rust-cache@v2
+  #     - run: npm install
+  #     - run: npm run tauri ios build -- --target aarch64-apple-ios
+  #     - uses: softprops/action-gh-release@v2
+  #       with:
+  #         files: src-tauri/target/aarch64-apple-ios/release/bundle/ios/*.ipa

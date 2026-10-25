@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC-Flash · 整个过程历史改动记录</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
+  --blue:#2e70ef; --blue-bg:#eef4ff; --green:#0f9d58; --green-bg:#e9f7ef;
+  --orange:#c77700; --orange-bg:#fff6e8; --red:#d64541; --red-bg:#fdecec;
+  --code:#0d1017; --code-text:#d5dbe5;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14.5px;line-height:1.75}
+.layout{display:flex;max-width:1240px;margin:0 auto;gap:24px;padding:24px}
+nav.toc{width:240px;flex-shrink:0;position:sticky;top:24px;align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 8px;max-height:calc(100vh - 48px);overflow-y:auto}
+nav.toc h3{font-size:12px;color:var(--text2);letter-spacing:2px;padding:0 10px 8px}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--text2);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--blue-bg);color:var(--blue)}
+main{flex:1;min-width:0}
+header.doc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 30px;margin-bottom:20px}
+header.doc h1{font-size:24px;letter-spacing:-0.3px}
+header.doc .meta{margin-top:8px;color:var(--text2);font-size:13px;display:flex;gap:18px;flex-wrap:wrap}
+header.doc .meta b{color:var(--text)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 30px;margin-bottom:20px}
+h2{font-size:19px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+h2 .no{color:var(--blue);margin-right:8px}
+h3{font-size:15.5px;margin:20px 0 8px}
+h4{font-size:14px;margin:14px 0 6px;color:var(--text)}
+p{margin:8px 0;color:var(--text)}
+ul,ol{margin:8px 0 8px 22px}
+li{margin:4px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+th{background:#f0f3f8;text-align:left;padding:9px 12px;border:1px solid var(--line);font-weight:600;white-space:nowrap}
+td{padding:8px 12px;border:1px solid var(--line);vertical-align:top}
+tr:nth-child(even) td{background:#fafbfd}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:#eef1f6;padding:2px 6px;border-radius:5px;color:#c7254e}
+pre{background:var(--code);color:var(--code-text);border-radius:10px;padding:14px 18px;overflow-x:auto;font-size:12.5px;line-height:1.7;margin:10px 0}
+pre code{background:none;color:inherit;padding:0}
+.tag{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;vertical-align:1px}
+.tag.fix{background:var(--red-bg);color:var(--red)}
+.tag.feat{background:var(--green-bg);color:var(--green)}
+.tag.refactor{background:var(--blue-bg);color:var(--blue)}
+.tag.release{background:var(--orange-bg);color:var(--orange)}
+.tag.doc{background:#f0eaff;color:#7a4fd0}
+.date{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;color:var(--text2);white-space:nowrap}
+.note{background:var(--orange-bg);border:1px solid #f0dcb3;border-radius:10px;padding:10px 14px;font-size:13.5px;margin:10px 0}
+.muted{color:var(--text2);font-size:13px}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+  <h3>目录</h3>
+  <a href="#s1">一、项目背景与重构决策</a>
+  <a href="#s2">二、v1.0.0 版本内容全景（已提交）</a>
+  <a href="#s3">三、发布历程</a>
+  <a href="#s4">四、停服体验修复系列</a>
+  <a href="#s5">五、配置化重构（A/C/B/D）</a>
+  <a href="#s6">六、体验细节增强</a>
+  <a href="#s7">七、工作区文件清单（未提交）</a>
+  <a href="#s8">八、配置中心现状</a>
+  <a href="#s9">九、遗留事项与下一步</a>
+</nav>
+<main>
+<header class="doc">
+  <h1>CC-Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-25）</h1>
+  <div class="meta">
+    <span>项目：<b>CC-Flash（局域网文件互传，Tauri 2 + Vue3 + axum）</b></span>
+    <span>记录范围：<b>2026-10-23 ~ 2026-10-25</b>（另含背景溯源）</span>
+    <span>依据：<b>git 历史 + 开发会话记录 + 需求/技术文档 + 代码现状</b></span>
+  </div>
+</header>
+
+<!-- ================= 一 ================= -->
+<section id="s1">
+  <h2><span class="no">一</span>项目背景与重构决策（v1.0.0 之前）</h2>
+  <h3>1.1 前身</h3>
+  <p>Python / PyQt6 版局域网文件互传工具（v2 线，<code>lan-file-transfer-v2</code>），验证了完整的产品形态：电脑启动服务 → 手机浏览器扫码访问 → 上传/下载/分享/聊天。</p>
+  <h3>1.2 为什么用 Tauri 重写</h3>
+  <table>
+    <tr><th>维度</th><th>PyQt6 旧版</th><th>Tauri 新版（本线）</th></tr>
+    <tr><td>安装包体积</td><td>约 56 MB</td><td><b>dmg 5.9 MB / .app 13.5 MB</b> ✅</td></tr>
+    <tr><td>技术栈</td><td>Python + PyQt6（桌面 UI 即网页的替代）</td><td>Rust(axum) 后端 + Vue3 前端 + Tauri 2 壳</td></tr>
+    <tr><td>网页端</td><td>独立 webui 模块</td><td>与桌面端<b>同一份 Vue 页面</b>，按运行环境自适应双形态</td></tr>
+    <tr><td>协议兼容</td><td>—</td><td>与 Python 版 API 协议完全一致，老用户零迁移成本</td></tr>
+  </table>
+  <h3>1.3 产品原则</h3>
+  <ul>
+    <li><b>零配置</b>：安装即用，端口/目录全自动，端口被占自动顺延；</li>
+    <li><b>零学习成本</b>：文案口语化（"保姆级"标准）；</li>
+    <li><b>可信赖的反馈</b>：每个动作都有 toast，服务状态常驻可见（三圆点脉冲徽标）；</li>
+    <li><b>低刺激视觉</b>：全局深色主题，5 套可切换皮肤，颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
+  </ul>
+</section>
+
+<!-- ================= 二 ================= -->
+<section id="s2">
+  <h2><span class="no">二</span>v1.0.0 版本内容全景（已提交 <code>7481913</code> · 10-23）</h2>
+  <p class="muted">首个正式版本，tag <code>v1.0.0</code>，共 91 个对象 / 3.25 MiB。以下为其完整功能清单：</p>
+
+  <h3>2.1 桌面壳（<code>lib.rs</code> / <code>main.rs</code>）</h3>
+  <ul>
+    <li>托盘菜单：显示主窗口 / 启动·停止服务 / 打开网页 / 退出；</li>
+    <li>关窗 = 收到托盘（拦截 CloseRequested + 隐藏窗口），<b>服务保持运行</b>；首次收起弹系统通知提醒退出方式；</li>
+    <li>应用启动自动拉起局域网服务（失败仅打日志，不阻断 GUI）。</li>
+  </ul>
+
+  <h3>2.2 服务端（<code>server.rs</code>，axum 重写版，协议与 Python 版完全一致）</h3>
+  <table>
+    <tr><th style="width:220px">模块</th><th>要点</th></tr>
+    <tr><td>API 全集（11 条）</td><td><code>/api/files</code> 列表 · <code>/api/download/:name</code> 流式下载 · <code>/api/upload</code> 上传 · <code>/api/delete/:name</code> 删除 · <code>/api/chat</code> GET/POST · <code>/api/info</code> · <code>/api/control/*</code> 启停/状态/日志 ×5 · <code>/favicon.ico</code> · <code>/</code> 内嵌前端页面</td></tr>
+    <tr><td>路径安全（双重防护）</td><td>URL 解码 → 跨平台 basename（拒绝空/./..）→ canonicalize + 前缀越界校验，与 Python 版等价</td></tr>
+    <tr><td>上传</td><td><code>X-Filename</code> 头（URL 编码）+ 原始体流式落盘；先查磁盘剩余空间，不足拒绝；写入失败/连接中断<b>自动清理半截文件</b>；同名覆盖有日志</td></tr>
+    <tr><td>下载</td><td>流式 ReaderStream（1MB 缓冲）、显式 Content-Length（浏览器可显进度）、RFC5987 UTF-8 中文文件名、no-cache</td></tr>
+    <tr><td>聊天</td><td>内存 VecDeque 保留最近 200 条；昵称截 20 字、消息截 2000 字；未填昵称默认"匿名用户"</td></tr>
+    <tr><td>请求日志中间件</td><td>每请求一行：方法/路径/状态/耗时/体积/来源 IP + 昵称（X-Nickname 头或 ?nick= 参数）+ UA 设备识别；高频轮询噪音（chat/info/files/logs/favicon）不记录，防刷屏</td></tr>
+    <tr><td>启停管理</td><td>首选端口被占自动 +1 顺延（窗口 20），兜底扫 8765–8785；优雅关闭；运行状态 OnceLock + 原子端口</td></tr>
+    <tr><td>共享目录</td><td>默认家目录 CC-Flash；<b>品牌迁移</b>：旧 Wlan-Flash-Transfer 目录存在时整体改名；用户手动选择持久化到 <code>~/.ccflash-share</code>，重启恢复</td></tr>
+    <tr><td>前端托管</td><td>rust-embed 编译期内嵌 <code>../dist</code>；未知路径 SPA 兜底回 index.html；未知 API 路径返回 404 JSON</td></tr>
+    <tr><td>IP 检测</td><td>UDP connect 探测本机局域网 IP（不发包），失败回退 127.0.0.1</td></tr>
+  </table>
+
+  <h3>2.3 前端（<code>App.vue</code> + <code>style.css</code>，一份页面双形态）</h3>
+  <table>
+    <tr><th style="width:180px">区域</th><th>要点</th></tr>
+    <tr><td>桌面壳三视图</td><td>侧边栏导航：文件共享 / 聊天室 / 服务与日志；侧栏底部常驻运行状态（运行中 :端口 / 已停止）</td></tr>
+    <tr><td>文件共享</td><td>拖拽 / 点击 / Ctrl+V 粘贴上传，多文件进度条+实时速度；列表分页 8/页，最新/名称/大小排序，批量选择删除；图片缩略预览 + 60+ 扩展名彩色图标；下载：≤1GB fetch blob 带"下载完成"提示，更大交浏览器流式原生下载；分享复制链接带温馨提示话术</td></tr>
+    <tr><td>聊天室</td><td>3s 轮询；昵称 + 哈希算法头像（24 emoji 池）；轻量 Markdown（围栏代码块/行内代码/粗体/斜体/删除线/链接化，先转义防 XSS）；链接点击桌面走系统浏览器；"清空数据"仅清本窗口显示不动服务端记录；未读徽标</td></tr>
+    <tr><td>手机端</td><td>窄屏（≤980px）自适应单列 + 悬浮球 + 底部聊天抽屉面板（滚动穿透锁定处理）</td></tr>
+    <tr><td>服务与日志页</td><td>启停服务、端口修改（被占顺延）、共享目录（运行中锁定）+ 磁盘可用/总空间、二维码弹窗扫码直达、服务日志 2s 轮询 + 清空、5 套皮肤即时切换 + localStorage 记忆、关于卡</td></tr>
+    <tr><td>可靠性细节</td><td>运行模式判定（<code>__TAURI_INTERNALS__</code>，桌面 API 走回环 / 网页走相对路径）；DHCP 换 IP 自动检测 toast 提示并刷新二维码；断连黄色横幅提示重开页面；窗口就绪竞态 10×500ms 重试</td></tr>
+    <tr><td>主题系统</td><td>CSS 变量 5 套：深空蓝 / 石墨灰 / 极光蓝 / 护眼暖黑 / 暗夜紫</td></tr>
+  </table>
+
+  <h3>2.4 工程配套</h3>
+  <ul>
+    <li>文档三份：<code>docs/需求设计文档.html</code>、<code>docs/技术实现文档.html</code>、<code>docs/保姆级使用说明.html</code>；</li>
+    <li>打包脚本：<code>scripts/build-all.sh</code>（mac / win / android / ios 四端入口，含前置条件自检）+ <code>build-windows.ps1</code>（NSIS/MSI/绿色单文件）；</li>
+    <li>Tauri 配置：主窗口 1180×840（最小 560×520）、CSP null、capabilities 仅 <code>notification:default</code>。</li>
+  </ul>
+</section>
+
+<!-- ================= 三 ================= -->
+<section id="s3">
+  <h2><span class="no">三</span>发布历程</h2>
+  <table>
+    <tr><th style="width:110px">日期</th><th style="width:90px">类型</th><th>内容</th></tr>
+    <tr>
+      <td class="date">10-23 22:01</td>
+      <td><span class="tag release">发布</span></td>
+      <td>提交 <code>7481913</code>「feat: CC-Flash v1.0.0 首个正式版本」，打 tag <code>v1.0.0</code>。</td>
+    </tr>
+    <tr>
+      <td class="date">10-24 07:41</td>
+      <td><span class="tag release">发布</span></td>
+      <td>推送 GitHub（<code>github.com/bdpqlhk/CC-Flash</code>）遇 <b>HTTP 408</b>（18 KiB/s 慢网超时）。读取 <code>.git</code> 内部文件发现 <code>refs/remotes/origin/main</code> 已是 <code>7481913</code> 且 reflog 记录 <code>update by push</code>——<b>包实际已到达，仅响应超时</b>。放宽 curl 低速限制（<code>http.postBuffer 512MB</code> 等）缓解后续推送。</td>
+    </tr>
+    <tr>
+      <td class="date">10-24</td>
+      <td><span class="tag doc">决策</span></td>
+      <td>分支命名确认为 <code>main</code>（建仓时即命名，跟随 GitHub 默认），不迁移 master。</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ================= 四 ================= -->
+<section id="s4">
+  <h2><span class="no">四</span>停服体验修复系列（10-24）</h2>
+  <p class="muted">背景：服务停止后，已打开的浏览器页面表现混乱——状态仍显示"运行中"、残留旧数据、删除报"成功 0 个失败 N 个"。共 7 项修复：</p>
+  <table>
+    <tr><th style="width:90px">类型</th><th style="width:190px">改动</th><th>说明</th></tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>状态显示回落</td>
+      <td><code>refreshStatus()</code> 判定失联时 <code>running</code> 残留为 true → 现同时置 false，状态胶囊立即变"○ 已停止 / HTTP 服务未启动"。根因：失联只置了 <code>offline</code> 弹横幅，没动 <code>running</code>。</td>
+    </tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>删除前拦截</td>
+      <td>新增 <code>offlineGuard()</code>：单个删除、批量删除、<code>doDelete</code> 兜底三处先判断，直接提示"服务已停止，无法删除"，不再发出必败请求。</td>
+    </tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>失联清空数据</td>
+      <td>失联时清空 <code>allFiles</code>（列表回落空状态）、聊天消息、未读徽标、勾选项，不再展示停服前残留；服务恢复后轮询自动重新拉取。</td>
+    </tr>
+    <tr>
+      <td><span class="tag feat">功能</span></td>
+      <td>失联全屏"无信号"测试卡</td>
+      <td>替代原黄色横幅：<code>nosignal-overlay</code> 全屏遮罩（测试卡图 + 📡无信号 + 断连原因 + 重开指引），电脑/手机浏览器表现一致，桌面 App 不受影响。<b>踩坑修复</b>：图片起初放 <code>public/</code> 靠运行时请求，失联那一刻必然 404 → 移入 <code>src/assets/</code> + vite <code>assetsInlineLimit 200KB</code> 内联 base64，断网前就在页面内存里。</td>
+    </tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>桌面端同步删除拦截</td>
+      <td>桌面端删除同样走 <code>127.0.0.1:端口</code> 回环请求，停服后同病 → 抽出 <code>serviceDown()</code>（桌面看 <code>running</code> / 网页看 <code>offline</code>）双端统一判断。</td>
+    </tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>失联判定提速 10s → 5s</td>
+      <td>状态轮询间隔 5s → 2.5s，保留"连续 2 次失败"双确认防误判；服务恢复检测同步提速。代价仅每页每秒半个小 JSON 请求。</td>
+    </tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>分享/复制链接拦截</td>
+      <td>停服后点分享不再复制打不开的链接（"服务已停止，无法分享"）；顶栏"复制链接"统一走 <code>serviceDown()</code>。</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ================= 五 ================= -->
+<section id="s5">
+  <h2><span class="no">五</span>配置化重构（10-25，方案 A / C / B / D）</h2>
+  <p class="muted">背景：深度盘点出 40+ 处散落的魔法数字/字符串（轮询间隔、端口范围、长度限制、API 路径、存储键、话术、白名单……），且存在前后端双写、注释漂移（日志白名单注释还写着"5s 一次"）等实际问题。</p>
+  <h3>A：前端配置中心 <code>src/config.js</code></h3>
+  <ul>
+    <li>轮询/时序 ×11、分页大小、1GB 原生下载阈值、窄屏断点、昵称/消息上限、默认端口、<b>API 路径表</b>、localStorage 键表、相对时间阈值、图标映射表（60+ 扩展名）、头像池、默认昵称、3 条话术模板、页脚文案。</li>
+    <li><code>App.vue</code> 约 30 处替换；<code>main.js</code> 主题键统一（<code>"wft-theme"</code> 原本双写两处）。</li>
+  </ul>
+  <h3>C：Rust 配置中心 <code>src-tauri/src/config.rs</code></h3>
+  <ul>
+    <li>应用名、默认端口 + 顺延窗口、聊天保留条数/昵称/消息/预览截断、日志上限、下载流缓冲、共享目录名/旧名/持久化文件名。</li>
+    <li><b>日志噪音白名单数组化</b>：<code>NOISY_GET_PATHS</code> 常量数组替代字符串堆叠，漂移注释改为指向 config.rs。</li>
+    <li>托盘 tooltip、系统通知标题改用 <code>APP_NAME</code>。</li>
+  </ul>
+  <h3>B：/api/info 下发配置，消灭双写</h3>
+  <ul>
+    <li><code>config.rs</code> 成为唯一事实源；<code>frontend_config()</code> 随三个出口下发：<code>/api/info</code>、<code>/api/control/status</code>、桌面 invoke <code>control_status_cmd</code>：</li>
+  </ul>
+  <pre><code>{ "ip": "...", "port": 8765, "running": true,
+  "version": "1.0.0",
+  "config": { "nickMax": 20, "msgMax": 2000, "defaultNick": "匿名用户",
+              "chatMax": 200, "poll": { "chat": 3000, "files": 5000, "status": 2500, "logs": 2000 } } }</code></pre>
+  <ul>
+    <li>前端响应式 <code>cfg</code> 对象：config.js 值仅作启动兜底，服务端下发后（带合法性校验）覆盖；轮询间隔变化时 <code>startPolling()</code> 自动重排定时器。<b>改 Rust 一处 + 重启服务，所有网页端自动跟随，无需重新构建前端</b>。</li>
+    <li>跨端约定项以 <code>[同步: config.rs xxx]</code> / <code>[同步: config.js xxx]</code> 注释互相指向。</li>
+  </ul>
+  <h3>D：版本号单一来源</h3>
+  <ul>
+    <li>唯一来源：<b>Cargo.toml 的 <code>[package] version</code></b>；<code>tauri.conf.json</code> 删除 <code>version</code> 字段（Tauri 自动回退读 Cargo.toml）；<code>APP_VERSION = env!("CARGO_PKG_VERSION")</code> 编译期取同源值随接口下发；侧边栏 <code>"v1.0.0 · Tauri"</code> 硬编码删除改为动态显示。发版只改一处。</li>
+  </ul>
+</section>
+
+<!-- ================= 六 ================= -->
+<section id="s6">
+  <h2><span class="no">六</span>体验细节增强（10-25）</h2>
+  <table>
+    <tr><th style="width:90px">类型</th><th style="width:190px">改动</th><th>说明</th></tr>
+    <tr>
+      <td><span class="tag fix">修复</span></td>
+      <td>刷新按钮无反馈</td>
+      <td>三个问题一起治：① <code>loadFiles</code> 强制最短旋转 600ms（本机请求毫秒级完成，动画原来只播 1-2 帧）；② 删除后列表必刷新——原"在途保护"会把刷新请求直接丢弃，甚至在途旧响应把已删文件"弹回"，改为 <code>reloadQueued</code> 补拉队列；③ 旋转动画视觉强化（主题色描边 + 0.55s/圈 + 防连点）。F5 快捷键同步升级。</td>
+    </tr>
+    <tr>
+      <td><span class="tag feat">功能</span></td>
+      <td>页脚版权</td>
+      <td><code>.app-foot</code>：<code>margin-top: auto</code> 贴底布局（内容短时贴底、长时顺延），文案 <code>FOOTER_TEXT = "© 2026-现在 by hangkun.li"</code> 入 config.js，桌面/网页端共用。</td>
+    </tr>
+    <tr>
+      <td><span class="tag feat">功能</span></td>
+      <td>版本更新检查（方案一）</td>
+      <td>新增 <code>src/update.js</code>：GitHub Releases 检查（<code>releases/latest</code> API 免鉴权、支持 CORS、8s 超时、<b>任何失败静默</b>）+ 语义化版本比较。启动 3 秒后静默检查（24h 频控），「关于」卡新增当前版本徽章 + 检查更新按钮；发现新版弹框（版本对比 + Release 说明摘要），「前往下载」调 <code>open_url_cmd</code> 打开 Release 页。二期预留 plugin-updater 自动升级，只需替换执行环节。</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ================= 七 ================= -->
+<section id="s7">
+  <h2><span class="no">七</span>工作区文件清单（v1.0.0 之后，均未提交）</h2>
+  <table>
+    <tr><th style="width:90px">状态</th><th style="width:280px">文件</th><th>内容</th></tr>
+    <tr><td class="date">新增</td><td><code>src/config.js</code></td><td>前端配置中心（轮询/阈值/路径/存储键/文案/图标表…）</td></tr>
+    <tr><td class="date">新增</td><td><code>src/update.js</code></td><td>版本更新检查模块（GitHub Releases + semver 比较）</td></tr>
+    <tr><td class="date">新增</td><td><code>src-tauri/src/config.rs</code></td><td>Rust 配置中心（端口/聊天/日志/白名单/目录/版本号）</td></tr>
+    <tr><td class="date">新增</td><td><code>src/assets/no-signal.png</code></td><td>失联测试卡图（构建期内联 base64）</td></tr>
+    <tr><td class="date">修改</td><td><code>src/App.vue</code></td><td>停服体验系列修复、失联全屏页、下发配置接入、更新弹框、页脚</td></tr>
+    <tr><td class="date">修改</td><td><code>src/main.js</code></td><td>主题存储键统一走 config</td></tr>
+    <tr><td class="date">修改</td><td><code>src/style.css</code></td><td>无信号遮罩、页脚、刷新动画、版本徽章/更新弹框样式</td></tr>
+    <tr><td class="date">修改</td><td><code>vite.config.js</code></td><td><code>assetsInlineLimit: 200KB</code>（小图内联）</td></tr>
+    <tr><td class="date">修改</td><td><code>src-tauri/src/server.rs</code></td><td>常量收编 config.rs、frontend_config() 下发、版本字段</td></tr>
+    <tr><td class="date">修改</td><td><code>src-tauri/src/lib.rs</code></td><td>挂载 config 模块、托盘/通知用 APP_NAME</td></tr>
+    <tr><td class="date">修改</td><td><code>src-tauri/tauri.conf.json</code></td><td>移除 version 字段（回退 Cargo.toml）</td></tr>
+    <tr><td class="date">新增</td><td><code>docs/整个过程历史改动记录.html</code></td><td>本文档</td></tr>
+  </table>
+</section>
+
+<!-- ================= 八 ================= -->
+<section id="s8">
+  <h2><span class="no">八</span>配置中心现状</h2>
+  <table>
+    <tr><th style="width:180px">配置域</th><th>位置与要点</th></tr>
+    <tr><td>轮询与时序</td><td><code>config.js</code> POLL_*（兜底）← <code>/api/info</code> 下发覆盖 ← <code>config.rs</code> POLL_*（唯一事实）；失联阈值 <code>OFFLINE_FAILS=2</code> 纯前端</td></tr>
+    <tr><td>服务端口</td><td><code>config.rs DEFAULT_PORT=8765</code> + 顺延 20 + 兜底扫描至 8786；前端仅启动兜底展示</td></tr>
+    <tr><td>聊天限制</td><td>保留 200 条 / 昵称 20 字 / 消息 2000 字：Rust 权威 + 随接口下发，前端 input maxlength 动态绑定</td></tr>
+    <tr><td>日志</td><td>服务日志上限 1000 条；轮询噪音白名单 <code>NOISY_GET_PATHS</code> 数组化（与前端轮询路径一一对应）</td></tr>
+    <tr><td>API 路径</td><td><code>config.js API</code> 表 8 项（含 download/del 函数式路径），前端已零硬编码</td></tr>
+    <tr><td>存储键</td><td><code>LS</code> 表：theme / nick / nickAuto / updateCheck（原 <code>wft-theme</code> 双写已消灭）</td></tr>
+    <tr><td>版本号</td><td>Cargo.toml 唯一来源；<code>APP_VERSION=env!("CARGO_PKG_VERSION")</code>；<code>APP_VERSION_FALLBACK</code> 仅展示兜底</td></tr>
+    <tr><td>文案</td><td>话术模板 ×3、页脚、默认昵称均入 config.js</td></tr>
+    <tr><td>未抽取（有意）</td><td>autoNick 的 UA 识别表（与后端 device_kind 用途不同）、<code>fmtSize</code>/<code>humans</code> 单位表（留待后续统一）</td></tr>
+  </table>
+</section>
+
+<!-- ================= 九 ================= -->
+<section id="s9">
+  <h2><span class="no">九</span>遗留事项与下一步</h2>
+  <ol>
+    <li><b>提交代码</b>：工作区 12 个文件（含本文档），建议按语义分批提交（停服修复 / 配置化重构 / 新功能），打 tag <code>v1.1.0</code>。</li>
+    <li><b>发布 GitHub Release</b>：更新检查功能需要仓库存在 Release（附 .dmg / .exe 安装包），Release 描述即弹框里的"更新说明"。</li>
+    <li><b>二期：plugin-updater 自动升级</b>：应用内后台下载 + 自动重启（对标 TCode 体验）；前置条件为 minisign 签名密钥、各平台签名产物、latest.json 托管，建议配套 GitHub Actions 在推 tag 时自动构建。</li>
+    <li><b>小尾巴</b>：前后端两份大小单位表（<code>fmtSize</code> / <code>humans</code>）可随下次改动统一。</li>
+  </ol>
+  <div class="note">📌 证据链说明：v1.0.0 内容清单依据初始提交代码现状与 <code>docs/需求设计文档.html</code>、<code>docs/技术实现文档.html</code> 还原；之后的改动依据开发会话记录与工作区文件。时间均来自 git 历史（<code>7481913</code> 提交于 10-23 22:01）。</div>
+</section>
+
+<p class="muted" style="text-align:center;padding:6px 0 18px">CC-Flash · 整个过程历史改动记录 · 生成于 2026-10-25</p>
+</main>
+</div>
+</body>
+</html>

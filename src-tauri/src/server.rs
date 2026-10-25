@@ -9,7 +9,7 @@
 //!   GET  /api/chat            → 聊天记录(保留最近 200 条)
 //!   POST /api/chat            → 昵称截 20 字、消息截 2000 字
 //!   DELETE /api/delete/:name  → 删除文件
-//!   GET  /api/info            → { ip, port, running }
+//!   GET  /api/info            → { ip, port, running, version, config }
 //!   GET/POST /api/control/*   → 桌面端服务启停/状态/日志(仅桌面壳使用)
 //!
 //! 路径安全:URL 解码 → 跨平台 basename(拒绝空/./..);下载/删除前再做
@@ -36,8 +36,12 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-const CHUNK_HINT: usize = 1024 * 1024;
-const CHAT_MAX: usize = 200;
+use crate::config::{
+    APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHUNK_HINT, DEFAULT_NICK, DEFAULT_PORT,
+    MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS,
+    POLL_STATUS_MS, PORT_PROBE_EXTRA, PORT_RANGE_END, REQ_LOG_MAX, SHARE_DIR_NAME,
+    SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE,
+};
 
 // ---------------------------------------------------------------- //
 // 全局状态
@@ -65,7 +69,7 @@ fn req_log() -> &'static Mutex<VecDeque<String>> {
 fn push_log(line: String) {
     let mut q = req_log().lock().unwrap();
     q.push_back(format!("[{}] {}", now_hms(), line));
-    while q.len() > 1000 {
+    while q.len() > REQ_LOG_MAX {
         q.pop_front();
     }
 }
@@ -101,7 +105,7 @@ fn share_pref_file() -> PathBuf {
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:".into());
     #[cfg(not(target_os = "windows"))]
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    Path::new(&home).join(".ccflash-share")
+    Path::new(&home).join(SHARE_PREF_FILE)
 }
 
 fn default_share_dir() -> PathBuf {
@@ -109,9 +113,9 @@ fn default_share_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:".into());
     #[cfg(not(target_os = "windows"))]
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let new = Path::new(&home).join("CC-Flash");
+    let new = Path::new(&home).join(SHARE_DIR_NAME);
     // 品牌更名迁移: 旧目录存在且新目录不存在时整体改名, 保证用户文件不"消失"
-    let old = Path::new(&home).join("Wlan-Flash-Transfer");
+    let old = Path::new(&home).join(SHARE_DIR_NAME_LEGACY);
     if !new.exists() && old.is_dir() {
         if std::fs::rename(&old, &new).is_ok() {
             push_log(format!("已将共享目录 {} 迁移为 {}", old.display(), new.display()));
@@ -209,9 +213,9 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         let mut candidates: Vec<u16> = Vec::new();
         if let Some(p0) = preferred {
             candidates.push(p0);
-            candidates.extend(p0 + 1..p0 + 20);
+            candidates.extend(p0 + 1..p0 + 1 + PORT_PROBE_EXTRA);
         }
-        candidates.extend(8765..8786);
+        candidates.extend(DEFAULT_PORT..PORT_RANGE_END);
         let mut picked: Option<(tokio::net::TcpListener, u16)> = None;
         let mut tried = std::collections::HashSet::new();
         for p in candidates {
@@ -224,8 +228,9 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
                 Err(_) => continue,
             }
         }
-        let (listener, port) =
-            picked.ok_or_else(|| "8765-8785 端口均被占用".to_string())?;
+        let (listener, port) = picked.ok_or_else(|| {
+            format!("{DEFAULT_PORT}-{} 端口均被占用", PORT_RANGE_END - 1)
+        })?;
 
         PORT.store(port, Ordering::Relaxed);
         push_log(format!("服务已启动 端口 {port} 目录 {}", share.display()));
@@ -567,10 +572,10 @@ async fn chat_post(
     }
     let nickname = (body.nickname.unwrap_or_default().trim().to_string())
         .chars()
-        .take(20)
+        .take(NICK_MAX_CHARS)
         .collect::<String>();
-    let nickname = if nickname.is_empty() { "匿名用户".into() } else { nickname };
-    let message = text.chars().take(2000).collect::<String>();
+    let nickname = if nickname.is_empty() { DEFAULT_NICK.into() } else { nickname };
+    let message = text.chars().take(MSG_MAX_CHARS).collect::<String>();
     let q = chat_log().lock().unwrap();
     let id = q.back().map(|m| m.id + 1).unwrap_or(1);
     let msg = ChatMsg {
@@ -587,20 +592,46 @@ async fn chat_post(
         q.pop_front();
     }
     drop(q);
-    let preview: String = msg.message.chars().take(40).collect();
-    let dots = if msg.message.chars().count() > 40 { "…" } else { "" };
+    let preview: String = msg.message.chars().take(CHAT_PREVIEW_CHARS).collect();
+    let dots = if msg.message.chars().count() > CHAT_PREVIEW_CHARS { "…" } else { "" };
     push_log(format!("聊天 {}: {preview}{dots} ← {}", msg.nickname, addr.ip()));
     Json(serde_json::json!({ "ok": true, "id": id })).into_response()
 }
 
+/// 下发给前端的可调参数: config.rs 为唯一事实, 前端收到后覆盖本地兜底值(消灭双写漂移)
+fn frontend_config() -> serde_json::Value {
+    serde_json::json!({
+        "nickMax": NICK_MAX_CHARS,
+        "msgMax": MSG_MAX_CHARS,
+        "defaultNick": DEFAULT_NICK,
+        "chatMax": CHAT_MAX,
+        "poll": {
+            "chat": POLL_CHAT_MS,
+            "files": POLL_FILES_MS,
+            "status": POLL_STATUS_MS,
+            "logs": POLL_LOGS_MS,
+        },
+    })
+}
+
 async fn info() -> Response {
     let (running, port, ip) = status();
-    Json(serde_json::json!({ "ip": ip, "port": port, "running": running })).into_response()
+    Json(serde_json::json!({
+        "ip": ip, "port": port, "running": running,
+        "version": APP_VERSION,
+        "config": frontend_config(),
+    }))
+    .into_response()
 }
 
 async fn ctrl_status() -> Response {
     let (running, port, ip) = status();
-    Json(serde_json::json!({ "running": running, "port": port, "ip": ip })).into_response()
+    Json(serde_json::json!({
+        "running": running, "port": port, "ip": ip,
+        "version": APP_VERSION,
+        "config": frontend_config(),
+    }))
+    .into_response()
 }
 
 // ---- Tauri 命令(桌面窗口经 invoke 调用, 免端口发现/CORS) ----
@@ -622,6 +653,8 @@ pub fn control_status_cmd() -> serde_json::Value {
         "running": running, "port": port, "ip": ip, "share": share,
         "free": free.map(humans).unwrap_or_else(|| "无法获取".into()),
         "total": total.map(humans).unwrap_or_else(|| "无法获取".into()),
+        "version": APP_VERSION,
+        "config": frontend_config(),
     })
 }
 
@@ -754,9 +787,8 @@ fn device_kind(ua: &str) -> String {
 }
 
 /// 请求日志中间件: 每个 HTTP 请求记一行(方法/路径/状态/耗时/来源)。
-/// 高频轮询噪音不记录:聊天轮询(GET /api/chat, 每设备 3s 一次)、文件列表同步
-/// (GET /api/files, 每设备 5s 一次)、状态轮询(GET /api/info, 5s 一次)、
-/// 控制台日志拉取(GET /api/control/logs, 2s 一次)、favicon。
+/// 高频轮询噪音不记录, 清单见 config.rs 的 NOISY_GET_PATHS
+/// (与前端 config.js 的轮询路径一一对应, 前端调整轮询时需同步)。
 async fn log_middleware(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
     req: axum::extract::Request,
@@ -784,11 +816,7 @@ async fn log_middleware(
         .unwrap_or_else(|| "未知设备".into());
     let started = std::time::Instant::now();
     let res = next.run(req).await;
-    let noisy = (method == "GET"
-        && (path == "/api/chat"
-            || path == "/api/info"
-            || path == "/api/files"
-            || path == "/api/control/logs"))
+    let noisy = (method == "GET" && NOISY_GET_PATHS.contains(&path.as_str()))
         || path == "/favicon.ico";
     if !noisy {
         let ms = started.elapsed().as_millis();

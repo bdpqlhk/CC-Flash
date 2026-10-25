@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CC-Flash · 技术实现文档 v1.0.0</title>
+<title>CC-Flash · 技术实现文档</title>
 <style>
 :root{
   --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
@@ -61,7 +61,7 @@ pre code{background:none;color:inherit;padding:0}
 <a href="#s7">7. 日志系统实现</a>
 <a href="#s8">8. Tauri 壳层（命令/托盘/通知）</a>
 <a href="#s9">9. 前端实现（Vue3）</a>
-<a href="#s10">10. 与 Python 版协议对照</a>
+<a href="#s10">10. 配置中心与参数下发</a>
 <a href="#s11">11. 构建与发布</a>
 <a href="#s12">12. 设计取舍与已知事项</a>
 </nav>
@@ -69,8 +69,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 技术实现文档</h1>
 <div class="meta">
-<span>版本：<b>v1.0.0（Tauri 线）</b></span>
-<span>文档日期：<b>2026-10-23</b></span>
+<span>文档日期：<b>2026-10-25</b></span>
 <span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
 <span>平台：<b>macOS 已出包 · Windows 待验</b></span>
 </div>
@@ -110,21 +109,26 @@ pre code{background:none;color:inherit;padding:0}
 <pre>
 cc-flash/
 ├── package.json                 # dev/build/tauri/check 脚本
-├── vite.config.js  index.html   # Vue3 + Vite
+├── vite.config.js  index.html   # Vue3 + Vite（assetsInlineLimit 200KB 小图内联）
 ├── src/
-│   ├── App.vue                  # 全部 UI 与逻辑（单文件，~1000 行）
+│   ├── App.vue                  # 全部 UI 与逻辑（单文件）
+│   ├── config.js                # 前端配置中心（轮询/阈值/API 路径/存储键/文案）
+│   ├── update.js                # 版本更新检查（GitHub Releases + 语义化比较）
 │   ├── style.css                # 主题变量 + 全部样式（含 5 套皮肤）
-│   └── main.js
-├── docs/                        # 本三份文档
+│   ├── main.js
+│   └── assets/no-signal.png     # 失联"无信号"测试卡（构建期内联 base64）
+├── docs/                        # 需求/技术/使用说明/历史改动 四份文档
+├── scripts/                     # 多平台打包脚本
 ├── public/logo.png              # 应用 logo
 └── src-tauri/
-    ├── Cargo.toml               # axum/tokio/chrono/fs2/tauri2 …
-    ├── tauri.conf.json          # 窗口 1180×840(最小560×520), bundle.active=true
+    ├── Cargo.toml               # axum/tokio/chrono/fs2/tauri2 …（版本号唯一来源）
+    ├── tauri.conf.json          # 窗口 1180×840(最小560×520)
     ├── icons/                   # 已生成全平台图标
     └── src/
         ├── main.rs              # 入口 → lan_transfer_lib::run()
         ├── lib.rs               # 托盘/通知/命令注册/自启动
-        └── server.rs            # 局域网服务全部实现（~700 行）
+        ├── config.rs            # Rust 配置中心（唯一事实源，随接口下发前端）
+        └── server.rs            # 局域网服务全部实现
 </pre>
 <table>
 <tr><th>脚本</th><th>作用</th></tr>
@@ -181,7 +185,7 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <tr><td>DELETE</td><td><code>/api/delete/:name</code></td><td>删除</td><td>safe_name + 越界校验后删文件</td></tr>
 <tr><td>GET</td><td><code>/api/chat</code></td><td>拉取聊天</td><td>返回全部（≤200）消息数组</td></tr>
 <tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、记录来源 IP；返回自增 id</td></tr>
-<tr><td>GET</td><td><code>/api/info</code></td><td>服务信息</td><td>{ip, port, running}——网页端状态轮询用</td></tr>
+<tr><td>GET</td><td><code>/api/info</code></td><td>服务信息</td><td>{ip, port, running, <b>version</b>, <b>config</b>}——网页端状态轮询用，config 见第 10 节</td></tr>
 <tr><td>GET</td><td><code>/api/control/status</code></td><td>状态</td><td>{running, port, ip}</td></tr>
 <tr><td>POST</td><td><code>/api/control/start</code></td><td>启动</td><td>JSON {port?}</td></tr>
 <tr><td>POST</td><td><code>/api/control/stop</code></td><td>停止</td><td>—</td></tr>
@@ -195,7 +199,7 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <h3>4.1 Tauri 命令（IPC，桌面壳专用）</h3>
 <table>
 <tr><th>命令</th><th>功能</th></tr>
-<tr><td><code>control_status_cmd</code></td><td>running/port/ip/share/free/total 一次性打包返回（控制台数据源）</td></tr>
+<tr><td><code>control_status_cmd</code></td><td>running/port/ip/share/free/total + version + config 一次性打包返回（控制台数据源）</td></tr>
 <tr><td><code>control_start_cmd(port?)</code></td><td>启动服务</td></tr>
 <tr><td><code>control_stop_cmd</code></td><td>停止服务</td></tr>
 <tr><td><code>control_clear_logs_cmd</code></td><td>清空日志</td></tr>
@@ -247,7 +251,7 @@ safe_name → safe_join_existing → remove_file
 <!-- ================= 6 ================= -->
 <section id="s6">
 <h2><span class="no">6</span>路径安全设计</h2>
-<p>所有接受文件名的接口（下载/删除/上传/复制）统一走两道防线，等价于 Python 版双重防护：</p>
+<p>所有接受文件名的接口（下载/删除/上传/复制）统一走两道防线：</p>
 <ol>
 <li><b><code>safe_name(raw)</code></b>：percent_decode → 把 <code>\</code> 归一为 <code>/</code> → 取 <code>Path::file_name()</code> basename → 拒绝空 / "." / ".."；</li>
 <li><b><code>safe_join_existing(share, name)</code></b>：拼路径后 <code>canonicalize()</code>，校验结果必须以共享目录 canonicalize 前缀开头（防符号链接/编码绕过越界）。</li>
@@ -261,7 +265,7 @@ safe_name → safe_join_existing → remove_file
 <h3>7.1 数据结构与格式</h3>
 <ul>
 <li>环形缓冲 <code>VecDeque&lt;String&gt;</code>，上限 1000；</li>
-<li>前缀 <code>[HH:MM:SS.mmm]</code>——<code>chrono::Local::now().format("%H:%M:%S%.3f")</code> 本地时间（修复旧版 UTC 简化展示）；</li>
+<li>前缀 <code>[HH:MM:SS.mmm]</code>——<code>chrono::Local::now().format("%H:%M:%S%.3f")</code> 本地时间；</li>
 <li>业务行由各 handler 主动写入；请求行由中间件统一写入。</li>
 </ul>
 <h3>7.2 请求日志中间件（from_fn）</h3>
@@ -269,7 +273,9 @@ safe_name → safe_join_existing → remove_file
 提取: ConnectInfo&lt;SocketAddr&gt;(来源) · method · path · query
       · X-Nickname 昵称 · User-Agent → device_kind(设备)
 计时 → next.run → 计算 ms / 状态码 / Content-Length(人类可读, 无则 "-")
-噪音豁免(GET): /api/chat · /api/info · /api/control/logs · /favicon.ico
+噪音豁免(GET): NOISY_GET_PATHS 常量数组(config.rs) · /favicon.ico
+               = /api/chat · /api/info · /api/files · /api/control/logs
+               (与前端 config.js 轮询路径一一对应, 前端调整轮询需同步)
 输出: "GET /path?q → 200 1.5 KB 12ms ← 10.161.x.x (Mac Chrome-2569·Mac)"
 </pre>
 <h3>7.3 设备识别 <code>device_kind(ua)</code></h3>
@@ -307,7 +313,9 @@ safe_name → safe_join_existing → remove_file
 <tr><th>状态</th><th>用途</th></tr>
 <tr><td><code>allFiles / sortedFiles / pageFiles</code></td><td>文件列表（每页 8 条，时间/名称/中文 locale 排序，智能页码）</td></tr>
 <tr><td><code>uploads</code></td><td>上传任务队列（XHR 上报进度/速率，四态）</td></tr>
-<tr><td><code>running / port / lanIp / shareInput / freeSpace</code></td><td>服务状态（5s 轮询刷新）</td></tr>
+<tr><td><code>running / port / lanIp / shareInput / freeSpace</code></td><td>服务状态（2.5s 轮询刷新）</td></tr>
+<tr><td><code>cfg / appVersion</code></td><td>运行参数（服务端下发覆盖本地兜底，见第 10 节）/ 应用版本号（接口下发）</td></tr>
+<tr><td><code>updateInfo / showUpdate / checkingUpdate</code></td><td>版本更新（检查结果 / 弹框开关 / 检查中状态）</td></tr>
 <tr><td><code>logs</code></td><td>服务日志（2s 轮询）</td></tr>
 <tr><td><code>chatMsgs / displayMsgs / seenChat / chatCount / unread</code></td><td>聊天（3s 轮询；清空显示= clearedAt 截断，新消息自动恢复）</td></tr>
 <tr><td><code>nickInput / curNick / autoNick</code></td><td>昵称（localStorage 记忆；自动昵称 = 系统+浏览器-随机4位）</td></tr>
@@ -318,11 +326,12 @@ safe_name → safe_join_existing → remove_file
 <h3>9.3 轮询与 IP 变化检测</h3>
 <table>
 <tr><th>定时器</th><th>周期</th><th>内容</th></tr>
-<tr><td>chatTimer</td><td>3s</td><td>loadChat（所有端）</td></tr>
-<tr><td>logTimer</td><td>2s</td><td>refreshLogs（仅桌面）</td></tr>
-<tr><td>statusTimer</td><td>5s</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace；<b>IP 变化 → lanIp 更新 + genQr() 重生成二维码 + toast「本机 IP 已变为 …，手机请改用新地址访问」</b>；浏览器端连续 2 次失败 → <code>offline=true</code> 顶部断连横幅（成功自动清除）</td></tr>
-<tr><td>filesTimer</td><td>5s</td><td>loadFiles(false) 文件列表自动同步——其他设备上传/删除在各端自动呈现；<code>loadFiles(manual)</code> 仅手动刷新时置 <code>refreshing</code> 触发按钮旋转动效，自动轮询不转</td></tr>
+<tr><td>chatTimer</td><td>3s（可下发）</td><td>loadChat（所有端）</td></tr>
+<tr><td>logTimer</td><td>2s（可下发）</td><td>refreshLogs（仅桌面）</td></tr>
+<tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + genQr() 重生成二维码 + toast「本机 IP 已变为 …，手机请改用新地址访问」</b>；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</td></tr>
+<tr><td>filesTimer</td><td>5s（可下发）</td><td>loadFiles(false) 文件列表自动同步——其他设备上传/删除在各端自动呈现；<code>loadFiles(manual)</code> 手动刷新置 <code>refreshing</code> 触发按钮旋转（最短 600ms）；在途竞争用 <code>reloadQueued</code> 补拉队列保证删除后必刷新</td></tr>
 </table>
+<p class="small">定时器统一由 <code>startPolling()/stopPolling()</code> 启停：服务端下发的轮询间隔与当前不同时自动重排。</p>
 <h3>9.4 上传实现</h3>
 <ul>
 <li>XMLHttpRequest 以获取 <code>upload.onprogress</code>（百分比 + 速率计算）；并发多文件队列；</li>
@@ -358,22 +367,51 @@ safe_name → safe_join_existing → remove_file
 <li>头像：昵称 hash(31 进制) → 24 emoji 池取模；</li>
 <li>浏览器端下载：fetch→blob→objectURL 触发保存（完成 toast 带 <code>fmtSize</code>），Content-Length&gt;1GB 先 <code>body.cancel()</code> 回退 <code>location.href</code> 原生下载。</li>
 <li>列表头结构 <code>list-head &gt; lh-left(标题+计数徽标) + lh-right(操作控件)</code>，窄屏 lh-right 换行防溢出；窄屏统计格（stat-cell）恢复独立描边小卡 2×2。</li>
-<li>断连横幅 <code>.offline-banner</code>：fixed 顶部琥珀色，z-index 940（低于聊天面板 950），仅浏览器模式可能触发。</li>
+<li>失联全屏 <code>.nosignal-overlay</code>：fixed 全屏 <code>var(--bg)</code> 底、z-index 1000（低于 toast 1001、高于聊天面板/对话框），仅浏览器模式触发；测试卡图为构建期内联 base64，断网后零请求可显示。</li>
+<li>页脚 <code>.app-foot</code>：flex 布局 <code>margin-top: auto</code> 贴底，文案入 config。</li>
+</ul>
+<h3>9.9 失联处理与服务状态拦截</h3>
+<ul>
+<li><code>serviceDown()</code>：桌面看 <code>running</code>（启停按钮直控）、网页看 <code>offline</code>（失联判定）——删除（单/批/确认兜底三处）、分享、复制链接均先拦截并友好提示；</li>
+<li>失联判定时清空 <code>allFiles</code> / 聊天消息 / 未读 / 勾选，服务恢复后轮询自动重新拉取，页面自愈；</li>
+<li><code>loadFiles</code> 在途竞争：<code>reloadQueued</code> 补拉队列，删除后的刷新绝不丢失（否则在途旧响应会把已删文件"弹回"列表）。</li>
+</ul>
+<h3>9.10 版本更新检查（update.js）</h3>
+<ul>
+<li><code>fetchLatestRelease()</code>：直连 <code>api.github.com/repos/{repo}/releases/latest</code>（免鉴权、支持跨域、AbortController 8s 超时），<b>任何失败返回 null 由调用方静默处理</b>；</li>
+<li><code>isNewer()</code>：语义化比较（剥 v 前缀/-beta 后缀、分段数值、短方补 0）；</li>
+<li>触发：启动 3s 后静默检查 + localStorage 24h 频控（<code>wft-update-check</code>）；「关于」卡手动检查（失败有明确提示）；发现新版弹框，「前往下载」走 <code>open_url_cmd</code> 打开 Release 页。</li>
 </ul>
 </section>
 
 <!-- ================= 10 ================= -->
 <section id="s10">
-<h2><span class="no">10</span>与 Python 版（v2 线）协议对照</h2>
+<h2><span class="no">10</span>配置中心与参数下发</h2>
+<h3>10.1 双端配置中心</h3>
 <table>
-<tr><th>API</th><th>行为</th><th>一致性</th></tr>
-<tr><td>GET /api/files</td><td>名称/大小/修改时间，倒序</td><td>✅</td></tr>
-<tr><td>GET /api/download/:name</td><td>流式下载，RFC5987 中文名（新增显式 Content-Length）</td><td>✅（超集）</td></tr>
-<tr><td>POST /api/upload</td><td>X-Filename 头 + 原始体；磁盘预检；失败清理半截文件</td><td>✅</td></tr>
-<tr><td>GET/POST /api/chat</td><td>昵称≤20 字，消息≤2000 字，保留 200 条</td><td>✅</td></tr>
-<tr><td>DELETE /api/delete/:name</td><td>删除</td><td>✅</td></tr>
-<tr><td>GET /api/info · /api/control/*</td><td>控制台/状态用（无鉴权，可信局域网模型）</td><td>🆕 本版扩展（新增 logs/clear）</td></tr>
+<tr><th>文件</th><th>职责</th><th>典型内容</th></tr>
+<tr><td><code>src-tauri/src/config.rs</code></td><td><b>运行参数唯一事实源</b></td><td>APP_NAME / APP_VERSION、默认端口 8765 + 顺延窗口、聊天保留 200 条、昵称 20 / 消息 2000、日志上限 1000、噪音白名单 NOISY_GET_PATHS、下载缓冲、共享目录名/持久化文件、建议轮询间隔 POLL_*</td></tr>
+<tr><td><code>src/config.js</code></td><td>前端纯界面行为 + 启动兜底值</td><td>POLL_* 兜底、失联阈值、Toast/旋转时长、分页大小、1GB 阈值、断点、API 路径表、localStorage 键表、相对时间阈值、图标映射表、头像池、话术模板、页脚文案</td></tr>
 </table>
+<p>跨端约定项（端口、长度上限、默认昵称、轮询路径↔白名单）以 <code>[同步: config.rs xxx]</code> / <code>[同步: config.js xxx]</code> 注释互相指向。</p>
+<h3>10.2 参数下发机制</h3>
+<p><code>frontend_config()</code> 把运行参数随三个出口下发——<code>/api/info</code>、<code>/api/control/status</code>、桌面 invoke <code>control_status_cmd</code>（同时携带 <code>version</code>）：</p>
+<pre><code>{ "ip": "...", "port": 8765, "running": true,
+  "version": "1.0.0",
+  "config": { "nickMax": 20, "msgMax": 2000, "defaultNick": "匿名用户",
+              "chatMax": 200, "poll": { "chat": 3000, "files": 5000, "status": 2500, "logs": 2000 } } }</code></pre>
+<ul>
+<li>前端响应式 <code>cfg</code> 对象：config.js 值仅作启动兜底；每次状态响应经 <code>applyServerConfig()</code> 合法性校验后覆盖（非法值回退兜底）；</li>
+<li>下发的轮询间隔与当前不同 → <code>startPolling()</code> 自动重排定时器；</li>
+<li>收益：<b>改 config.rs + 重启服务，所有网页端自动跟随，无需重新构建前端</b>。</li>
+</ul>
+<h3>10.3 版本号单一来源</h3>
+<ul>
+<li>唯一来源：<code>Cargo.toml [package] version</code>；</li>
+<li><code>tauri.conf.json</code> 省略 version 字段（Tauri 构建自动回退读 Cargo.toml）；</li>
+<li><code>APP_VERSION = env!("CARGO_PKG_VERSION")</code> 编译期取同源值，随状态接口下发；</li>
+<li>前端侧边栏展示接口下发的版本号，更新检查亦以此比较——发版只改 Cargo.toml 一处。</li>
+</ul>
 </section>
 
 <!-- ================= 11 ================= -->
@@ -400,17 +438,17 @@ npm run tauri build
 <table>
 <tr><th>事项</th><th>说明</th></tr>
 <tr><td>无鉴权</td><td>可信局域网模型，控制接口与文件接口均无鉴权；切勿暴露公网</td></tr>
-<tr><td>轮询 vs 推送</td><td>聊天 3s/日志 2s/状态 5s 轮询，协议与 Python 版一致；WebSocket 为后续可选演进</td></tr>
-<tr><td>App.vue 单文件</td><td>全部 UI/逻辑集中一个 SFC（约 1000 行）——体量可控，若继续膨胀建议拆组件</td></tr>
-<tr><td>dead_code 警告</td><td><code>free_space()</code> 保留未用（disk_space 已覆盖），编译有 1 条无害警告</td></tr>
-<tr><td>日志时间</td><td>chrono 本地时间毫秒（已修复旧版 UTC 展示）</td></tr>
+<tr><td>轮询 vs 推送</td><td>聊天 3s/日志 2s/状态 2.5s 轮询，实现简单兼容性好；WebSocket 为后续可选演进</td></tr>
+<tr><td>App.vue 单文件</td><td>全部 UI/逻辑集中一个 SFC——体量可控，若继续膨胀建议拆组件</td></tr>
+<tr><td>更新检查</td><td>前端直连 GitHub Releases API，失败一律静默；应用内自更新（签名+自动重启）留作演进</td></tr>
+<tr><td>日志时间</td><td>chrono 本地时间毫秒</td></tr>
 <tr><td>Linux 剪贴板</td><td>copy_file_cmd 暂不支持 Linux（返回明确错误）</td></tr>
 <tr><td>大文件下载</td><td>浏览器端 &gt;1GB 回退原生下载（防 blob 内存膨胀），无完成回调属浏览器限制</td></tr>
 <tr><td>后续演进项<br>（暂不实施）<br><span class="small">mDNS 域名发现</span></td><td>目标：IP 变化后旧地址失效，改用固定名 <code>http://wft.local:{port}</code> 自动跟随。实现要点：<code>mdns-sd = "0.13"</code>（纯 Rust 无系统依赖）在 <code>start()</code> 时注册 <code>_http._tcp</code> 服务实例（host=<code>wft.local.</code>，addr=当前 IP），后台任务比对 <code>lan_ip()</code> 变化后 unregister+re-register，<code>stop()</code> 时注销；断连横幅加提示语。<b>工作量：60–80 行 Rust，约半天。</b>已知边界：Android 浏览器不解析 .local（系统限制）；禁多播网络失效；同网段多实例需冲突改名（wft-xxxx.local）；端口变更仍需手写（浏览器不读 SRV）。优先级中低——iPhone/桌面用户收益明确，安卓场景现有断连横幅+二维码路径更可靠。</td></tr>
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash v1.0.0 · 技术实现文档 · 2026-10-23 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-10-25 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

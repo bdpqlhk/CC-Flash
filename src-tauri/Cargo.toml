@@ -1,7 +1,7 @@
 [package]
 name = "wlan-flash-transfer-tauri"
-version = "1.0.0"
-description = "局域网文件互传(Tauri 重构版)"
+version = "1.1.0"
+description = "局域网高速文件互传工具"
 edition = "2021"
 
 [lib]
