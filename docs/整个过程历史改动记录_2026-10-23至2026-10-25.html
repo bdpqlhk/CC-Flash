@@ -58,10 +58,11 @@ pre code{background:none;color:inherit;padding:0}
   <a href="#s3">三、发布历程</a>
   <a href="#s4">四、停服体验修复系列</a>
   <a href="#s5">五、配置化重构（A/C/B/D）</a>
-  <a href="#s6">六、体验细节增强</a>
-  <a href="#s7">七、工作区文件清单（未提交）</a>
-  <a href="#s8">八、配置中心现状</a>
-  <a href="#s9">九、遗留事项与下一步</a>
+  <a href="#s6">六、CI 三平台发版攻坚</a>
+  <a href="#s7">七、功能迭代与体验增强</a>
+  <a href="#s8">八、提交与版本时间线</a>
+  <a href="#s9">九、配置中心现状</a>
+  <a href="#s10">十、遗留事项与下一步</a>
 </nav>
 <main>
 <header class="doc">
@@ -155,12 +156,32 @@ pre code{background:none;color:inherit;padding:0}
     <tr>
       <td class="date">10-24 07:41</td>
       <td><span class="tag release">发布</span></td>
-      <td>推送 GitHub（<code>github.com/bdpqlhk/CC-Flash</code>）遇 <b>HTTP 408</b>（18 KiB/s 慢网超时）。读取 <code>.git</code> 内部文件发现 <code>refs/remotes/origin/main</code> 已是 <code>7481913</code> 且 reflog 记录 <code>update by push</code>——<b>包实际已到达，仅响应超时</b>。放宽 curl 低速限制（<code>http.postBuffer 512MB</code> 等）缓解后续推送。</td>
+      <td>推送 GitHub（<code>github.com/bdpqlhk/CC-Flash</code>）遇 <b>HTTP 408</b>（18 KiB/s 慢网超时）。读取 <code>.git</code> 内部文件发现 <code>refs/remotes/origin/main</code> 已是 <code>7481913</code> 且 reflog 记录 <code>update by push</code>——<b>包实际已到达，仅响应超时</b>。放宽 curl 低速限制缓解后续推送。</td>
     </tr>
     <tr>
       <td class="date">10-24</td>
       <td><span class="tag doc">决策</span></td>
       <td>分支命名确认为 <code>main</code>（建仓时即命名，跟随 GitHub 默认），不迁移 master。</td>
+    </tr>
+    <tr>
+      <td class="date">10-25 上午</td>
+      <td><span class="tag release">发布</span></td>
+      <td>v1.1.0 批量提交（<code>9d35486</code>：停服体验/配置中心/更新检查/CI 初版）+ 推标签触发 CI。<b>CI 六轮攻坚</b>（详见第六节），第九轮（<code>81af6af</code>）全绿——<b>v1.1.0 Release 五资产就位</b>（dmg/exe/msi/APK 22.9MB/app.tar.gz）。</td>
+    </tr>
+    <tr>
+      <td class="date">10-25</td>
+      <td><span class="tag doc">决策</span></td>
+      <td>仓库由 Private 转 <b>Public</b>：版本更新检查（未登录 API 请求）、对外下载安装包、Actions 免配额三项均依赖公开仓库。</td>
+    </tr>
+    <tr>
+      <td class="date">10-25 午后</td>
+      <td><span class="tag release">发布</span></td>
+      <td><b>v1.1.1 发布</b>：目录选择器 + 端口 1688（提交链 <code>6b82ed2</code> → <code>ded4540</code>）。期间 github.com:443 多次中断，改走 api.github.com 兜底（API 删旧标签/建标签引用/API 推送提交），并沉淀应急脚本 <code>scripts/api-push.sh</code>。CI 一次全绿，五资产（APK 22.6MB）。</td>
+    </tr>
+    <tr>
+      <td class="date">10-25</td>
+      <td><span class="tag doc">同步</span></td>
+      <td>本地与远程对齐：<code>git pull --rebase</code> 识别 API 重建的同内容提交并自动收敛（skipped previously applied commit），标签强制对齐。应急脚本 <code>api-push.sh</code> 入库。</td>
     </tr>
   </table>
 </section>
@@ -228,8 +249,8 @@ pre code{background:none;color:inherit;padding:0}
   <ul>
     <li><code>config.rs</code> 成为唯一事实源；<code>frontend_config()</code> 随三个出口下发：<code>/api/info</code>、<code>/api/control/status</code>、桌面 invoke <code>control_status_cmd</code>：</li>
   </ul>
-  <pre><code>{ "ip": "...", "port": 8765, "running": true,
-  "version": "1.0.0",
+  <pre><code>{ "ip": "...", "port": 1688, "running": true,
+  "version": "1.1.1",
   "config": { "nickMax": 20, "msgMax": 2000, "defaultNick": "匿名用户",
               "chatMax": 200, "poll": { "chat": 3000, "files": 5000, "status": 2500, "logs": 2000 } } }</code></pre>
   <ul>
@@ -244,7 +265,32 @@ pre code{background:none;color:inherit;padding:0}
 
 <!-- ================= 六 ================= -->
 <section id="s6">
-  <h2><span class="no">六</span>体验细节增强（10-25）</h2>
+  <h2><span class="no">六</span>CI 三平台发版攻坚（10-25，六轮修复 + 两次补刀）</h2>
+  <p class="muted">背景：首次启用 GitHub Actions 三平台自动构建（推送 v* 标签触发）。macOS/Windows 桌面链路较快跑通，Android 为项目首次移动端编译，连续暴露六类问题；全部修复后 v1.1.0 / v1.1.1 双 Release 五资产就位。</p>
+  <table>
+    <tr><th style="width:60px">轮</th><th style="width:230px">现象</th><th>根因 → 修复</th></tr>
+    <tr><td class="date">1</td><td>Release 创建被拒（Resource not accessible by integration），desktop 双 job 构建成功却上传失败</td><td>GITHUB_TOKEN 自 2023 起新仓库默认只读 → workflow 声明 <code>permissions: contents: write</code>。</td></tr>
+    <tr><td class="date">2</td><td>Android：<code>sh: 1: tauri: not found</code>（exit 127）</td><td><code>android init</code> 步骤排在 <code>npm install</code> 之前，tauri CLI 尚未安装 → 调整步骤顺序。</td></tr>
+    <tr><td class="date">3</td><td>移动端编译失败：托盘/关窗 API 不存在</td><td>托盘、关窗收纳、首次通知均为桌面专属 API → <code>#[cfg(desktop)]</code> 门控（含 import、静态量、setup 代码块）。</td></tr>
+    <tr><td class="date">4</td><td>移动端编译失败：E0282（lib.rs:51 setup 闭包）</td><td>桌面端闭包体经 <code>MenuItem::with_id(app,…)</code> 为 <code>app</code> 提供类型约束，门控后移动端失去全部约束点 → 参数显式标注 <code>|app: &mut tauri::App|</code>。</td></tr>
+    <tr><td class="date">5</td><td>移动端编译失败：E0282（server.rs copy_file_cmd）</td><td>剪贴板实现为 mac/win/其他 三分支条件编译，"其他"分支 <code>Err(…)</code> 的泛型 T 无约束 → 显式标注 <code>Result&lt;std::process::Output, std::io::Error&gt;</code>（Linux 同样受益）。</td></tr>
+    <tr><td class="date">6</td><td>APK 组装失败：<b>.so 缺 JNI 运行时符号</b>（库校验不通过）</td><td>移动端必须由宏生成 JNI 入口 → <code>run()</code> 标注 <code>#[cfg_attr(mobile, tauri::mobile_entry_point)]</code>。</td></tr>
+    <tr><td class="date">7</td><td>Gradle 跑的是 Release 变体（未签名装不上手机）</td><td><code>--debug</code> 恰好是 npm 自有参数被吞掉未透传 → 改用 <code>npx tauri android build --apk --debug</code> 原样透传。</td></tr>
+    <tr><td class="date">8</td><td>APK 重命名失败：固定输出路径 No such file or directory</td><td>输出目录系假设 → 改 <code>find … -name "*.apk"</code> 定位 + 带版本号重命名。</td></tr>
+  </table>
+  <h3>6.1 沉淀的工具与经验</h3>
+  <ul>
+    <li><b>体积优化</b>：debug universal APK 527MB（4 架构 × 无优化 + 全量调试符号）→ release 变体（模板默认 debug 签名，可直接安装）<b>约 20MB</b>；</li>
+    <li><b>本地预检</b>：<code>cargo check --target aarch64-linux-android</code> 无需 NDK 即可在 30 秒内复现移动端编译错误，替代 10 分钟一轮的 CI 试错；</li>
+    <li><b>应急推送</b>：<code>scripts/api-push.sh &lt;标签&gt;</code>——github.com:443 中断时经 api.github.com 走 Git Data API（blob→tree→commit→ref）完成推送并重建标签，实战验证有效；</li>
+    <li><b>一键发版</b>：<code>scripts/release.sh X.Y.Z [信息]</code>——升版本/提交/打标签/3 次重试推送/API 兜底/触发验证；</li>
+    <li><b>经验</b>：git 推标签与 main 同批推送存在事件偶发丢失，脚本改为分步推送 + 触发验证规避。</li>
+  </ul>
+</section>
+
+<!-- ================= 七 ================= -->
+<section id="s7">
+  <h2><span class="no">七</span>功能迭代与体验增强（10-25）</h2>
   <table>
     <tr><th style="width:90px">类型</th><th style="width:190px">改动</th><th>说明</th></tr>
     <tr>
@@ -259,62 +305,79 @@ pre code{background:none;color:inherit;padding:0}
     </tr>
     <tr>
       <td><span class="tag feat">功能</span></td>
-      <td>版本更新检查（方案一）</td>
+      <td>版本更新检查</td>
       <td>新增 <code>src/update.js</code>：GitHub Releases 检查（<code>releases/latest</code> API 免鉴权、支持 CORS、8s 超时、<b>任何失败静默</b>）+ 语义化版本比较。启动 3 秒后静默检查（24h 频控），「关于」卡新增当前版本徽章 + 检查更新按钮；发现新版弹框（版本对比 + Release 说明摘要），「前往下载」调 <code>open_url_cmd</code> 打开 Release 页。二期预留 plugin-updater 自动升级，只需替换执行环节。</td>
     </tr>
-  </table>
-</section>
-
-<!-- ================= 七 ================= -->
-<section id="s7">
-  <h2><span class="no">七</span>工作区文件清单（v1.0.0 之后，均未提交）</h2>
-  <table>
-    <tr><th style="width:90px">状态</th><th style="width:280px">文件</th><th>内容</th></tr>
-    <tr><td class="date">新增</td><td><code>src/config.js</code></td><td>前端配置中心（轮询/阈值/路径/存储键/文案/图标表…）</td></tr>
-    <tr><td class="date">新增</td><td><code>src/update.js</code></td><td>版本更新检查模块（GitHub Releases + semver 比较）</td></tr>
-    <tr><td class="date">新增</td><td><code>src-tauri/src/config.rs</code></td><td>Rust 配置中心（端口/聊天/日志/白名单/目录/版本号）</td></tr>
-    <tr><td class="date">新增</td><td><code>src/assets/no-signal.png</code></td><td>失联测试卡图（构建期内联 base64）</td></tr>
-    <tr><td class="date">修改</td><td><code>src/App.vue</code></td><td>停服体验系列修复、失联全屏页、下发配置接入、更新弹框、页脚</td></tr>
-    <tr><td class="date">修改</td><td><code>src/main.js</code></td><td>主题存储键统一走 config</td></tr>
-    <tr><td class="date">修改</td><td><code>src/style.css</code></td><td>无信号遮罩、页脚、刷新动画、版本徽章/更新弹框样式</td></tr>
-    <tr><td class="date">修改</td><td><code>vite.config.js</code></td><td><code>assetsInlineLimit: 200KB</code>（小图内联）</td></tr>
-    <tr><td class="date">修改</td><td><code>src-tauri/src/server.rs</code></td><td>常量收编 config.rs、frontend_config() 下发、版本字段</td></tr>
-    <tr><td class="date">修改</td><td><code>src-tauri/src/lib.rs</code></td><td>挂载 config 模块、托盘/通知用 APP_NAME</td></tr>
-    <tr><td class="date">修改</td><td><code>src-tauri/tauri.conf.json</code></td><td>移除 version 字段（回退 Cargo.toml）</td></tr>
-    <tr><td class="date">新增</td><td><code>docs/整个过程历史改动记录.html</code></td><td>本文档</td></tr>
+    <tr>
+      <td><span class="tag feat">功能</span></td>
+      <td>共享目录原生选择器</td>
+      <td>服务页新增「选择」按钮，tauri-plugin-dialog 弹系统目录框直接选取。<b>踩坑修复</b>：选定后 2.5s 状态轮询会把后端旧目录回填输入框（手动输入靠输入框聚焦保护规避，对话框选择无焦点保护）→ 选定后立即调 <code>set_share_dir_cmd</code> 落盘，回写值即所选目录，且重启软件不丢。capabilities 同步声明 <code>dialog:default</code>。</td>
+    </tr>
+    <tr>
+      <td><span class="tag feat">变更</span></td>
+      <td>默认端口 8765 → 1688</td>
+      <td>双端配置中心各改 1 行常量 + 顺延窗口收紧为 1688–1707（语义不变），地址栏/二维码/输入框初值/错误文案/四份文档全部自动跟随。注意：1688 在部分企业网络是 KMS 激活服务惯用端口，被占时自动顺延兜底。</td>
+    </tr>
   </table>
 </section>
 
 <!-- ================= 八 ================= -->
 <section id="s8">
-  <h2><span class="no">八</span>配置中心现状</h2>
+  <h2><span class="no">八</span>提交与版本时间线</h2>
   <table>
-    <tr><th style="width:180px">配置域</th><th>位置与要点</th></tr>
-    <tr><td>轮询与时序</td><td><code>config.js</code> POLL_*（兜底）← <code>/api/info</code> 下发覆盖 ← <code>config.rs</code> POLL_*（唯一事实）；失联阈值 <code>OFFLINE_FAILS=2</code> 纯前端</td></tr>
-    <tr><td>服务端口</td><td><code>config.rs DEFAULT_PORT=8765</code> + 顺延 20 + 兜底扫描至 8786；前端仅启动兜底展示</td></tr>
-    <tr><td>聊天限制</td><td>保留 200 条 / 昵称 20 字 / 消息 2000 字：Rust 权威 + 随接口下发，前端 input maxlength 动态绑定</td></tr>
-    <tr><td>日志</td><td>服务日志上限 1000 条；轮询噪音白名单 <code>NOISY_GET_PATHS</code> 数组化（与前端轮询路径一一对应）</td></tr>
-    <tr><td>API 路径</td><td><code>config.js API</code> 表 8 项（含 download/del 函数式路径），前端已零硬编码</td></tr>
-    <tr><td>存储键</td><td><code>LS</code> 表：theme / nick / nickAuto / updateCheck（原 <code>wft-theme</code> 双写已消灭）</td></tr>
-    <tr><td>版本号</td><td>Cargo.toml 唯一来源；<code>APP_VERSION=env!("CARGO_PKG_VERSION")</code>；<code>APP_VERSION_FALLBACK</code> 仅展示兜底</td></tr>
-    <tr><td>文案</td><td>话术模板 ×3、页脚、默认昵称均入 config.js</td></tr>
-    <tr><td>未抽取（有意）</td><td>autoNick 的 UA 识别表（与后端 device_kind 用途不同）、<code>fmtSize</code>/<code>humans</code> 单位表（留待后续统一）</td></tr>
+    <tr><th style="width:110px">提交</th><th style="width:110px">标签</th><th>内容</th></tr>
+    <tr><td class="date">7481913</td><td class="date">v1.0.0</td><td>v1.0.0 首个正式版本（10-23）</td></tr>
+    <tr><td class="date">9d35486</td><td class="date">v1.1.0*</td><td>v1.1.0 批量：停服体验七连修 / 配置中心 A·C / B 下发 / D 版本来源 / 更新检查 / CI 初版 / 四份文档</td></tr>
+    <tr><td class="date">aaa0231</td><td class="date">—</td><td>CI：GITHUB_TOKEN contents:write 权限修复</td></tr>
+    <tr><td class="date">2193320</td><td class="date">—</td><td>Android 修复（init 顺序 / 托盘门控）+ release.sh 入库</td></tr>
+    <tr><td class="date">fe1dcd4</td><td class="date">—</td><td>Android 修复（setup 闭包显式类型，E0282）</td></tr>
+    <tr><td class="date">5f10293</td><td class="date">—</td><td>Android 修复（copy_file_cmd 显式 Result 类型，E0282）</td></tr>
+    <tr><td class="date">22ea9af</td><td class="date">—</td><td>CI：Android 改出 release APK + release.sh 可执行位</td></tr>
+    <tr><td class="date">81af6af</td><td class="date">v1.1.0</td><td>CI：APK 产物 find 定位 → <b>v1.1.0 CI 首次全绿</b>（五资产）</td></tr>
+    <tr><td class="date">6b82ed2</td><td class="date">v1.1.1*</td><td>共享目录原生选择器 + 版本升至 1.1.1</td></tr>
+    <tr><td class="date">ded4540<br>（远程为 <b>9b86efa</b>，经 API 重建的同内容提交）</td><td class="date">v1.1.1</td><td>默认端口 1688 + 四份文档同步 → <b>v1.1.1 CI 一次全绿</b>（五资产）</td></tr>
+  </table>
+  <p class="muted">* 标签在 CI 修复期间随提交多次移动（删旧建新），最终：v1.1.0 → 81af6af，v1.1.1 → 9b86efa。</p>
+  <table>
+    <tr><th style="width:130px">Release</th><th>资产（均在 GitHub Releases 页）</th></tr>
+    <tr><td class="date">v1.0.0</td><td>CC-Flash_1.0.0_aarch64.dmg（本地构建手动上传）</td></tr>
+    <tr><td class="date">v1.1.0</td><td>dmg 4.6MB · exe 1.9MB · msi 2.6MB · APK 22.9MB · app.tar.gz（CI 自动）</td></tr>
+    <tr><td class="date">v1.1.1</td><td>dmg 4.7MB · exe 1.9MB · msi 2.7MB · <b>APK 22.6MB</b> · app.tar.gz（CI 自动）</td></tr>
   </table>
 </section>
 
 <!-- ================= 九 ================= -->
 <section id="s9">
-  <h2><span class="no">九</span>遗留事项与下一步</h2>
-  <ol>
-    <li><b>提交代码</b>：工作区 12 个文件（含本文档），建议按语义分批提交（停服修复 / 配置化重构 / 新功能），打 tag <code>v1.1.0</code>。</li>
-    <li><b>发布 GitHub Release</b>：更新检查功能需要仓库存在 Release（附 .dmg / .exe 安装包），Release 描述即弹框里的"更新说明"。</li>
-    <li><b>二期：plugin-updater 自动升级</b>：应用内后台下载 + 自动重启（对标 TCode 体验）；前置条件为 minisign 签名密钥、各平台签名产物、latest.json 托管，建议配套 GitHub Actions 在推 tag 时自动构建。</li>
-    <li><b>小尾巴</b>：前后端两份大小单位表（<code>fmtSize</code> / <code>humans</code>）可随下次改动统一。</li>
-  </ol>
-  <div class="note">📌 证据链说明：v1.0.0 内容清单依据初始提交代码现状与 <code>docs/需求设计文档.html</code>、<code>docs/技术实现文档.html</code> 还原；之后的改动依据开发会话记录与工作区文件。时间均来自 git 历史（<code>7481913</code> 提交于 10-23 22:01）。</div>
+  <h2><span class="no">九</span>配置中心现状</h2>
+  <table>
+    <tr><th style="width:180px">配置域</th><th>位置与要点</th></tr>
+    <tr><td>轮询与时序</td><td><code>config.js</code> POLL_*（兜底）← <code>/api/info</code> 下发覆盖 ← <code>config.rs</code> POLL_*（唯一事实）；失联阈值 <code>OFFLINE_FAILS=2</code> 纯前端</td></tr>
+    <tr><td>服务端口</td><td><code>config.rs DEFAULT_PORT=1688</code> + 顺延 20 + 兜底扫至 1707；前端仅启动兜底展示</td></tr>
+    <tr><td>聊天限制</td><td>保留 200 条 / 昵称 20 字 / 消息 2000 字：Rust 权威 + 随接口下发，前端 input maxlength 动态绑定</td></tr>
+    <tr><td>日志</td><td>服务日志上限 1000 条；轮询噪音白名单 <code>NOISY_GET_PATHS</code> 数组化（与前端轮询路径一一对应）</td></tr>
+    <tr><td>API 路径</td><td><code>config.js API</code> 表 8 项（含 download/del 函数式路径），前端已零硬编码</td></tr>
+    <tr><td>存储键</td><td><code>LS</code> 表：theme / nick / nickAuto / updateCheck（原 <code>wft-theme</code> 双写已消灭）</td></tr>
+    <tr><td>版本号</td><td>Cargo.toml 唯一来源（当前 <b>1.1.1</b>）；<code>APP_VERSION=env!("CARGO_PKG_VERSION")</code>；<code>APP_VERSION_FALLBACK</code> 仅展示兜底</td></tr>
+    <tr><td>窗口权限</td><td><code>capabilities/default.json</code>：notification:default + dialog:default（目录选择器依赖）</td></tr>
+    <tr><td>文案</td><td>话术模板 ×3、页脚、默认昵称均入 config.js</td></tr>
+    <tr><td>未抽取（有意）</td><td>autoNick 的 UA 识别表（与后端 device_kind 用途不同）、<code>fmtSize</code>/<code>humans</code> 单位表（留待后续统一）</td></tr>
+  </table>
 </section>
 
-<p class="muted" style="text-align:center;padding:6px 0 18px">CC-Flash · 整个过程历史改动记录 · 生成于 2026-10-25</p>
+<!-- ================= 十 ================= -->
+<section id="s10">
+  <h2><span class="no">十</span>遗留事项与下一步</h2>
+  <ol>
+    <li><b>iOS 真机包</b>：需 Apple 开发者账号（$99/年）+ 证书配成仓库 Secrets，workflow 内已备注释模板，账号到位即启用；</li>
+    <li><b>二期：plugin-updater 应用内自更新</b>：后台下载 + 自动重启；前置 minisign 签名密钥 + 各平台签名产物 + latest.json 托管，建议配套 GitHub Actions；</li>
+    <li><b>Android 正式签名</b>：现 APK 为 debug 签名（可直接安装，适合内测分发）；上架应用市场需正式 keystore 配 Secrets；</li>
+    <li><b>小尾巴</b>：前后端两份大小单位表（<code>fmtSize</code> / <code>humans</code>）可随下次改动统一；</li>
+    <li><b>release.sh 实战检验</b>：v1.1.1 当天因网络走的是手动 + API 混合通道，脚本逻辑已验证（版本守卫生效、API 兜底逻辑同源），下次发版走一遍完整流程。</li>
+  </ol>
+  <div class="note">📌 证据链说明：v1.0.0 内容清单依据初始提交代码现状与 <code>docs/需求设计文档.html</code>、<code>docs/技术实现文档.html</code> 还原；之后的改动依据开发会话记录、git 提交链（<code>7481913 → 9b86efa</code> 共 10 笔提交）与 Actions 运行记录。时间均以 git 历史与 Actions 时间戳为准。</div>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-25 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>
