@@ -40,6 +40,7 @@ fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             server::control_status_cmd,
             server::control_start_cmd,

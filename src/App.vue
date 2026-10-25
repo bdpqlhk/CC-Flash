@@ -13,6 +13,7 @@ import {
   UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 /* ---------- 运行参数: 下面是启动兜底值, 服务端(/api/info、control_status_cmd)下发后以其为准 ---------- */
 const appVersion = ref("");   // 应用版本, 唯一来源 Cargo.toml, 随状态接口下发
@@ -145,6 +146,20 @@ async function startServer() {
 function openShareDir() {
   tauriInvoke("open_path_cmd", { path: shareInput.value })
     .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); });
+}
+async function pickShareDir() {
+  try {
+    const sel = await openDialog({ directory: true, title: "选择共享目录" });
+    if (!sel) return;   // 用户取消
+    // 立即落盘: 后端更新后轮询回写的才是新目录, 否则 2.5s 内会被旧值冲掉
+    const d = await tauriInvoke("set_share_dir_cmd", { path: sel });
+    if (d.ok) {
+      shareInput.value = sel;
+      showToast("共享目录已更新，下次启动服务生效");
+    } else {
+      showToast(d.error || "设置失败", "error");
+    }
+  } catch (_) { /* 用户取消 */ }
 }
 function openFile(name) {
   const dir = shareInput.value.replace(/\/+$/, "");
@@ -991,6 +1006,7 @@ async function refreshStatus() {
                 <label>共享目录</label>
                 <div class="dir-row">
                   <input class="svc-input" style="flex:1;min-width:0" v-model="shareInput" :disabled="running" :title="shareInput" />
+                  <button class="btn btn-ghost" :disabled="running" @click="pickShareDir">选择</button>
                   <button class="btn btn-ghost" :disabled="running" @click="openShareDir">打开</button>
                 </div>
                 <div class="field-hint">💾 可用 {{ freeSpace }} · 修改目录需重启服务生效</div>
