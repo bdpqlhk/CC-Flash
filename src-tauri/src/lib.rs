@@ -48,7 +48,11 @@ pub fn run() {
             server::open_url_cmd,
             server::copy_file_cmd
         ])
-        .setup(|app| {
+        .setup(|app: &mut tauri::App| {
+            // 移动端托盘/窗口能力被门控, app 不被直接使用;
+            // 显式标注参数类型, 避免移动端编译时推断失败(E0282)
+            #[cfg(not(desktop))]
+            let _ = app;
             // ---- 托盘 + 关窗收纳(桌面专属; 移动端无托盘概念) ----
             #[cfg(desktop)]
             {
