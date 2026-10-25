@@ -727,8 +727,8 @@ pub fn copy_file_cmd(name: String) -> serde_json::Value {
             .output()
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let res = Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported, "Linux 暂不支持复制文件到剪贴板"));
+    let res: Result<std::process::Output, std::io::Error> = Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported, "Linux/Android 暂不支持复制文件到剪贴板"));
     match res {
         Ok(out) if out.status.success() => {
             serde_json::json!({ "ok": true })
