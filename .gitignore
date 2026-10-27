@@ -1,5 +1,8 @@
 node_modules/
 dist/
 src-tauri/target/
-src-tauri/gen/
+# gen 下仅 Android 工程入库(签名配置在 app/build.gradle.kts, 读 CI 环境变量);
+# 其余(gen/schemas 等)保持忽略
+src-tauri/gen/*
+!src-tauri/gen/android/
 .DS_Store

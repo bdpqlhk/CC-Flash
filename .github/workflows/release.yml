@@ -1,5 +1,6 @@
 # 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
-# 覆盖: macOS(.app/.dmg) · Windows(.msi/.exe) · Android(.apk, debug 签名可直接安装)
+# 覆盖: macOS(.app/.dmg) · Windows(.msi/.exe) · Android(--split-per-abi 按 4 个 ABI 分包出 .apk,
+#       flavor 名映射为标准 ABI 名; Secrets 配置 ANDROID_KEYSTORE_* 后走 release 签名, 未配置退回 debug)
 # iOS: 真机 ipa 必须 Apple 开发者账号签名(证书配成 Secrets), 有账号后取消注释 ios job 即可
 name: Release 构建
 
@@ -51,9 +52,12 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-  # ---- Android: debug APK(免签名, 手机可直接安装) ----
+  # ---- Android: 全架构 APK(有发布证书 Secrets 走 release 签名, 否则退回 debug 可直接安装) ----
   android:
     needs: desktop          # 等 desktop job 先建好 Release, 再追加 APK 资产
+    # desktop 任一平台失败不连坐 APK 发布(softprops 上传时 Release 不存在会自动创建);
+    # 仍等待 desktop 结束再跑, 避免两个 job 同时创建 Release 的竞态; 用户手动取消时不跑
+    if: ${{ always() && needs.desktop.result != 'cancelled' }}
     runs-on: ubuntu-latest  # runner 自带 Android SDK
     steps:
       - uses: actions/checkout@v4
@@ -87,19 +91,71 @@ jobs:
         if: ${{ ! hashFiles('src-tauri/gen/android/**') }}
         run: npm run tauri android init
 
-      - name: 构建 Android release APK(tauri 模板默认 debug 签名, 可直接安装)
-        run: npx tauri android build --apk
-
-      - name: 重命名产物
+      # Android 构建与签名(签名配置已随 src-tauri/gen/android 入库, 见 app/build.gradle.kts 的
+      # signingConfigs.release, 读 CC_KEYSTORE_* 环境变量):
+      # - 有发布证书 Secrets → 导出环境变量, --release 构建(固定证书, 版本间可覆盖安装, 无 debuggable)
+      # - 未配置 → 退回 --debug(debug keystore 自动签名, 可直接安装但各版本证书不同, CI 出警告)
+      # Secrets 生成方式(本地执行一次, 妥善备份 keystore, 丢了将无法覆盖安装升级):
+      #   keytool -genkeypair -v -keystore cc-flash.keystore -alias ccflash \
+      #     -keyalg RSA -keysize 2048 -validity 10950
+      #   base64 -i cc-flash.keystore | pbcopy   # → ANDROID_KEYSTORE_BASE64
+      #   密码/别名分别填入 ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+      - name: 构建 Android APK(有发布证书走 release, 否则 debug)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -type f | head -1)
-          echo "找到 APK: $APK"
-          cp "$APK" "CC-Flash-${{ github.ref_name }}-android.apk"
+          set -e
+          # --split-per-abi: 不带该 flag 时 tauri 只构建 universal flavor(单包),
+          # 重命名步骤的 flavor→ABI 映射与"按机型分架构下载"的契约会落空
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::未配置 Android 发布证书 Secrets(ANDROID_KEYSTORE_*), 退回 debug 构建 —— 各版本证书不同, 覆盖安装需先卸载"
+            npx tauri android build --apk --debug --split-per-abi
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          export CC_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          export CC_KEYSTORE_PASSWORD="$KS_PASSWORD"
+          export CC_KEY_ALIAS="$KEY_ALIAS"
+          export CC_KEY_PASSWORD="$KEY_PASSWORD"
+          npx tauri android build --apk --split-per-abi
 
+      # --split-per-abi 构建 4 个 ABI flavor(universal 不参与 split), 见 gen/android 的 RustPlugin.kt;
+      # 文件名把 flavor 名映射成标准 ABI 名 —— 用户按机型选 arm64-v8a(绝大多数)/armeabi-v7a,
+      # 避免只发一个包时随机落到 x86 装到 ARM 手机上报 NO_MATCHING_ABIS
+      - name: 重命名产物(flavor 名映射为标准 ABI 名)
+        run: |
+          set -e
+          OUT_DIR=src-tauri/gen/android/app/build/outputs/apk
+          found=0
+          for apk in $(find "$OUT_DIR" -name "*.apk" ! -name "*unsigned*" -type f | sort); do
+            base=$(basename "$apk" .apk)          # app-arm64-release / app-arm64-debug
+            abi="${base#app-}"
+            abi="${abi%-unsigned}"; abi="${abi%-debug}"; abi="${abi%-release}"
+            case "$abi" in                        # flavor → 标准 ABI 名
+              arm64) abi="arm64-v8a" ;;
+              arm)   abi="armeabi-v7a" ;;
+            esac
+            dest="CC-Flash-${{ github.ref_name }}-android-${abi}.apk"
+            echo "打包: $apk → $dest"
+            cp "$apk" "$dest"
+            found=1
+          done
+          if [ "$found" = "0" ]; then
+            echo "::error::未找到已签名的 APK"
+            find "$OUT_DIR" -name "*.apk" -type f
+            exit 1
+          fi
+
+      # desktop 挂掉时 APK 照常上传但整个 Release 保持草稿(不对外发布没有桌面安装包的版本);
+      # 桌面全绿时正常发布。desktop 单腿失败也算 job 失败 → 草稿, 人工确认后可手动 Publish
       - name: 上传 APK 到 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: CC-Flash-${{ github.ref_name }}-android.apk
+          files: CC-Flash-${{ github.ref_name }}-android-*.apk
+          draft: ${{ needs.desktop.result != 'success' }}
 
   # ---- iOS(模板): 真机 ipa 需要 Apple 开发者账号 ----
   # 前置: ① 付费开发者账号($99/年) ② 证书.p12 与描述文件.mobileprovision 上传为仓库 Secrets
