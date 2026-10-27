@@ -16,6 +16,17 @@ mod server;
 #[cfg(desktop)]
 static TRAY_TIP_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// 唤出主窗口的统一实现(托盘菜单 / 单实例重复启动 / macOS 点程序坞图标 三条路径共用):
+/// 必须先 unminimize 再 show —— show() 只置可见, 不会把最小化的窗口还原。
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 /// 关窗 = 收到托盘(服务继续运行);托盘菜单「退出」才真正结束进程。
 #[cfg(desktop)]
 fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) {
@@ -29,7 +40,7 @@ fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) 
                 .notification()
                 .builder()
                 .title(format!("{} 仍在运行", config::APP_NAME))
-                .body("窗口已收到托盘，服务保持运行。点托盘图标可重新打开；退出请用其菜单中的「退出」。")
+                .body("窗口已收到托盘，服务保持运行。点托盘图标，或再次从程序坞(macOS)/桌面与开始菜单(Windows)打开均可重新显示；退出请用托盘菜单中的「退出」。")
                 .show();
         }
     }
@@ -38,7 +49,15 @@ fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) 
 /// 移动端入口: tauri 需要该宏生成 JNI 运行时符号(Android/iOS 胶水层调用)
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // 单实例守卫(桌面专属, 且必须注册在所有插件之前): 关窗后应用仍在托盘运行,
+    // 再从桌面/任务栏图标启动会拉出新进程 —— 每重开一次就多一个托盘图标。
+    // 有该守卫后重复启动改为唤起已有实例的主窗口。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(
+        |app, _args, _cwd| show_main_window(app),
+    ));
+    let builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -50,7 +69,15 @@ pub fn run() {
             server::open_path_cmd,
             server::open_url_cmd,
             server::copy_file_cmd
-        ])
+        ]);
+    // 开机自启插件(桌面专属; Cargo.toml 中按目标平台条件引入, 移动端无此插件)
+    // 自启启动带 --hidden 参数: 登录后收进托盘后台运行, 不弹主窗口(与设置页文案一致)
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec!["--hidden"]),
+    ));
+    builder
         .setup(|app: &mut tauri::App| {
             // 移动端托盘/窗口能力被门控, app 不被直接使用;
             // 显式标注参数类型, 避免移动端编译时推断失败(E0282)
@@ -68,14 +95,23 @@ pub fn run() {
             let mut tray = TrayIconBuilder::with_id("main-tray")
                 .tooltip(config::APP_NAME)
                 .menu(&menu)
+                // 关掉"左键弹菜单": macOS 上挂了 menu 后左键会直接进入菜单追踪, Click 事件
+                // 到不了 handler; 关掉后两平台统一为 左键=唤窗 / 右键=菜单
+                .show_menu_on_left_click(false)
+                // 左键点击托盘图标 → 唤出主窗口(右键为菜单); 关窗通知文案承诺了这条路径
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                })
                 .on_menu_event(|app, ev| match ev.id().as_ref() {
                     "quit" => app.exit(0),
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
+                    "show" => show_main_window(app),
                     "toggle" => {
                         if server::is_running() {
                             server::stop();
@@ -101,6 +137,11 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 let w2 = w.clone();
                 w.on_window_event(move |event| main_window_event(&w2, event));
+                // 窗口在 tauri.conf 中默认隐藏(visible:false), 防止自启时先创建可见窗口再隐藏的闪屏;
+                // 手动启动(无 --hidden 参数)在这里显式展示, 自启则保持隐藏收进托盘
+                if !std::env::args().any(|a| a == "--hidden") {
+                    let _ = w.show();
+                }
             }
             } // #[cfg(desktop)]
 
@@ -111,6 +152,16 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS: 关窗收到托盘后点程序坞图标 → applicationShouldHandleReopen 触发,
+            // 重新显示主窗口(否则窗口已隐藏时 Dock 点击无反应)
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_main_window(app);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (&app, &event);
+        });
 }
