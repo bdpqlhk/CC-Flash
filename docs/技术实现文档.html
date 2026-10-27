@@ -69,7 +69,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 技术实现文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-10-25</b></span>
+<span>文档日期：<b>2026-10-26</b></span>
 <span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
 <span>平台：<b>macOS 已出包 · Windows 待验</b></span>
 </div>
@@ -123,12 +123,14 @@ cc-flash/
 ├── public/logo.png              # 应用 logo
 └── src-tauri/
     ├── Cargo.toml               # axum/tokio/chrono/fs2/tauri2 …（版本号唯一来源）
-    ├── tauri.conf.json          # 窗口 1180×840(最小560×520)
+    ├── tauri.conf.json          # 窗口 1180×840(最小560×520)，visible:false 默认隐藏防自启闪窗
     ├── capabilities/default.json# 窗口权限白名单(notification/dialog)
+    ├── capabilities/desktop.json# 桌面专属权限（autostart:default，platforms 限 linux/macOS/windows）
+    ├── gen/android/             # Android 工程（入库；release 签名读 CC_KEYSTORE_* 环境变量）
     ├── icons/                   # 已生成全平台图标
     └── src/
         ├── main.rs              # 入口 → lan_transfer_lib::run()
-        ├── lib.rs               # 托盘(桌面门控)/通知/命令注册/自启动/mobile_entry_point
+        ├── lib.rs               # 托盘(桌面门控)/单实例/唤窗/通知/命令注册/自启--hidden/mobile_entry_point
         ├── config.rs            # Rust 配置中心（唯一事实源，随接口下发前端）
         └── server.rs            # 局域网服务全部实现
 </pre>
@@ -139,7 +141,7 @@ cc-flash/
 <tr><td><code>npm run check</code></td><td><code>cargo check</code> 快速校验 Rust 编译</td></tr>
 <tr><td><code>npm run tauri build</code></td><td>发布：vite build → release 编译 → .app + .dmg 打包</td></tr>
 </table>
-<div class="callout c-tip"><b>关键依赖</b> axum 0.7（HTTP）、tokio（异步运行时）、tower-http CORS（桌面壳跨源调用）、rust-embed 8（静态资源）、mime_guess、percent-encoding、fs2（磁盘空间）、chrono（本地时间日志）、tauri-plugin-notification（系统通知）、tauri-plugin-dialog（原生目录选择，capabilities 需声明 dialog:default）。</div>
+<div class="callout c-tip"><b>关键依赖</b> axum 0.7（HTTP）、tokio（异步运行时）、tower-http CORS（桌面壳跨源调用）、rust-embed 8（静态资源）、mime_guess、percent-encoding、fs2（磁盘空间）、chrono（本地时间日志）、tauri-plugin-notification（系统通知）、tauri-plugin-dialog（原生目录选择，capabilities 需声明 dialog:default）、<b>tauri-plugin-single-instance</b>（单实例守卫，必须最先注册）、<b>tauri-plugin-autostart</b>（开机自启，按目标平台条件引入）。</div>
 </section>
 
 <!-- ================= 3 ================= -->
@@ -287,16 +289,19 @@ safe_name → safe_join_existing → remove_file
 <!-- ================= 8 ================= -->
 <section id="s8">
 <h2><span class="no">8</span>Tauri 壳层（lib.rs）</h2>
-<h3>8.1 托盘</h3>
+<h3>8.1 托盘与窗口唤出</h3>
 <ul>
 <li>菜单：显示主窗口 / 启动·停止服务（toggle）/ 打开网页（<code>http://{lan_ip}:{port}</code>）/ 退出；</li>
-<li><b>关窗 = 收纳</b>：<code>CloseRequested</code> 事件 <code>prevent_close</code> + <code>hide()</code>，服务保持运行；首次收纳发系统通知（tauri-plugin-notification）告知退出方式。</li>
+<li><b>左键点托盘图标 = 唤出主窗口</b>（<code>show_menu_on_left_click(false)</code> 后左键不再弹菜单——macOS 挂了 menu 的托盘左键会直接进入菜单追踪，Click 事件到不了 handler；关掉后两平台统一为 左键唤窗 / 右键菜单）；右键打开菜单；</li>
+<li><b>唤窗统一走 <code>show_main_window(app)</code></b>（<code>unminimize → show → set_focus</code>，show() 只置可见不会还原最小化），三条路径共用：① 托盘菜单「显示主窗口」② 左键托盘图标 ③ 单实例回调 / macOS <code>RunEvent::Reopen</code>（点程序坞图标触发 <code>applicationShouldHandleReopen</code>）；</li>
+<li><b>单实例守卫</b>：<code>tauri-plugin-single-instance</code>（<b>必须注册在所有插件之前</b>）——运行中再次启动不再新建进程，回调直接 <code>show_main_window</code>，杜绝 Windows 侧托盘图标越开越多；</li>
+<li><b>关窗 = 收纳</b>：<code>CloseRequested</code> 事件 <code>prevent_close</code> + <code>hide()</code>，服务保持运行；首次收纳发系统通知（tauri-plugin-notification）告知退出方式（文案区分程序坞/任务栏）。</li>
 </ul>
 <h3>8.2 启动序列</h3>
 <ol>
-<li>注册 notification 插件与全部命令（generate_handler!）；</li>
-<li>构建托盘与菜单事件；</li>
-<li>主窗口绑定关闭事件；</li>
+<li>注册单实例插件（最先）→ notification / dialog → 桌面条件注册 autostart（参数 <code>["--hidden"]</code>）→ 全部命令（generate_handler!）；</li>
+<li>构建托盘与菜单/左键点击事件；</li>
+<li>主窗口绑定关闭事件；窗口在 tauri.conf 中<b>默认隐藏</b>（<code>visible:false</code> 防自启闪窗），启动参数<b>不含</b> <code>--hidden</code> 时在 setup 内显式 <code>show()</code>——手动启动正常弹窗，开机自启收进托盘不弹；</li>
 <li><code>server::autostart()</code> 自动拉起服务（端口被占自动顺延），结果打 stderr：<code>[wft] 服务已启动: http://ip:port</code>。</li>
 </ol>
 </section>
@@ -307,7 +312,8 @@ safe_name → safe_join_existing → remove_file
 <h3>9.1 运行模式判定</h3>
 <table>
 <tr><th>标志</th><th>判定</th><th>影响</th></tr>
-<tr><td><code>isDesktop</code></td><td><code>"__TAURI_INTERNALS__" in window</code></td><td>侧栏三页 vs 网页单页；invoke vs fetch；文件按钮组差异</td></tr>
+<tr><td><code>isDesktop</code></td><td><code>"__TAURI_INTERNALS__" in window</code></td><td>侧栏三页 vs 网页单页；invoke vs fetch；文件按钮组差异（<b>注意：Android/iOS 的 Tauri WebView 同样为 true</b>）</td></tr>
+<tr><td><code>isRealDesktop</code></td><td><code>isDesktop && UA 不含 Android/iOS</code></td><td>依赖桌面专属插件的功能门控：开机自启开关与设置卡仅真实桌面显示（Android 平板上 autostart 插件未注册，直连必失败）</td></tr>
 <tr><td><code>isNarrow</code></td><td><code>matchMedia("(max-width:980px)")</code> 监听</td><td>手机布局：导航精简、悬浮球+底部面板、地址行两行式</td></tr>
 </table>
 <h3>9.2 主要响应式状态</h3>
@@ -323,14 +329,16 @@ safe_name → safe_join_existing → remove_file
 <tr><td><code>nickInput / curNick / autoNick</code></td><td>昵称（localStorage 记忆；自动昵称 = 系统+浏览器-随机4位）</td></tr>
 <tr><td><code>refreshing / offline</code></td><td>手动刷新旋转态 / 浏览器端与服务失联标志（连续 2 次状态请求失败置位）</td></tr>
 <tr><td><code>selected / sortBy / currentPage</code></td><td>批量选择 / 排序 / 分页</td></tr>
-<tr><td><code>theme / qrData / qrShow / toasts / copied</code></td><td>皮肤 / 二维码（本地 canvas 生成）/ 提示 / 复制成功态</td></tr>
+<tr><td><code>theme / qrData / qrShow / toasts / copied</code></td><td>皮肤 / 二维码（本地 canvas 生成，由 <code>watch [shareUrl, running]</code> 单源驱动）/ 提示 / 复制成功态</td></tr>
+<tr><td><code>introShow / introSec / faqOpen</code></td><td>介绍页（开合 / 锚点高亮 scroll spy / FAQ 单开手风琴）</td></tr>
+<tr><td><code>autostartOn / showAutostartTip</code></td><td>开机自启开关状态与开启成功说明弹框（仅真实桌面）</td></tr>
 </table>
 <h3>9.3 轮询与 IP 变化检测</h3>
 <table>
 <tr><th>定时器</th><th>周期</th><th>内容</th></tr>
 <tr><td>chatTimer</td><td>3s（可下发）</td><td>loadChat（所有端）</td></tr>
 <tr><td>logTimer</td><td>2s（可下发）</td><td>refreshLogs（仅桌面）</td></tr>
-<tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + genQr() 重生成二维码 + toast「本机 IP 已变为 …，手机请改用新地址访问」</b>；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</td></tr>
+<tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + toast「本机 IP 已变为 …，手机请改用新地址访问」；二维码由 <code>watch [shareUrl, running]</code> 统一驱动重生成（地址或启停任一变化即更新、停服清空、乱序过期结果丢弃），轮询末尾 <code>running && !qrData</code> 时兜底重试自愈</b>；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</td></tr>
 <tr><td>filesTimer</td><td>5s（可下发）</td><td>loadFiles(false) 文件列表自动同步——其他设备上传/删除在各端自动呈现；<code>loadFiles(manual)</code> 手动刷新置 <code>refreshing</code> 触发按钮旋转（最短 600ms）；在途竞争用 <code>reloadQueued</code> 补拉队列保证删除后必刷新</td></tr>
 </table>
 <p class="small">定时器统一由 <code>startPolling()/stopPolling()</code> 启停：服务端下发的轮询间隔与当前不同时自动重排。</p>
@@ -385,6 +393,15 @@ safe_name → safe_join_existing → remove_file
 <li><code>isNewer()</code>：语义化比较（剥 v 前缀/-beta 后缀、分段数值、短方补 0）；</li>
 <li>触发：启动 3s 后静默检查 + localStorage 24h 频控（<code>wft-update-check</code>）；「关于」卡手动检查（失败有明确提示）；发现新版弹框，「前往下载」走 <code>open_url_cmd</code> 打开 Release 页。</li>
 </ul>
+<h3>9.11 软件介绍页（intro overlay）</h3>
+<ul>
+<li><b>入口</b>：侧边栏品牌行「ⓘ 介绍」胶囊按钮（桌面壳专属），点击打开全屏介绍页（Hero / 功能四卡 / 三步上手 / 技术实现 / FAQ 手风琴 / 页脚）；</li>
+<li><b>延迟挂载</b>：<code>v-if="isDesktop && introShow"</code> + <code>&lt;Transition name="intro"&gt;</code>——约 220 个 DOM 节点首次打开才构建，开合过渡动画保留（CSS 从 <code>.open</code> 类切换改为 Vue transition 钩子）；</li>
+<li><b>交互</b>：粘性顶栏锚点导航 + IntersectionObserver scroll spy 高亮（<code>introSec</code>）、<code>introScrollTo()</code> 平滑滚动（56px 顶栏留边）、品牌「回到顶部」滚回 Hero 并重置高亮、Esc 关闭（onMounted 注册、onUnmounted 注销）、打开时锁 body 滚动、关闭时 <code>stopIntroSpy()</code> 防观察器泄漏；</li>
+<li><b>CTA 分流</b>：Hero「立即开始传输」→ <code>goTransferFromIntro()</code> 关页进文件传输；顶栏「去启动服务」→ <code>goServiceFromIntro()</code> 关页进服务中心；「查看使用说明」→ 页内跳「如何使用」区块；</li>
+<li><b>外链统一</b>：<code>openExternal(url, silent)</code> 为唯一入口（桌面 <code>open_url_cmd</code>、失败回退 <code>window.open</code>），openBrowser / goDownload / 聊天链接 / 介绍页链接四处共用，避免多份拷贝漂移；</li>
+<li><b>分层</b>：z-index 970——高于聊天面板(950)、低于弹框(998)/Toast(1001)，保证启动后静默检查更新弹出的「发现新版本」不会被盖在介绍页下面。</li>
+</ul>
 </section>
 
 <!-- ================= 10 ================= -->
@@ -435,7 +452,9 @@ npm run tauri build
 </ul>
 <h3>11.1 CI 自动发版</h3>
 <ul>
-<li><code>.github/workflows/release.yml</code>：推送 <code>v*</code> 标签触发，三 job 并行——desktop(macos/windows, tauri-action 建 Release 并上传) + android(ubuntu, 出 release 变体 APK，模板默认 debug 签名可直接安装)；<code>permissions: contents: write</code> 为必需（GITHUB_TOKEN 默认只读）；Android 需先接受 SDK 许可并定位 NDK_HOME；</li>
+<li><code>.github/workflows/release.yml</code>：推送 <code>v*</code> 标签触发——desktop(macos/windows, tauri-action 建 Release 并上传) + android(ubuntu, <code>needs: desktop</code> 但 <code>if: always()</code> 不连坐)；<code>permissions: contents: write</code> 为必需（GITHUB_TOKEN 默认只读）；Android 需先接受 SDK 许可并定位 NDK_HOME；</li>
+<li><b>Android 构建与签名</b>：<code>tauri android build --apk --split-per-abi</code> 按 4 个 ABI 分包（flavor arm64/arm/x86/x86_64 → 文件名映射 arm64-v8a/armeabi-v7a/x86/x86_64）。配置 <code>ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD</code> 四个 Secrets 后：keystore 解码到 <code>$RUNNER_TEMP</code>、导出 <code>CC_KEYSTORE_*</code> 环境变量 → 入库的 <code>gen/android/app/build.gradle.kts</code> 中 <code>signingConfigs.release</code> 读取并挂到 release 变体（<b>固定证书，版本间可覆盖安装</b>）；未配置时退回 <code>--debug</code> 构建（runner debug keystore，各版本证书不同，CI 出 warning）。release 变体显式 <code>usesCleartextTraffic=true</code>——应用全部流量是有意的局域网明文 HTTP，否则 API 全部被 <code>ERR_CLEARTEXT_NOT_PERMITTED</code> 拦死；</li>
+<li><b>发布保护</b>：产物 <code>find ! -name "*unsigned*"</code> 兜底（缺签名直接 CI 失败）；desktop job 失败时 APK 仍上传但 Release 保持<b>草稿</b>（<code>draft: needs.desktop.result != 'success'</code>），人工确认后手动 Publish；</li>
 <li>一键发版：<code>./scripts/release.sh X.Y.Z [提交信息]</code>——升版本/提交/打标签/推送（3 次重试 + GitHub API 建 tag 引用兜底，应对 git 443 通道抖动），并轮询验证 Actions 已触发；</li>
 <li>注意：git 推送标签与 main 同批推送存在事件偶发丢失的情况，脚本采用分步推送 + 触发验证来规避。</li>
 </ul>
@@ -451,7 +470,7 @@ npm run tauri build
 <tr><td>App.vue 单文件</td><td>全部 UI/逻辑集中一个 SFC——体量可控，若继续膨胀建议拆组件</td></tr>
 <tr><td>更新检查</td><td>前端直连 GitHub Releases API，失败一律静默；应用内自更新（签名+自动重启）留作演进</td></tr>
 <tr><td>移动端编译适配</td><td>托盘/关窗收纳等桌面 API 以 <code>#[cfg(desktop)]</code> 门控；<code>run()</code> 标注 <code>#[cfg_attr(mobile, tauri::mobile_entry_point)]</code> 生成 JNI 符号；<code>copy_file_cmd</code> 非 mac/win 分支显式标注 <code>Result&lt;Output, io::Error&gt;</code> 类型（三处均为移动端首编实测踩坑）。日常可用 <code>cargo check --target aarch64-linux-android</code> 本地 30 秒预检</td></tr>
-<tr><td>Android APK 体积</td><td>CI 产 <b>release 变体 + 模板默认 debug 签名</b>（可直接安装）：strip+LTO 后通用包约 20MB；debug 变体含全量调试符号且四架构打包达 527MB，仅用于本地排查</td></tr>
+<tr><td>Android APK 体积</td><td>CI 产 <b>release 变体 + 固定发布证书签名</b>（<code>--split-per-abi</code> 按 ABI 分包，strip+LTO 后每包约 20MB；无 Secrets 时退回 debug 签名可直接安装但不可覆盖升级）。debug 变体含全量调试符号且体积大，仅用于本地排查。<b>gen/android 已入库</b>：签名配置读 <code>CC_KEYSTORE_*</code> 环境变量，无证书时 <code>storeFile</code> 为 null 不挂 signingConfig → 产出 unsigned 包（与模板默认一致，CI 有守卫拦截）</td></tr>
 <tr><td>日志时间</td><td>chrono 本地时间毫秒</td></tr>
 <tr><td>Linux 剪贴板</td><td>copy_file_cmd 暂不支持 Linux（返回明确错误）</td></tr>
 <tr><td>大文件下载</td><td>浏览器端 &gt;1GB 回退原生下载（防 blob 内存膨胀），无完成回调属浏览器限制</td></tr>
@@ -459,7 +478,7 @@ npm run tauri build
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-10-25 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-10-26 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

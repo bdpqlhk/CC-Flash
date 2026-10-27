@@ -71,7 +71,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <main>
 <header class="doc">
 <h1>👋 CC-Flash · 保姆级使用说明</h1>
-<div class="meta">局域网高速文件互传 · 电脑开机当服务器，手机扫码就能传 · 2026-10-25</div>
+<div class="meta">局域网高速文件互传 · 电脑开机当服务器，手机扫码就能传 · 2026-10-26</div>
 </header>
 
 <!-- ================= 1 ================= -->
@@ -86,6 +86,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <tr><td>💬 临时群聊</td><td>开会时所有人扫码进聊天室，纪要即发即见</td></tr>
 </table>
 <div class="callout c-warn"><b>使用前提（很重要）</b>手机和电脑必须连的是<b>同一个 Wi-Fi / 同一个路由器</b>。公司访客网络与办公内网隔离时互访不通。</div>
+<div class="callout c-tip"><b>第一次用先看介绍页</b>侧边栏品牌旁的「<b>ⓘ 介绍</b>」按钮会打开全屏软件介绍页：功能一览、三步上手、技术实现与常见问题，顶栏可锚点跳转。看完点右上角 ✕ 或按 <kbd>Esc</kbd> 关闭。</div>
 </section>
 
 <!-- ================= 2 ================= -->
@@ -217,7 +218,9 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <h2><span class="no">8</span>托盘与退出</h2>
 <ul>
 <li>点窗口红色关闭按钮 ≠ 退出：窗口收纳到<b>系统托盘</b>（菜单栏右上角图标），<b>服务继续运行</b>，手机照样能访问；首次收纳会弹系统通知提醒你；</li>
-<li>点托盘图标：显示主窗口 / 启动·停止服务 / 打开网页 / <b>退出</b>；</li>
+<li><b>左键点托盘图标</b>：直接唤出主窗口；<b>右键</b>打开菜单：显示主窗口 / 启动·停止服务 / 打开网页 / <b>退出</b>。macOS 也可以点<b>程序坞</b>里的图标重新打开窗口；</li>
+<li><b>单实例守卫</b>：应用已在运行时再次双击图标（桌面 / 开始菜单 / 程序坞），不会再开一个新窗口、也不会多出托盘图标，只会把已有主窗口唤到前台；</li>
+<li><b>开机自启（可选）</b>：「CC设置」→ 打开「开机自动启动」（<b>默认关闭</b>，打开开关才注册）。开启后登录电脑时服务在后台自动启动、<b>不弹出主窗口</b>，点托盘或应用图标随时唤出。请从「应用程序」目录里的正式安装版开启——若从 DMG 或开发目录运行，登录自启会指向临时路径而失效；</li>
 <li>想彻底关掉：托盘菜单 →「退出」。</li>
 </ul>
 </section>
@@ -244,7 +247,9 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <div class="qa"><div class="q">Q10：服务停了之后，手机上已打开的页面会怎样？</div>约 5 秒后整页变成「无信号」测试卡画面——服务没了就无法再通信，这是网络原理；到电脑端重新启动服务，画面会自动恢复（前提是地址没变）。</div>
 <div class="qa"><div class="q">Q11：对方上传的文件我这边列表迟迟看不到？</div>列表每 5 秒自动同步；急的话点一下 ↻ 刷新（转圈表示正在拉取）。删除文件后列表会立即刷新，不用等。</div>
 <div class="qa"><div class="q">Q12：点「检查更新」提示失败？</div>检查更新需要电脑能访问 GitHub。失败不影响软件任何功能；也可以直接去项目的 Releases 页面手动下载最新版。</div>
-<div class="qa"><div class="q">Q13：安卓手机怎么装？</div>到项目 Releases 页下载 <code>CC-Flash-vX.Y.Z-android.apk</code>（约 20MB），传到手机点开安装，系统提示「未知来源」时选择允许即可。注意 APK 与电脑端是配套的：APK 只是操作界面，真正的文件服务仍跑在电脑上——手机装的 APP 也要和电脑连同一个 Wi-Fi。</div>
+<div class="qa"><div class="q">Q13：安卓手机怎么装？</div>到项目 Releases 页按机型下载对应安装包：<b><code>arm64-v8a</code></b>（绝大多数手机）/ <code>armeabi-v7a</code> / <code>x86</code> / <code>x86_64</code>，文件名形如 <code>CC-Flash-vX.Y.Z-android-arm64-v8a.apk</code>。传到手机点开安装，系统提示「未知来源」时选择允许即可。注意 APK 与电脑端是配套的：APK 只是操作界面，真正的文件服务仍跑在电脑上——手机装的 APP 也要和电脑连同一个 Wi-Fi。</div>
+<div class="qa"><div class="q">Q14：托盘里出现好几个 CC-Flash 图标？</div>旧版本重复启动会各自开一个进程、各占一个托盘图标。新版内置<b>单实例守卫</b>：重复打开只会唤起已有窗口，不会再堆积图标。若从旧版升级后残留多个图标，把它们逐个「退出」（或任务管理器结束进程）后重新打开一次即可。</div>
+<div class="qa"><div class="q">Q15：怎么让软件开机自动运行？</div>「CC设置」→ 打开「开机自动启动」开关（<b>默认关闭</b>，打开时才会向系统注册登录项）。开启后每次登录电脑，服务在后台自动启动、不弹窗口。注意：请先正式安装到「应用程序」目录再开启——从 DMG 或开发目录运行时注册的是临时路径，重启后会失效。</div>
 </section>
 
 <!-- ================= 11 ================= -->
@@ -269,7 +274,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <p class="small">默认共享目录：<code>~/CC-Flash</code>。卸载软件前记得先把需要的文件从这里取走。</p>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 保姆级使用说明 · 2026-10-25 · 与《需求设计文档》《技术实现文档》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 保姆级使用说明 · 2026-10-26 · 与《需求设计文档》《技术实现文档》配套阅读</p>
 </main>
 </div>
 </body>

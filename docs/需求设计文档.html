@@ -79,7 +79,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-10-25</b></span>
+<span>文档日期：<b>2026-10-26</b></span>
 <span>状态：<b>已实现，macOS 包已出</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
@@ -147,11 +147,13 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息内 URL 自动识别为可点击链接（先转义防 XSS，桌面端点击走系统浏览器）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-20</td><td rowspan="5">服务控制</td><td>一键启动/停止；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-21</td><td>共享目录可查看与更换：手动输入或点「选择」弹原生目录框直接选取（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-22</td><td>运行状态徽标常驻（三圆点波浪动效），出现在桌面顶栏、网页顶栏与服务控制卡</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡（IP 变化自动重生成）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-24</td><td>关窗收托盘、托盘菜单（显示窗口 / 启停服务 / 打开网页 / 退出）、首次收纳系统通知</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡：地址（IP:端口）或运行状态任一变化自动重生成，停服即清空防残留，生成失败由状态轮询兜底重试</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-24</td><td>关窗收托盘、托盘菜单（显示窗口 / 启停服务 / 打开网页 / 退出）、首次收纳系统通知；<b>左键点托盘图标直接唤出主窗口</b>（macOS 程序坞点击同效）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-25</td><td>单实例守卫：应用运行中再次启动（桌面/开始菜单/程序坞图标）不再新建进程，改为唤起已有主窗口——杜绝 Windows 侧托盘图标越开越多</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-26</td><td>开机自启（手动开启）：仅在「CC设置」打开开关才注册登录项（<b>默认关闭</b>，杜绝首启静默注册绑定临时路径）；自启启动带 <code>--hidden</code>，登录后服务后台运行、窗口不弹出不闪屏；DMG/开发目录运行时文案警示路径失效风险；Android/iOS WebView 不展示该设置</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-30</td><td rowspan="3">服务日志</td><td>逐请求记录：方法/路径/状态/大小/耗时/来源 IP/设备与昵称；业务事件（上传开始/完成/中断/拒绝、下载、删除、聊天、启停）独立记录；本地时间带毫秒</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-31</td><td>高频轮询噪音豁免（聊天、状态、日志拉取、favicon）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-32</td><td>「清空日志」按钮，清空后保留一条标记线确认生效</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -164,7 +166,8 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：对接 GitHub Releases，启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-71</td><td>运行参数服务端统一下发：昵称/消息长度上限、轮询间隔等由服务接口携带，网页端自动跟随（改服务端配置重启即全端生效，无需重新构建前端）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-72</td><td rowspan="2">维护</td><td>多平台自动发版：推送 v* 标签自动构建 macOS（.app/.dmg）、Windows（.msi/.exe）、Android（通用 APK，debug 签名可直接安装）并挂载到 Release</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-72</td><td rowspan="3">维护</td><td>多平台自动发版：推送 v* 标签自动构建 macOS（.app/.dmg）、Windows（.msi/.exe）、Android 并挂载到 Release；Android 经 <code>--split-per-abi</code> 按 4 个 ABI 分包（arm64-v8a / armeabi-v7a / x86 / x86_64，文件名映射标准 ABI 名），配置 <code>ANDROID_KEYSTORE_*</code> Secrets 后 release 签名（证书固定、版本可覆盖升级），未配置退回 debug 签名并告警；desktop 构建失败时 APK 照常上传但 Release 保持草稿</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-74</td><td>软件介绍页：侧边栏「介绍」入口打开全屏介绍（Hero / 功能四卡 / 三步上手 / 技术实现 / FAQ 手风琴），粘性顶栏锚点导航 + 滚动定位高亮、Esc 关闭、<code>v-if</code> 延迟挂载不增加启动成本；Hero「立即开始传输」进文件传输页、「去启动服务」进服务中心、「查看使用说明」页内跳转如何使用</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-73</td><td>一键发版脚本：<code>scripts/release.sh X.Y.Z</code> 自动完成升版本/提交/打标签/推送（含网络兜底）并验证构建触发</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 </table>
 </section>
@@ -315,7 +318,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>服务页副提示</td><td>「同一 Wi-Fi 下的设备用浏览器打开即可使用」</td></tr>
 <tr><td>二维码卡</td><td>「手机扫码直达」/「手机 / 平板同一 Wi-Fi 下扫码打开」</td></tr>
 <tr><td>清空类动作</td><td>「清空数据」「清空日志」+ 提示均注明「不影响其他设备与服务端记录 / 不影响服务运行」</td></tr>
-<tr><td>托盘通知</td><td>「CC-Flash 仍在运行……退出请用其菜单中的『退出』。」</td></tr>
+<tr><td>托盘通知</td><td>「CC-Flash 仍在运行。窗口已收到托盘，服务保持运行。点托盘图标，或再次从程序坞(macOS)/桌面与开始菜单(Windows)打开均可重新显示；退出请用托盘菜单中的『退出』。」</td></tr>
 </table>
 </section>
 
@@ -358,7 +361,10 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>复制文件</td><td>✅ 剪贴板</td><td>—</td><td>—</td></tr>
 <tr><td>分享</td><td>复制链接</td><td>复制链接</td><td>复制链接</td></tr>
 <tr><td>聊天入口</td><td>左侧「聊天室」页</td><td>右侧聊天栏</td><td>悬浮球 + 底部面板</td></tr>
-<tr><td>服务启停/日志/皮肤</td><td>✅「服务与日志」页</td><td>—</td><td>—</td></tr>
+<tr><td>服务启停/日志/皮肤/CC设置</td><td>✅「服务与日志」页 +「CC设置」</td><td>—</td><td>—</td></tr>
+<tr><td>软件介绍页</td><td>✅ 侧边栏「介绍」全屏页</td><td>—</td><td>—</td></tr>
+<tr><td>开机自启</td><td>✅（默认关闭，手动开启；<code>isRealDesktop</code> 门控）</td><td>—</td><td>—</td></tr>
+<tr><td>托盘唤窗 / 单实例</td><td>✅ 左键托盘 / 程序坞 / 重复启动唤窗</td><td>—</td><td>—</td></tr>
 <tr><td>地址展示</td><td>顶栏 + 服务卡</td><td>顶部大卡</td><td>顶部卡两行式</td></tr>
 </table>
 </section>
@@ -373,7 +379,8 @@ pre code{background:none;color:inherit;padding:0}
 <li>分享在桌面端/电脑浏览器/手机上均为复制链接且自带话术；</li>
 <li>改 Wi-Fi（换 IP）后 5 秒内桌面端弹出提示且二维码已更新；</li>
 <li>日志含每次上传/下载/删除/聊天的明细与来源，清空后有标记线；</li>
-<li>5 套皮肤切换即时生效；窄屏（375px 宽）下地址完整、聊天面板无滚动穿透。</li>
+<li>5 套皮肤切换即时生效；窄屏（375px 宽）下地址完整、聊天面板无滚动穿透；</li>
+<li>侧边栏「介绍」可打开全屏介绍页，锚点导航高亮跟随滚动，Esc 关闭；关窗后左键托盘图标 / 程序坞图标可唤回主窗口，运行中重复启动不再产生新托盘图标。</li>
 </ol>
 </section>
 
@@ -392,7 +399,7 @@ pre code{background:none;color:inherit;padding:0}
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-10-25 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-10-26 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

@@ -63,13 +63,14 @@ pre code{background:none;color:inherit;padding:0}
   <a href="#s8">八、提交与版本时间线</a>
   <a href="#s9">九、配置中心现状</a>
   <a href="#s10">十、遗留事项与下一步</a>
+  <a href="#s11">十一、本轮迭代（10-26，未提交）</a>
 </nav>
 <main>
 <header class="doc">
-  <h1>CC-Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-25）</h1>
+  <h1>CC-Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-26）</h1>
   <div class="meta">
     <span>项目：<b>CC-Flash（局域网文件互传，Tauri 2 + Vue3 + axum）</b></span>
-    <span>记录范围：<b>2026-10-23 ~ 2026-10-25</b>（另含背景溯源）</span>
+    <span>记录范围：<b>2026-10-23 ~ 2026-10-26</b>（另含背景溯源）</span>
     <span>依据：<b>git 历史 + 开发会话记录 + 需求/技术文档 + 代码现状</b></span>
   </div>
 </header>
@@ -370,14 +371,78 @@ pre code{background:none;color:inherit;padding:0}
   <ol>
     <li><b>iOS 真机包</b>：需 Apple 开发者账号（$99/年）+ 证书配成仓库 Secrets，workflow 内已备注释模板，账号到位即启用；</li>
     <li><b>二期：plugin-updater 应用内自更新</b>：后台下载 + 自动重启；前置 minisign 签名密钥 + 各平台签名产物 + latest.json 托管，建议配套 GitHub Actions；</li>
-    <li><b>Android 正式签名</b>：现 APK 为 debug 签名（可直接安装，适合内测分发）；上架应用市场需正式 keystore 配 Secrets；</li>
+    <li><b>Android 正式签名</b>：<b>已完成</b>（见第十一节 11.5）——CI 支持 release 签名，keystore 已生成于本地 <code>~/cc-flash-keys/</code>（含密码与 base64 文件），<b>待配置 4 个 GitHub Secrets</b>（<code>ANDROID_KEYSTORE_*</code>）后发版即生效；未配置时自动退回 debug 签名并告警；</li>
     <li><b>小尾巴</b>：前后端两份大小单位表（<code>fmtSize</code> / <code>humans</code>）可随下次改动统一；</li>
     <li><b>release.sh 实战检验</b>：v1.1.1 当天因网络走的是手动 + API 混合通道，脚本逻辑已验证（版本守卫生效、API 兜底逻辑同源），下次发版走一遍完整流程。</li>
   </ol>
   <div class="note">📌 证据链说明：v1.0.0 内容清单依据初始提交代码现状与 <code>docs/需求设计文档.html</code>、<code>docs/技术实现文档.html</code> 还原；之后的改动依据开发会话记录、git 提交链（<code>7481913 → 9b86efa</code> 共 10 笔提交）与 Actions 运行记录。时间均以 git 历史与 Actions 时间戳为准。</div>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-25 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
+<!-- ================= 十一 ================= -->
+<section id="s11">
+  <h2><span class="no">十一</span>本轮迭代（2026-10-26，工作区未提交）</h2>
+  <p class="muted">v1.1.1 之后的一轮大迭代：新增软件介绍页、修复桌面窗口/托盘系列问题、开机自启改为手动开启、Android 发布链路重做。历经 <b>8 轮深度代码审查</b>（30+ 项发现全部修复，其中 2 轮被安全分类器拦截以人工复查补位）。<b>全部改动尚未提交</b>——待人工验收后分批 commit，配置 4 个 Android Secrets 后打 tag 发版。</p>
+
+  <h3>11.1 软件介绍页（新功能）</h3>
+  <ul>
+    <li>侧边栏品牌行「ⓘ 介绍」胶囊入口 → 全屏 overlay：Hero（含纯 CSS 应用窗口示意与真实二维码）/ 功能四卡 / 三步上手 / 技术实现（代码卡片可复制）/ FAQ 手风琴 / 页脚；</li>
+    <li>交互：粘性顶栏锚点导航 + IntersectionObserver scroll spy、平滑滚动（56px 顶栏留边）、品牌「回到顶部」、Esc 关闭、body 滚动锁、FAQ 单开；</li>
+    <li><code>v-if</code> + <code>&lt;Transition&gt;</code> 延迟挂载（约 220 个节点首次打开才构建），开合动画保留；z-index 970 分层（低于弹框 998 / Toast 1001，更新弹框不会被盖住）；</li>
+    <li>CTA 分流：「立即开始传输」→ 文件传输页、「去启动服务」→ 服务中心、「查看使用说明」→ 页内跳「如何使用」；页内 GitHub 外链用 <code>:href</code> 动态绑定（修复 Vue 3 属性内 <code>{{}}</code> 不插值的 4 处坏链）；</li>
+    <li>设计稿：<code>docs/软件介绍页设计稿.html</code>（「查看源码」按钮已改为「查看使用说明」）。</li>
+  </ul>
+
+  <h3>11.2 桌面窗口 / 托盘 / 单实例（三个线上问题修复）</h3>
+  <table>
+    <tr><th style="width:200px">问题</th><th>根因与修复</th></tr>
+    <tr><td>macOS 关窗后点程序坞图标窗口不弹</td><td>只拦了 <code>CloseRequested</code>，未处理 <code>applicationShouldHandleReopen</code>——补 <code>RunEvent::Reopen</code> 分支</td></tr>
+    <tr><td>Windows 每重开一次多一个托盘图标</td><td>无单实例守卫，关窗后进程仍在，再启动即新进程——引入 <code>tauri-plugin-single-instance</code>（<b>必须最先注册</b>），重复启动改为唤起已有窗口</td></tr>
+    <tr><td>托盘「显示主窗口」不还原最小化</td><td><code>show()</code> 只置可见——抽公共 <code>show_main_window()</code>（unminimize→show→focus），托盘菜单 / 单实例 / Reopen 三条路径共用</td></tr>
+    <tr><td>托盘左键点了没反应（通知文案承诺的路径不存在）</td><td>补 <code>on_tray_icon_event</code> 左键唤窗；<code>show_menu_on_left_click(false)</code> 解决 macOS 挂 menu 后 Click 事件到不了 handler 的问题——统一为<b>左键唤窗 / 右键菜单</b></td></tr>
+    <tr><td>关窗通知文案「程序坞」为 macOS 专属词</td><td>改为跨平台表述（程序坞 / 桌面与开始菜单 / 托盘图标）</td></tr>
+  </table>
+
+  <h3>11.3 开机自启：从「首启静默注册」到「手动 opt-in」</h3>
+  <ul>
+    <li><b>产品决策变更</b>：删除首启静默 enable（旧逻辑会把登录项绑到当前执行路径——dev/DMG/移动应用位置后自启即失效且无法自纠，localStorage 标记还会阻止纠正）→ 仅在「CC设置」打开开关才注册，<b>默认关闭</b>；</li>
+    <li>自启启动带 <code>--hidden</code> 参数 + tauri.conf 窗口 <code>visible:false</code>：登录后服务后台运行、<b>窗口不弹出也不闪屏</b>（手动启动在 setup 内显式 <code>show()</code>）；</li>
+    <li>开启成功弹框警示「请从应用程序目录的正式安装版开启，DMG/开发目录运行会指向临时路径」；</li>
+    <li>前端 <code>isRealDesktop</code>（UA 排除 Android/iOS）门控：Android 平板的 Tauri WebView 里 <code>isDesktop</code> 同为 true 但 autostart 插件未注册，直连必报错——设置页改为显示平台说明卡；</li>
+    <li>介绍页/FAQ 三处「自启默认开启」旧文案同步为「默认关闭，可手动开启」。</li>
+  </ul>
+
+  <h3>11.4 前端修复与重构</h3>
+  <ul>
+    <li><b>二维码单一数据源</b>：三处调用点 + 双层缓存（竞态：状态先提交、异步生成失败不重试）→ <code>watch [shareUrl, running]</code> 驱动 + 乱序过期结果丢弃 + 停服清空 + 状态轮询 <code>running && !qrData</code> 兜底自愈；弹框按状态显示「生成中 / 服务已停止」；</li>
+    <li><b>外链统一</b>：<code>openExternal(url, silent)</code> 唯一入口（桌面 open_url_cmd、失败回退 window.open），openBrowser / goDownload / 聊天链接 / 介绍页四处共用（原 3 份拷贝漂移）；</li>
+    <li>介绍页关闭时 <code>stopIntroSpy()</code>（防常驻壳上观察器泄漏）、重开时重置导航高亮、<code>openQr</code> 诚实守卫（删除永不触发的瞬断容错死分支）；</li>
+    <li>介绍页三处卡片继承全局 <code>.card</code> 的 20px 下边距与入场动画——作用域内重置（行距不均 + 每次启动白跑动画）。</li>
+  </ul>
+
+  <h3>11.5 Android 发布链路重做（安装失败排查 → 四轮修复）</h3>
+  <table>
+    <tr><th style="width:230px">轮次</th><th>问题与修复</th></tr>
+    <tr><td>① 装不上（「该安装包未包含任何证书」）</td><td>CI 跑的是 release 构建但模板只给 debug 变体配签名 → 产出 unsigned 包。改 <code>--debug</code> 构建 + 产物 <code>! -name "*unsigned*"</code> 守卫（缺签名 CI 直接失败）</td></tr>
+    <tr><td>② 架构随机 / 证书不固定</td><td><code>find|head -1</code> 可能选中 x86（ARM 手机 NO_MATCHING_ABIS）→ <code>--split-per-abi</code> 按 4 ABI 分包 + flavor→标准 ABI 名映射（arm64→arm64-v8a、arm→armeabi-v7a）；runner 每次新生成 debug keystore 导致版本间不可覆盖安装 → 固定发布证书方案</td></tr>
+    <tr><td>③ debug 包「换签不换核」</td><td>事后 apksigner 重签的仍是 debug 变体（<code>debuggable=true</code>，MDM/Play Protect 可拒装）→ <b>gen/android 整个工程入库</b>（40 文件），<code>build.gradle.kts</code> 写入 <code>signingConfigs.release</code> 读 <code>CC_KEYSTORE_*</code> 环境变量，走真 release 构建；无证书时 <code>storeFile==null</code> 不挂 signingConfig → 回归 unsigned 而非 AGP 报错</td></tr>
+    <tr><td>④ release 包是空壳</td><td>release 变体继承 <code>usesCleartextTraffic=false</code>，而应用全部流量是有意的局域网明文 HTTP → 所有 fetch 被 <code>ERR_CLEARTEXT_NOT_PERMITTED</code> 拦死（debug 回退正常恰好掩盖）→ release/debug/defaultConfig 三处显式 <code>true</code></td></tr>
+    <tr><td>附带修复</td><td>desktop 失败不连坐 APK（<code>if: always()</code>），但 Release 保持<b>草稿</b>防「无桌面安装包的正式版」；keystore 已生成于 <code>~/cc-flash-keys/</code>（密码/base64 文件齐备），<b>4 个 Secrets 待配置</b></td></tr>
+  </table>
+
+  <h3>11.6 深度审查记录（8 轮）</h3>
+  <ul>
+    <li>第 1~3、5~7、8 轮由审查代理执行，第 4、8 轮被安全分类器拦截（以人工复查补位）；</li>
+    <li>典型高价值发现：Vue 3 属性 <code>{{}}</code> 不插值坏链、macOS Reopen 缺失、单实例缺失、cleartext 拦死 release 包、<code>--split-per-abi</code> 缺失导致按架构分包整条链路是死代码、托盘左键在 macOS 是死代码、更新弹框被介绍页 z-index 盖住、首启静默自启绑临时路径……均已修复；</li>
+    <li>验证基线：<code>npm run build</code> / <code>cargo check</code> / workflow YAML + bash 语法 / gradle 注入幂等 全绿。</li>
+  </ul>
+
+  <h3>11.7 四份文档同步（2026-10-26）</h3>
+  <p>README（功能特性/下载指引/目录结构/发版说明）、《保姆级使用说明》（介绍页入口、托盘唤窗、单实例、自启、按 ABI 选包、FAQ Q14/Q15）、《需求设计文档》（新增 FR-25/26/74、FR-23/24/72 重写、平台矩阵 +3 行、验收 +1）、《技术实现文档》（8.1/8.2 壳层重写、9.1 isRealDesktop、9.3 二维码单源、新增 9.11 介绍页、11.1 CI 重写）——本文档同步追加第十一节。</p>
+
+  <div class="note">📌 下一步：人工验收（dev 运行过一遍介绍页/托盘/自启）→ 分批提交 → 配置 <code>ANDROID_KEYSTORE_*</code> 四个 Secrets → <code>./scripts/release.sh 1.2.0</code> 打 tag 发版 → 真机验证 release APK 的 cleartext/签名/分包三项。</div>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-26 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

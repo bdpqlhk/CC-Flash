@@ -13,8 +13,11 @@
 - 🎨 **5 套深色皮肤**：深空蓝 / 石墨灰 / 极光蓝 / 护眼暖黑 / 暗夜紫，即点即换全端同步
 - 🛡 **安全防护**：路径穿越双重防护、聊天消息转义防 XSS、上传磁盘预检+半截文件自清理
 - 🔄 **自动更新检查**：对接 GitHub Releases，发现新版本弹框提示、一键前往下载
+- 📘 **软件介绍页**：侧边栏「介绍」入口，全屏介绍（功能 / 三步上手 / 技术实现 / FAQ），锚点导航平滑滚动
+- 🖥 **托盘唤窗 & 单实例**：关窗收托盘服务不停；左键托盘图标 / 点程序坞(macOS) / 重复启动均唤起同一主窗口，不再堆积托盘图标
+- ⏱ **开机自启（手动开启）**：CC设置里打开开关才注册登录项，登录后后台启动不弹窗；默认关闭
 - ⚙️ **配置集中管理**：前后端各一个配置中心，运行参数由服务端统一下发，改一处全端生效
-- 🚀 **CI 自动发版**：推送 `v*` 标签自动构建 macOS / Windows / Android 安装包并挂到 Release
+- 🚀 **CI 自动发版**：推送 `v*` 标签自动构建 macOS / Windows / Android（按 4 个 ABI 分包）安装包并挂到 Release
 
 ## 快速开始
 
@@ -24,6 +27,7 @@
 
 - macOS：`.dmg`，双击拖入「应用程序」
 - Windows：`.msi` / `.exe` 安装包或绿色单文件
+- Android：按机型选 `.apk` —— `arm64-v8a`（绝大多数手机）/ `armeabi-v7a` / `x86` / `x86_64`
 
 打开软件服务即自动启动（默认端口 1688，被占用自动顺延），手机扫码或输入窗口里的地址即可使用。
 
@@ -53,7 +57,9 @@ npm run tauri build    # 发布构建：自动产出 .app / .dmg / .msi
 ├── .github/workflows/              # 推 v* 标签自动三平台构建发版
 └── src-tauri/
     ├── Cargo.toml                  # 版本号唯一来源
-    ├── tauri.conf.json
+    ├── tauri.conf.json             # 窗口默认隐藏（防自启闪窗，手动启动时 setup 内 show）
+    ├── capabilities/desktop.json   # 桌面端插件权限（开机自启）
+    ├── gen/android/                # Android 工程（入库；release 签名读 CI 环境变量）
     └── src/
         ├── main.rs
         ├── lib.rs                  # Tauri 壳：托盘 + 关窗收纳 + 服务自启
@@ -74,7 +80,13 @@ npm run tauri build    # 发布构建：自动产出 .app / .dmg / .msi
 ./scripts/release.sh 1.2.0 "feat: 更新说明"
 ```
 
-自动完成：升版本（Cargo.toml 唯一来源）→ 提交 → 打标签 → 推送 → CI 三平台构建并挂到 Release（Android 产物为 debug 签名 APK，可直接安装）。
+自动完成：升版本（Cargo.toml 唯一来源）→ 提交 → 打标签 → 推送 → CI 三平台构建并挂到 Release。
+
+Android 产物说明：
+
+- 配置 `ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD` 四个 Secrets 后，走 **release 签名**（证书固定，版本间可覆盖安装），`--split-per-abi` 按 4 个 ABI 分包；
+- 未配置 Secrets 时退回 **debug 签名**构建（可直接安装，但各版本证书不同，覆盖安装需先卸载，CI 会出警告）；
+- desktop 构建失败时 APK 仍会上传，但 Release 保持**草稿**状态，人工确认后手动 Publish。
 
 ## 安全须知
 
