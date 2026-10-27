@@ -7,7 +7,7 @@ import noSignalImg from "./assets/no-signal.png";
 import {
   API, APP_VERSION_FALLBACK, AVATAR_POOL, BLOB_REVOKE_MS, COPIED_RESET_MS, CONTROL_RETRY_MS,
   CONTROL_RETRY_TIMES, DEFAULT_NICK, DEFAULT_PORT, FOOTER_TEXT, ICON_MAP, IMG_EXTS, LS, MSG_MAX,
-  NARROW_MAX_PX, NICK_MAX, NATIVE_DOWNLOAD_OVER, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
+  GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, NATIVE_DOWNLOAD_OVER, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
   REL_TIME_MS, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
   UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS,
@@ -44,6 +44,9 @@ function applyServerConfig(c) {
 
 /* ---------- 环境 ---------- */
 const isDesktop = "__TAURI_INTERNALS__" in window;
+// 真实桌面 OS: isDesktop 在 Android/iOS 的 Tauri WebView 里同样为 true, 但 autostart/托盘
+// 等桌面插件按 #[cfg(desktop)] 未注册 —— 依赖这些插件的 UI 必须用 isRealDesktop 门控
+const isRealDesktop = isDesktop && !/Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 // 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
 const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || DEFAULT_PORT}` : ""));
 function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
@@ -51,7 +54,8 @@ function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args 
 function deviceNick() { return nickInput.value.trim() || autoNick; }
 
 /* ---------- 视图切换 ---------- */
-const view = ref("files");   // files | chat | service
+const view = ref("files");   // files | chat | service | settings
+const VIEW_TITLES = { files: "文件传输", chat: "文本消息", service: "服务中心", settings: "CC设置" };
 function setView(v) { view.value = v; }
 
 /* ---------- 外观主题 ---------- */
@@ -122,7 +126,6 @@ async function refreshControl() {
       if (d.share) shareInput.value = d.share;
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
       if (!running.value && d.port) portInput.value = d.port;
-      genQr();
       return;
     } catch (e) {
       await new Promise(r => setTimeout(r, CONTROL_RETRY_MS));
@@ -136,7 +139,7 @@ async function startServer() {
     const s = await tauriInvoke("set_share_dir_cmd", { path: shareInput.value });
     if (!s.ok) { showToast(s.error || "共享目录无效", "error"); return; }
     const d = await tauriInvoke("control_start_cmd", { port: Number(portInput.value) || null });
-    if (d.ok) { running.value = true; port.value = d.port; genQr(); showToast("服务已启动"); }
+    if (d.ok) { running.value = true; port.value = d.port; showToast("服务已启动"); }   // 二维码由 watch [shareUrl,running] 自动生成
     else showToast(d.error || "启动失败", "error");
   } catch (e) {
     console.error("启动服务异常:", e);
@@ -183,22 +186,18 @@ async function stopServer() {
 }
 function openBrowser() {
   if (!running.value) { showToast("服务未启动", "error"); return; }
-  tauriInvoke("open_url_cmd", { url: shareUrl.value })
-    .then(d => {
-      if (d.ok) showToast("已在系统浏览器打开");
-      else { showToast(d.error || "打开失败，尝试备用方式", "error"); window.open(shareUrl.value, "_blank"); }
-    })
-    .catch(() => { window.open(shareUrl.value, "_blank"); });
+  openExternal(shareUrl.value);
 }
 
 /* ---------- 二维码 ---------- */
+// 单一数据源: watch [shareUrl, running] 驱动生成, 三处展示(服务中心/弹窗/介绍页)共用一份
 const qrData = ref("");
-async function genQr() {
-  if (!running.value) return;
-  try { qrData.value = await QRCode.toDataURL(shareUrl.value, { margin: 1, width: 220 }); } catch (e) {}
-}
 const qrShow = ref(false);
-function openQr() { genQr(); qrShow.value = true; }
+function openQr() {
+  // running 翻 false 的同一微任务里 watch 已清空 qrData, 不存在"瞬断但二维码仍在"的窗口期, 直接按状态拦截
+  if (!running.value) { showToast("服务未启动，无法显示二维码", "error"); return; }
+  qrShow.value = true;
+}
 
 /* ---------- 复制(降级兼容) ---------- */
 function fallbackCopy(text, okMsg) {
@@ -216,6 +215,17 @@ function copyText(text, okMsg) {
   } else fallbackCopy(text, okMsg);
 }
 const shareUrl = computed(() => `http://${lanIp.value}:${port.value}`);
+// 地址(ip:端口)或运行状态一变就重生成二维码(覆盖 IP 变化/端口顺延/手动改端口/启停全场景);
+// 停服清空避免残留旧码; await 结果落地前校验地址未再变, 丢弃乱序的过期结果
+async function syncQr() {
+  if (!running.value) { qrData.value = ""; return; }
+  const url = shareUrl.value;
+  try {
+    const data = await QRCode.toDataURL(url, { margin: 1, width: 220 });
+    if (shareUrl.value === url && running.value) qrData.value = data;
+  } catch (e) { /* 生成失败由 refreshStatus 轮询兜底重试 */ }
+}
+watch([shareUrl, running], syncQr);
 const copied = ref(false);
 function copyUrl() {
   if (serviceDown()) { showToast("服务未启动", "error"); return; }
@@ -532,16 +542,7 @@ document.addEventListener("click", (e) => {
   if (!link) return;
   const url = link.dataset.url;
   if (!url) return;
-  if (isDesktop) {
-    tauriInvoke("open_url_cmd", { url })
-      .then(d => {
-        if (d.ok) showToast("已在系统浏览器打开");
-        else window.open(url, "_blank");
-      })
-      .catch(() => { window.open(url, "_blank"); });
-  } else {
-    window.open(url, "_blank");
-  }
+  openExternal(url);
 });
 /* 清空显示: 仅清本窗口(与 PyQt 镜像清空语义一致); 新消息到达后恢复显示 */
 const chatCleared = ref(false);
@@ -593,6 +594,70 @@ function showToast(msg, type = "success") {
   setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, TOAST_MS);
 }
 
+/* ---------- 软件介绍页(桌面端全屏 overlay, 设计稿见 docs/软件介绍页设计稿.html) ---------- */
+const introShow = ref(false);
+const introSec = ref("feat");   // scroll spy 当前所在区块
+const INTRO_FAQS = [
+  { q: "手机需要安装 App 吗？", a: "不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户如果想要原生体验，也可以直接安装我们提供的 APK。" },
+  { q: "文件会上传到外网或云服务器吗？", a: "不会。HTTP 服务只监听你的电脑，所有传输都发生在局域网内部，不经过任何第三方服务器。拔掉外网网线，功能一切照常。" },
+  { q: "端口被占用了怎么办？", a: "默认端口 1688，被占用时自动向后顺延探测（最多 20 个），当前生效地址会实时显示在顶栏与二维码中；也可以在「服务中心」手动指定端口。" },
+  { q: "关闭窗口后服务会停止吗？", a: "不会。关窗只是把窗口收进系统托盘，服务继续保持运行，手机端不受影响；开机自启默认关闭，可在「CC设置」中手动开启。真正退出请点托盘菜单中的「退出」。" },
+  { q: "支持哪些平台？", a: "桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。所有设备需处于同一局域网（同一 Wi-Fi）。" },
+];
+const faqOpen = ref(-1);
+function toggleFaq(i) { faqOpen.value = faqOpen.value === i ? -1 : i; }
+let introSpy = null;
+function openIntro() {
+  introShow.value = true;
+  introSec.value = "feat";   // 重置导航高亮: 上次停在 FAQ 等区块时, 顶部没有区块触发 spy 自纠
+  nextTick(() => {
+    const el = document.getElementById("introOverlay");
+    if (el) el.scrollTop = 0;
+    startIntroSpy();
+  });
+}
+function closeIntro() { introShow.value = false; stopIntroSpy(); }   // 停掉 scroll spy, 避免常驻壳上观察器泄漏
+watch(introShow, (v) => { document.body.style.overflow = v ? "hidden" : ""; });
+function goServiceFromIntro() { closeIntro(); setView("service"); }
+/* Hero「立即开始传输」→ 关介绍页后进文件传输(顶栏「去启动服务」才去服务中心) */
+function goTransferFromIntro() { closeIntro(); setView("files"); }
+function introScrollTo(sec) {
+  const root = document.getElementById("introOverlay");
+  const el = document.getElementById("sec-" + sec);
+  if (root && el) root.scrollTo({ top: el.offsetTop - 56, behavior: "smooth" });   // 56px ≈ 粘性顶栏 64px 留边
+}
+/* 顶栏品牌「回到顶部」: 滚回 Hero 顶部(而非功能区), 导航高亮回落到「功能」 */
+function introScrollTop() {
+  const root = document.getElementById("introOverlay");
+  if (root) root.scrollTo({ top: 0, behavior: "smooth" });
+  introSec.value = "feat";
+}
+function startIntroSpy() {
+  stopIntroSpy();
+  const root = document.getElementById("introOverlay");
+  if (!root || typeof IntersectionObserver === "undefined") return;
+  introSpy = new IntersectionObserver((entries) => {
+    for (const en of entries) if (en.isIntersecting) introSec.value = en.target.dataset.sec;
+  }, { root, rootMargin: "-40% 0px -55% 0px" });
+  root.querySelectorAll(".sec[data-sec]").forEach((s) => introSpy.observe(s));
+}
+function stopIntroSpy() { if (introSpy) { introSpy.disconnect(); introSpy = null; } }
+/* 外链打开的唯一入口: 桌面走系统浏览器(open_url_cmd), 失败退回 window.open;
+   silent=true 不弹成功/失败提示(更新弹框等自带上下文的场景用)。
+   openBrowser / goDownload / 聊天链接 / 介绍页链接统一经此, 避免多份拷贝各自漂移 */
+function openExternal(url, silent = false) {
+  if (!isDesktop) { window.open(url, "_blank"); return; }
+  tauriInvoke("open_url_cmd", { url })
+    .then((d) => {
+      if (d.ok) { if (!silent) showToast("已在系统浏览器打开"); }
+      else {
+        if (!silent) showToast(d.error || "打开失败，尝试备用方式", "error");
+        window.open(url, "_blank");
+      }
+    })
+    .catch(() => { window.open(url, "_blank"); });
+}
+
 /* ---------- 生命周期 ---------- */
 let chatTimer = null;
 let logTimer = null;
@@ -622,8 +687,13 @@ onMounted(() => {
   };
   document.addEventListener("keydown", f5);
   onUnmounted(() => document.removeEventListener("keydown", f5));
+  // Esc 关闭介绍页
+  const escIntro = (e) => { if (e.key === "Escape" && introShow.value) closeIntro(); };
+  document.addEventListener("keydown", escIntro);
+  onUnmounted(() => document.removeEventListener("keydown", escIntro));
   if (isDesktop) {
     refreshControl();
+    refreshAutostart();
     // 启动静默检查更新: 延迟触发(等 appVersion 下发到位) + 24h 频控, 失败/无更新均无感
     setTimeout(() => {
       if (Date.now() - lastCheckedAt() >= UPDATE_CHECK_INTERVAL_MS) checkUpdate(false);
@@ -637,6 +707,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
   document.body.style.overflow = "";
+  stopIntroSpy();
   stopPolling();
 });
 
@@ -689,10 +760,39 @@ async function checkUpdate(manual = false) {
 }
 function goDownload() {
   const url = updateInfo.value?.url || RELEASES_PAGE;
-  tauriInvoke("open_url_cmd", { url })
-    .then(d => { if (!d.ok) window.open(url, "_blank"); })
-    .catch(() => window.open(url, "_blank"));
+  openExternal(url, true);   // 更新弹框自身有完整上下文, 不再叠加打开提示
   showUpdate.value = false;
+}
+
+/* ---------- 开机自动启动(桌面端, tauri-plugin-autostart) ---------- */
+// 产品决策: 纯手动开启 —— 首次运行不注册登录项, 用户在 CC设置 打开开关才写 LaunchAgent/注册表。
+// (旧版首启静默注册会绑定当时执行的二进制路径: dev/DMG/移动应用位置后自启项即失效且无法自纠)
+const autostartOn = ref(false);
+const showAutostartTip = ref(false);   // 手动开启成功后的说明弹框(TCode 风格)
+async function refreshAutostart() {
+  if (!isRealDesktop) return;
+  try {
+    // 只读系统真实状态, 不做任何写入
+    const d = await tauriInvoke("plugin:autostart|is_enabled");
+    autostartOn.value = !!d;
+  } catch (e) { /* 桌面端竞态/插件未就绪: 静默 */ }
+}
+async function toggleAutostart() {
+  if (!isRealDesktop) { showToast("开机自启仅桌面版支持", "error"); return; }
+  const next = !autostartOn.value;
+  try {
+    if (next) {
+      await tauriInvoke("plugin:autostart|enable");
+      autostartOn.value = true;
+      showAutostartTip.value = true;   // 手动开启也弹说明, 与 TCode 交互一致
+    } else {
+      await tauriInvoke("plugin:autostart|disable");
+      autostartOn.value = false;
+      showToast("已关闭开机自动启动");
+    }
+  } catch (e) {
+    showToast("设置失败，请重试", "error");
+  }
 }
 
 /* ---------- 运行状态/IP 定期刷新: DHCP 换 IP 后地址栏/二维码/统计保持最新 ---------- */
@@ -718,13 +818,15 @@ async function refreshStatus() {
       const changed = lastLanIp && lastLanIp !== "127.0.0.1";
       lanIp.value = ip;
       lastLanIp = ip;
-      genQr();
       if (changed && !first && running.value) {
         showToast(`本机 IP 已变为 ${ip}，手机请改用新地址访问`, "error");
       }
     } else if (ip) {
       lastLanIp = ip;
     }
+    // 二维码主驱动是 watch [shareUrl, running]; 这里只做自愈兜底 ——
+    // 生成失败/仍在途导致 qrData 为空时, 下一轮状态轮询(2.5s)重试
+    if (running.value && !qrData.value) syncQr();
   } catch (e) {
     // 浏览器端连续失败 → 判定与服务失联: 状态回落为"已停止", 共享列表/聊天数据一并清空不再展示
     if (!isDesktop && ++statusFail >= OFFLINE_FAILS) {
@@ -749,17 +851,24 @@ async function refreshStatus() {
       <div class="brand">
         <div class="logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
         <div class="t">CC-Flash</div>
+        <button class="intro-entry" title="软件介绍" aria-label="软件介绍" @click="openIntro">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          介绍
+        </button>
       </div>
       <nav class="nav">
         <button class="nav-item" :class="{ active: view === 'files' }" @click="setView('files')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件共享
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件传输
         </button>
         <button v-if="!isNarrow" class="nav-item" :class="{ active: view === 'chat' }" @click="setView('chat')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>聊天室
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>文本消息
           <span v-if="unread > 0 && view !== 'chat'" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
         </button>
         <button v-if="!isNarrow" class="nav-item svc" :class="{ active: view === 'service' }" @click="setView('service')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务与日志
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务中心
+        </button>
+        <button v-if="!isNarrow" class="nav-item" :class="{ active: view === 'settings' }" @click="setView('settings')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>CC设置
         </button>
       </nav>
       <div class="side-foot">
@@ -775,8 +884,8 @@ async function refreshStatus() {
       <!-- 顶部栏(桌面壳):标题一行 + 地址栏独占一行(保证地址完整展示) -->
       <div v-if="isDesktop" class="topbar">
         <div class="topbar-head">
-          <h2>{{ view === "files" ? "文件共享" : view === "chat" ? "聊天室" : "服务与日志" }}</h2>
-          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备可访问下方地址" : "服务未启动 —— 到「服务与日志」页启动" }}</div>
+          <h2>{{ VIEW_TITLES[view] || VIEW_TITLES.files }}</h2>
+          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备可访问下方地址" : "服务未启动 —— 到「服务中心」页启动" }}</div>
         </div>
         <div class="topbar-url">
           <span class="chip" :class="running ? 'run' : 'stop'">
@@ -915,7 +1024,7 @@ async function refreshStatus() {
                 <!-- 桌面端: 打开 + 复制 + 删除 + 分享 -->
                 <template v-if="isDesktop">
                   <button class="btn-act fb-open" title="打开文件（系统默认程序）" @click="openFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
-                  <button class="btn-act fb-copy" title="复制文件到剪贴板（可在访达/资源管理器粘贴）" @click="copyFileToClipboard(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></button>
+                  <button class="btn-act fb-copy" title="复制文件到剪贴板（可在访达/资源管理器粘贴）" @click="copyFileToClipboard(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
                   <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
                   <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
                 </template>
@@ -935,10 +1044,10 @@ async function refreshStatus() {
         <div class="hint-card">
           <h4>使用说明</h4>
           <ol>
-            <li>电脑点「启动服务」（服务与日志页），手机扫码或输入地址打开本页</li>
+            <li>电脑点「启动服务」（服务中心页），手机扫码或输入地址打开本页</li>
             <li>上传：拖拽 / 点击选择 / Ctrl+V 粘贴截图，均支持批量</li>
             <li>下载：点蓝色按钮；分享：点绿色按钮（手机拉起系统分享，电脑复制链接）</li>
-            <li>聊天在左侧「聊天室」，手机/电脑消息实时互通</li>
+            <li>聊天在左侧「文本消息」，手机/电脑消息实时互通</li>
           </ol>
         </div>
       </template>
@@ -947,7 +1056,7 @@ async function refreshStatus() {
       <template v-if="isDesktop && view === 'chat'">
         <div class="chat-card">
           <div class="chat-header">
-            <h3>💬 聊天室 · 局域网内实时互通</h3>
+            <h3>💬 文本消息 · 局域网内实时互通</h3>
             <div class="chat-head-right">
               <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
                       @click="clearChatDisplay">清空数据</button>
@@ -977,7 +1086,7 @@ async function refreshStatus() {
         </div>
       </template>
 
-      <!-- 服务与日志 -->
+      <!-- 服务中心 -->
       <template v-if="isDesktop && view === 'service'">
         <div class="svc-top">
           <!-- 服务控制 -->
@@ -1059,6 +1168,28 @@ async function refreshStatus() {
               {{ checkingUpdate ? "检查中…" : "检查更新" }}
             </button>
           </div>
+        </div>
+      </template>
+
+      <!-- CC设置 -->
+      <template v-if="isDesktop && view === 'settings'">
+        <div class="card" v-if="isRealDesktop">
+          <h3>通用</h3>
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-title">开机自动启动</div>
+              <div class="setting-desc">开启后登录电脑时 CC-Flash 将在后台自动启动（默认关闭，仅在你打开开关时注册）</div>
+            </div>
+            <button class="switch" :class="{ on: autostartOn }" role="switch" :aria-checked="autostartOn"
+                    :title="autostartOn ? '点击关闭' : '点击开启'" @click="toggleAutostart">
+              <span class="knob"></span>
+            </button>
+          </div>
+        </div>
+        <!-- Android/iOS 的 Tauri WebView 也走桌面壳(isDesktop), 但桌面插件未注册, 给出说明而非坏开关 -->
+        <div class="card" v-else>
+          <h3>通用</h3>
+          <p class="about-text">当前平台暂无可配置项 —— 开机自动启动等桌面功能仅在 macOS / Windows 版提供。</p>
         </div>
       </template>
 
@@ -1240,14 +1371,236 @@ async function refreshStatus() {
     </div>
   </div>
 
+  <!-- 软件介绍页(桌面端全屏 overlay, 按 docs/软件介绍页设计稿.html 实现); v-if 延迟到首次打开才挂载 -->
+  <Transition name="intro">
+    <div v-if="isDesktop && introShow" id="introOverlay" class="intro-overlay" role="dialog" aria-label="CC-Flash 软件介绍">
+    <!-- 粘性顶栏 -->
+    <header class="ihead">
+      <div class="ihead-in">
+        <span class="ihead-brand" title="回到顶部" @click="introScrollTop">
+          <img class="ib-lg" src="/logo.png" alt="logo" /> CC-Flash
+        </span>
+        <nav class="inav">
+          <a href="#sec-feat" :class="{ active: introSec === 'feat' }" @click.prevent="introScrollTo('feat')">功能</a>
+          <a href="#sec-howto" :class="{ active: introSec === 'howto' }" @click.prevent="introScrollTo('howto')">如何使用</a>
+          <a href="#sec-safe" :class="{ active: introSec === 'safe' }" @click.prevent="introScrollTo('safe')">技术实现</a>
+          <a href="#sec-faq" :class="{ active: introSec === 'faq' }" @click.prevent="introScrollTo('faq')">常见问题</a>
+        </nav>
+        <div class="ihead-act">
+          <button class="btn btn-primary" @click="goServiceFromIntro">
+            去启动服务
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+          </button>
+          <button class="icon-x" title="关闭 (Esc)" aria-label="关闭" @click="closeIntro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div>
+        <span class="hero-chip">局域网直传 · 手机免装 · 开源免费</span>
+        <h1>文件传过去，<br /><span class="hl">同一个 Wi-Fi</span> 就够了。</h1>
+        <p class="lead">
+          电脑启动服务，手机、平板、同事的电脑打开浏览器扫码即可上传、下载、发消息。
+          数据不出局域网 —— 不上云、无账号、不经过任何第三方服务器，断外网照样用。
+        </p>
+        <div class="hero-cta">
+          <button class="btn btn-primary" @click="goTransferFromIntro">
+            立即开始传输
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+          <button class="btn btn-ghost" title="查看使用说明" @click="introScrollTo('howto')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:.85"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            查看使用说明
+          </button>
+        </div>
+        <div class="hero-feats">
+          <span class="feat-chip"><span class="tick">✓</span>手机免装 App</span>
+          <span class="feat-chip"><span class="tick">✓</span>拖拽 / 粘贴上传</span>
+          <span class="feat-chip"><span class="tick">✓</span>大文件流式直传</span>
+          <span class="feat-chip"><span class="tick">✓</span>开机自动启动</span>
+        </div>
+      </div>
+      <!-- 应用窗口示意(二维码为真实地址, 服务未启动时占位) -->
+      <div class="hero-visual">
+        <div class="hv-bar">
+          <i></i><i></i><i></i>
+          <span class="hv-url">{{ running ? shareUrl : "http://192.168.1.5:1688" }}</span>
+          <span class="hv-run"><i></i>{{ running ? "运行中" : "示例" }}</span>
+        </div>
+        <div class="hv-body">
+          <div class="hv-qr">
+            <img v-if="qrData" class="hv-qr-img" :src="qrData" alt="QR" />
+            <div v-else class="hv-qr-ph"><span>📱</span>扫码打开</div>
+          </div>
+          <div class="hv-files">
+            <div class="hv-file">
+              <span class="fi" style="background:linear-gradient(135deg,#e74c3c,#c0392b)">PDF</span>
+              <div style="min-width:0"><div class="fn">需求评审纪要.pdf</div><div class="fm">2.4 MB · 电脑 → 手机</div></div>
+              <span class="fp">100%</span>
+            </div>
+            <div class="hv-file">
+              <span class="fi" style="background:linear-gradient(135deg,#3498db,#2980b9)">JPG</span>
+              <div style="min-width:0"><div class="fn">现场照片_01.jpg</div><div class="fm">5.1 MB · 手机 → 电脑</div></div>
+              <span class="fp">100%</span>
+            </div>
+            <div class="hv-file">
+              <span class="fi" style="background:linear-gradient(135deg,#2ecc71,#27ae60)">ZIP</span>
+              <div style="min-width:0"><div class="fn">release-build.zip</div><div class="fm">128 MB · 传输中</div></div>
+              <span class="fp" style="color:var(--accent-text)">76%</span>
+            </div>
+          </div>
+        </div>
+        <div class="hv-cap">手机扫码打开即用 · 与电脑端实时互通</div>
+      </div>
+    </section>
+
+    <!-- 功能 -->
+    <section class="sec" id="sec-feat" data-sec="feat">
+      <span class="eyebrow">不止传文件</span>
+      <h2>同一 Wi-Fi，一个入口。</h2>
+      <p class="lead">从会议室到工位，日常的文件、消息、临时协作，一个页面全部解决。手机不用装任何 App。</p>
+      <div class="cards">
+        <div class="card">
+          <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
+          <h3>文件传输</h3>
+          <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
+          <div class="tags"><span class="tag">多途径上传</span><span class="tag">批量管理</span><span class="tag">分享链接</span></div>
+        </div>
+        <div class="card">
+          <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
+          <h3>文本消息</h3>
+          <p>电脑手机实时互通，约 3 秒同步一轮。自定义昵称与 24 款 emoji 头像，支持代码块、粗体、链接的轻量 Markdown；链接点击直达系统浏览器，未读角标不漏消息。</p>
+          <div class="tags"><span class="tag">实时互通</span><span class="tag">Markdown</span><span class="tag">未读提醒</span></div>
+        </div>
+        <div class="card">
+          <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+          <h3>服务中心</h3>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，五套深色皮肤即点即换。</p>
+          <div class="tags"><span class="tag">服务控制</span><span class="tag">二维码直达</span><span class="tag">五套皮肤</span></div>
+        </div>
+        <div class="card">
+          <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+          <h3>CC设置</h3>
+          <p>开机自动启动可按需开启（在 CC设置 中打开开关），登录电脑服务就在；关窗收进托盘、服务保持运行。一键检查更新，新版本发布即刻知晓。</p>
+          <div class="tags"><span class="tag">开机自启</span><span class="tag">托盘常驻</span><span class="tag">检查更新</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 如何使用 -->
+    <section class="sec" id="sec-howto" data-sec="howto">
+      <span class="eyebrow">如何使用</span>
+      <h2>三步，把内容交给对方。</h2>
+      <p class="lead">无需配置网络、无需注册账号，装好即用。</p>
+      <div class="steps">
+        <div class="step">
+          <div class="no">01</div>
+          <h3>电脑启动服务</h3>
+          <p>打开 CC-Flash，进入「服务中心」点「启动服务」。默认端口 <code>1688</code>，被占用自动顺延，无需任何配置。</p>
+        </div>
+        <div class="step">
+          <div class="no">02</div>
+          <h3>扫码或输地址</h3>
+          <p>手机连上同一个 Wi-Fi，扫二维码，或在浏览器输入 <code>http://电脑IP:端口</code>，立即进入共享页。</p>
+        </div>
+        <div class="step">
+          <div class="no">03</div>
+          <h3>直接开始互传</h3>
+          <p>拖文件上传、点按钮下载、随时发消息。手机不用装 App；电脑关窗进托盘，服务也不停。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 技术实现 / 可靠性 -->
+    <section class="sec" id="sec-safe" data-sec="safe">
+      <span class="eyebrow">数据不出局域网</span>
+      <h2>传得快，也要传得安心。</h2>
+      <p class="lead">传输边界清清楚楚：数据只在你的路由器内部流动，电脑在哪里，数据就到哪里。</p>
+      <div class="points">
+        <div class="pt">
+          <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+          <h3>数据只在局域网</h3>
+          <p>HTTP 服务只监听你的电脑，文件与消息在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。</p>
+        </div>
+        <div class="pt">
+          <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          <h3>大文件不占内存</h3>
+          <p>后端流式读写，超大文件轻松传；下载超过 <code>1GB</code> 自动交给浏览器原生流式下载，稳定省资源。</p>
+        </div>
+        <div class="pt">
+          <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg></div>
+          <h3>服务常驻不断</h3>
+          <p>关窗即收进托盘，服务保持运行，手机端不受影响；开机自启可在「CC设置」开启，登录电脑即可用，真正退出走托盘菜单。</p>
+        </div>
+        <div class="pt">
+          <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
+          <h3>三平台覆盖</h3>
+          <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK。</p>
+        </div>
+      </div>
+      <div class="codes">
+        <div class="code-card">
+          <h3>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            桌面端安装
+          </h3>
+          <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需任何额外部署。</p>
+          <div class="code-box"><button class="code-copy" @click="copyText(RELEASES_PAGE, '已复制')">复制</button><span class="cm"># 打开最新版发布页</span><br />{{ RELEASES_PAGE }}</div>
+        </div>
+        <div class="code-card">
+          <h3>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            从源码构建
+          </h3>
+          <p>Rust + Vue 3 + Tauri 技术栈，两条命令构建当前平台的安装包。</p>
+          <div class="code-box"><button class="code-copy" @click="copyText(`npm install\nnpm run tauri build`, '已复制')">复制</button>npm install<br />npm run tauri build</div>
+        </div>
+      </div>
+      <p class="code-note">升级前请保留原共享目录（默认 <code>~/CC-Flash</code>）。问题反馈与建议欢迎提交 <a :href="'https://github.com/' + GITHUB_REPO + '/issues'" @click.prevent="openExternal('https://github.com/' + GITHUB_REPO + '/issues')">GitHub Issue</a>。</p>
+    </section>
+
+    <!-- 常见问题 -->
+    <section class="sec" id="sec-faq" data-sec="faq">
+      <span class="eyebrow">常见问题</span>
+      <h2>开始之前，了解这些。</h2>
+      <div class="faq">
+        <div v-for="(f, i) in INTRO_FAQS" :key="i" class="faq-item" :class="{ open: faqOpen === i }">
+          <button class="faq-q" @click="toggleFaq(i)">{{ f.q }}<span class="pm">+</span></button>
+          <div class="faq-a" :style="{ maxHeight: faqOpen === i ? '260px' : '0' }"><p>{{ f.a }}</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 页脚 -->
+    <footer class="ifoot">
+      <div class="ifoot-in">
+        <div class="ifoot-brand">
+          <img class="ib-lg" src="/logo.png" alt="logo" /> CC-Flash
+        </div>
+        <div class="ifoot-links">
+          <a :href="'https://github.com/' + GITHUB_REPO" @click.prevent="openExternal('https://github.com/' + GITHUB_REPO)">GitHub</a>
+          <a :href="'https://github.com/' + GITHUB_REPO + '/issues'" @click.prevent="openExternal('https://github.com/' + GITHUB_REPO + '/issues')">反馈问题</a>
+          <a :href="RELEASES_PAGE" @click.prevent="openExternal(RELEASES_PAGE)">下载安装</a>
+        </div>
+        <div class="ifoot-copy">CC-Flash（曹操是快😂）—— 局域网文件互传工具 · {{ FOOTER_TEXT }}</div>
+      </div>
+    </footer>
+    </div>
+  </Transition>
+
   <!-- 二维码弹窗 -->
   <div v-if="qrShow" class="dialog-overlay" @click.self="qrShow = false">
     <div class="dialog-box">
       <h4>扫描二维码在手机上打开</h4>
       <img v-if="qrData" class="qr-img" :src="qrData" alt="QR" />
+      <div v-else class="qr-empty" style="margin:10px auto">{{ running ? "二维码生成中…" : "服务已停止" }}</div>
       <p style="word-break:break-all">{{ shareUrl }}</p>
       <p style="font-size:12px;color:var(--text2);margin:0">{{ TIP_QR }}</p>
-      <div class="dialog-actions"><button class="btn btn-ghost" @click="qrShow = false">关闭</button></div>
+      <div class="dialog-actions"><button class="btn btn-primary" @click="qrShow = false">关闭</button></div>
     </div>
   </div>
 
@@ -1285,6 +1638,17 @@ async function refreshStatus() {
       <div class="dialog-actions">
         <button class="btn btn-ghost" @click="showUpdate = false">稍后再说</button>
         <button class="btn btn-primary" @click="goDownload">前往下载</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 开机自启说明弹框(参考 TCode): 开启成功后弹一次, 点「知道了」关闭 -->
+  <div v-if="showAutostartTip" class="dialog-overlay" @click.self="showAutostartTip = false">
+    <div class="dialog-box">
+      <h4>CC-Flash 已开启开机启动</h4>
+      <p>登录电脑后，CC-Flash 将在后台自动启动（不弹出主窗口）。请从「应用程序」目录中的正式安装版开启 —— 若当前从 DMG 或开发目录运行，登录自启会指向该临时路径而失效。可随时在「CC设置」中关闭。</p>
+      <div class="dialog-actions">
+        <button class="btn btn-primary" @click="showAutostartTip = false">知道了</button>
       </div>
     </div>
   </div>

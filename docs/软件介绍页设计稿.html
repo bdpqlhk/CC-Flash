@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CC-Flash · 软件介绍页设计稿</title>
+<style>
+/* ============================================================
+   CC-Flash 软件介绍页 · 设计稿
+   参考 https://transfer.52python.cn/official/ 的结构与交互:
+   粘性顶栏 + 锚点导航 + 大标题 Hero + 功能卡片 + 三步上手
+   + 可靠性四点 + 代码卡片 + FAQ 手风琴 + 页脚
+   配色采用应用自身「深空蓝」设计令牌(应用内全屏 overlay 场景)
+   ============================================================ */
+:root {
+    --bg: #0d1017; --bg2: #111620; --panel: #151a23; --card: #161b26;
+    --card-border: rgba(255,255,255,0.06);
+    --text: #e1e4ed; --text2: #9ca3b8; --text3: #5f6980;
+    --accent: #4f8af7; --accent2: #7c6ff7; --accent-bg: rgba(79,138,247,0.10);
+    --accent-text: #7fb0ff;
+    --success: #34c97c; --success-bg: rgba(52,201,124,0.1);
+    --warning: #f5a623;
+    --radius: 14px; --radius-sm: 10px; --radius-xs: 6px;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.3);
+    --shadow-lg: 0 4px 32px rgba(0,0,0,0.5);
+    --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+    --mono: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #090b10; color: var(--text);
+    -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+::selection { background: rgba(79,138,247,0.35); }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+
+/* ================= Part 1 · 入口示意 ================= */
+.demo-stage { max-width: 860px; margin: 0 auto; padding: 48px 20px 64px; }
+.demo-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--accent-text);
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.3);
+    padding: 5px 14px; border-radius: 999px; margin-bottom: 18px;
+}
+.demo-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 8px; }
+.demo-sub { font-size: 13.5px; color: var(--text2); line-height: 1.7; margin-bottom: 28px; }
+.demo-sub code {
+    font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,0.06);
+    border: 1px solid var(--card-border); border-radius: 5px; padding: 1px 6px; color: var(--accent-text);
+}
+.demo-row { display: flex; gap: 36px; align-items: flex-start; flex-wrap: wrap; }
+
+/* 侧边栏真实还原(与 App.vue .sidebar 一致) */
+.sidebar-mock {
+    width: 216px; flex-shrink: 0; background: var(--panel);
+    border: 1px solid var(--card-border); border-radius: 12px;
+    padding: 16px 12px 12px; box-shadow: var(--shadow-lg);
+}
+.brand { display: flex; align-items: center; gap: 8px; padding: 4px 6px 18px; min-width: 0; }
+.brand .logo {
+    width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+    background: linear-gradient(135deg, #2b4a8f, #4f8af7);
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+    box-shadow: 0 3px 12px rgba(79,138,247,0.3);
+}
+.brand .t { font-size: 13px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; }
+/* ★ 新增: 品牌名右侧的「介绍」入口按钮(绿框位置) ★ */
+.intro-entry {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 9px; border-radius: 999px;
+    border: 1px solid var(--card-border); background: rgba(255,255,255,0.04);
+    color: var(--text3); font-size: 11px; font-weight: 600; line-height: 1;
+    transition: all var(--transition); flex-shrink: 0;
+}
+.intro-entry svg { display: block; }
+.intro-entry:hover {
+    color: var(--accent-text); border-color: rgba(79,138,247,0.45);
+    background: var(--accent-bg); transform: translateY(-1px);
+}
+/* 绿框标注(设计稿示意用, 非实现部分) */
+.entry-annot { position: relative; }
+.entry-annot::after {
+    content: ""; position: absolute; inset: -7px -9px;
+    border: 2px dashed #2fc26b; border-radius: 12px; pointer-events: none;
+}
+.entry-cap {
+    position: absolute; left: calc(100% + 22px); top: 50%; transform: translateY(-50%);
+    white-space: nowrap; font-size: 12px; color: #2fc26b; font-weight: 600;
+}
+.entry-cap::before {
+    content: ""; position: absolute; left: -16px; top: 50%; width: 12px;
+    border-top: 2px solid #2fc26b;
+}
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: 8px; border: 1px solid transparent;
+    color: var(--text2); font-size: 14px; text-align: left; width: 100%; background: none;
+}
+.nav-item .ico { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+.nav-item.active {
+    background: var(--accent-bg); border-color: rgba(79,138,247,0.35); color: var(--accent-text); font-weight: 600;
+}
+.side-foot {
+    margin-top: auto; padding: 10px 6px 0; border-top: 1px solid var(--card-border);
+    display: flex; flex-direction: column; gap: 6px;
+}
+.side-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--success); }
+.side-status .d { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 6px var(--success); }
+.side-ver { font-size: 11px; color: var(--text3); }
+.demo-note { flex: 1; min-width: 240px; padding-top: 6px; }
+.demo-note p { font-size: 13px; color: var(--text2); line-height: 1.9; }
+.demo-note p b { color: var(--text); }
+.demo-open {
+    margin-top: 18px; display: inline-flex; align-items: center; gap: 8px;
+    height: 40px; padding: 0 22px; border-radius: 10px; border: none;
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(79,138,247,0.35); transition: all var(--transition);
+}
+.demo-open:hover { background: #3f7cf0; transform: translateY(-1px); }
+
+/* ================= Part 2 · 全屏介绍页(overlay) ================= */
+.intro-overlay {
+    position: fixed; inset: 0; z-index: 1100; overflow-y: auto; overflow-x: hidden;
+    background:
+        radial-gradient(1000px 500px at 85% -100px, rgba(79,138,247,0.14), transparent 60%),
+        radial-gradient(800px 420px at 8% 110%, rgba(124,111,247,0.10), transparent 60%),
+        var(--bg);
+    opacity: 0; visibility: hidden; transform: translateY(14px);
+    transition: opacity 0.28s ease, transform 0.28s ease, visibility 0.28s;
+    scroll-behavior: smooth;
+}
+.intro-overlay.open { opacity: 1; visibility: visible; transform: none; }
+
+/* 粘性顶栏 */
+.ihead {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(13,16,23,0.82); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--card-border);
+}
+.ihead-in {
+    max-width: 1080px; margin: 0 auto; height: 64px; padding: 0 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+}
+.ihead-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; }
+.ihead-brand .lg {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: linear-gradient(135deg, #2b4a8f, #4f8af7);
+    display: flex; align-items: center; justify-content: center; font-size: 17px;
+}
+.inav { display: flex; gap: 26px; font-size: 13.5px; color: var(--text2); }
+.inav a { padding: 4px 0; border-bottom: 2px solid transparent; transition: all var(--transition); }
+.inav a:hover { color: var(--accent-text); }
+.inav a.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+.ihead-act { display: flex; align-items: center; gap: 10px; }
+.btn-primary {
+    display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 18px;
+    border-radius: 9px; border: none; background: var(--accent); color: #fff;
+    font-size: 13.5px; font-weight: 600; transition: all var(--transition);
+}
+.btn-primary:hover { background: #3f7cf0; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(79,138,247,0.35); }
+.btn-ghost {
+    display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px;
+    border-radius: 9px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.03);
+    color: var(--text2); font-size: 13.5px; font-weight: 500; transition: all var(--transition);
+}
+.btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.16); }
+.icon-x {
+    width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--card-border);
+    background: rgba(255,255,255,0.03); color: var(--text2); display: inline-flex;
+    align-items: center; justify-content: center; transition: all var(--transition);
+}
+.icon-x:hover { color: var(--danger, #f2596b); border-color: rgba(242,89,107,0.45); }
+
+/* 通用区块节奏(参考官网: eyebrow → h2 → lead) */
+.sec { max-width: 1080px; margin: 0 auto; padding: 88px 24px; }
+.sec + .sec { border-top: 1px solid var(--card-border); }
+.eyebrow {
+    display: inline-block; font-size: 12.5px; font-weight: 700; letter-spacing: 2px;
+    color: var(--accent-text); margin-bottom: 14px;
+}
+.sec h2 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.25; margin-bottom: 14px; }
+.lead { font-size: 15px; color: var(--text2); line-height: 1.85; max-width: 640px; }
+
+/* Hero */
+.hero { max-width: 1080px; margin: 0 auto; padding: 84px 24px 76px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 52px; align-items: center; }
+.hero-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 600; color: var(--accent-text);
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.32);
+    padding: 6px 16px; border-radius: 999px; margin-bottom: 24px;
+}
+.hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1.22; margin-bottom: 18px; }
+.hero h1 .hl {
+    background: linear-gradient(90deg, var(--accent-text), #a78bfa);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero .lead { margin-bottom: 30px; }
+.hero-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 30px; }
+.hero-cta .btn-primary, .hero-cta .btn-ghost { height: 44px; padding: 0 24px; font-size: 14.5px; border-radius: 11px; }
+.hero-feats { display: flex; gap: 10px; flex-wrap: wrap; }
+.feat-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--text2); font-weight: 500;
+    border: 1px solid var(--card-border); background: rgba(255,255,255,0.03);
+    padding: 7px 14px; border-radius: 999px;
+}
+.feat-chip .tick { color: var(--success); font-weight: 700; }
+
+/* Hero 右侧: 应用窗口示意(纯 CSS) */
+.hero-visual {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    box-shadow: var(--shadow-lg); overflow: hidden; transform: rotate(1.2deg);
+    transition: transform 0.3s ease;
+}
+.hero-visual:hover { transform: rotate(0deg) translateY(-3px); }
+.hv-bar { display: flex; align-items: center; gap: 6px; padding: 11px 14px; border-bottom: 1px solid var(--card-border); background: var(--panel); }
+.hv-bar i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.14); }
+.hv-bar .hv-url {
+    flex: 1; margin-left: 8px; height: 24px; border-radius: 6px; background: rgba(255,255,255,0.05);
+    border: 1px solid var(--card-border); display: flex; align-items: center; padding: 0 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--text2);
+}
+.hv-bar .hv-run { font-size: 10.5px; color: var(--success); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+.hv-bar .hv-run i { width: 6px; height: 6px; background: var(--success); box-shadow: 0 0 6px var(--success); }
+.hv-body { display: flex; gap: 14px; padding: 18px; }
+.hv-qr {
+    width: 118px; height: 118px; border-radius: 10px; background: #fff;
+    padding: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+}
+.hv-qr canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+.hv-files { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hv-file {
+    display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+    border: 1px solid var(--card-border); border-radius: 9px; background: rgba(255,255,255,0.025);
+}
+.hv-file .fi {
+    width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; color: #fff;
+}
+.hv-file .fn { font-size: 11.5px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hv-file .fm { font-size: 10px; color: var(--text3); margin-top: 1px; }
+.hv-file .fp { margin-left: auto; font-size: 10.5px; color: var(--success); font-weight: 700; flex-shrink: 0; }
+.hv-cap { padding: 0 18px 16px; font-size: 11.5px; color: var(--text3); text-align: center; }
+
+/* 功能四卡片 */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 16px; margin-top: 38px; }
+.card {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius);
+    padding: 24px 22px; transition: all var(--transition);
+}
+.card:hover { transform: translateY(-3px); border-color: rgba(79,138,247,0.35); box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
+.card .cico {
+    width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.28); color: var(--accent-text); margin-bottom: 16px;
+}
+.card h3 { font-size: 16px; font-weight: 700; margin-bottom: 9px; }
+.card p { font-size: 13px; color: var(--text2); line-height: 1.8; margin-bottom: 14px; }
+.tags { display: flex; gap: 7px; flex-wrap: wrap; }
+.tag {
+    font-size: 11px; font-weight: 600; color: var(--accent-text);
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.25);
+    padding: 3px 10px; border-radius: 999px;
+}
+
+/* 三步上手 */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 38px; }
+.step {
+    position: relative; background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--radius); padding: 26px 22px 22px; transition: all var(--transition);
+}
+.step:hover { border-color: rgba(79,138,247,0.35); transform: translateY(-3px); }
+.step .no {
+    font-family: var(--mono); font-size: 30px; font-weight: 800; line-height: 1;
+    background: linear-gradient(135deg, var(--accent-text), #a78bfa);
+    -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 14px;
+}
+.step h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 8px; }
+.step p { font-size: 13px; color: var(--text2); line-height: 1.8; }
+.step code, .pt code {
+    font-family: var(--mono); font-size: 11.5px; color: var(--accent-text);
+    background: rgba(255,255,255,0.06); border: 1px solid var(--card-border);
+    border-radius: 5px; padding: 1px 6px;
+}
+
+/* 可靠性四点 */
+.points { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 38px; }
+.pt { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 24px 22px; transition: all var(--transition); }
+.pt:hover { border-color: rgba(79,138,247,0.3); }
+.pt .pico {
+    width: 36px; height: 36px; border-radius: 10px; margin-bottom: 13px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--success-bg); border: 1px solid rgba(52,201,124,0.3); color: var(--success);
+}
+.pt h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+.pt p { font-size: 13px; color: var(--text2); line-height: 1.8; }
+
+/* 代码卡片(参考官网部署区) */
+.codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 20px; }
+.code-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px; }
+.code-card h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 7px; display: flex; align-items: center; gap: 8px; }
+.code-card > p { font-size: 12.5px; color: var(--text2); line-height: 1.75; margin-bottom: 14px; }
+.code-box {
+    position: relative; background: #0a0d13; border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm); padding: 14px 16px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.8; color: #b7c3de;
+    white-space: pre-wrap; word-break: break-all;
+}
+.code-box .cm { color: var(--text3); }
+.code-copy {
+    position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px;
+    border-radius: 6px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.05);
+    color: var(--text3); font-size: 11px; font-weight: 600; transition: all var(--transition);
+}
+.code-copy:hover { color: var(--accent-text); border-color: rgba(79,138,247,0.4); }
+.code-note { margin-top: 14px; font-size: 12px; color: var(--text3); line-height: 1.7; }
+.code-note a { color: var(--accent-text); font-weight: 600; }
+.code-note a:hover { text-decoration: underline; }
+
+/* FAQ 手风琴 */
+.faq { margin-top: 34px; display: flex; flex-direction: column; gap: 10px; max-width: 780px; }
+.faq-item { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--transition); }
+.faq-item.open { border-color: rgba(79,138,247,0.35); }
+.faq-q {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 17px 20px; background: none; border: none; color: var(--text);
+    font-size: 14px; font-weight: 600; text-align: left; transition: color var(--transition);
+}
+.faq-q:hover { color: var(--accent-text); }
+.faq-q .pm { font-size: 19px; font-weight: 400; color: var(--text3); flex-shrink: 0; transition: transform var(--transition); line-height: 1; }
+.faq-item.open .faq-q .pm { transform: rotate(45deg); color: var(--accent-text); }
+.faq-a { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+.faq-a p { padding: 0 20px 18px; font-size: 13px; color: var(--text2); line-height: 1.85; }
+
+/* 页脚 */
+.ifoot { border-top: 1px solid var(--card-border); background: var(--bg2); }
+.ifoot-in {
+    max-width: 1080px; margin: 0 auto; padding: 36px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+}
+.ifoot-brand { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; }
+.ifoot-brand .lg {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: linear-gradient(135deg, #2b4a8f, #4f8af7);
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.ifoot-links { display: flex; gap: 22px; font-size: 13px; color: var(--text2); }
+.ifoot-links a:hover { color: var(--accent-text); }
+.ifoot-copy { font-size: 12px; color: var(--text3); width: 100%; text-align: center; padding-top: 6px; }
+
+/* Toast(原型内交互提示) */
+.toast {
+    position: fixed; bottom: 26px; right: 26px; z-index: 1200;
+    background: var(--panel); border: 1px solid var(--card-border); border-left: 3px solid var(--accent);
+    color: var(--text); font-size: 13px; padding: 13px 18px; border-radius: 10px;
+    box-shadow: var(--shadow-lg); opacity: 0; transform: translateY(14px);
+    transition: all 0.3s ease; pointer-events: none; max-width: 320px;
+}
+.toast.show { opacity: 1; transform: none; }
+
+/* 响应式 */
+@media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; padding: 56px 22px; gap: 40px; }
+    .hero h1 { font-size: 34px; }
+    .inav { display: none; }
+    .steps { grid-template-columns: 1fr; }
+    .points, .codes { grid-template-columns: 1fr; }
+    .sec { padding: 64px 22px; }
+    .sec h2 { font-size: 25px; }
+    .entry-cap { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+    .intro-overlay { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============ Part 1 · 侧边栏入口示意 ============ -->
+<div class="demo-stage">
+    <span class="demo-label">◆ 设计稿 · 入口位置</span>
+    <h1 class="demo-title">CC-Flash 软件介绍页</h1>
+    <p class="demo-sub">
+        入口位于侧边栏品牌区 —— 「CC-Flash」标题右侧（原绿框位置），一枚小号胶囊按钮「介绍」。
+        点击后以<strong style="color:var(--text)">全屏 Overlay</strong> 打开介绍页（Esc / 右上角 ✕ 关闭）。
+        页面结构与交互参考 <code>transfer.52python.cn/official</code>：粘性顶栏锚点导航、大标题 Hero、功能卡片、三步上手、可靠性说明、FAQ 手风琴。
+    </p>
+
+    <div class="demo-row">
+        <!-- 真实还原的侧边栏 -->
+        <div class="sidebar-mock">
+            <div class="brand">
+                <div class="logo">😎</div>
+                <div class="t">CC-Flash</div>
+                <span class="entry-annot">
+                    <button class="intro-entry" onclick="openIntro()" title="软件介绍">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        介绍
+                    </button>
+                    <span class="entry-cap">新增入口 · 点击预览</span>
+                </span>
+            </div>
+            <nav class="nav">
+                <button class="nav-item active"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件传输</button>
+                <button class="nav-item"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>文本消息</button>
+                <button class="nav-item"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务中心</button>
+                <button class="nav-item"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>CC设置</button>
+            </nav>
+            <div class="side-foot">
+                <div class="side-status"><span class="d"></span>运行中 :1688</div>
+                <div class="side-ver">v1.1.1 · Tauri</div>
+            </div>
+        </div>
+
+        <!-- 设计说明 -->
+        <div class="demo-note">
+            <p><b>入口样式：</b>高 22px 胶囊按钮，info 图标 + 「介绍」文字，常驻态低调融入品牌行；悬停时泛起主题蓝（与应用内 .icon-btn 交互语言一致）。</p>
+            <p style="margin-top:10px"><b>打开方式：</b>全屏 Overlay（fixed 覆盖整个应用窗口），滚动锁定背景；顶栏吸附，锚点平滑滚动 + 滚动定位高亮；FAQ 手风琴展开/收起。</p>
+            <p style="margin-top:10px"><b>关闭方式：</b>右上角 ✕ 按钮 或 Esc 键；顶栏「去启动服务」将关闭介绍页并跳转「服务中心」。</p>
+            <button class="demo-open" onclick="openIntro()">
+                预览完整介绍页
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ============ Part 2 · 全屏介绍页 ============ -->
+<div class="intro-overlay" id="introOverlay" role="dialog" aria-label="CC-Flash 软件介绍">
+
+    <!-- 粘性顶栏 -->
+    <header class="ihead">
+        <div class="ihead-in">
+            <a class="ihead-brand" href="#top" onclick="closeIntro();return false;">
+                <span class="lg">😎</span> CC-Flash
+            </a>
+            <nav class="inav" id="inav">
+                <a href="#feat" data-sec="feat">功能</a>
+                <a href="#howto" data-sec="howto">如何使用</a>
+                <a href="#safe" data-sec="safe">技术实现</a>
+                <a href="#faq" data-sec="faq">常见问题</a>
+            </nav>
+            <div class="ihead-act">
+                <button class="btn-primary" onclick="goService()">
+                    去启动服务
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+                </button>
+                <button class="icon-x" onclick="closeIntro()" title="关闭 (Esc)" aria-label="关闭">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero" id="top">
+        <div>
+            <span class="hero-chip">局域网直传 · 手机免装 · 开源免费</span>
+            <h1>文件传过去，<br/><span class="hl">同一个 Wi-Fi</span> 就够了。</h1>
+            <p class="lead">
+                电脑启动服务，手机、平板、同事的电脑打开浏览器扫码即可上传、下载、发消息。
+                数据不出局域网 —— 不上云、无账号、不经过任何第三方服务器，断外网照样用。
+            </p>
+            <div class="hero-cta">
+                <button class="btn-primary" onclick="goService()">
+                    立即开始传输
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </button>
+                <a class="btn-ghost" href="保姆级使用说明.html" target="_blank" rel="noopener">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:.85"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                    查看使用说明
+                </a>
+            </div>
+            <div class="hero-feats">
+                <span class="feat-chip"><span class="tick">✓</span>手机免装 App</span>
+                <span class="feat-chip"><span class="tick">✓</span>拖拽 / 粘贴上传</span>
+                <span class="feat-chip"><span class="tick">✓</span>大文件流式直传</span>
+                <span class="feat-chip"><span class="tick">✓</span>开机自动启动</span>
+            </div>
+        </div>
+        <!-- 应用窗口示意 -->
+        <div class="hero-visual">
+            <div class="hv-bar">
+                <i></i><i></i><i></i>
+                <span class="hv-url">http://192.168.1.5:1688</span>
+                <span class="hv-run"><i></i>运行中</span>
+            </div>
+            <div class="hv-body">
+                <div class="hv-qr"><canvas id="qrCanvas" width="21" height="21"></canvas></div>
+                <div class="hv-files">
+                    <div class="hv-file">
+                        <span class="fi" style="background:linear-gradient(135deg,#e74c3c,#c0392b)">PDF</span>
+                        <div style="min-width:0"><div class="fn">需求评审纪要.pdf</div><div class="fm">2.4 MB · 电脑 → 手机</div></div>
+                        <span class="fp">100%</span>
+                    </div>
+                    <div class="hv-file">
+                        <span class="fi" style="background:linear-gradient(135deg,#3498db,#2980b9)">JPG</span>
+                        <div style="min-width:0"><div class="fn">现场照片_01.jpg</div><div class="fm">5.1 MB · 手机 → 电脑</div></div>
+                        <span class="fp">100%</span>
+                    </div>
+                    <div class="hv-file">
+                        <span class="fi" style="background:linear-gradient(135deg,#2ecc71,#27ae60)">ZIP</span>
+                        <div style="min-width:0"><div class="fn">release-build.zip</div><div class="fm">128 MB · 传输中</div></div>
+                        <span class="fp" style="color:var(--accent-text)">76%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hv-cap">手机扫码打开即用 · 与电脑端实时互通</div>
+        </div>
+    </section>
+
+    <!-- 功能 -->
+    <section class="sec" id="feat">
+        <span class="eyebrow">不止传文件</span>
+        <h2>同一 Wi-Fi，一个入口。</h2>
+        <p class="lead">从会议室到工位，日常的文件、消息、临时协作，一个页面全部解决。手机不用装任何 App。</p>
+        <div class="cards">
+            <div class="card">
+                <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
+                <h3>文件传输</h3>
+                <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
+                <div class="tags"><span class="tag">多途径上传</span><span class="tag">批量管理</span><span class="tag">分享链接</span></div>
+            </div>
+            <div class="card">
+                <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
+                <h3>文本消息</h3>
+                <p>电脑手机实时互通，约 3 秒同步一轮。自定义昵称与 24 款 emoji 头像，支持代码块、粗体、链接的轻量 Markdown；链接点击直达系统浏览器，未读角标不漏消息。</p>
+                <div class="tags"><span class="tag">实时互通</span><span class="tag">Markdown</span><span class="tag">未读提醒</span></div>
+            </div>
+            <div class="card">
+                <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                <h3>服务中心</h3>
+                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，五套深色皮肤即点即换。</p>
+                <div class="tags"><span class="tag">服务控制</span><span class="tag">二维码直达</span><span class="tag">五套皮肤</span></div>
+            </div>
+            <div class="card">
+                <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+                <h3>CC设置</h3>
+                <p>开机自动启动默认开启，登录电脑服务就在；关窗收进托盘、服务保持运行。一键检查更新，新版本发布即刻知晓。</p>
+                <div class="tags"><span class="tag">开机自启</span><span class="tag">托盘常驻</span><span class="tag">检查更新</span></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 如何使用 -->
+    <section class="sec" id="howto">
+        <span class="eyebrow">如何使用</span>
+        <h2>三步，把内容交给对方。</h2>
+        <p class="lead">无需配置网络、无需注册账号，装好即用。</p>
+        <div class="steps">
+            <div class="step">
+                <div class="no">01</div>
+                <h3>电脑启动服务</h3>
+                <p>打开 CC-Flash，进入「服务中心」点「启动服务」。默认端口 <code>1688</code>，被占用自动顺延，无需任何配置。</p>
+            </div>
+            <div class="step">
+                <div class="no">02</div>
+                <h3>扫码或输地址</h3>
+                <p>手机连上同一个 Wi-Fi，扫二维码，或在浏览器输入 <code>http://电脑IP:端口</code>，立即进入共享页。</p>
+            </div>
+            <div class="step">
+                <div class="no">03</div>
+                <h3>直接开始互传</h3>
+                <p>拖文件上传、点按钮下载、随时发消息。手机不用装 App；电脑关窗进托盘，服务也不停。</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 技术实现 / 可靠性 -->
+    <section class="sec" id="safe">
+        <span class="eyebrow">数据不出局域网</span>
+        <h2>传得快，也要传得安心。</h2>
+        <p class="lead">传输边界清清楚楚：数据只在你的路由器内部流动，电脑在哪里，数据就到哪里。</p>
+        <div class="points">
+            <div class="pt">
+                <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                <h3>数据只在局域网</h3>
+                <p>HTTP 服务只监听你的电脑，文件与消息在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。</p>
+            </div>
+            <div class="pt">
+                <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+                <h3>大文件不占内存</h3>
+                <p>后端流式读写，超大文件轻松传；下载超过 <code>1GB</code> 自动交给浏览器原生流式下载，稳定省资源。</p>
+            </div>
+            <div class="pt">
+                <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg></div>
+                <h3>服务常驻不断</h3>
+                <p>关窗即收进托盘，服务保持运行，手机端不受影响；开机自启默认开启，登录电脑即可用，真正退出走托盘菜单。</p>
+            </div>
+            <div class="pt">
+                <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
+                <h3>三平台覆盖</h3>
+                <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK。</p>
+            </div>
+        </div>
+        <div class="codes">
+            <div class="code-card">
+                <h3>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    桌面端安装
+                </h3>
+                <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需任何额外部署。</p>
+                <div class="code-box"><button class="code-copy" onclick="copyCode(this)">复制</button><span class="cm"># 打开最新版发布页</span>
+https://github.com/bdpqlhk/CC-Flash/releases/latest</div>
+            </div>
+            <div class="code-card">
+                <h3>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    从源码构建
+                </h3>
+                <p>Rust + Vue 3 + Tauri 技术栈，两条命令构建当前平台的安装包。</p>
+                <div class="code-box"><button class="code-copy" onclick="copyCode(this)">复制</button>npm install
+npm run tauri build</div>
+            </div>
+        </div>
+        <p class="code-note">升级前请保留原共享目录（默认 <code style="font-family:var(--mono);font-size:11.5px;color:var(--accent-text)">~/CC-Flash</code>）。问题反馈与建议欢迎提交 <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">GitHub Issue</a>。</p>
+    </section>
+
+    <!-- 常见问题 -->
+    <section class="sec" id="faq">
+        <span class="eyebrow">常见问题</span>
+        <h2>开始之前，了解这些。</h2>
+        <div class="faq">
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">手机需要安装 App 吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户如果想要原生体验，也可以直接安装我们提供的 APK。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">文件会上传到外网或云服务器吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>不会。HTTP 服务只监听你的电脑，所有传输都发生在局域网内部，不经过任何第三方服务器。拔掉外网网线，功能一切照常。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">端口被占用了怎么办？<span class="pm">+</span></button>
+                <div class="faq-a"><p>默认端口 1688，被占用时自动向后顺延探测（最多 20 个），当前生效地址会实时显示在顶栏与二维码中；也可以在「服务中心」手动指定端口。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">关闭窗口后服务会停止吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>不会。关窗只是把窗口收进系统托盘，服务继续保持运行，手机端不受影响；开机自启默认开启。真正退出请点托盘菜单中的「退出」。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">支持哪些平台？<span class="pm">+</span></button>
+                <div class="faq-a"><p>桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 页脚 -->
+    <footer class="ifoot">
+        <div class="ifoot-in">
+            <div class="ifoot-brand">
+                <span class="lg">😎</span> CC-Flash
+            </div>
+            <div class="ifoot-links">
+                <a href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">GitHub</a>
+                <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">反馈问题</a>
+                <a href="https://github.com/bdpqlhk/CC-Flash/releases/latest" target="_blank" rel="noopener">下载安装</a>
+            </div>
+            <div class="ifoot-copy">CC-Flash（曹操是快😂）—— 局域网文件互传工具 · © 2026-现在 by hangkun.li</div>
+        </div>
+    </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- 入口开合 ---------- */
+const overlay = document.getElementById('introOverlay');
+function openIntro() {
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    overlay.scrollTop = 0;
+}
+function closeIntro() {
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) closeIntro();
+});
+/* 顶栏 CTA: 实际应用中关闭并跳转「服务中心」视图 */
+function goService() {
+    closeIntro();
+    toast('实际应用中：关闭介绍页并跳转「服务中心」视图');
+}
+/* ---------- FAQ 手风琴 ---------- */
+function toggleFaq(btn) {
+    const item = btn.parentElement;
+    const panel = item.querySelector('.faq-a');
+    const isOpen = item.classList.toggle('open');
+    panel.style.maxHeight = isOpen ? panel.scrollHeight + 'px' : '0';
+    // 关闭其他项(单开模式, 与参考站一致)
+    if (isOpen) {
+        document.querySelectorAll('.faq-item.open').forEach(o => {
+            if (o !== item) { o.classList.remove('open'); o.querySelector('.faq-a').style.maxHeight = '0'; }
+        });
+    }
+}
+/* ---------- 锚点滚动定位高亮(Scroll Spy) ---------- */
+const navLinks = [...document.querySelectorAll('#inav a')];
+const secs = navLinks.map(a => document.getElementById(a.dataset.sec));
+const spy = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+        if (en.isIntersecting) {
+            navLinks.forEach(a => a.classList.toggle('active', a.dataset.sec === en.target.id));
+        }
+    });
+}, { root: overlay, rootMargin: '-40% 0px -55% 0px' });
+secs.forEach(s => s && spy.observe(s));
+/* ---------- 代码复制 ---------- */
+function copyCode(btn) {
+    const box = btn.parentElement;
+    const text = [...box.childNodes].filter(n => n.nodeType === 3 || (n.nodeType === 1 && !n.classList.contains('code-copy')))
+        .map(n => n.textContent).join('').trim();
+    navigator.clipboard?.writeText(text).then(() => {
+        btn.textContent = '已复制';
+        setTimeout(() => btn.textContent = '复制', 1500);
+    }).catch(() => toast('复制失败，请手动复制'));
+}
+/* ---------- Toast ---------- */
+let toastTimer;
+function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+/* ---------- Hero 二维码装饰(固定种子, 每次打开一致) ---------- */
+(function drawQR() {
+    const c = document.getElementById('qrCanvas');
+    const ctx = c.getContext('2d');
+    const n = 21; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, n, n);
+    let s = 20261026;                       // 固定种子
+    const rnd = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    ctx.fillStyle = '#0d1017';
+    // 三个定位角
+    const finder = (x, y) => {
+        ctx.fillRect(x, y, 7, 7);
+        ctx.fillStyle = '#fff'; ctx.fillRect(x + 1, y + 1, 5, 5);
+        ctx.fillStyle = '#0d1017'; ctx.fillRect(x + 2, y + 2, 3, 3);
+    };
+    // 数据区伪随机填充(避开定位角)
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const inFinder = (x < 8 && y < 8) || (x > 12 && y < 8) || (x < 8 && y > 12);
+        if (!inFinder && rnd() > 0.52) ctx.fillRect(x, y, 1, 1);
+    }
+    finder(0, 0); finder(14, 0); finder(0, 14);
+})();
+</script>
+</body>
+</html>

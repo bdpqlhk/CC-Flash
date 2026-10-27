@@ -319,6 +319,16 @@ body {
 .upd-row { display: flex; align-items: center; gap: 12px; }
 .upd-label { width: 60px; flex-shrink: 0; font-size: 13px; color: var(--text2); }
 .upd-notes { margin: 0 0 4px; padding: 10px 12px; border-radius: var(--radius-xs); background: rgba(255,255,255,0.04); border: 1px solid var(--card-border); font-family: inherit; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 168px; overflow-y: auto; color: var(--text2); }
+/* CC设置页: 设置行 + iOS 风格开关 */
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 0; }
+.setting-info { flex: 1; min-width: 0; }
+.setting-title { font-size: 13.5px; font-weight: 600; color: var(--text1); margin-bottom: 4px; }
+.setting-desc { font-size: 12px; color: var(--text3); line-height: 1.5; }
+.switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; border-radius: 999px; border: none; cursor: pointer; background: rgba(255,255,255,0.14); transition: background 0.2s; padding: 0; }
+.switch.on { background: var(--accent); }
+.switch .knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+.switch.on .knob { transform: translateX(20px); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 失联全屏: 电视"无信号"测试卡(网页端专用, 电脑/手机浏览器表现一致); 层级低于 toast, 高于其余全部 */
 .nosignal-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
 .nosignal-overlay .ns-img { width: min(68vmin, 420px); max-width: 86vw; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
@@ -445,3 +455,264 @@ body {
 .theme-sw.active { border-color: var(--accent); color: var(--accent-text); background: var(--accent-bg); }
 .theme-sw .sw { width: 44px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); }
 .sub-hint { font-size: 12px; color: var(--text3); margin-top: 10px; }
+
+/* ===== 侧边栏「介绍」入口(桌面端) ===== */
+.intro-entry {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 9px; border-radius: 999px; flex-shrink: 0;
+    border: 1px solid var(--card-border); background: rgba(255,255,255,0.04);
+    color: var(--text3); font-size: 11px; font-weight: 600; line-height: 1;
+    cursor: pointer; font-family: inherit;
+    transition: all var(--transition);
+}
+.intro-entry svg { display: block; }
+.intro-entry:hover {
+    color: var(--accent-text); border-color: rgba(79,138,247,0.45);
+    background: var(--accent-bg); transform: translateY(-1px);
+}
+
+/* ===== 软件介绍页(桌面端全屏 overlay, 设计稿 docs/软件介绍页设计稿.html) ===== */
+.intro-overlay {
+    /* z-index 970: 高于聊天面板(950)/失联横幅(940), 低于弹框(998)/Toast(1001) ——
+       否则启动后静默检查更新发现新版本时, 更新弹框会被盖在介绍页下面看不见也点不掉 */
+    position: fixed; inset: 0; z-index: 970; overflow-y: auto; overflow-x: hidden;
+    background:
+        radial-gradient(1000px 500px at 85% -100px, rgba(79,138,247,0.14), transparent 60%),
+        radial-gradient(800px 420px at 8% 110%, rgba(124,111,247,0.10), transparent 60%),
+        var(--bg);
+    scroll-behavior: smooth;
+}
+/* 开合过渡: 配合模板 <Transition name="intro">, v-if 挂载/卸载时自动应用 */
+.intro-enter-active, .intro-leave-active { transition: opacity 0.28s ease, transform 0.28s ease; }
+.intro-enter-from, .intro-leave-to { opacity: 0; transform: translateY(14px); }
+
+/* 粘性顶栏 */
+.intro-overlay .ihead {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(13,16,23,0.82); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--card-border);
+}
+.intro-overlay .ihead-in {
+    max-width: 1080px; margin: 0 auto; height: 64px; padding: 0 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+}
+.intro-overlay .ihead-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; cursor: pointer; }
+.intro-overlay .ib-lg { width: 32px; height: 32px; border-radius: 9px; display: block; }
+.intro-overlay .inav { display: flex; gap: 26px; font-size: 13.5px; color: var(--text2); }
+.intro-overlay .inav a { padding: 4px 0; border-bottom: 2px solid transparent; transition: all var(--transition); cursor: pointer; }
+.intro-overlay .inav a:hover { color: var(--accent-text); }
+.intro-overlay .inav a.active { color: var(--accent-text); border-bottom-color: var(--accent); font-weight: 600; }
+.intro-overlay .ihead-act { display: flex; align-items: center; gap: 10px; }
+.intro-overlay .btn {
+    display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 18px;
+    border-radius: 9px; font-size: 13.5px; font-weight: 600; border: none;
+}
+.intro-overlay .btn-primary { background: var(--accent); color: #fff; box-shadow: none; }
+.intro-overlay .btn-primary:hover { background: #3f7cf0; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(79,138,247,0.35); }
+.intro-overlay .btn-ghost {
+    background: rgba(255,255,255,0.03); color: var(--text2);
+    border: 1px solid var(--card-border); font-weight: 500;
+}
+.intro-overlay .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.16); }
+.intro-overlay .icon-x {
+    width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--card-border);
+    background: rgba(255,255,255,0.03); color: var(--text2); display: inline-flex;
+    align-items: center; justify-content: center; cursor: pointer; transition: all var(--transition);
+}
+.intro-overlay .icon-x:hover { color: var(--danger); border-color: rgba(242,89,107,0.45); }
+
+/* 通用区块节奏(eyebrow → h2 → lead) */
+.intro-overlay .sec { max-width: 1080px; margin: 0 auto; padding: 88px 24px; }
+.intro-overlay .sec + .sec { border-top: 1px solid var(--card-border); }
+.intro-overlay .eyebrow {
+    display: inline-block; font-size: 12.5px; font-weight: 700; letter-spacing: 2px;
+    color: var(--accent-text); margin-bottom: 14px;
+}
+.intro-overlay .sec h2 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.25; margin-bottom: 14px; }
+.intro-overlay .lead { font-size: 15px; color: var(--text2); line-height: 1.85; max-width: 640px; }
+
+/* Hero */
+.intro-overlay .hero { max-width: 1080px; margin: 0 auto; padding: 84px 24px 76px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 52px; align-items: center; }
+.intro-overlay .hero-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 600; color: var(--accent-text);
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.32);
+    padding: 6px 16px; border-radius: 999px; margin-bottom: 24px;
+}
+.intro-overlay .hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1.22; margin-bottom: 18px; }
+.intro-overlay .hero h1 .hl {
+    background: linear-gradient(90deg, var(--accent-text), #a78bfa);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.intro-overlay .hero .lead { margin-bottom: 30px; }
+.intro-overlay .hero-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 30px; }
+.intro-overlay .hero-cta .btn { height: 44px; padding: 0 24px; font-size: 14.5px; border-radius: 11px; }
+.intro-overlay .hero-feats { display: flex; gap: 10px; flex-wrap: wrap; }
+.intro-overlay .feat-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--text2); font-weight: 500;
+    border: 1px solid var(--card-border); background: rgba(255,255,255,0.03);
+    padding: 7px 14px; border-radius: 999px;
+}
+.intro-overlay .feat-chip .tick { color: var(--success); font-weight: 700; }
+
+/* Hero 右侧: 应用窗口示意(纯 CSS) */
+.intro-overlay .hero-visual {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    box-shadow: var(--shadow-lg); overflow: hidden; transform: rotate(1.2deg);
+    transition: transform 0.3s ease;
+}
+.intro-overlay .hero-visual:hover { transform: rotate(0deg) translateY(-3px); }
+.intro-overlay .hv-bar { display: flex; align-items: center; gap: 6px; padding: 11px 14px; border-bottom: 1px solid var(--card-border); background: var(--panel); }
+.intro-overlay .hv-bar i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.14); }
+.intro-overlay .hv-bar .hv-url {
+    flex: 1; margin-left: 8px; height: 24px; border-radius: 6px; background: rgba(255,255,255,0.05);
+    border: 1px solid var(--card-border); display: flex; align-items: center; padding: 0 10px;
+    font-family: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace; font-size: 11px; color: var(--text2);
+}
+.intro-overlay .hv-bar .hv-run { font-size: 10.5px; color: var(--success); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+.intro-overlay .hv-bar .hv-run i { width: 6px; height: 6px; background: var(--success); box-shadow: 0 0 6px var(--success); }
+.intro-overlay .hv-body { display: flex; gap: 14px; padding: 18px; }
+.intro-overlay .hv-qr {
+    width: 118px; height: 118px; border-radius: 10px; background: #fff;
+    padding: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+}
+.intro-overlay .hv-qr-img { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+.intro-overlay .hv-qr-ph {
+    width: 100%; height: 100%; border-radius: 8px; background: #f4f6fa;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    font-size: 12px; color: #5f6980;
+}
+.intro-overlay .hv-qr-ph span { font-size: 28px; }
+.intro-overlay .hv-files { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.intro-overlay .hv-file {
+    display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+    border: 1px solid var(--card-border); border-radius: 9px; background: rgba(255,255,255,0.025);
+}
+.intro-overlay .hv-file .fi {
+    width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; color: #fff;
+}
+.intro-overlay .hv-file .fn { font-size: 11.5px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.intro-overlay .hv-file .fm { font-size: 10px; color: var(--text3); margin-top: 1px; }
+.intro-overlay .hv-file .fp { margin-left: auto; font-size: 10.5px; color: var(--success); font-weight: 700; flex-shrink: 0; }
+.intro-overlay .hv-cap { padding: 0 18px 16px; font-size: 11.5px; color: var(--text3); text-align: center; }
+
+/* 功能四卡片 */
+.intro-overlay .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 16px; margin-top: 38px; }
+.intro-overlay .card {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius);
+    padding: 24px 22px; transition: all var(--transition);
+    /* 覆盖全局 .card 的行间距与入场动画: 网格布局靠 gap 排布, 常驻挂载的隐藏层不需要动画 */
+    margin-bottom: 0; animation: none;
+}
+.intro-overlay .card:hover { transform: translateY(-3px); border-color: rgba(79,138,247,0.35); box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
+.intro-overlay .card .cico {
+    width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.28); color: var(--accent-text); margin-bottom: 16px;
+}
+.intro-overlay .card h3 { font-size: 16px; font-weight: 700; margin-bottom: 9px; }
+.intro-overlay .card p { font-size: 13px; color: var(--text2); line-height: 1.8; margin-bottom: 14px; }
+.intro-overlay .tags { display: flex; gap: 7px; flex-wrap: wrap; }
+.intro-overlay .tag {
+    font-size: 11px; font-weight: 600; color: var(--accent-text);
+    background: var(--accent-bg); border: 1px solid rgba(79,138,247,0.25);
+    padding: 3px 10px; border-radius: 999px;
+}
+
+/* 三步上手 */
+.intro-overlay .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 38px; }
+.intro-overlay .step {
+    position: relative; background: var(--card); border: 1px solid var(--card-border);
+    border-radius: var(--radius); padding: 26px 22px 22px; transition: all var(--transition);
+}
+.intro-overlay .step:hover { border-color: rgba(79,138,247,0.35); transform: translateY(-3px); }
+.intro-overlay .step .no {
+    font-family: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
+    font-size: 30px; font-weight: 800; line-height: 1;
+    background: linear-gradient(135deg, var(--accent-text), #a78bfa);
+    -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 14px;
+}
+.intro-overlay .step h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 8px; }
+.intro-overlay .step p { font-size: 13px; color: var(--text2); line-height: 1.8; }
+.intro-overlay .step code, .intro-overlay .pt code, .intro-overlay .code-note code {
+    font-family: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
+    font-size: 11.5px; color: var(--accent-text);
+    background: rgba(255,255,255,0.06); border: 1px solid var(--card-border);
+    border-radius: 5px; padding: 1px 6px;
+}
+
+/* 可靠性四点 */
+.intro-overlay .points { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 38px; }
+.intro-overlay .pt { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 24px 22px; transition: all var(--transition); }
+.intro-overlay .pt:hover { border-color: rgba(79,138,247,0.3); }
+.intro-overlay .pt .pico {
+    width: 36px; height: 36px; border-radius: 10px; margin-bottom: 13px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--success-bg); border: 1px solid rgba(52,201,124,0.3); color: var(--success);
+}
+.intro-overlay .pt h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+.intro-overlay .pt p { font-size: 13px; color: var(--text2); line-height: 1.8; }
+
+/* 代码卡片 */
+.intro-overlay .codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 20px; }
+.intro-overlay .code-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px; }
+.intro-overlay .code-card h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 7px; display: flex; align-items: center; gap: 8px; }
+.intro-overlay .code-card > p { font-size: 12.5px; color: var(--text2); line-height: 1.75; margin-bottom: 14px; }
+.intro-overlay .code-box {
+    position: relative; background: #0a0d13; border: 1px solid var(--card-border);
+    border-radius: var(--radius-sm); padding: 14px 16px;
+    font-family: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace; font-size: 12px; line-height: 1.8; color: #b7c3de;
+    white-space: pre-wrap; word-break: break-all;
+}
+.intro-overlay .code-box .cm { color: var(--text3); }
+.intro-overlay .code-copy {
+    position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px;
+    border-radius: 6px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.05);
+    color: var(--text3); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: all var(--transition);
+}
+.intro-overlay .code-copy:hover { color: var(--accent-text); border-color: rgba(79,138,247,0.4); }
+.intro-overlay .code-note { margin-top: 14px; font-size: 12px; color: var(--text3); line-height: 1.7; }
+.intro-overlay .code-note a { color: var(--accent-text); font-weight: 600; cursor: pointer; }
+.intro-overlay .code-note a:hover { text-decoration: underline; }
+
+/* FAQ 手风琴 */
+.intro-overlay .faq { margin-top: 34px; display: flex; flex-direction: column; gap: 10px; max-width: 780px; }
+.intro-overlay .faq-item { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--transition); }
+.intro-overlay .faq-item.open { border-color: rgba(79,138,247,0.35); }
+.intro-overlay .faq-q {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 17px 20px; background: none; border: none; color: var(--text);
+    font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; font-family: inherit;
+    transition: color var(--transition);
+}
+.intro-overlay .faq-q:hover { color: var(--accent-text); }
+.intro-overlay .faq-q .pm { font-size: 19px; font-weight: 400; color: var(--text3); flex-shrink: 0; transition: transform var(--transition); line-height: 1; }
+.intro-overlay .faq-item.open .faq-q .pm { transform: rotate(45deg); color: var(--accent-text); }
+.intro-overlay .faq-a { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+.intro-overlay .faq-a p { padding: 0 20px 18px; font-size: 13px; color: var(--text2); line-height: 1.85; }
+
+/* 页脚 */
+.intro-overlay .ifoot { border-top: 1px solid var(--card-border); background: var(--bg2); }
+.intro-overlay .ifoot-in {
+    max-width: 1080px; margin: 0 auto; padding: 36px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+}
+.intro-overlay .ifoot-brand { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; }
+.intro-overlay .ifoot-brand .ib-lg { width: 30px; height: 30px; border-radius: 8px; }
+.intro-overlay .ifoot-links { display: flex; gap: 22px; font-size: 13px; color: var(--text2); }
+.intro-overlay .ifoot-links a { cursor: pointer; }
+.intro-overlay .ifoot-links a:hover { color: var(--accent-text); }
+.intro-overlay .ifoot-copy { font-size: 12px; color: var(--text3); width: 100%; text-align: center; padding-top: 6px; }
+
+/* 介绍页响应式 */
+@media (max-width: 900px) {
+    .intro-overlay .hero { grid-template-columns: 1fr; padding: 56px 22px; gap: 40px; }
+    .intro-overlay .hero h1 { font-size: 34px; }
+    .intro-overlay .inav { display: none; }
+    .intro-overlay .steps { grid-template-columns: 1fr; }
+    .intro-overlay .points, .intro-overlay .codes { grid-template-columns: 1fr; }
+    .intro-overlay .sec { padding: 64px 22px; }
+    .intro-overlay .sec h2 { font-size: 25px; }
+}
