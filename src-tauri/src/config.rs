@@ -51,6 +51,15 @@ pub const NOISY_GET_PATHS: &[&str] = &[
 // ---- 传输 ---- //
 /// 下载流式读取缓冲
 pub const CHUNK_HINT: usize = 1024 * 1024;
+/// 断点续传临时文件后缀(隐藏于列表; 服务启动时清理残留)。
+/// 分片大小是客户端关注点(见 config.js UPLOAD_CHUNK), 服务端只按 X-Upload-Offset 追加写。
+pub const UPLOAD_PART_SUFFIX: &str = ".ccpart";
+/// 断点旁路元数据(会话 id)后缀, 与 .ccpart 一同视为内部产物
+pub const UPLOAD_PART_META_SUFFIX: &str = ".ccpart.meta";
+/// 上传相对路径的最大段数(与文件列表递归深度上限一致, 超深目录列表不可见)
+pub const UPLOAD_MAX_DEPTH: usize = 8;
+/// 上传请求体空闲超时(秒): 半开连接的残留 handler 靠它释放断点文件的写锁
+pub const UPLOAD_IDLE_TIMEOUT_SECS: u64 = 120;
 
 // ---- 共享目录 ---- //
 /// 默认共享目录名(家目录下)

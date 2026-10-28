@@ -21,6 +21,12 @@ export const REFRESH_SPIN_MS = 600;       // 手动刷新最短旋转时长(本�
 /* ---------- 列表 / 传输 ---------- */
 export const PAGE_SIZE = 8;                     // 文件分页大小
 export const NATIVE_DOWNLOAD_OVER = 1024 ** 3;  // 超过 1GB 交给浏览器原生下载(流式省内存)
+export const UPLOAD_CHUNK = 8 * 1024 * 1024;    // 上传分片大小(服务端按偏移追加, 对分片大小无假设)
+export const UPLOAD_RETRY_TIMES = 8;            // 连续失败重试上限(成功一片即清零, 非全文件配额)
+export const UPLOAD_RETRY_MS = 1500;            // 续传重试间隔
+export const UPLOAD_CHUNK_TIMEOUT_MS = 30000;   // 单片请求超时(半死连接靠它触发续传, 而非等 TCP 超时)
+export const WS_HB_TIMEOUT_MS = 45000;          // WS 心跳超时(服务端 15s 一发; 超时未收到消息→强制重连)
+export const WS_WATCHDOG_MS = 10000;            // WS 看门狗巡检间隔
 
 /* ---------- 界面 ---------- */
 export const NARROW_MAX_PX = 980;   // 手机窄屏断点
@@ -31,15 +37,20 @@ export const MSG_MAX = 2000;        // 启动兜底; /api/info 下发 msgMax 覆
 export const DEFAULT_PORT = 1688;   // [同步: config.rs DEFAULT_PORT]
 
 /* ---------- API 路径 ---------- */
+/* 相对路径(整目录上传会产生子目录)按段编码: 保留真实 "/", 服务端为通配路由 */
+const encPath = (name) => String(name).split("/").map(encodeURIComponent).join("/");
 export const API = {
   files: "/api/files",
-  download: (name) => `/api/download/${encodeURIComponent(name)}`,
+  download: (name) => `/api/download/${encPath(name)}`,
   upload: "/api/upload",
-  del: (name) => `/api/delete/${encodeURIComponent(name)}`,
+  uploadProgress: (name, id) =>
+    `/api/upload_progress?name=${encodeURIComponent(name)}&id=${encodeURIComponent(id || "")}`,
+  del: (name) => `/api/delete/${encPath(name)}`,
   chat: "/api/chat",
   info: "/api/info",
   logs: "/api/control/logs",
   logsClear: "/api/control/logs/clear",
+  ws: "/ws",
 };
 
 /* ---------- localStorage 键 ---------- */

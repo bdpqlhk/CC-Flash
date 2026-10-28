@@ -437,6 +437,10 @@ body {
     .chat-messages { min-height: 140px; }
 }
 
+/* 上传区「选择文件夹」链接 */
+.dir-pick { color: var(--accent); cursor: pointer; font-weight: 600; }
+.dir-pick:hover { text-decoration: underline; }
+
 /* ===== 批量选择 ===== */
 .sel-box { flex-shrink: 0; display: flex; align-items: center; }
 .sel-box input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }

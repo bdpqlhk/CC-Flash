@@ -10,7 +10,8 @@ import {
   GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, NATIVE_DOWNLOAD_OVER, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
   REL_TIME_MS, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
-  UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS,
+  UPDATE_CHECK_INTERVAL_MS, UPLOAD_CHUNK, UPLOAD_CHUNK_TIMEOUT_MS, UPLOAD_DONE_KEEP_MS,
+  UPLOAD_RETRY_MS, UPLOAD_RETRY_TIMES, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -109,6 +110,7 @@ const port = ref(0);
 const lanIp = ref("--");
 const logs = ref([]);
 const portInput = ref(DEFAULT_PORT);
+const portDirty = ref(false);   // 用户手动改过端口: 停止状态下轮询不再回写, 防"打完字点开处被旧值冲掉"
 const shareInput = ref("");
 const freeSpace = ref("--");
 async function refreshControl() {
@@ -125,11 +127,20 @@ async function refreshControl() {
       applyServerConfig(d.config);
       if (d.share) shareInput.value = d.share;
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
-      if (!running.value && d.port) portInput.value = d.port;
+      syncPortInput(running.value, d.port);
       return;
     } catch (e) {
       await new Promise(r => setTimeout(r, CONTROL_RETRY_MS));
     }
+  }
+}
+/* 端口输入框与服务实际端口同步: 运行中展示实际生效端口(输入框为禁用态, 安全,
+   修复"改端口启动后输入框仍显示默认 1688"); 停止时仅在"用户没改过且未聚焦"时同步 ——
+   否则用户输入新端口后点开处, 2.5s 轮询会用上次运行的旧端口把输入冲掉 */
+function syncPortInput(isRunning, port) {
+  if (isRunning) portInput.value = String(port);
+  else if (!portDirty.value && port && document.activeElement?.tagName !== "INPUT") {
+    portInput.value = String(port);
   }
 }
 async function startServer() {
@@ -139,7 +150,13 @@ async function startServer() {
     const s = await tauriInvoke("set_share_dir_cmd", { path: shareInput.value });
     if (!s.ok) { showToast(s.error || "共享目录无效", "error"); return; }
     const d = await tauriInvoke("control_start_cmd", { port: Number(portInput.value) || null });
-    if (d.ok) { running.value = true; port.value = d.port; showToast("服务已启动"); }   // 二维码由 watch [shareUrl,running] 自动生成
+    if (d.ok) {
+      running.value = true;
+      port.value = d.port;
+      portInput.value = String(d.port);   // 立即回显实际生效端口(含被占用顺延的情况)
+      portDirty.value = false;
+      showToast("服务已启动");
+    }   // 二维码由 watch [shareUrl,running] 自动生成
     else showToast(d.error || "启动失败", "error");
   } catch (e) {
     console.error("启动服务异常:", e);
@@ -244,6 +261,7 @@ const refreshing = ref(false);
 function extFor(n) { const p = n.lastIndexOf("."); return p >= 0 ? n.slice(p + 1).toLowerCase() : ""; }
 function isImage(n) { return IMG_EXTS.includes(extFor(n)); }
 function iconFor(n) { return ICON_MAP[extFor(n)] || "FILE"; }
+/* 大小格式化 [同步: server.rs humans] —— B 不带小数, 其余一位小数, 单位表两端一致 */
 function fmtSize(b) {
   if (b === 0) return "0 B";
   const u = ["B","KB","MB","GB","TB"];
@@ -347,28 +365,44 @@ async function shareFile(name) {
 }
 
 /* ---------- 下载(浏览器端): fetch 回来再触发保存, 才有"下载完成"时机 ---------- */
+/* 浏览器端原生下载: 锚点必须挂进 DOM 再 click —— iOS Safari/部分国产浏览器(夸克等)
+   对"游离锚点"的 click 静默忽略; 也不用 location.href(会把当前页面导航走) */
+function nativeDownload(url, filename) {
+  const a = document.createElement("a");
+  a.href = url;
+  if (filename) a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 async function downloadFileWeb(name) {
   const url = apiBase.value + API.download(name);
+  const base = name.split("/").pop() || name;   // download 属性不带子目录路径(部分移动端拒收)
   try {
     const r = await fetch(url);
-    if (!r.ok) throw new Error("HTTP " + r.status);
+    if (!r.ok) {
+      // HTTP 错误(404/400 等)如实报错, 不走原生回退 —— 否则会把 JSON 错误体当文件下载
+      showToast(`下载失败：HTTP ${r.status}`, "error");
+      return;
+    }
     const len = Number(r.headers.get("Content-Length") || 0);
     if (len > NATIVE_DOWNLOAD_OVER) {
-      // 超大文件退回浏览器原生下载(流式省内存, 但无完成回调)
+      // 超大文件交给浏览器原生下载(流式省内存, 但无完成回调)
       try { r.body?.cancel(); } catch (e) {}
-      window.location.href = url;
+      nativeDownload(url, base);
       showToast("大文件较大，已交由浏览器直接下载");
       return;
     }
     const blob = await r.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), BLOB_REVOKE_MS);
+    const objUrl = URL.createObjectURL(blob);
+    nativeDownload(objUrl, base);
+    setTimeout(() => URL.revokeObjectURL(objUrl), BLOB_REVOKE_MS);
     showToast(`已下载：${name}${len ? " (" + fmtSize(len) + ")" : ""}`);
   } catch (e) {
-    showToast("下载失败：" + (e.message || e), "error");
+    // blob 路径失败(内存/内核限制等) → 退回原生下载, 交给浏览器下载管理器
+    nativeDownload(url, name.split("/").pop() || name);
+    showToast("已交由浏览器下载");
   }
 }
 
@@ -410,62 +444,139 @@ async function doDelete() {
   loadFiles(true);   // 手动刷新: 带旋转反馈; 与轮询在途竞争时由补拉机制保证不丢
 }
 
-/* ---------- 上传 ---------- */
+/* ---------- 上传(分片 + 断点续传 + 整目录) ---------- */
 const uploads = ref([]);
 let upSeq = 0;
 const dragOver = ref(false);
 function pickFiles() { document.getElementById("fileInput").click(); }
+function pickDir() { document.getElementById("dirInput").click(); }
 function onPick(e) { handleFiles(e.target.files); e.target.value = ""; }
-function onDrop(e) { dragOver.value = false; handleFiles(e.dataTransfer.files); }
+function onPickDir(e) { handleFiles(e.target.files); e.target.value = ""; }
 function handleFiles(list) {
   if (!list || !list.length) return;
   for (const f of Array.from(list)) uploadFile(f);
 }
+/* 拖拽收集: 支持文件夹(webkitGetAsEntry 递归)与混合拖入, 目录结构经 webkitRelativePath 保留 */
+async function collectDroppedFiles(dt) {
+  const out = [];
+  const entries = [];
+  if (dt && dt.items) {
+    for (const it of dt.items) {
+      const en = it.webkitGetAsEntry && it.webkitGetAsEntry();
+      if (en) entries.push(en);
+      else { const f = it.getAsFile && it.getAsFile(); if (f) out.push(f); }
+    }
+  }
+  if (!entries.length) return dt && dt.files ? Array.from(dt.files) : out;
+  const walk = async (entry, prefix) => {
+    if (entry.isFile) {
+      const f = await new Promise((res) => entry.file(res, () => res(null)));
+      if (f) {
+        try { Object.defineProperty(f, "webkitRelativePath", { value: prefix + entry.name }); } catch (_) {}
+        out.push(f);
+      }
+    } else if (entry.isDirectory) {
+      const rd = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res) => rd.readEntries(res, () => res([])));
+        if (!batch.length) break;
+        for (const en of batch) await walk(en, prefix + entry.name + "/");
+      }
+    }
+  };
+  for (const en of entries) await walk(en, "");
+  return out;
+}
+async function onDrop(e) { dragOver.value = false; handleFiles(await collectDroppedFiles(e.dataTransfer)); }
+/* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
+function uploadRelName(file) { return file.webkitRelativePath || file.name; }
+async function fetchServerReceived(name, upId) {
+  try {
+    const r = await fetch(apiBase.value + API.uploadProgress(name, upId));
+    if (!r.ok) return 0;
+    const d = await r.json();
+    return Number.isFinite(d.received) ? d.received : 0;
+  } catch (_) { return 0; }
+}
+async function sendChunk(name, upId, totalSize, offset, chunk) {
+  // 超时保护: 半死连接(无 RST 的断网/AP 休眠)靠它触发续传, 而不是挂到浏览器 TCP 超时
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), UPLOAD_CHUNK_TIMEOUT_MS);
+  try {
+    const r = await fetch(apiBase.value + API.upload, {
+      method: "POST",
+      headers: {
+        "X-Filename": encodeURIComponent(name),
+        "X-File-Size": String(totalSize),
+        "X-Upload-Offset": String(offset),
+        "X-Upload-Id": upId,
+        "Content-Type": "application/octet-stream",
+      },
+      body: chunk,
+      signal: ctrl.signal,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.received = d.received; throw err; }
+    return d;
+  } finally { clearTimeout(timer); }
+}
 function uploadFile(file) {
   const id = "up-" + Date.now() + "-" + upSeq++;
-  uploads.value.push({ id, name: file.name, pct: 0, speed: "", status: "waiting" });
+  const name = uploadRelName(file);
+  const total = file.size;
+  // 会话 id = 文件稳定指纹(名+大小+修改时间): 页面重载/锁屏后重选同一文件仍命中
+  // 服务端已有断点(自动续传真正生效); 内容变化(大小/修改时间变)则视为新会话覆盖旧断点
+  const upId = `${name}|${file.size}|${file.lastModified}`;
+  uploads.value.push({ id, name, pct: total ? 0 : 100, speed: "", status: "waiting" });
   const stat = () => uploads.value.find(u => u.id === id);
-  try {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", apiBase.value + API.upload, true);
-    xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
-    xhr.setRequestHeader("X-File-Size", String(file.size));
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    const t0 = Date.now();
-    xhr.upload.onprogress = (e) => {
+  (async () => {
+    // 断点续传: 服务端已有本次会话的断点则从其长度继续(覆盖 锁屏/断网 中断的场景);
+    // 断点比本地文件还长 → 内容必然不一致, 强制从头重传
+    let serverReceived = await fetchServerReceived(name, upId);
+    if (serverReceived > total) serverReceived = 0;
+    let offset = serverReceived;
+    let base = offset;
+    let t0 = Date.now();
+    let attempts = 0;
+    for (;;) {
       const it = stat(); if (!it) return;
       it.status = "uploading";
-      if (e.lengthComputable) {
-        it.pct = Math.round((e.loaded / e.total) * 100);
-        const sp = e.loaded / Math.max((Date.now() - t0) / 1000, 0.1);
-        it.speed = fmtSize(sp) + "/s";
-      }
-    };
-    xhr.onload = () => {
-      const it = stat(); if (!it) return;
-      if (xhr.status === 200) {
-        it.pct = 100; it.status = "done";
+      try {
+        // do-while: 0 字节文件也要发出至少一次请求(空 body, 服务端直接转正)
+        do {
+          const chunk = file.slice(offset, Math.min(offset + UPLOAD_CHUNK, total));
+          const d = await sendChunk(name, upId, total, offset, chunk);
+          offset = Math.min(
+            Number.isFinite(d.received) ? d.received : offset + chunk.size,
+            total
+          );
+          attempts = 0; // 成功一片清零连续失败计数(重试额度是连续性的, 不是全文件配额)
+          const it2 = stat(); if (!it2) return;
+          it2.pct = total ? Math.round((offset / total) * 100) : 100;
+          it2.speed = fmtSize((offset - base) / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
+        } while (offset < total);
+        const it3 = stat(); if (it3) { it3.pct = 100; it3.status = "done"; it3.speed = ""; }
         currentPage.value = 1; loadFiles();
         setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
-      } else {
-        it.status = "error";
-        showToast("上传失败: " + file.name, "error");
+        return;
+      } catch (e) {
+        attempts += 1;
+        const it4 = stat(); if (!it4) return;
+        if (attempts > UPLOAD_RETRY_TIMES) {
+          it4.status = "error";
+          showToast("上传中断: " + name, "error");
+          return;
+        }
+        it4.speed = "网络中断，自动续传中…";
+        await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
+        // 以服务端断点为准重排(服务端重启清了断点则自动从头重传)
+        let recv = await fetchServerReceived(name, upId);
+        if (recv > total) recv = 0;
+        offset = recv;
+        base = offset; t0 = Date.now();
       }
-    };
-    xhr.onerror = () => {
-      const it = stat(); if (!it) return;
-      it.status = "error";
-      showToast("上传失败: " + file.name, "error");
-    };
-    const it = stat();
-    it.status = "uploading";
-    xhr.send(file);
-  } catch (e) {
-    console.error("上传异常:", e);
-    const it = stat(); if (!it) return;
-    it.status = "error";
-    showToast("上传出错: " + (e && e.message ? e.message : "未知错误"), "error");
-  }
+    }
+  })();
 }
 function onPaste(e) {
   const items = e.clipboardData && e.clipboardData.items;
@@ -537,13 +648,14 @@ function mdChat(raw) {
   return s.replace(/\u0000(\d+)\u0000/g, (m0, i) => stash[Number(i)]);
 }
 const displayMsgs = computed(() => chatMsgs.value.map(m => ({ ...m, html: mdChat(m.message) })));
-document.addEventListener("click", (e) => {
+/* 聊天内链接点击: 注册在组件生命周期内(挂载/卸载成对), 避免热重载时重复监听 */
+function onDocChatClick(e) {
   const link = e.target.closest(".chat-link");
   if (!link) return;
   const url = link.dataset.url;
   if (!url) return;
   openExternal(url);
-});
+}
 /* 清空显示: 仅清本窗口(与 PyQt 镜像清空语义一致); 新消息到达后恢复显示 */
 const chatCleared = ref(false);
 const clearedAt = ref(0);
@@ -658,18 +770,91 @@ function openExternal(url, silent = false) {
     .catch(() => { window.open(url, "_blank"); });
 }
 
+/* ---------- WebSocket 推送(聊天/列表/状态), 轮询降级为兜底通道 ---------- */
+let ws = null;
+let wsUrl_ = null;
+let wsRetryTimer = null;
+let wsRetryDelay = 1000;
+let wsWatchdogTimer = null;
+let lastWsMsg = 0;   // 最近一次收到 WS 消息(含服务端 15s 心跳)的时间戳
+function wsEndpoint() {
+  if (isDesktop) return port.value ? `ws://127.0.0.1:${port.value}${API.ws}` : null;
+  return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + API.ws;
+}
+function scheduleWsRetry() {
+  clearTimeout(wsRetryTimer);
+  // 桌面端服务已停时停止重试, 等 running 变化再连; 网页端持续退避重试(服务回来自动恢复)
+  if (isDesktop && !running.value) return;
+  wsRetryTimer = setTimeout(() => {
+    wsRetryDelay = Math.min(wsRetryDelay * 2, 10000);
+    connectWs();
+  }, wsRetryDelay);
+}
+function closeWs() {
+  clearTimeout(wsRetryTimer);
+  wsRetryTimer = null;
+  wsRetryDelay = 1000;
+  if (ws) {
+    const w = ws;
+    ws = null;
+    w.onopen = w.onmessage = w.onclose = w.onerror = null;
+    try { w.close(); } catch (_) {}
+  }
+  wsUrl_ = null;
+  applyWsMode();
+}
+function connectWs() {
+  const url = wsEndpoint();
+  if (!url) return;
+  if (ws && wsUrl_ === url) return;   // 已连或将连同一地址
+  closeWs();                          // 地址变化(换端口)先清场
+  wsUrl_ = url;
+  try { ws = new WebSocket(url); } catch (_) { scheduleWsRetry(); return; }
+  ws.onopen = () => {
+    wsRetryDelay = 1000;
+    lastWsMsg = Date.now();
+    applyWsMode();
+    loadChat();     // 连接即全量同步一次, 补上断线窗口期
+    loadFiles();
+  };
+  ws.onmessage = (e) => {
+    lastWsMsg = Date.now();   // 任何消息(含 hb 心跳)都证明连接活着
+    let ev;
+    try { ev = JSON.parse(e.data); } catch (_) { return; }
+    if (ev.type === "chat:new") loadChat();
+    else if (ev.type === "files:changed") loadFiles();
+    else if (ev.type === "status:up" || ev.type === "status:down") refreshStatus();
+  };
+  ws.onclose = () => { ws = null; wsUrl_ = null; applyWsMode(); scheduleWsRetry(); };
+  ws.onerror = () => { try { ws && ws.close(); } catch (_) {} };
+}
+// WS 在线时停掉聊天/列表轮询(省电省请求); 断开时恢复轮询兜底
+function applyWsMode() {
+  const live = ws && ws.readyState === WebSocket.OPEN;
+  clearInterval(chatTimer); chatTimer = null;
+  clearInterval(filesTimer); filesTimer = null;
+  if (!live) {
+    chatTimer = setInterval(loadChat, cfg.value.poll.chat);
+    filesTimer = setInterval(() => loadFiles(false), cfg.value.poll.files);
+  }
+}
+// 服务启停/端口变化时管理连接
+watch([running, port], () => {
+  if (running.value && port.value) connectWs();
+  else { closeWs(); }
+});
+
 /* ---------- 生命周期 ---------- */
 let chatTimer = null;
 let logTimer = null;
 let filesTimer = null;
 let statusTimer = null;
-/* 轮询定时器统一启停: 服务端下发间隔变化时重排 */
+/* 轮询定时器统一启停: 服务端下发间隔变化时重排; 聊天/列表由 applyWsMode 按 WS 状态增减 */
 function startPolling() {
   stopPolling();
-  chatTimer = setInterval(loadChat, cfg.value.poll.chat);
   statusTimer = setInterval(refreshStatus, cfg.value.poll.status);   // 失联判定 ≈ OFFLINE_FAILS × 间隔
-  filesTimer = setInterval(() => loadFiles(false), cfg.value.poll.files);  // 文件列表自动同步(其他设备上传也能看到)
   if (isDesktop) logTimer = setInterval(refreshLogs, cfg.value.poll.logs);
+  applyWsMode();
 }
 function stopPolling() {
   clearInterval(chatTimer);
@@ -679,6 +864,14 @@ function stopPolling() {
 }
 onMounted(() => {
   document.addEventListener("paste", onPaste);
+  document.addEventListener("click", onDocChatClick);
+  // WS 半开连接看门狗: 超时收不到任何消息(含服务端心跳) → 强制关闭,
+  // onclose 恢复轮询兜底并退避重连 —— 桌面端状态轮询走 invoke 永远成功, 无此看门狗会永久卡死
+  wsWatchdogTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN && Date.now() - lastWsMsg > WS_HB_TIMEOUT_MS) {
+      try { ws.close(); } catch (_) {}
+    }
+  }, WS_WATCHDOG_MS);
   // F5 刷新文件列表(输入框聚焦时除外)
   const f5 = (e) => {
     if (e.key === "F5" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
@@ -706,8 +899,11 @@ onMounted(() => {
 });
 onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
+  document.removeEventListener("click", onDocChatClick);
+  clearInterval(wsWatchdogTimer);
   document.body.style.overflow = "";
   stopIntroSpy();
+  closeWs();
   stopPolling();
 });
 
@@ -805,9 +1001,18 @@ async function refreshStatus() {
       ? await tauriInvoke("control_status_cmd")
       : await (await fetch(API.info)).json();
     statusFail = 0;
+    const wasOffline = offline.value;
     offline.value = false;
+    if (wasOffline) {
+      // 断网自愈: 恢复的第一时间提示 + 立即全量重载, 不等下一轮轮询/WS 事件
+      showToast("已恢复与服务的连接");
+      loadFiles();
+      loadChat();
+      connectWs();
+    }
     running.value = d.running;
     port.value = d.port;
+    syncPortInput(running.value, d.port);
     if (typeof d.version === "string") appVersion.value = d.version;
     applyServerConfig(d.config);
     if (d.share && document.activeElement?.tagName !== "INPUT") shareInput.value = d.share;
@@ -958,8 +1163,11 @@ async function refreshStatus() {
                @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
             <div class="ic">⬆️</div>
             <h5>点击选择文件 或 拖拽到此处</h5>
-            <p>支持多选 · 可直接 Ctrl+V / Cmd+V 粘贴文件 · 无大小与类型限制</p>
+            <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件 ·
+              <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a>
+              · 大文件断网/锁屏后自动续传</p>
             <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
+            <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
           </div>
           <div v-for="u in uploads" :key="u.id" class="upload-item">
             <div class="up-line">
@@ -1009,7 +1217,7 @@ async function refreshStatus() {
                 <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
               </label>
               <div class="file-thumb">
-                <img v-if="isImage(f.name)" :src="apiBase + '/api/download/' + encodeURIComponent(f.name)" loading="lazy"
+                <img v-if="isImage(f.name)" :src="apiBase + API.download(f.name)" loading="lazy"
                      @error="$event.target.style.display = 'none'" />
                 <span class="icon-overlay">{{ iconFor(f.name) }}</span>
               </div>
@@ -1108,7 +1316,8 @@ async function refreshStatus() {
             <div class="svc-fields">
               <div class="svc-field">
                 <label>端口</label>
-                <input class="svc-input" v-model="portInput" :disabled="running" maxlength="5" />
+                <input class="svc-input" v-model="portInput" :disabled="running" maxlength="5"
+                       @input="portDirty = true" />
                 <div class="field-hint">被占用自动顺延</div>
               </div>
               <div class="svc-field grow">
@@ -1203,8 +1412,11 @@ async function refreshStatus() {
                  @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
               <div class="ic">⬆️</div>
               <h5>点击选择文件 或 拖拽到此处</h5>
-              <p>支持多选 · 可直接 Ctrl+V / Cmd+V 粘贴文件 · 无大小与类型限制</p>
+              <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件 ·
+                <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a>
+                · 大文件断网/锁屏后自动续传</p>
               <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
+              <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
             </div>
             <div v-for="u in uploads" :key="u.id" class="upload-item">
               <div class="up-line">

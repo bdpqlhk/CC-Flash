@@ -2,18 +2,21 @@
 //!
 //! API:
 //!   GET  /                    → 前端页面(嵌入 ../dist)
-//!   GET  /api/files           → 文件列表 JSON
-//!   GET  /api/download/:name  → 流式下载(Content-Disposition 带 RFC5987)
-//!   POST /api/upload          → 请求头 X-Filename(URL 编码) + 原始体流式落盘;
-//!                                先查磁盘剩余空间;失败自动清理半截文件
+//!   GET  /api/files           → 文件列表 JSON(递归, 相对路径作文件名, 隐藏 .ccpart)
+//!   GET  /api/download/*name  → 流式下载(Content-Disposition 带 RFC5987)
+//!   POST /api/upload          → 请求头 X-Filename(URL 编码, 支持子目录) + X-File-Size
+//!                                + X-Upload-Offset(断点续传); 分片追加写 .ccpart,
+//!                                收齐后转正为最终文件
+//!   GET  /api/upload_progress → 查询断点 { received } (按 name)
 //!   GET  /api/chat            → 聊天记录(保留最近 200 条)
 //!   POST /api/chat            → 昵称截 20 字、消息截 2000 字
-//!   DELETE /api/delete/:name  → 删除文件
+//!   DELETE /api/delete/*name  → 删除文件(支持子目录)
 //!   GET  /api/info            → { ip, port, running, version, config }
 //!   GET/POST /api/control/*   → 桌面端服务启停/状态/日志(仅桌面壳使用)
+//!   GET  /ws                  → WebSocket 事件推送(聊天/列表/状态变化, 轮询为降级通道)
 //!
-//! 路径安全:URL 解码 → 跨平台 basename(拒绝空/./..);下载/删除前再做
-//! canonicalize + 前缀越界校验,与 Python 版双重防护等价。
+//! 路径安全:URL 解码 → 逐段校验(拒绝空/./.. 与非法字符);下载/删除前再做
+//! canonicalize + 前缀越界校验,双重防护等价于旧版 basename 方案。
 
 use axum::{
     body::Body,
@@ -31,16 +34,17 @@ use std::{
     collections::VecDeque,
     net::{SocketAddr, UdpSocket},
     path::{Path, PathBuf},
-    sync::{atomic::Ordering, Mutex, OnceLock},
+    sync::{atomic::Ordering, Arc, Mutex, OnceLock, Weak},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 
 use crate::config::{
     APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHUNK_HINT, DEFAULT_NICK, DEFAULT_PORT,
     MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS,
     POLL_STATUS_MS, PORT_PROBE_EXTRA, PORT_RANGE_END, REQ_LOG_MAX, SHARE_DIR_NAME,
-    SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE,
+    SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH,
+    UPLOAD_PART_META_SUFFIX, UPLOAD_PART_SUFFIX,
 };
 
 // ---------------------------------------------------------------- //
@@ -72,6 +76,18 @@ fn push_log(line: String) {
     while q.len() > REQ_LOG_MAX {
         q.pop_front();
     }
+}
+
+// ---- WebSocket 事件总线: 聊天/列表/状态变化即时推送, 前端轮询降级为兜底 ---- //
+
+fn event_bus() -> &'static broadcast::Sender<String> {
+    static TX: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+    TX.get_or_init(|| broadcast::channel(64).0)
+}
+
+/// 广播事件给所有已连接的 WebSocket 客户端(失败静默: 无人在线属正常)
+fn broadcast_event(kind: &str) {
+    let _ = event_bus().send(format!("{{\"type\":\"{kind}\"}}"));
 }
 
 /// 本地时间 HH:MM:SS.mmm(chrono Local, 修复旧版 UTC 简化展示)
@@ -155,11 +171,21 @@ pub fn open_with_system(target: &str) -> Result<(), String> {
         c.arg(target);
         c
     };
+    // Windows: 绝不经过 cmd shell —— cmd 会把 & | ^ 等解释为命令分隔符/转义符,
+    // 且 Rust 对参数的 \" 转义 cmd 并不认(引号包裹防不住), 聊天链接/文件名可注入命令。
+    // URL 走 rundll32 的 FileProtocolHandler, 文件/目录走 explorer, 均为直接参数传递无 shell 解析。
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]).arg(target);
-        c
+        let is_url = target.starts_with("http://") || target.starts_with("https://");
+        if is_url {
+            let mut c = std::process::Command::new("rundll32");
+            c.arg("url.dll,FileProtocolHandler").arg(target);
+            c
+        } else {
+            let mut c = std::process::Command::new("explorer");
+            c.arg(target);
+            c
+        }
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let mut cmd = {
@@ -208,6 +234,7 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
     let share = share_dir();
     std::fs::create_dir_all(&share)
         .map_err(|e| format!("共享目录不可用: {e}"))?;
+    clean_stale_parts(&share);   // 上次会话残留的续传断点(重启后无客户端会再续)
 
     tauri::async_runtime::block_on(async move {
         let mut candidates: Vec<u16> = Vec::new();
@@ -251,17 +278,60 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         });
         *running_slot().lock().unwrap() =
             Some(ServerHandle { port, shutdown: tx, task });
+        broadcast_event("status:up");
         Ok(port)
     })
 }
 
-/// 停止服务(优雅关闭, 不阻塞调用方)。
+/// 服务启动时清理残留的上传断点文件(*.ccpart 及其 .meta)。
+/// 不跟随符号链接: 否则会删到共享目录之外(或把外部目录列进文件表)。
+fn clean_stale_parts(share: &Path) {
+    fn walk(dir: &Path, n: &mut usize) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            let Ok(md) = e.metadata() else { continue }; // DirEntry::metadata 不跟随符号链接
+            if md.is_dir() {
+                walk(&p, n);
+            } else if md.is_file()
+                && p
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map_or(false, is_part_artifact)
+                && std::fs::remove_file(&p).is_ok()
+            {
+                *n += 1;
+            }
+        }
+    }
+    let mut n = 0;
+    walk(share, &mut n);
+    if n > 0 {
+        push_log(format!("已清理 {n} 个残留的上传断点文件"));
+    }
+}
+
+/// WS 踢出通道: 停服时先让所有 WS handler 主动退出 —— 否则 hyper 的优雅关闭会
+/// 等待挂着的 WebSocket(手机息屏不回包)直至超时, 停服在主线程上卡住数秒。
+fn ws_kick() -> &'static broadcast::Sender<()> {
+    static TX: OnceLock<broadcast::Sender<()>> = OnceLock::new();
+    TX.get_or_init(|| broadcast::channel(4).0)
+}
+
+/// 停止服务(踢掉 WS 后等待优雅关闭, 带超时)。
+/// 不等待的话紧接着 start() 会因旧监听端口未释放而顺延到别的端口, 用户刚复制的地址即失效。
 pub fn stop() -> bool {
     let mut lock = running_slot().lock().unwrap();
     if let Some(h) = lock.take() {
         push_log("服务已停止".into());
+        broadcast_event("status:down");
+        let _ = ws_kick().send(());
         let _ = h.shutdown.send(());
-        drop(h.task); // daemon 语义: 不等待
+        let task = h.task;
+        drop(lock); // 别持有全局锁等待关闭
+        tauri::async_runtime::block_on(async move {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
+        });
         true
     } else {
         false
@@ -290,14 +360,79 @@ const FRAGMENT: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
     .add(b'>')
     .add(b'`');
 
-fn safe_name(raw: &str) -> Option<String> {
-    let decoded = percent_decode_str(raw).decode_utf8_lossy().to_string();
-    let name = decoded.replace('\\', "/");
-    let name = Path::new(&name).file_name()?.to_string_lossy().to_string();
-    if name.is_empty() || name == "." || name == ".." {
+/// 相对路径校验: 输入应为**已解码**字符串(axum Path/Query 提取器自带一次解码;
+/// X-Filename 请求头由 upload 处理解码一次后再传入)。逐段检查(拒绝空/./.. 与非法字符),
+/// 允许子目录(整目录上传), 段数上限与文件列表递归深度一致。
+/// 返回以 "/" 连接的相对路径; 保证 join 后不越出共享目录。
+fn safe_rel_path(raw: &str) -> Option<String> {
+    let norm = raw.replace('\\', "/");
+    let mut parts: Vec<String> = Vec::new();
+    for seg in norm.split('/') {
+        // 前导/尾随空格直接拒绝(不在服务端静默改名, 否则客户端展示名与落盘名不一致)
+        if seg.trim() != seg {
+            return None;
+        }
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if seg == ".." {
+            return None;
+        }
+        // Windows 非法字符(其余平台也统一拒绝, 保证跨端文件名一致)
+        if seg.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
+            return None;
+        }
+        if seg.ends_with('.') {
+            return None; // Windows 保留形态(结尾点)
+        }
+        parts.push(seg.to_string());
+    }
+    if parts.is_empty() || parts.len() > UPLOAD_MAX_DEPTH {
         return None;
     }
-    Some(name)
+    // 保留内部产物后缀: 否则上传同名文件会从列表消失, 且下次启动被断点清理误删
+    if let Some(last) = parts.last() {
+        if last.ends_with(UPLOAD_PART_SUFFIX) || last.ends_with(UPLOAD_PART_META_SUFFIX) {
+            return None;
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// 断点旁路元数据文件(记录上传会话 id): <part>.meta
+fn part_meta_path(part: &Path) -> PathBuf {
+    let mut s = part.as_os_str().to_owned();
+    s.push(UPLOAD_PART_META_SUFFIX);
+    PathBuf::from(s)
+}
+
+/// 共享目录遍历时跳过断点产物(中间文件与其 meta)
+fn is_part_artifact(fname: &str) -> bool {
+    fname.ends_with(UPLOAD_PART_SUFFIX) || fname.ends_with(UPLOAD_PART_META_SUFFIX)
+}
+
+/// 同一断点文件的写互斥: 客户端超时重试后, 旧请求的 handler 可能仍挂着写同一个
+/// .ccpart, 两个写者交错会撕裂文件。按路径取独立锁(Weak 缓存: 无上传者时自动可回收,
+/// 定期清理死条目, 内存有界) —— 不用固定桶, 避免不相关文件(如整目录上传里的大视频)
+/// 哈希同桶时小文件被长时间排队直至客户端超时。
+fn part_lock(path: &Path) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<std::collections::HashMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>> =
+        OnceLock::new();
+    let mut m = LOCKS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .unwrap();
+    if m.len() > 256 {
+        m.retain(|_, w| w.strong_count() > 0); // 顺手清掉已无持有者的条目
+    }
+    if let Some(w) = m.get(path) {
+        if let Some(l) = w.upgrade() {
+            return l;
+        }
+    }
+    let l = Arc::new(tokio::sync::Mutex::new(()));
+    m.insert(path.to_path_buf(), Arc::downgrade(&l));
+    l
 }
 
 fn safe_join_existing(share: &Path, name: &str) -> Option<PathBuf> {
@@ -364,37 +499,65 @@ struct FileEntry {
     modified: f64,
 }
 
-async fn files(State(share): State<PathBuf>) -> Response {
-    let mut out: Vec<FileEntry> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&share) {
-        for e in rd.flatten() {
-            let Ok(md) = e.metadata() else { continue };
-            if !md.is_file() {
-                continue;
-            }
-            let modified = md
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0);
-            out.push(FileEntry {
-                name: e.file_name().to_string_lossy().to_string(),
-                size: md.len(),
-                modified,
-            });
-        }
+/// 递归收集文件(深度上限 8, 跳过上传断点临时文件); name 为相对路径
+fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>) {
+    if depth > UPLOAD_MAX_DEPTH {
+        return; // 与 safe_rel_path 的上传段数上限一致, 保证上传的都能被列出
     }
-    out.sort_by(|a, b| b.modified.total_cmp(&a.modified));
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        let Ok(md) = e.metadata() else { continue };
+        if md.is_dir() {
+            collect_files(&p, base, depth + 1, out);
+            continue;
+        }
+        let fname = e.file_name().to_string_lossy().to_string();
+        if is_part_artifact(&fname) {
+            continue; // 断点续传中间文件/元数据不进列表
+        }
+        if md.is_symlink() {
+            continue; // 符号链接不列(下载/删除的越界校验会拒绝, 列出只会 404)
+        }
+        let modified = md
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let rel = p
+            .strip_prefix(base)
+            .unwrap_or(&p)
+            .to_string_lossy()
+            .replace('\\', "/");
+        out.push(FileEntry {
+            name: rel,
+            size: md.len(),
+            modified,
+        });
+    }
+}
+
+async fn files(State(share): State<PathBuf>) -> Response {
+    // 同步递归遍历放进阻塞线程: 大目录时别把 tokio worker 卡住(饿死 WS 心跳等其他任务)
+    let out = tokio::task::spawn_blocking(move || {
+        let mut out: Vec<FileEntry> = Vec::new();
+        collect_files(&share, &share, 0, &mut out);
+        out.sort_by(|a, b| b.modified.total_cmp(&a.modified));
+        out
+    })
+    .await
+    .unwrap_or_default();
     Json(serde_json::json!({ "files": out })).into_response()
 }
 
 async fn download(
     State(share): State<PathBuf>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
-    AxPath(name): AxPath<String>,
+    AxPath(raw): AxPath<String>,
 ) -> Response {
-    let Some(name) = safe_name(&name) else {
+    // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验
+    let Some(name) = safe_rel_path(raw.trim_start_matches('/')) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
     let Some(path) = safe_join_existing(&share, &name) else {
@@ -434,11 +597,15 @@ async fn upload(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
+    use tokio::io::{AsyncSeekExt, AsyncWriteExt};
     let raw = headers
         .get("X-Filename")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let Some(name) = safe_name(raw) else {
+    // 请求头未经过 axum 解码, 在此解一次; safe_rel_path 不再解码(与 Path/Query 语义对齐,
+    // 避免含字面 %XX 的文件名被双重解码后指向别的文件)
+    let decoded = percent_decode_str(raw).decode_utf8_lossy().to_string();
+    let Some(name) = safe_rel_path(&decoded) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
     };
     let size: u64 = headers
@@ -446,12 +613,28 @@ async fn upload(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    if size > 0 {
+    // 断点续传: 本片起始偏移(0 = 从头); 服务端按偏移追加写断点文件
+    let offset: u64 = headers
+        .get("X-Upload-Offset")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    // 上传会话标识: 新一次上传(新 id)会覆盖旧断点, 杜绝"同名改内容续传拼出脏文件"
+    let upload_id = headers
+        .get("X-Upload-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let final_path = share.join(&name); // 相对路径逐段已校验, 不会越界
+    let part_path = share.join(format!("{name}{UPLOAD_PART_SUFFIX}"));
+    let meta_path = part_meta_path(&part_path);
+    let need = size.saturating_sub(offset);
+    if need > 0 {
         if let Ok(free) = fs2::available_space(&share) {
-            if size > free {
+            if need > free {
                 push_log(format!(
-                    "上传拒绝 {name}: 磁盘空间不足(需要 {}，可用 {}) ← {}",
-                    humans(size),
+                    "上传拒绝 {name}: 磁盘空间不足，需要 {}，可用 {} ← {}",
+                    humans(need),
                     humans(free),
                     addr.ip()
                 ));
@@ -459,64 +642,211 @@ async fn upload(
                     StatusCode::BAD_REQUEST,
                     format!(
                         "磁盘空间不足，需要 {}，可用 {}",
-                        humans(size),
+                        humans(need),
                         humans(free)
                     ),
                 );
             }
         }
     }
-    let path = share.join(&name); // basename 已保证不越界
-    let overwrite = path.exists();
-    let mut file = match tokio::fs::File::create(&path).await {
+    // 同一断点文件同一时刻只允许一个写者(客户端超时重试后旧 handler 可能仍挂着)
+    let part_mutex = part_lock(&part_path);
+    let _part_guard = part_mutex.lock().await;
+    // 断点校验必须持锁进行(TOCTOU): 否则"校验时断点有效、写入前被并发的 offset0 请求截断"
+    // 会 seek 到空文件深处写出零洞; 409 带服务端实际断点, 客户端据此重排
+    if offset > 0 {
+        let have = tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0);
+        let meta_id = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
+        if have == 0 || (meta_id.trim() != upload_id.trim()) {
+            // 无断点, 或断点属于另一次上传(同名新内容) → 视为无效, 让客户端从头重传
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": 0 })),
+            )
+                .into_response();
+        }
+        if have < offset {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": have })),
+            )
+                .into_response();
+        }
+        if have > offset {
+            // 客户端回退到更早断点: 截断到请求偏移
+            if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&part_path).await {
+                let _ = f.set_len(offset).await;
+            }
+        }
+    }
+    // 越界预检必须在建目录之前: create_dir_all 会跟随符号链接, 先建后查会把目录建到界外。
+    // 对"最近存在的祖先"做 canonical 校验(其下若链向界外, 在此拦截, 且未创建任何东西)
+    if let Some(parent) = part_path.parent() {
+        let mut probe = parent.to_path_buf();
+        while !probe.exists() {
+            match probe.parent() {
+                Some(p) => probe = p.to_path_buf(),
+                None => break,
+            }
+        }
+        if let (Ok(base), Ok(probe_canon)) = (share.canonicalize(), probe.canonicalize()) {
+            if !probe_canon.starts_with(&base) {
+                return err(StatusCode::BAD_REQUEST, "路径越界");
+            }
+        }
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let mut file = match tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        // offset 0 = 从头传: 必须截断旧断点, 否则更长的陈旧断点会在转正时拖进垃圾尾巴
+        .truncate(offset == 0)
+        .open(&part_path)
+        .await
+    {
         Ok(f) => f,
         Err(e) => {
             push_log(format!("上传失败 {name}: 创建文件失败({e}) ← {}", addr.ip()));
             return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
         }
     };
-    push_log(format!(
-        "上传开始 {name} (声明 {}) ← {}{}",
-        if size > 0 { humans(size) } else { "未知大小".into() },
-        addr.ip(),
-        if overwrite { " · 覆盖同名文件" } else { "" }
-    ));
+    if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
+        push_log(format!("上传失败 {name}: 定位断点失败({e}) ← {}", addr.ip()));
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
+    }
+    // 从头开始(或首片)时固化本次上传会话 id, 后续分片/断点查询据此校验身份
+    if offset == 0 {
+        let _ = tokio::fs::write(&meta_path, upload_id.as_bytes()).await;
+    }
+    let declared = if size > 0 { humans(size) } else { "未知大小".into() };
+    if offset == 0 {
+        push_log(format!(
+            "上传开始 {name} (声明 {declared}) ← {}{}",
+            addr.ip(),
+            if final_path.exists() { " · 覆盖同名文件" } else { "" }
+        ));
+    }
     let started = std::time::Instant::now();
     let mut stream = body.into_data_stream();
-    let mut written: u64 = 0;
-    while let Some(chunk) = stream.next().await {
+    let mut received: u64 = offset;
+    loop {
+        // 空闲超时: 半开连接(hyper 无 body 超时)的残留 handler 靠它退出并释放写锁
+        let next =
+            tokio::time::timeout(std::time::Duration::from_secs(UPLOAD_IDLE_TIMEOUT_SECS), stream.next())
+                .await;
+        let chunk = match next {
+            Ok(Some(c)) => c,
+            Ok(None) => break, // body 正常结束
+            Err(_) => {
+                push_log(format!(
+                    "上传中断 {name}: 连接空闲超时，已保留断点 {}，可续传 ← {}",
+                    humans(received),
+                    addr.ip()
+                ));
+                return (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    Json(serde_json::json!({ "error": "上传中断", "received": received })),
+                )
+                    .into_response();
+            }
+        };
         match chunk {
             Ok(c) => {
-                if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &c).await {
-                    let _ = tokio::fs::remove_file(&path).await;
+                if let Err(e) = file.write_all(&c).await {
                     push_log(format!(
-                        "上传失败 {name}: 写入失败({e})，已清理半截文件 ← {}",
+                        "上传失败 {name}: 写入失败({e})，已保留断点 {} ← {}",
+                        humans(received),
                         addr.ip()
                     ));
                     return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
                 }
-                written += c.len() as u64;
+                received += c.len() as u64;
             }
             Err(_) => {
-                let _ = tokio::fs::remove_file(&path).await;
+                // 断点保留(不再删除): 客户端可通过 upload_progress 查询后续传
                 push_log(format!(
-                    "上传中断 {name}: 连接断开，已清理半截文件 ← {}",
+                    "上传中断 {name}: 连接断开，已保留断点 {}，可续传 ← {}",
+                    humans(received),
                     addr.ip()
                 ));
-                return err(StatusCode::INTERNAL_SERVER_ERROR, "上传中断");
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": "上传中断", "received": received })),
+                )
+                    .into_response();
             }
         }
     }
+    if size > 0 && received > size {
+        // 超出声明大小的字节视为脏数据: 截断到 size(与磁盘预检的预留上限一致)
+        let _ = file.set_len(size).await;
+        push_log(format!(
+            "上传超额 {name}: 收到 {} 超过声明 {}，已截断 ← {}",
+            humans(received),
+            humans(size),
+            addr.ip()
+        ));
+        received = size;
+    }
     let _ = file.sync_all().await;
-    push_log(format!(
-        "上传完成 {name} ({}, {}ms) ← {}",
-        humans(written),
-        started.elapsed().as_millis(),
-        addr.ip()
-    ));
-    Json(serde_json::json!({ "ok": true, "name": name, "size": written })).into_response()
+    drop(file);
+    if size > 0 && received < size {
+        // 分片协议: 本片 body 正常收完但整个文件未收齐 → 200 确认本片, 断点保留待续
+        return Json(serde_json::json!({ "ok": true, "received": received, "done": false }))
+            .into_response();
+    }
+    if let Some(parent) = final_path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    // Windows 的 rename 不覆盖已存在目标, 先删
+    if final_path.exists() {
+        let _ = tokio::fs::remove_file(&final_path).await;
+    }
+    match tokio::fs::rename(&part_path, &final_path).await {
+        Ok(()) => {
+            let _ = tokio::fs::remove_file(&meta_path).await;
+            push_log(format!(
+                "上传完成 {name} ({}, {}ms{}) ← {}",
+                humans(received),
+                started.elapsed().as_millis(),
+                if offset > 0 { format!("，续传自 {}", humans(offset)) } else { String::new() },
+                addr.ip()
+            ));
+            broadcast_event("files:changed");
+            Json(serde_json::json!({ "ok": true, "received": received, "done": true })).into_response()
+        }
+        Err(e) => {
+            push_log(format!("上传失败 {name}: 转正失败({e}) ← {}", addr.ip()));
+            err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"))
+        }
+    }
 }
 
+/// 断点查询: 返回该文件已有断点字节数(0 = 无断点/不属于本次上传会话, 从头传)。
+/// 纯只读: 不创建任何目录(否则任意查询串即可在共享目录里刷出空目录树)。
+async fn upload_progress(
+    State(share): State<PathBuf>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let raw = params.get("name").map(String::as_str).unwrap_or("");
+    let Some(name) = safe_rel_path(raw) else {
+        return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
+    };
+    let part = share.join(format!("{name}{UPLOAD_PART_SUFFIX}"));
+    let mut received = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
+    // 带会话 id 查询时校验断点归属: 断点属于别的上传 → 返回 0(从头传), 防同名拼接脏文件
+    if let Some(id) = params.get("id") {
+        let meta_id = tokio::fs::read_to_string(part_meta_path(&part))
+            .await
+            .unwrap_or_default();
+        if meta_id.trim() != id.trim() {
+            received = 0;
+        }
+    }
+    Json(serde_json::json!({ "received": received })).into_response()
+}
+
+/// 大小格式化 [同步: App.vue fmtSize] —— B 不带小数, 其余一位小数, 单位表两端一致
 fn humans(n: u64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB"];
     let mut v = n as f64;
@@ -525,15 +855,19 @@ fn humans(n: u64) -> String {
         v /= 1024.0;
         i += 1;
     }
-    format!("{v:.1} {}", units[i])
+    if i == 0 {
+        format!("{v:.0} {}", units[i])
+    } else {
+        format!("{v:.1} {}", units[i])
+    }
 }
 
 async fn delete_file(
     State(share): State<PathBuf>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
-    AxPath(name): AxPath<String>,
+    AxPath(raw): AxPath<String>,
 ) -> Response {
-    let Some(name) = safe_name(&name) else {
+    let Some(name) = safe_rel_path(raw.trim_start_matches('/')) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
     let Some(path) = safe_join_existing(&share, &name) else {
@@ -542,6 +876,7 @@ async fn delete_file(
     match tokio::fs::remove_file(&path).await {
         Ok(()) => {
             push_log(format!("删除 {name} ← {}", addr.ip()));
+            broadcast_event("files:changed");
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         Err(e) => {
@@ -576,26 +911,78 @@ async fn chat_post(
         .collect::<String>();
     let nickname = if nickname.is_empty() { DEFAULT_NICK.into() } else { nickname };
     let message = text.chars().take(MSG_MAX_CHARS).collect::<String>();
-    let q = chat_log().lock().unwrap();
-    let id = q.back().map(|m| m.id + 1).unwrap_or(1);
-    let msg = ChatMsg {
-        id,
-        nickname,
-        message,
-        timestamp: now_f64(),
-        ip: addr.ip().to_string(),
+    // id 分配与入队必须在同一临界区: 分两段加锁时并发发送会算出重复 id,
+    // 前端 :key="m.id" 出现重复键导致列表渲染错乱
+    let msg = {
+        let mut q = chat_log().lock().unwrap();
+        let id = q.back().map(|m| m.id + 1).unwrap_or(1);
+        let msg = ChatMsg {
+            id,
+            nickname,
+            message,
+            timestamp: now_f64(),
+            ip: addr.ip().to_string(),
+        };
+        q.push_back(msg.clone());
+        while q.len() > CHAT_MAX {
+            q.pop_front();
+        }
+        msg
     };
-    drop(q);
-    let mut q = chat_log().lock().unwrap();
-    q.push_back(msg.clone());
-    while q.len() > CHAT_MAX {
-        q.pop_front();
-    }
-    drop(q);
+    let id = msg.id;
     let preview: String = msg.message.chars().take(CHAT_PREVIEW_CHARS).collect();
     let dots = if msg.message.chars().count() > CHAT_PREVIEW_CHARS { "…" } else { "" };
     push_log(format!("聊天 {}: {preview}{dots} ← {}", msg.nickname, addr.ip()));
+    broadcast_event("chat:new");
     Json(serde_json::json!({ "ok": true, "id": id })).into_response()
+}
+
+// ---------------------------------------------------------------- //
+// WebSocket: 事件推送(聊天/列表/状态), 轮询为降级通道
+// ---------------------------------------------------------------- //
+
+async fn ws_handler(ws: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let mut rx = event_bus().subscribe();
+    let mut kick = ws_kick().subscribe();
+    ws.on_upgrade(move |mut socket: axum::extract::ws::WebSocket| async move {
+        // 应用层心跳: 半开连接(漫游/AP 休眠)靠它暴露, 客户端看门狗据此强制重连
+        let mut hb = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            tokio::select! {
+                _ = kick.recv() => break, // 停服: 主动断开, 别让优雅关闭等挂起的连接
+                _ = hb.tick() => {
+                    if socket
+                        .send(axum::extract::ws::Message::Text(
+                            "{\"type\":\"hb\"}".into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                ev = rx.recv() => match ev {
+                    Ok(msg) => {
+                        if socket.send(axum::extract::ws::Message::Text(msg)).await.is_err() {
+                            break;
+                        }
+                    }
+                    // 慢消费者: 跳过积压事件, 客户端收到事件后本就会全量拉取
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+                incoming = socket.recv() => match incoming {
+                    Some(Ok(axum::extract::ws::Message::Ping(p))) => {
+                        if socket.send(axum::extract::ws::Message::Pong(p)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) | None => break,
+                    _ => {}
+                },
+            }
+        }
+    })
 }
 
 /// 下发给前端的可调参数: config.rs 为唯一事实, 前端收到后覆盖本地兜底值(消灭双写漂移)
@@ -706,7 +1093,7 @@ pub fn open_url_cmd(url: String) -> serde_json::Value {
 /// macOS: osascript POSIX file · Windows: PowerShell Set-Clipboard · Linux: 暂不支持
 #[tauri::command]
 pub fn copy_file_cmd(name: String) -> serde_json::Value {
-    let Some(name) = safe_name(&name) else {
+    let Some(name) = safe_rel_path(&name) else {
         return serde_json::json!({ "ok": false, "error": "非法的文件名" });
     };
     let path = share_dir().join(&name);
@@ -741,15 +1128,28 @@ pub fn copy_file_cmd(name: String) -> serde_json::Value {
     }
 }
 
+/// HTTP 控制端点不能在 async handler 里 block_on(start/stop 内部用了 block_on,
+/// 在 tokio runtime 中会 panic "Cannot start a runtime from within a runtime"):
+/// 挪到独立线程执行, 带超时回收。
+fn run_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || { let _ = tx.send(f()); });
+    rx.recv_timeout(std::time::Duration::from_secs(10)).ok()
+}
+
 async fn ctrl_start() -> Response {
-    match start(None) {
-        Ok(port) => Json(serde_json::json!({ "ok": true, "port": port })).into_response(),
-        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
+    match run_blocking(|| start(None)) {
+        Some(Ok(port)) => Json(serde_json::json!({ "ok": true, "port": port })).into_response(),
+        Some(Err(e)) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
+        None => err(StatusCode::GATEWAY_TIMEOUT, "启动超时"),
     }
 }
 
 async fn ctrl_stop() -> Response {
-    Json(serde_json::json!({ "ok": stop() })).into_response()
+    match run_blocking(|| stop()) {
+        Some(ok) => Json(serde_json::json!({ "ok": ok })).into_response(),
+        None => err(StatusCode::GATEWAY_TIMEOUT, "停止超时"),
+    }
 }
 
 async fn ctrl_logs() -> Response {
@@ -786,6 +1186,38 @@ fn device_kind(ua: &str) -> String {
     "未知设备".into()
 }
 
+/// 浏览器跨源防护: 阻断"恶意网页借用户浏览器打本机服务"(drive-by CSRF/数据外带)。
+/// 无鉴权的局域网定位不变, 但至少不能让互联网上的任意页面操作本机接口:
+/// - Host 必须是 IP 或 localhost(挡 DNS 重绑定);
+/// - 带 Origin 的请求(浏览器跨源/预检后真实请求)只放行 自身 / WebView(tauri://localhost、tauri.localhost);
+/// - 无 Origin 的非浏览器客户端(curl、局域网 App)不受影响。
+fn browser_origin_guard(req: &axum::extract::Request) -> Option<Response> {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let host_name = host.split(':').next().unwrap_or("");
+    // 允许: IP / localhost / *.local(mDNS 主机名, 如 MyMac.local; 公网域名无法占 .local,
+    // DNS 重绑定经 .local 不可行) —— 其余域名一律拒绝
+    let host_ok = host_name == "localhost"
+        || host_name.parse::<std::net::IpAddr>().is_ok()
+        || host_name.ends_with(".local");
+    if !host_ok {
+        return Some(err(StatusCode::BAD_REQUEST, "非法的 Host"));
+    }
+    if let Some(origin) = req.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        let self_ok = origin.contains(host)
+            || origin.starts_with("tauri://localhost")
+            || origin.contains("tauri.localhost")
+            || origin.starts_with("http://localhost:"); // tauri dev: 窗口加载自 devServer(5173)
+        if !self_ok {
+            return Some(err(StatusCode::FORBIDDEN, "跨源请求被拒绝"));
+        }
+    }
+    None
+}
+
 /// 请求日志中间件: 每个 HTTP 请求记一行(方法/路径/状态/耗时/来源)。
 /// 高频轮询噪音不记录, 清单见 config.rs 的 NOISY_GET_PATHS
 /// (与前端 config.js 的轮询路径一一对应, 前端调整轮询时需同步)。
@@ -794,6 +1226,9 @@ async fn log_middleware(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    if let Some(resp) = browser_origin_guard(&req) {
+        return resp;
+    }
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
@@ -853,10 +1288,12 @@ async fn log_middleware(
 fn router(share: PathBuf) -> Router {
     Router::new()
         .route("/api/files", get(files))
-        .route("/api/download/:name", get(download))
+        .route("/api/download/*name", get(download))
         .route("/api/upload", post(upload))
-        .route("/api/delete/:name", delete(delete_file))
+        .route("/api/upload_progress", get(upload_progress))
+        .route("/api/delete/*name", delete(delete_file))
         .route("/api/chat", get(chat_get).post(chat_post))
+        .route("/ws", get(ws_handler))
         .route("/api/info", get(info))
         .route("/api/control/status", get(ctrl_status))
         .route("/api/control/start", post(ctrl_start))
