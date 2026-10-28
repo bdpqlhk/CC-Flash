@@ -83,6 +83,18 @@ pub fn run() {
             // 显式标注参数类型, 避免移动端编译时推断失败(E0282)
             #[cfg(not(desktop))]
             let _ = app;
+            // Android: 注入 app 专属目录作默认共享目录 —— 应用进程 $HOME 无效,
+            // 走 $HOME/CC-Flash 会落到 /CC-Flash 直接 EACCES, 服务启动即失败;
+            // app 专属外部存储免权限可读写, 且经 HTTP 对外提供不受影响
+            #[cfg(target_os = "android")]
+            {
+                use tauri::Manager;
+                if let Ok(dir) = app.path().app_data_dir() {
+                    let share = dir.join(config::SHARE_DIR_NAME);
+                    let _ = std::fs::create_dir_all(&share);
+                    server::set_platform_default_dir(share.to_string_lossy().to_string());
+                }
+            }
             // ---- 托盘 + 关窗收纳(桌面专属; 移动端无托盘概念) ----
             #[cfg(desktop)]
             {

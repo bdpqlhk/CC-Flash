@@ -1,4 +1,5 @@
-//! 局域网文件服务(axum 重写版, 协议与 Python 版完全一致)。
+//! 局域网文件服务(axum 重写版; 大体沿袭 Python 版 API 形态, 但已扩展
+//! 分片续传/子目录/WebSocket 等, 且续传必须携带 X-Upload-Id —— 与旧 Python 版不再完全兼容)。
 //!
 //! API:
 //!   GET  /                    → 前端页面(嵌入 ../dist)
@@ -44,7 +45,7 @@ use crate::config::{
     LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, POLL_CHAT_MS, POLL_FILES_MS,
     POLL_LOGS_MS, POLL_STATUS_MS, PORT_PROBE_EXTRA, PORT_RANGE_END, REQ_LOG_MAX, SHARE_DIR_NAME,
     SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, UPLOAD_FREE_CHECK_BYTES, UPLOAD_IDLE_TIMEOUT_SECS,
-    UPLOAD_MAX_DEPTH, UPLOAD_PART_META_SUFFIX, UPLOAD_PART_SUFFIX,
+    UPLOAD_MAX_DEPTH, UPLOAD_PART_META_SUFFIX, UPLOAD_PART_SUFFIX, UPLOAD_PART_TTL_SECS,
 };
 
 // ---------------------------------------------------------------- //
@@ -124,6 +125,12 @@ static PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0)
 
 /// 共享目录选择持久化文件(家目录隐藏文件, 内容为一行路径)
 fn share_pref_file() -> PathBuf {
+    // Android: $HOME 无效, 偏好文件放 app 专属目录(setup 已注入), 否则手动选择的
+    // 共享目录写入静默失败、重启回落默认
+    #[cfg(target_os = "android")]
+    if let Some(d) = platform_default_dir() {
+        return Path::new(d).join(SHARE_PREF_FILE);
+    }
     #[cfg(target_os = "windows")]
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:".into());
     #[cfg(not(target_os = "windows"))]
@@ -132,6 +139,19 @@ fn share_pref_file() -> PathBuf {
 }
 
 fn default_share_dir() -> PathBuf {
+    // 用户曾手动选择过目录 → 恢复该选择(目录仍存在时); 优先级最高(含移动端)
+    if let Ok(saved) = std::fs::read_to_string(share_pref_file()) {
+        let saved = saved.trim();
+        if !saved.is_empty() && Path::new(saved).is_dir() {
+            return PathBuf::from(saved);
+        }
+    }
+    // Android 应用进程 $HOME 无效(落到 "/" 或相对路径 → EACCES, 服务启动即失败):
+    // 由 lib.rs setup 用 tauri path API 注入 app 专属目录(免存储权限可读写)
+    #[cfg(target_os = "android")]
+    if let Some(d) = platform_default_dir().map(PathBuf::from) {
+        return d;
+    }
     #[cfg(target_os = "windows")]
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:".into());
     #[cfg(not(target_os = "windows"))]
@@ -144,14 +164,20 @@ fn default_share_dir() -> PathBuf {
             push_log(format!("已将共享目录 {} 迁移为 {}", old.display(), new.display()));
         }
     }
-    // 用户曾手动选择过目录 → 恢复该选择(目录仍存在时)
-    if let Ok(saved) = std::fs::read_to_string(share_pref_file()) {
-        let saved = saved.trim();
-        if !saved.is_empty() && Path::new(saved).is_dir() {
-            return PathBuf::from(saved);
-        }
-    }
     new
+}
+
+/// Android 专属: setup 阶段注入的默认共享目录(app 专属外部/内部存储)。
+/// 非 Android 平台无此机制, default_share_dir 走 $HOME 分支。
+#[cfg(target_os = "android")]
+static PLATFORM_DEFAULT_DIR: OnceLock<String> = OnceLock::new();
+#[cfg(target_os = "android")]
+pub fn set_platform_default_dir(dir: String) {
+    let _ = PLATFORM_DEFAULT_DIR.set(dir);
+}
+#[cfg(target_os = "android")]
+fn platform_default_dir() -> Option<&'static str> {
+    PLATFORM_DEFAULT_DIR.get().map(String::as_str)
 }
 
 fn share_slot() -> &'static Mutex<PathBuf> {
@@ -246,7 +272,7 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
     let share = share_dir();
     std::fs::create_dir_all(&share)
         .map_err(|e| format!("共享目录不可用: {e}"))?;
-    clean_stale_parts(&share);   // 上次会话残留的续传断点(重启后无客户端会再续)
+    clean_stale_parts(&share);   // 清理过期续传断点(期内保留, 支持重启后续传)
 
     tauri::async_runtime::block_on(async move {
         let mut candidates: Vec<u16> = Vec::new();
@@ -299,9 +325,18 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
     })
 }
 
-/// 服务启动时清理残留的上传断点文件(*.ccpart 及其 .meta)。
+/// 服务启动时清理**过期**的上传断点文件(*.ccpart 及其 .meta, 超过 UPLOAD_PART_TTL_SECS)。
+/// 期内保留: 服务重启后客户端重选同一文件, 会话指纹命中即可续传
+/// (Android 退后台被杀/电脑重启不再无声归零); 只有过期垃圾才回收磁盘。
 /// 不跟随符号链接: 否则会删到共享目录之外(或把外部目录列进文件表)。
 fn clean_stale_parts(share: &Path) {
+    fn expired(md: &std::fs::Metadata) -> bool {
+        md.modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() >= UPLOAD_PART_TTL_SECS)
+            .unwrap_or(true) // 时间戳拿不到按过期处理
+    }
     fn walk(dir: &Path, n: &mut usize) {
         let Ok(rd) = std::fs::read_dir(dir) else { return };
         for e in rd.flatten() {
@@ -314,6 +349,7 @@ fn clean_stale_parts(share: &Path) {
                     .file_name()
                     .and_then(|s| s.to_str())
                     .map_or(false, is_part_artifact)
+                && expired(&md)
                 && std::fs::remove_file(&p).is_ok()
             {
                 *n += 1;
@@ -323,7 +359,7 @@ fn clean_stale_parts(share: &Path) {
     let mut n = 0;
     walk(share, &mut n);
     if n > 0 {
-        push_log(format!("已清理 {n} 个残留的上传断点文件"));
+        push_log(format!("已清理 {n} 个过期的上传断点文件(超过 {}s)", UPLOAD_PART_TTL_SECS));
     }
 }
 
@@ -387,14 +423,10 @@ const FRAGMENT: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
 /// X-Filename 请求头由 upload 处理解码一次后再传入)。逐段检查(拒绝空/./.. 与非法字符),
 /// 允许子目录(整目录上传), 段数上限与文件列表递归深度一致。
 /// 返回以 "/" 连接的相对路径; 保证 join 后不越出共享目录。
-fn safe_rel_path(raw: &str) -> Option<String> {
+fn safe_rel_path(raw: &str, for_upload: bool) -> Option<String> {
     let norm = raw.replace('\\', "/");
     let mut parts: Vec<String> = Vec::new();
     for seg in norm.split('/') {
-        // 前导/尾随空格直接拒绝(不在服务端静默改名, 否则客户端展示名与落盘名不一致)
-        if seg.trim() != seg {
-            return None;
-        }
         if seg.is_empty() || seg == "." {
             continue;
         }
@@ -405,19 +437,28 @@ fn safe_rel_path(raw: &str) -> Option<String> {
         if seg.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
             return None;
         }
-        if seg.ends_with('.') {
-            return None; // Windows 保留形态(结尾点)
-        }
-        // Windows 保留设备名: NUL/CON/COM1… 打开的是设备而非文件(写入被静默丢弃或挂起,
-        // rename 转正必失败 → 上传"成功"后文件消失); 带扩展名也保留, 按 '.' 前缀段判
-        let stem = seg.split('.').next().unwrap_or("").to_ascii_uppercase();
-        if matches!(
-            stem.as_str(),
-            "CON" | "PRN" | "AUX" | "NUL"
-                | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
-                | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
-        ) {
-            return None;
+        // 以下三类"Windows 侧非法、别处合法"的形态仅上传入口拒绝 ——
+        // 共享目录里的既有文件(报告 .pdf / v1.1..txt / aux.pdf, 在 macOS/Linux 完全合法)
+        // 若读路径也拦, 会列表可见但下载/删除全 400, 既取不回也清不掉
+        if for_upload {
+            // 前导/尾随空格: 不在服务端静默改名, 否则客户端展示名与落盘名不一致
+            if seg.trim() != seg {
+                return None;
+            }
+            if seg.ends_with('.') {
+                return None; // Windows 保留形态(结尾点)
+            }
+            // Windows 保留设备名: NUL/CON/COM1… 打开的是设备而非文件
+            // (写入被静默丢弃或挂起, rename 转正必失败 → 上传"成功"后文件消失)
+            let stem = seg.split('.').next().unwrap_or("").to_ascii_uppercase();
+            if matches!(
+                stem.as_str(),
+                "CON" | "PRN" | "AUX" | "NUL"
+                    | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
+                    | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+            ) {
+                return None;
+            }
         }
         parts.push(seg.to_string());
     }
@@ -450,8 +491,12 @@ fn is_part_artifact(fname: &str) -> bool {
 /// 定期清理死条目, 内存有界) —— 不用固定桶, 避免不相关文件(如整目录上传里的大视频)
 /// 哈希同桶时小文件被长时间排队直至客户端超时。
 fn part_lock(path: &Path) -> Arc<tokio::sync::Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<std::collections::HashMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>> =
+    static LOCKS: OnceLock<Mutex<std::collections::HashMap<String, Weak<tokio::sync::Mutex<()>>>>> =
         OnceLock::new();
+    // 键做 case-fold: macOS APFS 默认大小写不敏感, Report.zip 与 report.zip 落盘是
+    // 同一个 .ccpart —— 按字节区分会拿到两把锁并发交错写(正是本锁要防的撕裂);
+    // Linux 上大小写不同的两个文件共享一把锁只是多余串行化, 无正确性影响
+    let key = path.to_string_lossy().to_lowercase();
     let mut m = LOCKS
         .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
         .lock()
@@ -459,13 +504,13 @@ fn part_lock(path: &Path) -> Arc<tokio::sync::Mutex<()>> {
     if m.len() > 256 {
         m.retain(|_, w| w.strong_count() > 0); // 顺手清掉已无持有者的条目
     }
-    if let Some(w) = m.get(path) {
+    if let Some(w) = m.get(&key) {
         if let Some(l) = w.upgrade() {
             return l;
         }
     }
     let l = Arc::new(tokio::sync::Mutex::new(()));
-    m.insert(path.to_path_buf(), Arc::downgrade(&l));
+    m.insert(key, Arc::downgrade(&l));
     l
 }
 
@@ -590,8 +635,8 @@ async fn download(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
     AxPath(raw): AxPath<String>,
 ) -> Response {
-    // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验
-    let Some(name) = safe_rel_path(raw.trim_start_matches('/')) else {
+    // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验(读路径不拦保留设备名, 否则既有文件取不回)
+    let Some(name) = safe_rel_path(raw.trim_start_matches('/'), false) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
     let Some(path) = safe_join_existing(&share, &name) else {
@@ -639,7 +684,7 @@ async fn upload(
     // 请求头未经过 axum 解码, 在此解一次; safe_rel_path 不再解码(与 Path/Query 语义对齐,
     // 避免含字面 %XX 的文件名被双重解码后指向别的文件)
     let decoded = percent_decode_str(raw).decode_utf8_lossy().to_string();
-    let Some(name) = safe_rel_path(&decoded) else {
+    let Some(name) = safe_rel_path(&decoded, true) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
     };
     let size: u64 = headers
@@ -683,9 +728,25 @@ async fn upload(
             }
         }
     }
-    // 同一断点文件同一时刻只允许一个写者(客户端超时重试后旧 handler 可能仍挂着)
+    // 同一断点文件同一时刻只允许一个写者(客户端超时重试后旧 handler 可能仍挂着)。
+    // 等锁带超时: 另一设备正在传同名大文件时, 本请求不能无限排队 ——
+    // 客户端单片超时才 30s, 排队到天荒地老只会 8 次重试全数撞死后报"上传中断"
     let part_mutex = part_lock(&part_path);
-    let _part_guard = part_mutex.lock().await;
+    let _part_guard = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        part_mutex.lock(),
+    )
+    .await
+    {
+        Ok(g) => g,
+        Err(_) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "该文件正被其他设备上传，请稍后再试", "received": 0 })),
+            )
+                .into_response()
+        }
+    };
     // 断点校验必须持锁进行(TOCTOU): 否则"校验时断点有效、写入前被并发的 offset0 请求截断"
     // 会 seek 到空文件深处写出零洞; 409 带服务端实际断点, 客户端据此重排
     if offset > 0 {
@@ -739,13 +800,17 @@ async fn upload(
         if !probe_canon.starts_with(&base) {
             return err(StatusCode::BAD_REQUEST, "路径越界");
         }
-        let _ = tokio::fs::create_dir_all(parent).await;
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            push_log(format!("上传 {name}: 建目录失败({e}) ← {addr}"));
+            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("创建目录失败: {e}"));
+        }
         // 事后复验: 预检与 create_dir_all 之间存在 TOCTOU 窗口(中间目录被换成指向界外的
-        // 符号链接), 建完再查一次; 发现越界则回滚(remove_dir_all 对符号链接只删链本身)
+        // 符号链接), 建完再查一次; 发现越界则回滚 —— 用非递归 remove_dir 而非
+        // remove_dir_all: 刚建的目录必为空, 非空即失败, 永不误删换链目标处的既有数据
         match (parent.canonicalize(), share.canonicalize()) {
             (Ok(parent_canon), Ok(base)) if parent_canon.starts_with(&base) => {}
             (Ok(_), Ok(_)) => {
-                let _ = tokio::fs::remove_dir_all(parent).await;
+                let _ = tokio::fs::remove_dir(parent).await;
                 return err(StatusCode::BAD_REQUEST, "路径越界");
             }
             _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "路径校验失败"),
@@ -883,11 +948,27 @@ async fn upload(
     if let Some(parent) = final_path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    // Windows 的 rename 不覆盖已存在目标, 先删
+    // Windows 的 rename 不覆盖已存在目标, 先删; 删不掉(被资源管理器预览/杀软/Word
+    // 占用无 FILE_SHARE_DELETE)时记日志, 不再静默
     if final_path.exists() {
-        let _ = tokio::fs::remove_file(&final_path).await;
+        if let Err(e) = tokio::fs::remove_file(&final_path).await {
+            push_log(format!("上传 {name}: 覆盖旧文件失败({e}), 将重试转正 ← {}", addr.ip()));
+        }
     }
-    match tokio::fs::rename(&part_path, &final_path).await {
+    // 转正带退避重试: 字节已完整落在断点文件里, 占用者通常毫秒~秒级释放;
+    // 不重试的话用户看到"传完了却报上传中断", 且断点白占磁盘
+    let mut renamed = tokio::fs::rename(&part_path, &final_path).await;
+    for _ in 0..5 {
+        if renamed.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        if final_path.exists() {
+            let _ = tokio::fs::remove_file(&final_path).await;
+        }
+        renamed = tokio::fs::rename(&part_path, &final_path).await;
+    }
+    match renamed {
         Ok(()) => {
             let _ = tokio::fs::remove_file(&meta_path).await;
             push_log(format!(
@@ -914,7 +995,7 @@ async fn upload_progress(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
     let raw = params.get("name").map(String::as_str).unwrap_or("");
-    let Some(name) = safe_rel_path(raw) else {
+    let Some(name) = safe_rel_path(raw, true) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
     };
     let part = share.join(format!("{name}{UPLOAD_PART_SUFFIX}"));
@@ -952,7 +1033,7 @@ async fn delete_file(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
     AxPath(raw): AxPath<String>,
 ) -> Response {
-    let Some(name) = safe_rel_path(raw.trim_start_matches('/')) else {
+    let Some(name) = safe_rel_path(raw.trim_start_matches('/'), false) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
     let Some(path) = safe_join_existing(&share, &name) else {
@@ -1178,7 +1259,7 @@ pub fn open_url_cmd(url: String) -> serde_json::Value {
 /// macOS: osascript POSIX file · Windows: PowerShell Set-Clipboard · Linux: 暂不支持
 #[tauri::command]
 pub fn copy_file_cmd(name: String) -> serde_json::Value {
-    let Some(name) = safe_rel_path(&name) else {
+    let Some(name) = safe_rel_path(&name, false) else {
         return serde_json::json!({ "ok": false, "error": "非法的文件名" });
     };
     let path = share_dir().join(&name);
@@ -1201,12 +1282,19 @@ pub fn copy_file_cmd(name: String) -> serde_json::Value {
             &p,
         ])
         .output();
+    // Windows: Set-Clipboard 没有 -LiteralPath 参数(只有 -Value, 放进去的是路径文本);
+    // 要"资源管理器直接粘贴出文件"必须写 CF_HDROP 文件丢弃列表 → SetFileDropList。
+    // STA 是 Clipboard 调用的线程模型要求
     #[cfg(target_os = "windows")]
     let res = {
         let ps = format!(
-            "Set-Clipboard -LiteralPath '{}'", p.replace('\'', "''"));
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $c = New-Object System.Collections.Specialized.StringCollection; \
+             $c.Add('{}') | Out-Null; \
+             [System.Windows.Forms.Clipboard]::SetFileDropList($c)",
+            p.replace('\'', "''"));
         std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps])
+            .args(["-STA", "-NoProfile", "-Command", &ps])
             .output()
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
