@@ -2,9 +2,10 @@
 # 应急: github.com:443 不可用时, 经 api.github.com 把本地领先 main 的提交推上去, 并重建指定标签
 # 用法: bash scripts/api-push.sh <标签名>   (在仓库根目录执行; 提交信息取 .git-commit-msg.txt 或最新提交)
 set -euo pipefail
-REPO=bdpqlhk/CC-Flash
-TAG="${1:?用法: $0 <标签名>}"
 cd "$(dirname "$0")/.."
+# REPO 从 gh 推导: 硬编码在 fork/改名场景会推错仓库
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+TAG="${1:?用法: $0 <标签名>}"
 
 BASE=$(git rev-parse origin/main)
 BASE_TREE=$(gh api "repos/$REPO/commits/$BASE" --jq .commit.tree.sha)
@@ -14,10 +15,13 @@ ARGS=(-f base_tree="$BASE_TREE")
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   echo "上传 blob: $f"
+  # diff-filter=d 排除删除的文件(对不存在的路径 base64 会在 set -e 下崩溃)
+  # mode 取 git 索引真实值(硬编码 100644 会让 scripts/*.sh 丢失可执行位)
   B64=$(base64 -i "$f" | tr -d '\n')
   SHA=$(gh api "repos/$REPO/git/blobs" -f content="$B64" -f encoding=base64 --jq .sha)
-  ARGS+=(-f "tree[][path]=$f" -f "tree[][mode]=100644" -f "tree[][type]=blob" -f "tree[][sha]=$SHA")
-done < <(git diff --name-only "$BASE" HEAD)
+  MODE=$(git ls-files -s -- "$f" | awk '{print $1}')
+  ARGS+=(-f "tree[][path]=$f" -f "tree[][mode]=${MODE:-100644}" -f "tree[][type]=blob" -f "tree[][sha]=$SHA")
+done < <(git diff --diff-filter=d --name-only "$BASE" HEAD)
 if [ ${#ARGS[@]} -le 1 ]; then echo "本地与远程无差异, 无需推送"; exit 0; fi
 
 NEW_TREE=$(gh api "repos/$REPO/git/trees" "${ARGS[@]}" --jq .sha)

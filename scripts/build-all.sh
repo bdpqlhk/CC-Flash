@@ -63,7 +63,8 @@ build_mac() {
 build_win() {
   log "Windows 包"
   if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == CYGWIN* ]]; then
-    powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+    # ps1 失败必须计入 FAIL: 否则 all 目标下 Windows 打包挂了仍打印"全部完成"并 exit 0
+    powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 || die "Windows 打包失败"
     return
   fi
   warn "Windows 包无法在 macOS/Linux 上交叉编译(需 MSVC + WebView2 SDK)。两种方式:"
@@ -78,7 +79,8 @@ build_android() {
   need node "https://nodejs.org"
   need cargo "https://rustup.rs"
   [[ -n "${JAVA_HOME:-}" ]] || warn "未设 JAVA_HOME (JDK 17), 若失败请安装 Android Studio 并配置"
-  [[ -n "${ANDROID_HOME:-}" || -n "${ANDROID_SDK_ROOT:-}" ]] || die "未设 ANDROID_HOME —— 请先安装 Android Studio 并在 shell 配置 ANDROID_HOME/NDK_HOME"
+  # 缺 SDK 时立即终止本目标: die 只置 FAIL 不退出, 继续跑 rustup/构建会级联出一堆误导性报错
+  [[ -n "${ANDROID_HOME:-}" || -n "${ANDROID_SDK_ROOT:-}" ]] || { die "未设 ANDROID_HOME —— 请先安装 Android Studio 并在 shell 配置 ANDROID_HOME/NDK_HOME"; return 1; }
   for t in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
     has_target "$t" || { warn "添加 Rust 目标: rustup target add $t"; rustup target add "$t" || die "rustup target 添加失败: $t"; }
   done

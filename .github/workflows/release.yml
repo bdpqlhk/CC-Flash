@@ -19,8 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # universal-apple-darwin: 单包同时含 arm64 与 x86_64 —— 只构 aarch64 时
+          # Intel Mac 用户没有任何可用安装包(v1.1.2 实际发生)
           - os: macos-latest
-            args: ""
+            args: --target universal-apple-darwin
           - os: windows-latest
             args: ""
     runs-on: ${{ matrix.os }}
@@ -34,13 +36,21 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: 安装 universal 所需的第二架构目标(macOS)
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
 
       - name: 安装前端依赖
         run: npm install
 
       # tauri-action: vite build → cargo build --release → 打包 → 上传到 Release
-      # tagName 对应已推送的标签, Release 不存在则自动创建
+      # tagName 对应已推送的标签, Release 不存在则自动创建(草稿)。
+      # 一律先传草稿, 由末尾 publish job 在 desktop+android 全绿后统一发布 ——
+      # 否则 mac 腿 releaseDraft:false 完成即公开, Windows 挂掉时用户看到没有 Windows 包的"正式版"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,7 +58,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "CC-Flash ${{ github.ref_name }}"
           releaseBody: "对应标签 ${{ github.ref_name }} 的自动构建产物。更新说明见 Release 描述。"
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -79,7 +89,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: 定位 Android NDK
-        run: echo "NDK_HOME=$(ls -d $ANDROID_HOME/ndk/* | head -1)" >> "$GITHUB_ENV"
+        # sort -V 取最新版本: head -1 按字母序会固定拿到最旧版(如 25 而非 27),
+        # runner 镜像漂移时构建会无征兆挂掉且版本不可预期
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)" >> "$GITHUB_ENV"
 
       - name: 接受 Android SDK 许可
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
@@ -110,11 +122,15 @@ jobs:
           set -e
           # --split-per-abi: 不带该 flag 时 tauri 只构建 universal flavor(单包),
           # 重命名步骤的 flavor→ABI 映射与"按机型分架构下载"的契约会落空
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::warning::未配置 Android 发布证书 Secrets(ANDROID_KEYSTORE_*), 退回 debug 构建 —— 各版本证书不同, 覆盖安装需先卸载"
+          # 四个 Secrets 任一缺失即退回 debug(只查 BASE64 时, 配漏密码/别名会让
+          # release 构建在 Gradle 签名一步直接挂, 连 debug 兜底都没有)
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KS_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::warning::未配置完整的 Android 发布证书 Secrets(ANDROID_KEYSTORE_*), 退回 debug 构建 —— 产物名带 -debug 后缀, 各版本证书不同, 覆盖安装需先卸载"
+            echo "ANDROID_DEBUG=1" >> "$GITHUB_ENV"
             npx tauri android build --apk --debug --split-per-abi
             exit 0
           fi
+          echo "ANDROID_DEBUG=0" >> "$GITHUB_ENV"
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           export CC_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
           export CC_KEYSTORE_PASSWORD="$KS_PASSWORD"
@@ -130,6 +146,10 @@ jobs:
           set -e
           OUT_DIR=src-tauri/gen/android/app/build/outputs/apk
           found=0
+          # debug 产物名必须带 -debug 后缀: 与 release 签名包同名会让用户
+          # 无法从文件名区分, v1.1.2 曾把 debug 包以正式命名混入公开 Release
+          debug_suffix=""
+          if [ "${ANDROID_DEBUG:-0}" = "1" ]; then debug_suffix="-debug"; fi
           for apk in $(find "$OUT_DIR" -name "*.apk" ! -name "*unsigned*" -type f | sort); do
             base=$(basename "$apk" .apk)          # app-arm64-release / app-arm64-debug
             abi="${base#app-}"
@@ -138,7 +158,7 @@ jobs:
               arm64) abi="arm64-v8a" ;;
               arm)   abi="armeabi-v7a" ;;
             esac
-            dest="CC-Flash-${{ github.ref_name }}-android-${abi}.apk"
+            dest="CC-Flash-${{ github.ref_name }}-android-${abi}${debug_suffix}.apk"
             echo "打包: $apk → $dest"
             cp "$apk" "$dest"
             found=1
@@ -149,13 +169,12 @@ jobs:
             exit 1
           fi
 
-      # desktop 挂掉时 APK 照常上传但整个 Release 保持草稿(不对外发布没有桌面安装包的版本);
-      # 桌面全绿时正常发布。desktop 单腿失败也算 job 失败 → 草稿, 人工确认后可手动 Publish
+      # 一律追加到草稿 Release; 是否公开由末尾 publish job 统一决定(desktop+android 全绿)
       - name: 上传 APK 到 Release
         uses: softprops/action-gh-release@v2
         with:
           files: CC-Flash-${{ github.ref_name }}-android-*.apk
-          draft: ${{ needs.desktop.result != 'success' }}
+          draft: true
 
   # ---- iOS(模板): 真机 ipa 需要 Apple 开发者账号 ----
   # 前置: ① 付费开发者账号($99/年) ② 证书.p12 与描述文件.mobileprovision 上传为仓库 Secrets
@@ -176,3 +195,23 @@ jobs:
   #     - uses: softprops/action-gh-release@v2
   #       with:
   #         files: src-tauri/target/aarch64-apple-ios/release/bundle/ios/*.ipa
+
+  # ---- 发布: desktop + android 全绿才把草稿 Release 公开 ----
+  # 各构建 job 一律先传草稿 —— 否则 mac 腿最先完成即公开, 后续任一环节失败
+  # 会留下残缺的"正式版"(如只有 macOS 包), 更新检查还会把它推给全平台用户
+  publish:
+    needs: [desktop, android]
+    if: ${{ always() && needs.desktop.result == 'success' && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 发布 Release(草稿 → 正式)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
+          echo "✔ ${{ github.ref_name }} 已发布"
+      - name: 未全绿时提示
+        if: ${{ always() && (needs.desktop.result != 'success' || needs.android.result != 'success') }}
+        run: echo "::warning::desktop(${{ needs.desktop.result }})/android(${{ needs.android.result }}) 未全部成功, Release 保持草稿 —— 修复后可重新跑本 job 或手动 Publish"

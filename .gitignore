@@ -6,3 +6,8 @@ src-tauri/target/
 src-tauri/gen/*
 !src-tauri/gen/android/
 .DS_Store
+# Android 发布证书绝不入库: 仓库为 Public, release.sh 的 git add -A 曾可把 keystore 推上去
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
