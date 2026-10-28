@@ -53,6 +53,7 @@ const isIOSFamily = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isRealDesktop = isDesktop && !isIOSFamily && !/Android/.test(navigator.userAgent);
 const isIOS = isIOSFamily;   // Safari 不支持 webkitdirectory, 文件夹入口对 iOS/iPadOS 隐藏
+const isWeChat = /MicroMessenger/i.test(navigator.userAgent);   // 微信内置浏览器: 下载被拦需引导到系统浏览器
 // 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
 const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || DEFAULT_PORT}` : ""));
 function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
@@ -172,8 +173,10 @@ async function startServer() {
   }
 }
 function openShareDir() {
+  if (!isRealDesktop) { showToast("本机文件管理器不可见共享目录（应用专属存储），文件经 HTTP 提供", "error"); return; }
   tauriInvoke("open_path_cmd", { path: shareInput.value })
-    .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); });
+    .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); })
+    .catch(() => showToast("打开失败", "error"));
 }
 async function pickShareDir() {
   try {
@@ -194,13 +197,16 @@ async function pickShareDir() {
   }
 }
 function openFile(name) {
+  if (!isRealDesktop) return;   // Android/iOS 无系统程序打开能力, 走下载路径
   const dir = shareInput.value.replace(/\/+$/, "");
   tauriInvoke("open_path_cmd", { path: dir + "/" + name })
-    .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); });
+    .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); })
+    .catch(() => showToast("打开失败", "error"));
 }
 function copyFileToClipboard(name) {
   tauriInvoke("copy_file_cmd", { name })
-    .then(d => d.ok ? showToast("已复制到剪贴板，可在访达/资源管理器中粘贴") : showToast(d.error || "复制失败", "error"));
+    .then(d => d.ok ? showToast("已复制到剪贴板，可在访达/资源管理器中粘贴") : showToast(d.error || "复制失败", "error"))
+    .catch(() => showToast("复制失败", "error"));
 }
 async function stopServer() {
   if (!isDesktop) { running.value = false; return; }
@@ -341,10 +347,21 @@ function toggleAll() {
 function clearSel() { selected.value = new Set(); }
 
 let loadingFiles = false;
+let filesThrottleTimer = null;
+let lastFilesLoadAt = 0;
 let reloadQueued = false;   // 在途时又收到刷新请求(如删除后) → 本轮结束后补拉一次, 不丢弃
 async function loadFiles(manual = false) {
   if (loadingFiles) { reloadQueued = true; return; }
+  // 非手动刷新做 800ms 合并节流: 批量上传完成时每个文件都调 loadFiles + 服务端各广播
+  // 一次 files:changed, 500 个文件即数百次串行全量拉取(每个在线设备都拉)
+  if (!manual && Date.now() - lastFilesLoadAt < 800) {
+    if (!filesThrottleTimer) {
+      filesThrottleTimer = setTimeout(() => { filesThrottleTimer = null; loadFiles(false); }, 800);
+    }
+    return;
+  }
   loadingFiles = true;
+  lastFilesLoadAt = Date.now();
   const spinStart = Date.now();
   if (manual) refreshing.value = true;
   try {
@@ -401,7 +418,11 @@ async function downloadFileWeb(name) {
       return;
     }
     const len = Number(r.headers.get("Content-Length") || 0);
-    if (len > NATIVE_DOWNLOAD_OVER) {
+    // 手机浏览器/WebView 的 blob 内存配额远低于桌面(iOS Safari 数百 MB 即杀标签页且无报错),
+    // 阈值降到 50MB, 超出一律走原生流式下载
+    const over = (isIOSFamily || /Android/.test(navigator.userAgent))
+      ? 50 * 1024 * 1024 : NATIVE_DOWNLOAD_OVER;
+    if (len > over) {
       // 超大文件交给浏览器原生下载(流式省内存, 但无完成回调)
       try { r.body?.cancel(); } catch (e) {}
       nativeDownload(url, base);
@@ -461,6 +482,20 @@ async function doDelete() {
 /* ---------- 上传(分片 + 断点续传 + 整目录) ---------- */
 const uploads = ref([]);
 let upSeq = 0;
+/* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 条上传链, 其余真正停在"等待中" */
+const UPLOAD_CONCURRENCY = 5;
+let upActive = 0;
+const upQueue = [];
+function pumpUploadQueue() {
+  while (upActive < UPLOAD_CONCURRENCY && upQueue.length) {
+    const fn = upQueue.shift();
+    upActive++;
+    Promise.resolve()
+      .then(fn)
+      .catch((e) => console.error("上传任务异常:", e))
+      .finally(() => { upActive--; pumpUploadQueue(); });
+  }
+}
 const dragOver = ref(false);
 function pickFiles() { document.getElementById("fileInput").click(); }
 // 移除上传条目(失败行不自动清理, 否则只能刷新页面才能清掉)
@@ -503,7 +538,13 @@ async function collectDroppedFiles(dt) {
   for (const en of entries) await walk(en, "");
   return out;
 }
-async function onDrop(e) { dragOver.value = false; handleFiles(await collectDroppedFiles(e.dataTransfer)); }
+async function onDrop(e) {
+  dragOver.value = false;
+  const list = await collectDroppedFiles(e.dataTransfer);
+  // 空文件夹拖入零反馈会让用户反复拖、以为软件坏了
+  if (!list || !list.length) { showToast("文件夹为空或不含可上传文件", "error"); return; }
+  handleFiles(list);
+}
 /* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
 function uploadRelName(file) { return file.webkitRelativePath || file.name; }
 async function fetchServerReceived(name, upId) {
@@ -540,6 +581,10 @@ async function sendChunk(name, upId, totalSize, offset, chunk) {
       const err = new Error(d.error || `HTTP ${r.status}`);
       err.received = d.received;
       err.server = !!d.error;   // 服务端业务错误(如"正被其他设备上传"), 重试文案应如实展示
+      // 4xx 业务错误重试无意义(路径非法/超长等确定性失败), 快速失败;
+      // 408/429/409 例外: 超时/限流/续传重排值得重试
+      err.fatal = r.status >= 400 && r.status < 500
+        && ![408, 409, 429].includes(r.status);
       throw err;
     }
     return d;
@@ -564,7 +609,10 @@ function uploadFile(file) {
   }
   uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting" });
   const stat = () => uploads.value.find(u => u.id === id);
-  (async () => {
+  // 并发闸: 浏览器(尤其 Safari/WebKit)每 host 仅 6 条 HTTP/1.1 连接, 且 WS/轮询/缩略图
+  // 已占槽 —— 一次选几百个文件全并发时, 排队请求会被单片 30s 超时(从 fetch 调用即计时)
+  // 误杀, 集体报"上传中断"。入队后真正排队等待, 超时只计真实请求时间
+  upQueue.push(async () => {
     // 断点续传: 服务端已有本次会话的断点则从其长度继续(覆盖 锁屏/断网 中断的场景);
     // 断点比本地文件还长 → 内容必然不一致, 强制从头重传
     let serverReceived = await fetchServerReceived(name, upId);
@@ -600,8 +648,15 @@ function uploadFile(file) {
         setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
         return;
       } catch (e) {
-        attempts += 1;
         const it4 = stat(); if (!it4) return;
+        if (e && e.fatal) {
+          // 确定性业务失败(如"路径过长"): 直接报错, 不做 8×1.5s 无意义空转
+          it4.status = "error";
+          it4.speed = "";
+          showToast("上传失败: " + name + " — " + (e.message || "请求被拒绝"), "error");
+          return;
+        }
+        attempts += 1;
         if (attempts > UPLOAD_RETRY_TIMES) {
           it4.status = "error";
           it4.speed = "";   // 清掉"自动续传中"残留文案: 否则失败条目永远显示它, 用户以为还在重试
@@ -620,7 +675,8 @@ function uploadFile(file) {
         }
       }
     }
-  })();
+  });
+  pumpUploadQueue();
 }
 function onPaste(e) {
   const items = e.clipboardData && e.clipboardData.items;
@@ -1003,7 +1059,8 @@ function lastCheckedAt() {
 }
 function curVersion() { return appVersion.value || APP_VERSION_FALLBACK; }
 async function checkUpdate(manual = false) {
-  if (!isDesktop || checkingUpdate.value) return;
+  // 仅真实桌面检查更新: Android 的「前往下载」走 xdg-open 必失败, 弹框是死路
+  if (!isRealDesktop || checkingUpdate.value) return;
   checkingUpdate.value = true;
   const rel = await fetchLatestRelease();
   checkingUpdate.value = false;
@@ -1117,6 +1174,8 @@ async function refreshStatus() {
 
 <template>
   <div class="shell">
+    <!-- 微信内置浏览器拦非微信域名下载: 顶部常驻引导(右上角 ⋯ → 在浏览器打开) -->
+    <div v-if="isWeChat" class="wx-banner">ⓘ 当前在微信内打开，文件下载可能被拦截 —— 点右上角 <b>⋯</b> 选择「<b>在浏览器打开</b>」即可正常传输</div>
     <!-- ===== 侧边栏(仅桌面壳) ===== -->
     <aside v-if="isDesktop" class="sidebar">
       <div class="brand">
@@ -1280,7 +1339,7 @@ async function refreshStatus() {
             <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
           </div>
           <div v-else>
-            <div v-for="f in pageFiles" :key="f.name" class="file-row" @dblclick="isDesktop && openFile(f.name)">
+            <div v-for="f in pageFiles" :key="f.name" class="file-row" @dblclick="isRealDesktop && openFile(f.name)">
               <label class="sel-box" @click.stop>
                 <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
               </label>
@@ -1297,13 +1356,14 @@ async function refreshStatus() {
                 </div>
               </div>
               <div class="file-btns">
-                <!-- 桌面端: 打开 + 复制 + 删除 + 分享 -->
-                <template v-if="isDesktop">
+                <!-- 真实桌面: 打开 + 复制; Android/iOS 壳: 下载(打开/复制在移动端是死路) -->
+                <template v-if="isRealDesktop">
                   <button class="btn-act fb-open" title="打开文件（系统默认程序）" @click="openFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
                   <button class="btn-act fb-copy" title="复制文件到剪贴板（可在访达/资源管理器粘贴）" @click="copyFileToClipboard(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
-                  <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
-                  <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
                 </template>
+                <button v-else class="btn-act fb-dl" title="下载" @click="downloadFileWeb(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+                <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
               </div>
             </div>
             <div class="pagination" v-if="totalPages > 1">
