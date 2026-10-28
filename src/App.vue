@@ -98,10 +98,13 @@ function openChat() {
 }
 function closeChat() { chatOpen.value = false; }
 function scrollChats() {
+  // 桌面聊天视图容器只有 ref(chatBox); #chatMessagesSheet 是常驻 DOM 的手机面板
+  // (桌面端 display:none)—— 滚它等于没滚, 必须把 chatBox 一并滚到底
   for (const id of ["chatMessages", "chatMessagesSheet"]) {
     const c = document.getElementById(id);
     if (c) c.scrollTop = c.scrollHeight;
   }
+  if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight;
 }
 
 /* ---------- 服务控制(桌面) ---------- */
@@ -340,6 +343,8 @@ async function loadFiles(manual = false) {
     const r = await fetch(apiBase.value + API.files + "?nick=" + encodeURIComponent(deviceNick()));
     const d = await r.json();
     allFiles.value = d.files || [];
+    // 列表缩水(删除本页等)后回收越界页码: 否则页码条无高亮、‹ 可点到更越界的页
+    if (currentPage.value > totalPages.value) currentPage.value = totalPages.value;
     // 清理已不存在的选中项
     if (selected.value.size) {
       const names = new Set(allFiles.value.map(f => f.name));
@@ -449,6 +454,8 @@ const uploads = ref([]);
 let upSeq = 0;
 const dragOver = ref(false);
 function pickFiles() { document.getElementById("fileInput").click(); }
+// 移除上传条目(失败行不自动清理, 否则只能刷新页面才能清掉)
+function removeUpload(id) { uploads.value = uploads.value.filter(u => u.id !== id); }
 function pickDir() { document.getElementById("dirInput").click(); }
 function onPick(e) { handleFiles(e.target.files); e.target.value = ""; }
 function onPickDir(e) { handleFiles(e.target.files); e.target.value = ""; }
@@ -525,9 +532,16 @@ function uploadFile(file) {
   const name = uploadRelName(file);
   const total = file.size;
   // 会话 id = 文件稳定指纹(名+大小+修改时间): 页面重载/锁屏后重选同一文件仍命中
-  // 服务端已有断点(自动续传真正生效); 内容变化(大小/修改时间变)则视为新会话覆盖旧断点
-  const upId = `${name}|${file.size}|${file.lastModified}`;
-  uploads.value.push({ id, name, pct: total ? 0 : 100, speed: "", status: "waiting" });
+  // 服务端已有断点(自动续传真正生效); 内容变化(大小/修改时间变)则视为新会话覆盖旧断点。
+  // name 必须 encodeURIComponent: 请求头值是 ByteString, 原始中文/emoji 在所有浏览器/WebView
+  // 里 fetch 直接抛 TypeError(中文文件名上传全线失败); 服务端原样存 meta 原样比对, 自洽
+  const upId = `${encodeURIComponent(name)}|${file.size}|${file.lastModified}`;
+  // 同一文件已在队列中(等待/上传中)则跳过: 快速双击/多选重复会以相同 upId 并发推进,
+  // 两条链互相截断断点导致整体重传数次、UI 出现重复进度行
+  if (uploads.value.some(u => u.upId === upId && (u.status === "waiting" || u.status === "uploading"))) {
+    return;
+  }
+  uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting" });
   const stat = () => uploads.value.find(u => u.id === id);
   (async () => {
     // 断点续传: 服务端已有本次会话的断点则从其长度继续(覆盖 锁屏/断网 中断的场景);
@@ -582,7 +596,13 @@ function onPaste(e) {
   const items = e.clipboardData && e.clipboardData.items;
   if (!items) return;
   const files = [];
-  for (const item of items) { if (item.kind === "file") files.push(item.getAsFile()); }
+  // getAsFile() 在富文本剪贴板场景可返回 null, 不过滤会在 uploadFile 里抛 TypeError
+  for (const item of items) {
+    if (item.kind === "file") {
+      const f = item.getAsFile();
+      if (f) files.push(f);
+    }
+  }
   if (files.length) handleFiles(files);
 }
 
@@ -942,11 +962,12 @@ async function checkUpdate(manual = false) {
   checkingUpdate.value = true;
   const rel = await fetchLatestRelease();
   checkingUpdate.value = false;
-  markChecked();
   if (!rel) {
+    // 失败不写 24h 频控: 开机瞬间 Wi-Fi 未就绪的一次抖动不应导致一整天不再检查
     if (manual) showToast("检查更新失败，需要能访问 GitHub，请稍后再试", "error");
     return;
   }
+  markChecked();
   if (!isNewer(rel.latest, curVersion())) {
     if (manual) showToast(`当前已是最新版本 v${curVersion()}`);
     return;
@@ -1065,14 +1086,14 @@ async function refreshStatus() {
         <button class="nav-item" :class="{ active: view === 'files' }" @click="setView('files')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件传输
         </button>
-        <button v-if="!isNarrow" class="nav-item" :class="{ active: view === 'chat' }" @click="setView('chat')">
+        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'chat' }" @click="setView('chat')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>文本消息
           <span v-if="unread > 0 && view !== 'chat'" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
         </button>
-        <button v-if="!isNarrow" class="nav-item svc" :class="{ active: view === 'service' }" @click="setView('service')">
+        <button v-if="isDesktop || !isNarrow" class="nav-item svc" :class="{ active: view === 'service' }" @click="setView('service')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务中心
         </button>
-        <button v-if="!isNarrow" class="nav-item" :class="{ active: view === 'settings' }" @click="setView('settings')">
+        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'settings' }" @click="setView('settings')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>CC设置
         </button>
       </nav>
@@ -1177,6 +1198,8 @@ async function refreshStatus() {
                  : u.status === "waiting" ? "等待中"
                  : u.status === "done" ? "完成" : u.speed || "失败" }}
               </span>
+              <button v-if="u.status === 'error'" class="icon-btn" title="移除"
+                      style="margin-left:6px" @click="removeUpload(u.id)">✕</button>
             </div>
             <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
           </div>
@@ -1426,6 +1449,8 @@ async function refreshStatus() {
                    : u.status === "waiting" ? "等待中"
                    : u.status === "done" ? "完成" : u.speed || "失败" }}
                 </span>
+                <button v-if="u.status === 'error'" class="icon-btn" title="移除"
+                        style="margin-left:6px" @click="removeUpload(u.id)">✕</button>
               </div>
               <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
             </div>
