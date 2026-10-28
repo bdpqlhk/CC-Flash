@@ -88,7 +88,9 @@ npm run tauri build    # release build: produces .app / .dmg / .msi
 
 Bumps the version, commits, tags, pushes — CI builds all three platforms and attaches artifacts to the Release.
 
-Android signing: configure the `ANDROID_KEYSTORE_*` secrets for **release signing** (stable cert → in-place upgrades, `--split-per-abi` per-CPU APKs). Without secrets, CI falls back to debug signing with a warning. If desktop builds fail, APKs still upload but the Release stays a **draft**.
+Android signing: configure the `ANDROID_KEYSTORE_*` secrets for **release signing** (stable cert → in-place upgrades, `--split-per-abi` per-CPU APKs). If any secret is missing, CI falls back to debug signing — those APKs are named with a **`-debug` suffix** for clarity. Releases use an **all-green publish policy**: artifacts upload as a draft first, and the Release goes live only after both desktop and Android jobs succeed.
+
+macOS builds are **universal** (arm64 + x86_64 in one package). **iOS**: no automated CI release yet (requires an Apple Developer account; a commented template exists in the workflow) — build locally with `./scripts/build-all.sh ios` and configure signing in Xcode.
 
 ## Security Notice
 

@@ -199,7 +199,7 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <tr><td>POST</td><td><code>/api/control/logs/clear</code></td><td>清日志</td><td>清空后写入「日志已清空」标记</td></tr>
 <tr><td>GET</td><td><code>/favicon.ico</code></td><td>图标</td><td>—</td></tr>
 <tr><td>GET</td><td><code>/*</code>（fallback）</td><td>静态页面</td><td>rust_embed 嵌入的 ../dist</td></tr>
-<tr><td colspan="4" class="small">全局：CorsLayer::permissive（桌面壳跨源调用 API）；日志中间件（见第 7 节）内嵌 <b>browser_origin_guard</b>：Host 限 IP/localhost/*.local（挡 DNS 重绑定），带 Origin 只放行自身与 WebView（挡 drive-by CSRF），无 Origin 的非浏览器客户端不受影响</td></tr>
+<tr><td colspan="4" class="small">全局：CorsLayer::permissive（桌面壳跨源调用 API）；日志中间件（见第 7 节）内嵌 <b>browser_origin_guard</b>：Host 限 IP/localhost/*.local（挡 DNS 重绑定），带 Origin <b>精确匹配</b>放行自身与 WebView（tauri://localhost、http(s)://tauri.localhost——子串匹配可被 tauri.localhost.evil.com 绕过），无 Origin 的非浏览器客户端不受影响；<b>/api/control/* 仅限回环来源</b>（局域网不可关停服务/读日志）；日志单行剥 CR/LF + 400 字符截断</td></tr>
 </table>
 
 <h3>4.1 Tauri 命令（IPC，桌面壳专用）</h3>

@@ -91,8 +91,12 @@ npm run tauri build    # 发布构建：自动产出 .app / .dmg / .msi
 Android 产物说明：
 
 - 配置 `ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD` 四个 Secrets 后，走 **release 签名**（证书固定，版本间可覆盖安装），`--split-per-abi` 按 4 个 ABI 分包；
-- 未配置 Secrets 时退回 **debug 签名**构建（可直接安装，但各版本证书不同，覆盖安装需先卸载，CI 会出警告）；
-- desktop 构建失败时 APK 仍会上传，但 Release 保持**草稿**状态，人工确认后手动 Publish。
+- 未配置 Secrets（四个任一缺失即视为未配置）时退回 **debug 签名**构建，产物文件名带 **`-debug` 后缀**以便区分（可直接安装，但各版本证书不同，覆盖安装需先卸载，CI 会出警告）；
+- Release 采用「**全部构建成功才发布**」策略：desktop 与 APK 先上传到草稿，两者全绿后自动 Publish；任一失败则保持草稿（修复后重跑 publish job 或手动 Publish）。
+
+macOS 产物为 **universal 包**（arm64 + x86_64 单包，Apple Silicon 与 Intel 通用）。
+
+> **iOS 说明**：CI 暂无 iOS 自动发布（需 Apple 开发者账号与签名证书，workflow 内留有注释模板）；本地可用 `./scripts/build-all.sh ios` 构建，需自行在 Xcode 中配置签名。
 
 ## 安全须知
 

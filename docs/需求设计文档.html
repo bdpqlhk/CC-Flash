@@ -345,7 +345,10 @@ pre code{background:none;color:inherit;padding:0}
 <h3>13.1 内置防护</h3>
 <ul>
 <li><b>路径穿越双重防护</b>：URL 解码 → 相对路径逐段校验（拒绝空/./../首尾空格/非法字符，支持子目录）→ 与共享目录拼接后 canonicalize 校验前缀越界；上传建目录前对最近存在的祖先做越界预检（防符号链接把目录建到界外）；</li>
-<li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost / <code>*.local</code>（挡 DNS 重绑定）；带 Origin 的请求只放行自身与 WebView（挡恶意网页借用户浏览器操作本机服务的 drive-by CSRF）；无 Origin 的 curl/局域网 App 不受影响；</li>
+<li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost / <code>*.local</code>（挡 DNS 重绑定）；带 Origin 的请求<b>精确匹配</b>放行自身与 WebView（<code>tauri://localhost</code>、<code>http(s)://tauri.localhost</code>；子串匹配可被 tauri.localhost.evil.com 绕过，禁止使用）；无 Origin 的 curl/局域网 App 不受影响；</li>
+<li><b>控制接口仅限本机</b>：/api/control/*（启停/日志/清空）拒绝非回环来源——局域网任意设备可调用的话人人能关停服务、读走全部活动日志；网页端状态走 /api/info，不受影响；</li>
+<li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；</li>
+<li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（script-src 'self' 等），即便出现注入型 XSS 也限制其能力；</li>
 <li><b>系统命令注入防护（Windows）</b>：打开 URL 走 <code>rundll32 FileProtocolHandler</code>、文件走 <code>explorer</code>，不经 <code>cmd</code> shell（cmd 会解释 <code>&amp;|^</code> 等字符）；</li>
 <li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>
 <li><b>资源上限</b>：聊天 200 条 / 昵称 20 字 / 消息 2000 字 / 日志 1000 条；</li>

@@ -497,7 +497,36 @@ pre code{background:none;color:inherit;padding:0}
   <h3>12.6 验证基线</h3>
   <p><code>cargo check</code>（dev profile）与 <code>npm run build</code>（vite 93 模块）全绿。待人工验收：大文件断网续传、整目录拖拽上传、手机端 WS 即时聊天、恶意网页跨源拦截。</p>
 
-  <div class="note">📌 下一步：人工验收上述四项 → 分批提交 → 配置 Android Secrets → 发版。</div>
+  <h3>12.7 全库深度审查修复（同日，四维审查：Rust 后端 / 前端 / CI 多平台 / 协议一致性）</h3>
+  <table>
+    <tr><th>严重度</th><th>问题与修复</th></tr>
+    <tr><td>致命</td><td><b>中文文件名上传全端 100% 失败</b>：X-Upload-Id 头携带原始文件名（非 ByteString，fetch 抛 TypeError）→ upId 内 name 做 encodeURIComponent</td></tr>
+    <tr><td>致命</td><td><b>跨源防护子串匹配绕过</b>：<code>contains("tauri.localhost")</code> 可被 tauri.localhost.evil.com 命中，配合 permissive CORS 可远程操控全部接口 → 全部改精确匹配（tauri://localhost、http(s)://tauri.localhost、http://{host}）</td></tr>
+    <tr><td>致命</td><td><b>CI debug 包以正式命名混入公开 Release</b>（v1.1.2 已实际发生）→ debug 产物名追加 -debug 后缀</td></tr>
+    <tr><td>致命</td><td><b>Release 发布策略 fail-open</b>：mac 腿完成即公开，后续失败留残缺 Release → 全部先传草稿，新增 publish job（desktop+android 全绿才发布）</td></tr>
+    <tr><td>致命</td><td><b>Intel Mac 无包</b>：mac 腿只构 aarch64 → <code>--target universal-apple-darwin</code></td></tr>
+    <tr><td>致命</td><td><b>发布私钥入库通道</b>：.gitignore 无 keystore 规则 + release.sh git add -A → 补 *.keystore/*.jks/*.p12/*.mobileprovision 忽略 + 提交前私钥守卫</td></tr>
+    <tr><td>严重</td><td><b>桌面窄窗导航丢失</b>：三项导航挂 !isNarrow 而窗口可缩到 560px → 改 <code>isDesktop || !isNarrow</code></td></tr>
+    <tr><td>严重</td><td><b>桌面聊天不滚动</b>：scrollChats 漏了 chatBox ref → 补上</td></tr>
+    <tr><td>严重</td><td><b>磁盘预检可绕过</b>：声明 size 后实际灌百 GB，或 size=0 无限写 → 循环内边收边查（超声明立即拒；未知大小每 64MB 复查剩余空间）</td></tr>
+    <tr><td>严重</td><td><b>release.sh 无 set -e</b>：commit 失败仍给旧代码打新版本 tag → set -euo pipefail + commit 失败显式中止 + 全部允许失败处补 || true；push_retry 改用 git push 退出码（原 grep 管道把"已是最新"误判失败→删远端 tag 重复触发构建）</td></tr>
+    <tr><td>中等</td><td>日志注入（?nick=%0A 伪造条目）→ push_log 统一剥 CR/LF + 400 字符硬截断（兼防超长 URL 灌爆内存）；查询参数昵称截 20 字</td></tr>
+    <tr><td>中等</td><td>/api/control/* 无鉴权暴露全局域网（任意设备可关停服务/读日志）→ 中间件限制仅回环访问（网页端用 /api/info，不受影响）</td></tr>
+    <tr><td>中等</td><td>start() check-then-act 竞态（并发双启后者覆写 handle 致前者自杀式关停）→ START_GUARD 全流程持锁；preferred 端口 u16 溢出 → u32 算术</td></tr>
+    <tr><td>中等</td><td>Windows 保留设备名（NUL/CON/COM1…）未拒 → safe_rel_path 按 '.' 前缀段拒绝</td></tr>
+    <tr><td>中等</td><td>空 X-Upload-Id 可跨会话拼接脏文件（空==空 校验通过）→ offset&gt;0 强制非空 id</td></tr>
+    <tr><td>中等</td><td>建目录 TOCTOU + canonicalize 失败静默放行 → 事后复验（越界回滚）+ 失败即拒</td></tr>
+    <tr><td>中等</td><td>stop() 超时 drop JoinHandle 是 detach 非取消 → 超时显式 task.abort()</td></tr>
+    <tr><td>中等</td><td>macOS osascript 拼源码注入（路径含 \" 组合）→ ARGV 传参</td></tr>
+    <tr><td>中等</td><td>APP_VERSION_FALLBACK/package.json 版本脱同步（误弹"发现新版本"）→ 对齐 1.1.2 + release.sh 发版时自动同步两处</td></tr>
+    <tr><td>中等</td><td>更新检查失败也写 24h 频控 → 仅成功时写；isNewer 丢预发布语义（beta 用户收不到正式版）→ 段值相等时带后缀视为更旧</td></tr>
+    <tr><td>中等</td><td>currentPage 越界不回收 / 失败上传行无移除 / 并发同文件不去重 / onPaste 未过滤 null → 全部修复</td></tr>
+    <tr><td>中等</td><td>CI：Secrets 只查 BASE64（配漏密码别名时构建直接挂）→ 四变量全查；NDK ls|head 取最旧 → sort -V 取最新；CSP null → 最小 CSP；api-push.sh 删除文件崩溃/丢执行位/硬编码仓库名 → 修复；build-all.sh win 失败不计 FAIL → 修复</td></tr>
+    <tr><td>文档</td><td>README 中英同步：-debug 后缀、全绿发布策略、universal 包、iOS 无自动发布说明</td></tr>
+  </table>
+  <p>验证：<code>cargo check</code> / <code>vite build</code> / 三个 shell 脚本 <code>bash -n</code> / workflow YAML 解析 / tauri.conf JSON 全部通过。</p>
+
+  <div class="note">📌 下一步：人工验收（中文文件名上传、桌面窄窗导航、桌面聊天滚动）→ 提交推送 → 配置 Android Secrets → 发版（发版时顺带在真机验证 -debug 命名与 universal 包）。</div>
 </section>
 
 <p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-27 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
