@@ -507,12 +507,16 @@ async function onDrop(e) { dragOver.value = false; handleFiles(await collectDrop
 /* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
 function uploadRelName(file) { return file.webkitRelativePath || file.name; }
 async function fetchServerReceived(name, upId) {
+  // 返回 null 表示查询失败(网络抖动) —— 与"服务端确认为 0"严格区分:
+  // 失败时调用方保持当前 offset 不动(下一片若与服务端断点错位, 服务端 409 会带
+  // 真实断点兜底重排); 若把失败当 0, 重试链会 offset=0 → 下一片 truncate
+  // 掉数 GB 服务端断点从头重传(AP 漫游/休眠双重失败即触发)
   try {
     const r = await fetch(apiBase.value + API.uploadProgress(name, upId));
-    if (!r.ok) return 0;
+    if (!r.ok) return null;
     const d = await r.json();
-    return Number.isFinite(d.received) ? d.received : 0;
-  } catch (_) { return 0; }
+    return Number.isFinite(d.received) ? d.received : null;
+  } catch (_) { return null; }
 }
 async function sendChunk(name, upId, totalSize, offset, chunk) {
   // 超时保护: 半死连接(无 RST 的断网/AP 休眠)靠它触发续传, 而不是挂到浏览器 TCP 超时
@@ -532,7 +536,12 @@ async function sendChunk(name, upId, totalSize, offset, chunk) {
       signal: ctrl.signal,
     });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.received = d.received; throw err; }
+    if (!r.ok) {
+      const err = new Error(d.error || `HTTP ${r.status}`);
+      err.received = d.received;
+      err.server = !!d.error;   // 服务端业务错误(如"正被其他设备上传"), 重试文案应如实展示
+      throw err;
+    }
     return d;
   } finally { clearTimeout(timer); }
 }
@@ -559,6 +568,11 @@ function uploadFile(file) {
     // 断点续传: 服务端已有本次会话的断点则从其长度继续(覆盖 锁屏/断网 中断的场景);
     // 断点比本地文件还长 → 内容必然不一致, 强制从头重传
     let serverReceived = await fetchServerReceived(name, upId);
+    if (serverReceived === null) {
+      // 查询失败重试一次再放弃: 误把失败当 0 会让首片 truncate 掉服务端数 GB 断点
+      await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
+      serverReceived = (await fetchServerReceived(name, upId)) ?? 0;
+    }
     if (serverReceived > total) serverReceived = 0;
     let offset = serverReceived;
     let base = offset;
@@ -590,16 +604,20 @@ function uploadFile(file) {
         const it4 = stat(); if (!it4) return;
         if (attempts > UPLOAD_RETRY_TIMES) {
           it4.status = "error";
+          it4.speed = "";   // 清掉"自动续传中"残留文案: 否则失败条目永远显示它, 用户以为还在重试
           showToast("上传中断: " + name, "error");
           return;
         }
-        it4.speed = "网络中断，自动续传中…";
+        // 服务端业务错误(如"该文件正被其他设备上传")如实展示, 仅网络类异常才提示自动续传
+        it4.speed = e && e.server ? String(e.message).slice(0, 24) : "网络中断，自动续传中…";
         await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
-        // 以服务端断点为准重排(服务端重启清了断点则自动从头重传)
-        let recv = await fetchServerReceived(name, upId);
-        if (recv > total) recv = 0;
-        offset = recv;
-        base = offset; t0 = Date.now();
+        // 以服务端断点为准重排; 查询失败(null)保持当前 offset 不动 ——
+        // 服务端重启清了断点则下一片 409 会带回真实进度, 网络抖动误清零数 GB 断点
+        const recv = await fetchServerReceived(name, upId);
+        if (recv !== null) {
+          offset = recv > total ? 0 : recv;
+          base = offset; t0 = Date.now();
+        }
       }
     }
   })();
