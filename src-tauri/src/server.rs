@@ -241,15 +241,59 @@ pub fn open_path(path: &str) -> Result<(), String> {
 
 /// 本机局域网 IP(UDP connect 探测, 不发包; 失败回退 127.0.0.1)
 pub fn lan_ip() -> String {
-    let s = UdpSocket::bind("0.0.0.0:0").ok();
-    if let Some(s) = s {
-        if s.connect("10.255.255.255:1").is_ok() {
-            if let Ok(addr) = s.local_addr() {
-                return addr.ip().to_string();
+    // 旧实现只做一次 UDP connect 探测(源地址由默认路由决定): 开 VPN/TUN/双网卡的机器
+    // 会拿到隧道地址(如 10.8.0.2), 二维码手机扫码必失败; IPv6-only 则静默回落 127.0.0.1。
+    // 现改为枚举真实网卡: 隧道类接口(utun/tun/tap/wg/ppp/bridge/vEthernet)一律排除,
+    // 优先 RFC1918 私网地址; 默认路由探测结果若落在真实网卡上则优先它(双网卡场景准头)
+    let probe = UdpSocket::bind("0.0.0.0:0")
+        .ok()
+        .and_then(|s| {
+            s.connect("10.255.255.255:1").ok()?;
+            s.local_addr().ok()
+        })
+        .map(|a| a.ip().to_string());
+    const TUNNEL_PREFIXES: &[&str] = &["utun", "tun", "tap", "wg", "ppp", "bridge", "vethernet", "docker", "vmnet", "virbr"];
+    let is_tunnel = |name: &str| {
+        let n = name.to_ascii_lowercase();
+        TUNNEL_PREFIXES.iter().any(|p| n.starts_with(p))
+    };
+    let is_private = |ip: &std::net::Ipv4Addr| {
+        ip.is_private() || ip.is_link_local()
+    };
+    let mut private: Vec<String> = Vec::new();
+    let mut other: Vec<String> = Vec::new();
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if is_tunnel(&iface.name) {
+                continue;
+            }
+            if let if_addrs::IfAddr::V4(v4) = iface.addr {
+                if v4.ip.is_loopback() {
+                    continue;
+                }
+                let s = v4.ip.to_string();
+                if is_private(&v4.ip) && !private.contains(&s) {
+                    private.push(s);
+                } else if !other.contains(&s) {
+                    other.push(s);
+                }
             }
         }
     }
-    "127.0.0.1".into()
+    // 默认路由探测结果落在真实网卡的私网地址上 → 直接用(双网卡时最准)
+    if let Some(p) = &probe {
+        if private.iter().any(|x| x == p) {
+            return p.clone();
+        }
+    }
+    if let Some(first) = private.first() {
+        return first.clone();
+    }
+    if let Some(first) = other.first() {
+        return first.clone();
+    }
+    // 全部失败才回落探测值/回环(此时二维码应配合 UI 提示"未检测到局域网地址")
+    probe.unwrap_or_else(|| "127.0.0.1".into())
 }
 
 // ---------------------------------------------------------------- //
@@ -347,11 +391,14 @@ fn clean_stale_parts(share: &Path) {
     fn expired(md: &std::fs::Metadata) -> bool {
         // 比较"距今的年龄": now - mtime。曾误写成 mtime - UNIX_EPOCH(mtime 的 epoch
         // 秒值 ~1.79e9 恒 ≥ TTL), 所有文件都被判过期, 7 天保留成空实现
-        md.modified()
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .map(|d| d.as_secs() >= UPLOAD_PART_TTL_SECS)
-            .unwrap_or(true) // 时间戳拿不到按过期处理
+        match md.modified() {
+            // 未来 mtime(系统时钟被改过)按未过期保留: 宁多留 7 天也不误删进行中断点
+            Ok(t) => SystemTime::now()
+                .duration_since(t)
+                .map(|d| d.as_secs() >= UPLOAD_PART_TTL_SECS)
+                .unwrap_or(false),
+            Err(_) => true, // 时间戳拿不到按过期处理
+        }
     }
     fn walk(dir: &Path, n: &mut usize) {
         let Ok(rd) = std::fs::read_dir(dir) else { return };
@@ -485,9 +532,14 @@ fn safe_rel_path(raw: &str, for_upload: bool) -> Option<String> {
     if parts.is_empty() || parts.len() > UPLOAD_MAX_DEPTH {
         return None;
     }
-    // 保留内部产物后缀: 否则上传同名文件会从列表消失, 且下次启动被断点清理误删
+    // 保留内部产物后缀(所有调用点): 否则上传同名文件会从列表消失, 且下次启动被断点清理误删
     if let Some(last) = parts.last() {
-        if last.ends_with(UPLOAD_PART_SUFFIX) || last.ends_with(UPLOAD_PART_META_SUFFIX) {
+        let last_l = last.to_ascii_lowercase();
+        if last_l.ends_with(UPLOAD_PART_SUFFIX) || last_l.ends_with(UPLOAD_PART_META_SUFFIX) {
+            return None;
+        }
+        // 系统垃圾文件仅上传入口拒绝: 既有 .DS_Store 等仍可下载/删除(否则清不掉)
+        if for_upload && is_junk_file(last) {
             return None;
         }
     }
@@ -501,9 +553,17 @@ fn part_meta_path(part: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// 共享目录遍历时跳过断点产物(中间文件与其 meta)
+/// 共享目录遍历时跳过断点产物(中间文件与其 meta; 大小写不敏感——exFAT/U盘 拷来的变体同样跳)
 fn is_part_artifact(fname: &str) -> bool {
-    fname.ends_with(UPLOAD_PART_SUFFIX) || fname.ends_with(UPLOAD_PART_META_SUFFIX)
+    let f = fname.to_ascii_lowercase();
+    f.ends_with(UPLOAD_PART_SUFFIX) || f.ends_with(UPLOAD_PART_META_SUFFIX)
+}
+
+/// 系统垃圾文件: 不进列表、上传拒绝。.DS_Store 记录了目录内曾出现过的文件名(隐私),
+/// Thumbs.db/desktop.ini 是 Windows 缩略图缓存, ._ * 是 exFAT 的 AppleDouble 元数据
+fn is_junk_file(fname: &str) -> bool {
+    let f = fname.to_ascii_lowercase();
+    f == ".ds_store" || f == "thumbs.db" || f == "desktop.ini" || f.starts_with("._")
 }
 
 /// 同一断点文件的写互斥: 客户端超时重试后, 旧请求的 handler 可能仍挂着写同一个
@@ -600,8 +660,11 @@ struct FileEntry {
 
 /// 递归收集文件(深度上限 8, 跳过上传断点临时文件); name 为相对路径
 fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>) {
-    if depth > UPLOAD_MAX_DEPTH {
-        return; // 与 safe_rel_path 的上传段数上限一致, 保证上传的都能被列出
+    // depth 为当前目录相对层级(根=0), 其内文件路径段数 = depth+1;
+    // 用 >= 而非 >: 否则 8 层目录里的文件(9 段)会进列表, 但 safe_rel_path 拒收 9 段,
+    // 出现"列得出、下载/删除全 400"的自相矛盾
+    if depth >= UPLOAD_MAX_DEPTH {
+        return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
@@ -612,8 +675,8 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
             continue;
         }
         let fname = e.file_name().to_string_lossy().to_string();
-        if is_part_artifact(&fname) {
-            continue; // 断点续传中间文件/元数据不进列表
+        if is_part_artifact(&fname) || is_junk_file(&fname) {
+            continue; // 断点续传中间文件/元数据、系统垃圾文件(.DS_Store 等)不进列表
         }
         if md.is_symlink() {
             continue; // 符号链接不列(下载/删除的越界校验会拒绝, 列出只会 404)
@@ -653,8 +716,10 @@ async fn files(State(share): State<PathBuf>) -> Response {
 async fn download(
     State(share): State<PathBuf>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     AxPath(raw): AxPath<String>,
 ) -> Response {
+    use tokio::io::AsyncSeekExt;
     // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验(读路径不拦保留设备名, 否则既有文件取不回)
     let Some(name) = safe_rel_path(raw.trim_start_matches('/'), false) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
@@ -663,31 +728,106 @@ async fn download(
         push_log(format!("下载失败 {name}: 文件不存在 ← {}", addr.ip()));
         return err(StatusCode::NOT_FOUND, "文件不存在");
     };
+    let Ok(meta) = std::fs::metadata(&path) else {
+        push_log(format!("下载失败 {name}: 打开失败 ← {}", addr.ip()));
+        return err(StatusCode::NOT_FOUND, "文件不存在");
+    };
+    // 目录必须拒绝: File::open 对目录在 Unix 上成功, ReaderStream 读到 EISDIR
+    // 中途断流, 客户端拿到的是"半截/损坏的下载"而非明确错误
+    if !meta.is_file() {
+        return err(StatusCode::BAD_REQUEST, "不是文件");
+    }
     let Ok(std_file) = std::fs::File::open(&path) else {
         push_log(format!("下载失败 {name}: 打开失败 ← {}", addr.ip()));
         return err(StatusCode::NOT_FOUND, "文件不存在");
     };
-    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    push_log(format!("下载 {name} ({}) ← {}", humans(size), addr.ip()));
+    let size = meta.len();
+    // Range 支持(单区间): 浏览器断下重试会带 Range: bytes=N- , 不支持的话 10GB 传到
+    // 8GB 断掉只能从零重来; 服务端回 206 + Content-Range, Accept-Ranges 声明能力
+    let mut start: u64 = 0;
+    let mut end_excl: u64 = size;
+    let is_partial = if let Some(rv) = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("bytes="))
+    {
+        // 仅接受单区间 "N-" / "N-M"; 多区间/畸形一律按整体 200 处理(下载场景无需多区间)
+        let ok = match rv.split_once('-') {
+            Some((a, b)) => {
+                let s_ok = !a.is_empty() && a.trim().parse::<u64>().is_ok();
+                let e = b.trim();
+                if e.is_empty() {
+                    // N-
+                    if s_ok {
+                        start = a.trim().parse().unwrap_or(0);
+                        true
+                    } else { false }
+                } else if s_ok {
+                    // N-M
+                    let (s, e2) = (a.trim().parse::<u64>().unwrap_or(0), e.parse::<u64>().unwrap_or(0));
+                    if s <= e2 && s < size {
+                        start = s;
+                        end_excl = (e2 + 1).min(size);
+                        true
+                    } else { false }
+                } else { false }
+            }
+            None => false,
+        };
+        if ok && start >= size {
+            return (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                [(header::CONTENT_RANGE, format!("bytes */{size}"))],
+                "范围超出文件大小",
+            )
+                .into_response();
+        }
+        ok
+    } else {
+        false
+    };
+    let mut tokio_file = tokio::fs::File::from_std(std_file);
+    if is_partial {
+        if let Err(e) = tokio_file.seek(std::io::SeekFrom::Start(start)).await {
+            push_log(format!("下载失败 {name}: 定位失败({e}) ← {}", addr.ip()));
+            return err(StatusCode::INTERNAL_SERVER_ERROR, "读取失败");
+        }
+    }
+    let reader = tokio::io::BufReader::with_capacity(CHUNK_HINT, tokio_file);
+    let stream = tokio_util::io::ReaderStream::with_capacity(reader, CHUNK_HINT);
+    push_log(format!(
+        "下载 {name} ({}) ← {}{}",
+        humans(if is_partial { end_excl - start } else { size }),
+        addr.ip(),
+        if is_partial { format!(" · 续传自 {start}") } else { String::new() }
+    ));
     let mime = mime_guess::from_path(&path).first_or_octet_stream();
     let enc = percent_encoding::utf8_percent_encode(&name, FRAGMENT);
-    let reader = tokio::io::BufReader::new(tokio::fs::File::from_std(std_file));
-    let stream = tokio_util::io::ReaderStream::with_capacity(reader, CHUNK_HINT);
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, mime.essence_str().parse().unwrap());
-    // 显式给出长度: 浏览器原生下载可显示进度, 前端也可预知大小
-    if size > 0 {
-        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(size));
+    let mut rh = HeaderMap::new();
+    rh.insert(header::CONTENT_TYPE, mime.essence_str().parse().unwrap());
+    rh.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+    if is_partial {
+        rh.insert(
+            header::CONTENT_RANGE,
+            format!(
+                "bytes {start}-{end}/{size}",
+                end = end_excl.saturating_sub(1)
+            )
+            .parse()
+            .unwrap(),
+        );
+        rh.insert(header::CONTENT_LENGTH, HeaderValue::from(end_excl - start));
+    } else if size > 0 {
+        // 显式给出长度: 浏览器原生下载可显示进度, 前端也可预知大小
+        rh.insert(header::CONTENT_LENGTH, HeaderValue::from(size));
     }
-    headers.insert(
+    rh.insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!(
-            "attachment; filename*=UTF-8''{enc}"
-        ))
-        .unwrap(),
+        HeaderValue::from_str(&format!("attachment; filename*=UTF-8''{enc}")).unwrap(),
     );
-    headers.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
-    (headers, Body::from_stream(stream)).into_response()
+    rh.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+    let status = if is_partial { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK };
+    (status, rh, Body::from_stream(stream)).into_response()
 }
 
 async fn upload(
@@ -707,6 +847,18 @@ async fn upload(
     let Some(name) = safe_rel_path(&decoded, true) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
     };
+    // Windows MAX_PATH(260) 预检: 深目录整目录上传时 create_dir_all 会报 ERROR_FILENAME_EXCED_RANGE,
+    // 不预检的话前端把它当网络问题空转重试 8 次才报错; 提前 400 + 明确文案
+    #[cfg(windows)]
+    {
+        let full_len = share.join(format!("{name}{UPLOAD_PART_SUFFIX}")).as_os_str().len();
+        if full_len > 259 {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "路径过长（Windows 单路径上限 260 字符），请缩短目录层级或文件名",
+            );
+        }
+    }
     let size: u64 = headers
         .get("X-File-Size")
         .and_then(|v| v.to_str().ok())
@@ -1331,9 +1483,15 @@ pub fn copy_file_cmd(name: String) -> serde_json::Value {
              $c.Add('{}') | Out-Null; \
              [System.Windows.Forms.Clipboard]::SetFileDropList($c)",
             p.replace('\'', "''"));
-        std::process::Command::new("powershell")
-            .args(["-STA", "-NoProfile", "-Command", &ps])
-            .output()
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-STA", "-NoProfile", "-Command", &ps]);
+        // CREATE_NO_WINDOW: 否则每点一次"复制"都闪一个 PowerShell 黑窗(像流氓软件)
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        cmd.output()
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let res: Result<std::process::Output, std::io::Error> = Err(std::io::Error::new(
