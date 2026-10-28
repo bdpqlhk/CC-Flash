@@ -63,14 +63,15 @@ pre code{background:none;color:inherit;padding:0}
   <a href="#s8">八、提交与版本时间线</a>
   <a href="#s9">九、配置中心现状</a>
   <a href="#s10">十、遗留事项与下一步</a>
-  <a href="#s11">十一、本轮迭代（10-26，未提交）</a>
+  <a href="#s11">十一、v1.1.2 迭代（10-26~27，已提交）</a>
+  <a href="#s12">十二、本轮迭代（10-27，未提交）</a>
 </nav>
 <main>
 <header class="doc">
-  <h1>CC-Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-26）</h1>
+  <h1>CC-Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-27）</h1>
   <div class="meta">
     <span>项目：<b>CC-Flash（局域网文件互传，Tauri 2 + Vue3 + axum）</b></span>
-    <span>记录范围：<b>2026-10-23 ~ 2026-10-26</b>（另含背景溯源）</span>
+    <span>记录范围：<b>2026-10-23 ~ 2026-10-27</b>（另含背景溯源）</span>
     <span>依据：<b>git 历史 + 开发会话记录 + 需求/技术文档 + 代码现状</b></span>
   </div>
 </header>
@@ -380,8 +381,9 @@ pre code{background:none;color:inherit;padding:0}
 
 <!-- ================= 十一 ================= -->
 <section id="s11">
-  <h2><span class="no">十一</span>本轮迭代（2026-10-26，工作区未提交）</h2>
-  <p class="muted">v1.1.1 之后的一轮大迭代：新增软件介绍页、修复桌面窗口/托盘系列问题、开机自启改为手动开启、Android 发布链路重做。历经 <b>8 轮深度代码审查</b>（30+ 项发现全部修复，其中 2 轮被安全分类器拦截以人工复查补位）。<b>全部改动尚未提交</b>——待人工验收后分批 commit，配置 4 个 Android Secrets 后打 tag 发版。</p>
+  <h2><span class="no">十一</span>v1.1.2 迭代（2026-10-26~27，已提交）</h2>
+  <p class="muted">v1.1.1 之后的一轮大迭代：新增软件介绍页、修复桌面窗口/托盘系列问题、开机自启改为手动开启、Android 发布链路重做。历经 <b>8 轮深度代码审查</b>（30+ 项发现全部修复，其中 2 轮被安全分类器拦截以人工复查补位）。</p>
+  <p class="muted"><b>已提交发版</b>（10-27 晚）：<code>5fb91a2</code> 介绍页+前端迭代 → <code>0e12810</code> 唤窗/单实例/自启 → <code>a55285d</code> Android 分包签名 → <code>ff16afd</code> 五份文档同步 → <code>8540135</code> 发版提交 → <code>14ddbf9</code> 版本号纠正 1.2.0→1.1.2（tag 重指）→ <code>2fd2252</code> 修复窗口启动白屏闪烁（<code>visible:false</code> 后 <code>show()</code> 早于 webview 首帧，露出 WKWebView 默认白底）。</p>
 
   <h3>11.1 软件介绍页（新功能）</h3>
   <ul>
@@ -439,10 +441,66 @@ pre code{background:none;color:inherit;padding:0}
   <h3>11.7 四份文档同步（2026-10-26）</h3>
   <p>README（功能特性/下载指引/目录结构/发版说明）、《保姆级使用说明》（介绍页入口、托盘唤窗、单实例、自启、按 ABI 选包、FAQ Q14/Q15）、《需求设计文档》（新增 FR-25/26/74、FR-23/24/72 重写、平台矩阵 +3 行、验收 +1）、《技术实现文档》（8.1/8.2 壳层重写、9.1 isRealDesktop、9.3 二维码单源、新增 9.11 介绍页、11.1 CI 重写）——本文档同步追加第十一节。</p>
 
-  <div class="note">📌 下一步：人工验收（dev 运行过一遍介绍页/托盘/自启）→ 分批提交 → 配置 <code>ANDROID_KEYSTORE_*</code> 四个 Secrets → <code>./scripts/release.sh 1.2.0</code> 打 tag 发版 → 真机验证 release APK 的 cleartext/签名/分包三项。</div>
+  <div class="note">📌 待办：<b>配置 <code>ANDROID_KEYSTORE_*</code> 四个 Secrets</b> → 下次发版即启用 Android release 签名 → 真机验证 release APK 的 cleartext/签名/分包三项。</div>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-26 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
+<!-- ================= 十二 ================= -->
+<section id="s12">
+  <h2><span class="no">十二</span>本轮迭代（2026-10-27，工作区未提交）</h2>
+  <p class="muted">v1.1.2 之后的传输能效大迭代：<b>分片断点续传上传 + 整目录上传（子目录）+ WebSocket 事件推送 + 浏览器跨源防护</b>，附带若干正确性/安全修复。代码已全绿（<code>cargo check</code> / <code>npm run build</code>），待人工验收后提交。</p>
+
+  <h3>12.1 分片断点续传上传</h3>
+  <ul>
+    <li><b>协议</b>：<code>POST /api/upload</code> 增加 <code>X-Upload-Offset</code>（本片起始偏移）与 <code>X-Upload-Id</code>（会话标识 = 文件名|大小|修改时间的稳定指纹）；分片写入 <code>&lt;name&gt;.ccpart</code> 临时文件按偏移追加，收齐后 rename 转正（Windows 先删目标再 rename）；</li>
+    <li><b>会话 id 防脏拼接</b>：<code>.ccpart.meta</code> 固化首片的会话 id——同名文件新内容（指纹变）会覆盖旧断点，杜绝「同名改内容续传拼出脏文件」；断点查询 <code>GET /api/upload_progress?name=&amp;id=</code> 校验归属，不属于本次会话返回 0（从头传）；</li>
+    <li><b>写互斥</b>：客户端超时重试后旧请求 handler 可能仍挂着写同一 <code>.ccpart</code>，按路径取独立异步锁（Weak 缓存 + 超 256 条清理死条目）；断点校验持锁进行（防 TOCTOU）；</li>
+    <li><b>半开连接释放</b>：请求体空闲超时 120s——hyper 无 body 超时，残留 handler 靠它退出并释放写锁；</li>
+    <li><b>客户端</b>：8MB 分片 + 单片 30s 超时（AbortController）+ 连续失败 8 次重试（成功一片清零）；每次失败后以服务端断点为准重排（服务重启清了断点自动从头）；覆盖 锁屏/断网/AP 休眠 中断场景；</li>
+    <li><b>断点清理</b>：服务启动时递归清理残留 <code>*.ccpart</code>/<code>*.meta</code>（不跟随符号链接）；列表接口同样隐藏中间产物；</li>
+    <li>磁盘预检改为按 <code>size - offset</code>（剩余量）而非全文件量。</li>
+  </ul>
+
+  <h3>12.2 整目录上传与子目录支持</h3>
+  <ul>
+    <li>文件名从 basename 放宽为<b>相对路径逐段校验</b>（<code>safe_rel_path</code>：拒绝空/./../首尾空格/Windows 非法字符/结尾点/内部产物后缀，段数上限 8 与列表递归深度一致）；下载/删除路由改通配 <code>*name</code>；</li>
+    <li>前端：新增「选择文件夹」入口（<code>webkitdirectory</code>）+ 拖拽 <code>webkitGetAsEntry</code> 递归收集（混合拖入兼容），目录结构经 <code>webkitRelativePath</code> 保留；</li>
+    <li><code>/api/files</code> 递归收集（深度 ≤8、跳过断点产物与符号链接），放进 <code>spawn_blocking</code> 防大目录卡 tokio worker；</li>
+    <li>上传建目录前对「最近存在的祖先」做 canonical 越界预检——<code>create_dir_all</code> 会跟随符号链接，先建后查会把目录建到界外。</li>
+  </ul>
+
+  <h3>12.3 WebSocket 事件推送（轮询降级为兜底）</h3>
+  <ul>
+    <li><code>GET /ws</code>：broadcast 事件总线，推 <code>chat:new</code> / <code>files:changed</code> / <code>status:up|down</code>；15s 应用层心跳暴露半开连接；</li>
+    <li>前端看门狗 10s 巡检、45s 未收到任何消息强制重连（退避 1s→10s）；WS 在线时停聊天/列表轮询，断开即恢复轮询兜底——两条通道任一可用页面即活；</li>
+    <li>停服先 <code>ws_kick</code> 广播踢掉所有 WS handler 再优雅关闭（否则 hyper 等挂起的 WebSocket 直至超时，停服卡数秒）；<code>stop()</code> 改为等待关闭（带 2s 超时），防紧接着 <code>start()</code> 旧端口未释放顺延到别的端口、用户刚复制的地址失效。</li>
+  </ul>
+
+  <h3>12.4 安全修复</h3>
+  <table>
+    <tr><th>问题</th><th>修复</th></tr>
+    <tr><td>浏览器跨源可借用户浏览器操作本机服务（drive-by CSRF / DNS 重绑定外带数据）</td><td>新增 <code>browser_origin_guard</code>：Host 必须是 IP / localhost / <code>*.local</code>；带 Origin 的请求只放行自身与 WebView（<code>tauri://localhost</code> 等）；无 Origin 的 curl/局域网 App 不受影响</td></tr>
+    <tr><td>Windows 打开链接经 <code>cmd /C start</code>——cmd 把 <code>&amp;|^^</code> 解释为分隔符，聊天链接/文件名可注入命令</td><td>URL 走 <code>rundll32 url.dll,FileProtocolHandler</code>、文件/目录走 <code>explorer</code>，直接参数传递不经 shell</td></tr>
+    <tr><td>并发聊天发送 id 重复（分两段加锁）→ 前端 <code>:key="m.id"</code> 重复键渲染错乱</td><td>id 分配与入队合并到同一临界区</td></tr>
+  </table>
+
+  <h3>12.5 其他修复与工程</h3>
+  <ul>
+    <li><b>端口输入框被轮询冲掉</b>：新增 <code>portDirty</code>——用户改过端口后停止状态下轮询不再回写；运行中展示实际生效端口（含被占顺延），启动成功立即回显；</li>
+    <li><b>浏览器下载兜底</b>：锚点挂 DOM 再 click（iOS Safari/国产浏览器忽略游离锚点）；HTTP 错误如实报错不走原生回退（防把 JSON 错误体当文件下载）；blob 失败退回原生下载；</li>
+    <li>前后端大小格式化统一（B 不带小数）——顺手了结第十节「两份单位表」小尾巴；</li>
+    <li><code>release.sh</code>：<code>sed -i.bak</code> 双平台兼容；推送当前分支而非硬编码 main（特性分支发版不误推 main）；</li>
+    <li>HTTP 控制端点 start/stop 挪到独立线程（<code>run_blocking</code>）——handler 里直接 <code>block_on</code> 会 panic「runtime within a runtime」；</li>
+    <li>axum 开启 <code>ws</code> feature；新增 <code>UPLOAD_*</code> 配置常量（config.rs 唯一事实，前端经 <code>/api/info</code> 下发的机制不变，分片参数在 config.js）；</li>
+    <li>中英文 README（新增 <code>README.en.md</code>，顶部互链）；新增《推广营销方案》《后期规划》两份文档。</li>
+  </ul>
+
+  <h3>12.6 验证基线</h3>
+  <p><code>cargo check</code>（dev profile）与 <code>npm run build</code>（vite 93 模块）全绿。待人工验收：大文件断网续传、整目录拖拽上传、手机端 WS 即时聊天、恶意网页跨源拦截。</p>
+
+  <div class="note">📌 下一步：人工验收上述四项 → 分批提交 → 配置 Android Secrets → 发版。</div>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-27 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

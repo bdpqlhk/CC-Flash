@@ -136,14 +136,14 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">3</span>功能需求总览</h2>
 <table>
 <tr><th>编号</th><th>模块</th><th>需求</th><th>优先级</th><th>状态</th></tr>
-<tr><td>FR-01</td><td rowspan="7">文件共享</td><td>多途径上传：点击选择 / 拖拽 / Ctrl+V·Cmd+V 粘贴 / 多选，带进度条与实时速率</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-01</td><td rowspan="7">文件共享</td><td>多途径上传：点击选择 / 拖拽 / Ctrl+V·Cmd+V 粘贴 / 多选 / <b>整个文件夹</b>（选择或拖拽均保持目录结构），带进度条与实时速率</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-02</td><td>文件列表：文件类型徽标（FILE/PDF/VID…）、大小、相对时间、图片缩略图与「预览」</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（每页 8 条，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-07</td><td>文件列表自动同步：所有端每 5 秒自动刷新，任何设备上传/删除都能在各端自动呈现；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-04</td><td>按平台差异化操作按钮：桌面=打开/复制/删除/分享；浏览器=下载/删除/分享</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-05</td><td>上传前磁盘空间预检，空间不足明确拒绝；上传中断自动清理半截文件</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-05</td><td>上传前磁盘空间预检（按剩余未传量），空间不足明确拒绝；<b>分片断点续传</b>：大文件分片上传，断网/锁屏/半开连接中断后自动从服务端断点继续（会话指纹校验防同名脏拼接），无需人工干预</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息内 URL 自动识别为可点击链接（先转义防 XSS，桌面端点击走系统浏览器）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -177,11 +177,12 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">4</span>文件共享模块</h2>
 <h3>4.1 上传</h3>
 <ul>
-<li>入口：拖拽区点击、拖放文件、粘贴事件（截图直接 Ctrl+V / Cmd+V）、多选；</li>
-<li>每项展示：文件名、状态（等待中 / 百分比+速率 / 完成 / 失败原因）、进度条；</li>
-<li>协议：<code>POST /api/upload</code>，文件名放请求头 <code>X-Filename</code>（URL 编码），声明大小放 <code>X-File-Size</code>；</li>
-<li>服务端先做磁盘空间预检：声明大小 &gt; 可用空间 → 明确拒绝并写日志「上传拒绝」；</li>
-<li>流式落盘（1MB 分块），客户端中断/写盘失败自动删除半截文件并写日志。</li>
+<li>入口：拖拽区点击、拖放文件/文件夹（递归收集、保持目录结构）、粘贴事件（截图直接 Ctrl+V / Cmd+V）、「选择文件夹」、多选；</li>
+<li>每项展示：文件名（含子目录相对路径）、状态（等待中 / 百分比+速率 / 网络中断自动续传中 / 完成 / 失败原因）、进度条；</li>
+<li>协议：<code>POST /api/upload</code>，文件名（相对路径）放请求头 <code>X-Filename</code>（URL 编码），声明大小放 <code>X-File-Size</code>，分片偏移放 <code>X-Upload-Offset</code>，会话指纹放 <code>X-Upload-Id</code>；</li>
+<li>服务端先做磁盘空间预检：剩余未传量 &gt; 可用空间 → 明确拒绝并写日志「上传拒绝」；</li>
+<li><b>分片断点续传</b>：8MB 分片追加写 <code>.ccpart</code> 临时文件，收齐后转正；断网/锁屏中断后客户端以服务端断点（<code>GET /api/upload_progress</code>）为准自动续传；会话指纹（名|大小|修改时间）校验断点归属，同名新内容视为新会话从头覆盖，防脏拼接；</li>
+<li>半开连接由服务端 120s 空闲超时兜底释放；客户端单片 30s 超时 + 连续失败 8 次重试（成功一片清零）。</li>
 </ul>
 <h3>4.2 下载与分享</h3>
 <ul>
@@ -206,7 +207,7 @@ pre code{background:none;color:inherit;padding:0}
 <section id="s5">
 <h2><span class="no">5</span>聊天室模块</h2>
 <ul>
-<li><b>收发</b>：所有端 3 秒轮询一次；服务端保留最近 200 条；昵称截取前 20 字，消息截取前 2000 字；</li>
+<li><b>收发</b>：新消息经 WebSocket 推送即时到达（断开时降级 3 秒轮询）；服务端保留最近 200 条；昵称截取前 20 字，消息截取前 2000 字；</li>
 <li><b>昵称</b>：可手动输入并记忆；未设置时自动生成（如 <code>Mac Chrome-2569</code>：系统 + 浏览器 + 随机 4 位数，存 localStorage）；</li>
 <li><b>头像</b>：昵称哈希 → 24 个 emoji 池映射，同昵称恒定同头像；</li>
 <li><b>未读</b>：悬浮球角标显示未读数（99+ 封顶）；电脑端在聊天页时、手机面板打开时自动消红点；</li>
@@ -343,7 +344,9 @@ pre code{background:none;color:inherit;padding:0}
 <b>可信局域网</b>使用。控制台接口（启停/日志/清空）与文件接口均无鉴权——请只在可信 Wi-Fi 下使用，不要把端口暴露到公网。</div>
 <h3>13.1 内置防护</h3>
 <ul>
-<li><b>路径穿越双重防护</b>：URL 解码 → 取 basename（拒绝空/./..）→ 与共享目录拼接后 canonicalize 校验前缀越界；</li>
+<li><b>路径穿越双重防护</b>：URL 解码 → 相对路径逐段校验（拒绝空/./../首尾空格/非法字符，支持子目录）→ 与共享目录拼接后 canonicalize 校验前缀越界；上传建目录前对最近存在的祖先做越界预检（防符号链接把目录建到界外）；</li>
+<li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost / <code>*.local</code>（挡 DNS 重绑定）；带 Origin 的请求只放行自身与 WebView（挡恶意网页借用户浏览器操作本机服务的 drive-by CSRF）；无 Origin 的 curl/局域网 App 不受影响；</li>
+<li><b>系统命令注入防护（Windows）</b>：打开 URL 走 <code>rundll32 FileProtocolHandler</code>、文件走 <code>explorer</code>，不经 <code>cmd</code> shell（cmd 会解释 <code>&amp;|^</code> 等字符）；</li>
 <li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>
 <li><b>资源上限</b>：聊天 200 条 / 昵称 20 字 / 消息 2000 字 / 日志 1000 条；</li>
 <li><b>删除确认</b>：所有删除必须经确认框。</li>
@@ -390,7 +393,7 @@ pre code{background:none;color:inherit;padding:0}
 <table>
 <tr><th>事项</th><th>取舍 / 边界</th></tr>
 <tr><td>无鉴权</td><td>可信局域网定位；如需公网/半可信网络，需另行加配对令牌（后续演进思路）</td></tr>
-<tr><td>轮询而非推送</td><td>聊天 3s / 日志 2s / 状态 2.5s 轮询，实现简单、兼容性好；WebSocket 留待后续</td></tr>
+<tr><td>推送为主、轮询兜底</td><td>聊天/文件列表/服务状态经 WebSocket 即时推送（15s 心跳 + 前端看门狗强制重连半开连接）；轮询保留为降级通道（WS 断开时恢复），日志仍 2s 轮询（仅桌面控制台消费）</td></tr>
 <tr><td>大文件下载阈值</td><td>浏览器端 &gt;1GB 回退原生下载（避免 blob 占内存），此场景无"完成"回调，会明确提示</td></tr>
 <tr><td>聊天持久化</td><td>仅内存 200 条，服务重启即清空（定位为临时接力，不做历史存档）</td></tr>
 <tr><td>跨平台</td><td>macOS 已出包验证；Windows（WebView2/MSVC）待验</td></tr>

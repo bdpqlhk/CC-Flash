@@ -183,12 +183,14 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <h2><span class="no">4</span>Rust 服务层 · HTTP 路由全表</h2>
 <table>
 <tr><th>方法</th><th>路径</th><th>功能</th><th>要点</th></tr>
-<tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>读目录 → name/size/modified(JSON 时间秒)，按修改时间倒序</td></tr>
-<tr><td>GET</td><td><code>/api/download/:name</code></td><td>下载</td><td>流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>（浏览器进度/前端预知大小）；MIME 按扩展名猜</td></tr>
-<tr><td>POST</td><td><code>/api/upload</code></td><td>上传</td><td><code>X-Filename</code>(URL编码) + <code>X-File-Size</code>；磁盘预检；流式写盘；失败/中断删半截文件；完成返回 {ok,name,size}</td></tr>
-<tr><td>DELETE</td><td><code>/api/delete/:name</code></td><td>删除</td><td>safe_name + 越界校验后删文件</td></tr>
+<tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>递归收集（深度 ≤8，相对路径作 name，隐藏 .ccpart 产物与符号链接，<code>spawn_blocking</code>）→ name/size/modified(JSON 时间秒)，按修改时间倒序</td></tr>
+<tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载</td><td>通配路由支持子目录；流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>（浏览器进度/前端预知大小）；MIME 按扩展名猜</td></tr>
+<tr><td>POST</td><td><code>/api/upload</code></td><td>上传（分片断点续传）</td><td><code>X-Filename</code>(URL编码, 相对路径) + <code>X-File-Size</code> + <code>X-Upload-Offset</code> + <code>X-Upload-Id</code>；磁盘预检（按剩余量）；分片追加写 .ccpart（按路径异步锁互斥），收齐转正；中断保留断点返回 {received}；完成返回 {ok,received,done:true}</td></tr>
+<tr><td>GET</td><td><code>/api/upload_progress</code></td><td>断点查询</td><td>?name=&amp;id= → {received}；会话 id 不匹配返回 0（从头传）；纯只读不建目录</td></tr>
+<tr><td>DELETE</td><td><code>/api/delete/*name</code></td><td>删除</td><td>safe_rel_path + 越界校验后删文件（支持子目录）</td></tr>
 <tr><td>GET</td><td><code>/api/chat</code></td><td>拉取聊天</td><td>返回全部（≤200）消息数组</td></tr>
-<tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、记录来源 IP；返回自增 id</td></tr>
+<tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、记录来源 IP；id 分配与入队同一临界区（防并发重复 id）；返回自增 id</td></tr>
+<tr><td>GET</td><td><code>/ws</code></td><td>WebSocket 事件推送</td><td>broadcast 总线推 {type: chat:new|files:changed|status:up|down}；15s 心跳 {"type":"hb"}；慢消费者跳过积压（客户端收到事件后本就全量拉取）；停服先 ws_kick 踢掉所有连接再优雅关闭</td></tr>
 <tr><td>GET</td><td><code>/api/info</code></td><td>服务信息</td><td>{ip, port, running, <b>version</b>, <b>config</b>}——网页端状态轮询用，config 见第 10 节</td></tr>
 <tr><td>GET</td><td><code>/api/control/status</code></td><td>状态</td><td>{running, port, ip}</td></tr>
 <tr><td>POST</td><td><code>/api/control/start</code></td><td>启动</td><td>JSON {port?}</td></tr>
@@ -197,7 +199,7 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <tr><td>POST</td><td><code>/api/control/logs/clear</code></td><td>清日志</td><td>清空后写入「日志已清空」标记</td></tr>
 <tr><td>GET</td><td><code>/favicon.ico</code></td><td>图标</td><td>—</td></tr>
 <tr><td>GET</td><td><code>/*</code>（fallback）</td><td>静态页面</td><td>rust_embed 嵌入的 ../dist</td></tr>
-<tr><td colspan="4" class="small">全局：CorsLayer::permissive（桌面壳跨源调用 API）；日志中间件（见第 7 节）</td></tr>
+<tr><td colspan="4" class="small">全局：CorsLayer::permissive（桌面壳跨源调用 API）；日志中间件（见第 7 节）内嵌 <b>browser_origin_guard</b>：Host 限 IP/localhost/*.local（挡 DNS 重绑定），带 Origin 只放行自身与 WebView（挡 drive-by CSRF），无 Origin 的非浏览器客户端不受影响</td></tr>
 </table>
 
 <h3>4.1 Tauri 命令（IPC，桌面壳专用）</h3>
@@ -218,17 +220,26 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <!-- ================= 5 ================= -->
 <section id="s5">
 <h2><span class="no">5</span>关键流程实现</h2>
-<h3>5.1 上传（流式 + 预检 + 自清理）</h3>
+<h3>5.1 上传（分片断点续传 + 预检 + 目录结构保留）</h3>
 <pre>
-HEAD 头校验 → safe_name(X-Filename) ─非法→ 400
-→ X-File-Size &gt; fs2::available_space ─是→ 400 + 日志「上传拒绝」
-→ path.exists()? 记录覆盖标记
-→ File::create（失败→500+日志）
-→ 日志「上传开始 (声明大小) ← IP · 覆盖同名文件」
-→ while chunk = body_stream.next(): 写入累加 written
-   ├─ 写失败 → remove_file + 日志「上传失败…已清理半截文件」→ 500
-   └─ 客户端断开 → remove_file + 日志「上传中断…已清理半截文件」→ 500
-→ sync_all → 日志「上传完成 (大小, 耗时ms)」→ 200 {ok,name,size}
+HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验) ─非法→ 400
+→ (size-offset) &gt; fs2::available_space ─是→ 400 + 日志「上传拒绝」
+→ part_lock(.ccpart 路径异步锁): 同一断点文件同一时刻仅一个写者(超时重试后旧 handler 防交错写)
+→ offset&gt;0: 校验 .ccpart 存在且 .meta 会话 id 匹配(TOCTOU 持锁校验)
+   ├─ 无断点/会话不匹配 → 409 {received:0}(客户端从头重传)
+   ├─ 断点 &lt; offset → 409 {received:have}
+   └─ 断点 &gt; offset → set_len(offset) 截断(客户端回退到更早断点)
+→ 建目录前对最近存在的祖先 canonicalize 越界预检(防符号链接建到界外) → create_dir_all
+→ OpenOptions(create+write, truncate 当 offset==0) → seek(offset)
+→ offset==0: 固化 .meta 会话 id + 日志「上传开始 (声明) ← IP」
+→ loop: 空闲超时 120s(半开连接释放写锁) / body_stream.next()
+   ├─ 写失败 → 500(保留断点)
+   ├─ 连接断开/空闲超时 → 502/504 {received}(保留断点, 可续传)
+   └─ 正常写入累加 received
+→ received&gt;size → set_len(size) 截断(超额字节视为脏数据)
+→ sync_all → size&gt;0 且 received&lt;size → 200 {ok,received,done:false}(分片确认, 断点保留)
+→ create_dir_all(父目录) → (Windows: 先删已存在目标) rename 转正 → 删 .meta
+→ 日志「上传完成 (大小, 耗时ms[, 续传自 N])」+ 广播 files:changed → 200 {ok,received,done:true}
 </pre>
 <h3>5.2 下载</h3>
 <pre>
@@ -247,20 +258,21 @@ GET:  返回 Vec&lt;ChatMsg&gt;
 </pre>
 <h3>5.4 删除</h3>
 <pre>
-safe_name → safe_join_existing → remove_file
-→ 成功: 日志「删除 {名} ← IP」；失败: 日志「删除失败 …」→ 500
+safe_rel_path → safe_join_existing → remove_file
+→ 成功: 日志「删除 {名} ← IP」+ 广播 files:changed；失败: 日志「删除失败 …」→ 500
 </pre>
 </section>
 
 <!-- ================= 6 ================= -->
 <section id="s6">
 <h2><span class="no">6</span>路径安全设计</h2>
-<p>所有接受文件名的接口（下载/删除/上传/复制）统一走两道防线：</p>
+<p>所有接受文件名的接口（下载/删除/上传/复制/断点查询）统一走两道防线：</p>
 <ol>
-<li><b><code>safe_name(raw)</code></b>：percent_decode → 把 <code>\</code> 归一为 <code>/</code> → 取 <code>Path::file_name()</code> basename → 拒绝空 / "." / ".."；</li>
+<li><b><code>safe_rel_path(raw)</code></b>（输入应为已解码字符串）：把 <code>\</code> 归一为 <code>/</code> → 逐段校验：拒绝空 / "." / ".." / 首尾空格 / Windows 非法字符（<code>/:*?"&lt;&gt;|</code>，其余平台统一保证跨端一致）/ 结尾点 / 内部产物后缀（.ccpart/.meta）→ 段数上限 8（与列表递归深度一致）→ 以 <code>/</code> 连接返回相对路径；</li>
 <li><b><code>safe_join_existing(share, name)</code></b>：拼路径后 <code>canonicalize()</code>，校验结果必须以共享目录 canonicalize 前缀开头（防符号链接/编码绕过越界）。</li>
 </ol>
-<div class="callout c-info"><b>为什么上传不需要第二道</b>上传的落盘路径 = <code>share.join(name)</code>，name 已经是 basename（第一道保证不越界），且目标固定在共享目录根部。</div>
+<div class="callout c-info"><b>上传的额外预检</b>上传可能创建新路径：建目录前对「最近存在的祖先」做 canonicalize 越界校验——<code>create_dir_all</code> 会跟随符号链接，先建后查会把目录建到共享目录之外。断点查询（upload_progress）纯只读、不创建任何目录（防任意查询串刷出空目录树）。</div>
+<div class="callout c-tip"><b>解码边界</b>axum 的 Path/Query 提取器自带一次 percent 解码；<code>X-Filename</code> 请求头不经提取器，由 upload 处理解一次再传入。<code>safe_rel_path</code> 本身不再解码——避免含字面 <code>%XX</code> 的文件名被双重解码后指向别的文件。</div>
 </section>
 
 <!-- ================= 7 ================= -->
@@ -333,20 +345,28 @@ safe_name → safe_join_existing → remove_file
 <tr><td><code>introShow / introSec / faqOpen</code></td><td>介绍页（开合 / 锚点高亮 scroll spy / FAQ 单开手风琴）</td></tr>
 <tr><td><code>autostartOn / showAutostartTip</code></td><td>开机自启开关状态与开启成功说明弹框（仅真实桌面）</td></tr>
 </table>
-<h3>9.3 轮询与 IP 变化检测</h3>
+<h3>9.3 WebSocket 推送 + 轮询兜底</h3>
+<p>聊天/文件列表/服务状态优先走 <code>/ws</code>（事件驱动即时刷新），轮询降级为兜底通道——两条通道任一可用页面即活：</p>
 <table>
-<tr><th>定时器</th><th>周期</th><th>内容</th></tr>
-<tr><td>chatTimer</td><td>3s（可下发）</td><td>loadChat（所有端）</td></tr>
-<tr><td>logTimer</td><td>2s（可下发）</td><td>refreshLogs（仅桌面）</td></tr>
-<tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + toast「本机 IP 已变为 …，手机请改用新地址访问」；二维码由 <code>watch [shareUrl, running]</code> 统一驱动重生成（地址或启停任一变化即更新、停服清空、乱序过期结果丢弃），轮询末尾 <code>running && !qrData</code> 时兜底重试自愈</b>；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</td></tr>
-<tr><td>filesTimer</td><td>5s（可下发）</td><td>loadFiles(false) 文件列表自动同步——其他设备上传/删除在各端自动呈现；<code>loadFiles(manual)</code> 手动刷新置 <code>refreshing</code> 触发按钮旋转（最短 600ms）；在途竞争用 <code>reloadQueued</code> 补拉队列保证删除后必刷新</td></tr>
+<tr><th>机制</th><th>要点</th></tr>
+<tr><td>connectWs / closeWs</td><td>桌面 <code>ws://127.0.0.1:{port}/ws</code>、网页 <code>(wss?)://host/ws</code>；地址变化（换端口）先清场重连；连接即全量同步一次（loadChat+loadFiles）补断线窗口期</td></tr>
+<tr><td>事件分发</td><td><code>chat:new</code> → loadChat；<code>files:changed</code> → loadFiles；<code>status:up|down</code> → refreshStatus；任何消息（含 15s 心跳 hb）刷新 <code>lastWsMsg</code></td></tr>
+<tr><td>看门狗</td><td>10s 巡检，超过 45s（<code>WS_HB_TIMEOUT_MS</code>）未收到任何消息 → 强制 <code>close()</code>——桌面端状态轮询走 invoke 永远"成功"，无看门狗时半开连接会永久卡死</td></tr>
+<tr><td>applyWsMode</td><td>WS OPEN 时停 chatTimer/filesTimer（省电省请求）；断开时恢复轮询 + 退避重连（1s→10s）；桌面服务已停时停止重连等待 running 变化，网页端持续重试（服务回来自动恢复）</td></tr>
+<tr><td>断连自愈</td><td>statusTimer 检测失联恢复（wasOffline）→ toast + 立即全量重载 + connectWs，不等下一轮</td></tr>
 </table>
-<p class="small">定时器统一由 <code>startPolling()/stopPolling()</code> 启停：服务端下发的轮询间隔与当前不同时自动重排。</p>
-<h3>9.4 上传实现</h3>
+<table>
+<tr><th>剩余定时器</th><th>周期</th><th>内容</th></tr>
+<tr><td>logTimer</td><td>2s（可下发）</td><td>refreshLogs（仅桌面）</td></tr>
+<tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + toast「本机 IP 已变为 …，手机请改用新地址访问」；二维码由 <code>watch [shareUrl, running]</code> 统一驱动重生成；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</b>；端口输入框由 <code>syncPortInput</code> 同步（运行中回显实际端口；停止态仅 <code>portDirty=false</code> 且未聚焦时回写，防用户输入被轮询冲掉）</td></tr>
+<tr><td>chatTimer / filesTimer</td><td>3s / 5s（可下发）</td><td><b>仅 WS 断开时存在</b>（applyWsMode 管理）；在途竞争用 <code>reloadQueued</code> 补拉队列保证删除后必刷新</td></tr>
+</table>
+<h3>9.4 上传实现（分片 + 断点续传 + 整目录）</h3>
 <ul>
-<li>XMLHttpRequest 以获取 <code>upload.onprogress</code>（百分比 + 速率计算）；并发多文件队列；</li>
-<li>拖拽（drop/dragover）、<code>#fileInput</code> 点击选择、<code>document paste</code> 事件（剪贴板截图直接传）；</li>
-<li>请求头 <code>X-Filename</code>（encodeURIComponent）与 <code>X-File-Size</code>。</li>
+<li>分片 fetch 循环：8MB 分片（<code>UPLOAD_CHUNK</code>）逐片 POST，单片 30s 超时（AbortController），进度/速率按累计偏移计算；并发多文件队列；</li>
+<li>断点续传：会话 id = <code>文件名|大小|lastModified</code> 稳定指纹（页面重载/锁屏后重选同一文件仍命中服务端已有断点）；开传前与每次失败后 <code>GET /api/upload_progress</code> 以服务端断点为准重排；连续失败 8 次（成功一片清零）报错；</li>
+<li>整目录：拖拽走 <code>webkitGetAsEntry</code> 递归收集（混合拖入兼容），「选择文件夹」走 <code>webkitdirectory</code>，相对路径经 <code>webkitRelativePath</code> 保留；</li>
+<li>下载兜底：锚点挂 DOM 再 click（iOS Safari/部分国产浏览器忽略游离锚点）；HTTP 错误如实报错不走原生回退；blob 失败退回原生下载。</li>
 </ul>
 <h3>9.5 主题系统</h3>
 <ul>
@@ -466,7 +486,7 @@ npm run tauri build
 <table>
 <tr><th>事项</th><th>说明</th></tr>
 <tr><td>无鉴权</td><td>可信局域网模型，控制接口与文件接口均无鉴权；切勿暴露公网</td></tr>
-<tr><td>轮询 vs 推送</td><td>聊天 3s/日志 2s/状态 2.5s 轮询，实现简单兼容性好；WebSocket 为后续可选演进</td></tr>
+<tr><td>推送 + 轮询双通道</td><td>聊天/列表/状态走 WebSocket 推送（15s 心跳 + 10s 看门狗强制重连），轮询降级兜底；日志仍 2s 轮询（仅桌面控制台消费，不值得占 WS）</td></tr>
 <tr><td>App.vue 单文件</td><td>全部 UI/逻辑集中一个 SFC——体量可控，若继续膨胀建议拆组件</td></tr>
 <tr><td>更新检查</td><td>前端直连 GitHub Releases API，失败一律静默；应用内自更新（签名+自动重启）留作演进</td></tr>
 <tr><td>移动端编译适配</td><td>托盘/关窗收纳等桌面 API 以 <code>#[cfg(desktop)]</code> 门控；<code>run()</code> 标注 <code>#[cfg_attr(mobile, tauri::mobile_entry_point)]</code> 生成 JNI 符号；<code>copy_file_cmd</code> 非 mac/win 分支显式标注 <code>Result&lt;Output, io::Error&gt;</code> 类型（三处均为移动端首编实测踩坑）。日常可用 <code>cargo check --target aarch64-linux-android</code> 本地 30 秒预检</td></tr>

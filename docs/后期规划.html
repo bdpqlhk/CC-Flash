@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC-Flash · 后期规划</title>
+<style>
+:root{
+  --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
+  --blue:#2e70ef; --blue-bg:#eef4ff; --green:#0f9d58; --green-bg:#e9f7ef;
+  --orange:#c77700; --orange-bg:#fff6e8; --red:#d64541; --red-bg:#fdecec;
+  --code:#0d1017; --code-text:#d5dbe5;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14.5px;line-height:1.75}
+.layout{display:flex;max-width:1240px;margin:0 auto;gap:24px;padding:24px}
+nav.toc{width:240px;flex-shrink:0;position:sticky;top:24px;align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 8px;max-height:calc(100vh - 48px);overflow-y:auto}
+nav.toc h3{font-size:12px;color:var(--text2);letter-spacing:2px;padding:0 10px 8px}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--text2);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--blue-bg);color:var(--blue)}
+main{flex:1;min-width:0}
+header.doc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 30px;margin-bottom:20px}
+header.doc h1{font-size:24px;letter-spacing:-0.3px}
+header.doc .meta{margin-top:8px;color:var(--text2);font-size:13px;display:flex;gap:18px;flex-wrap:wrap}
+header.doc .meta b{color:var(--text)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 30px;margin-bottom:20px}
+h2{font-size:19px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:14px}
+h2 .no{color:var(--blue);margin-right:8px}
+h3{font-size:15.5px;margin:20px 0 8px}
+p{margin:8px 0;color:var(--text)}
+ul,ol{margin:8px 0 8px 22px}
+li{margin:4px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+th{background:#f0f3f8;text-align:left;padding:9px 12px;border:1px solid var(--line);font-weight:600;white-space:nowrap}
+td{padding:8px 12px;border:1px solid var(--line);vertical-align:top}
+tr:nth-child(even) td{background:#fafbfd}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:#eef1f6;padding:2px 6px;border-radius:5px;color:#c7254e}
+.callout{border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13.5px;border:1px solid}
+.callout b{display:block;margin-bottom:4px}
+.c-info{background:var(--blue-bg);border-color:#c9dcff;color:#1d4fb8}
+.c-tip{background:var(--green-bg);border-color:#bfe6cf;color:#0b6e40}
+.c-warn{background:var(--orange-bg);border-color:#f2ddb0;color:#96600a}
+.c-danger{background:var(--red-bg);border-color:#f2c3c1;color:#a83330}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;vertical-align:1px}
+.t-p0{background:var(--red-bg);color:var(--red)}
+.t-p1{background:var(--orange-bg);color:var(--orange)}
+.t-p2{background:var(--blue-bg);color:var(--blue)}
+.t-done{background:var(--green-bg);color:var(--green)}
+.small{font-size:12.5px;color:var(--text2)}
+.muted{color:var(--text2)}
+@media (max-width:900px){nav.toc{display:none}.layout{padding:12px}}
+@media print{nav.toc{display:none}section{border:none;padding:10px 0}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+<h3>目 录</h3>
+<a href="#s1">一、基线：v1.1.2 现状</a>
+<a href="#s2">二、规划总览与版本节奏</a>
+<a href="#s3">三、v1.2.x · 质量与安全打磨</a>
+<a href="#s4">四、v1.3 · 能力扩展</a>
+<a href="#s5">五、v2.0 · 生态演进</a>
+<a href="#s6">六、平台与分发路线</a>
+<a href="#s7">七、工程质量基建线（持续）</a>
+<a href="#s8">八、依赖与决策点</a>
+<a href="#s9">九、明确不做（范围红线）</a>
+<a href="#s10">十、里程碑总表</a>
+</nav>
+
+<main>
+<header class="doc">
+<h1>CC-Flash · 后期规划</h1>
+<div class="meta">
+<span>文档日期：<b>2026-10-28</b></span>
+<span>基线：<b>v1.1.2</b>（介绍页/唤窗单实例/自启/Android 签名链路已发布）</span>
+<span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
+</div>
+</header>
+
+<!-- ============ 1 ============ -->
+<section id="s1">
+<h2><span class="no">一</span>基线：v1.1.2 现状</h2>
+<table>
+<tr><th>维度</th><th>状态</th></tr>
+<tr><td>平台</td><td>macOS / Windows / Android（4 ABI 分包 + release 签名）；Linux 可源码构建</td></tr>
+<tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、聊天室、服务控制/日志、5 皮肤、介绍页、开机自启、托盘唤窗、单实例</td></tr>
+<tr><td>工程</td><td>CI 三平台自动发版（8 产物）、Android 签名 Secrets 链路、8 轮深度审查清零</td></tr>
+<tr><td>已知遗留</td><td>iOS 无真机包（依赖开发者账号）、应用内自更新未做、mDNS 发现已评估未实施、前后端大小单位表未统一、<span class="tag t-done">Android 正式签名已完成</span></td></tr>
+</table>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="s2">
+<h2><span class="no">二</span>规划总览与版本节奏</h2>
+<table>
+<tr><th>版本</th><th>主题</th><th>时间窗</th><th>一句话</th></tr>
+<tr><td><b>v1.2.x</b></td><td>质量与安全打磨</td><td>1 ~ 2 个月</td><td>不加新功能，把「敢在任意 Wi-Fi 打开」补上</td></tr>
+<tr><td><b>v1.3</b></td><td>能力扩展</td><td>第 3 ~ 5 月</td><td>断点续传、临时分享链接、推送化、发现（mDNS）</td></tr>
+<tr><td><b>v2.0</b></td><td>生态演进</td><td>第 6 月起</td><td>iOS、应用市场、应用内更新、国际化</td></tr>
+</table>
+<div class="callout c-tip"><b>排序原则</b>安全缺口 &gt; 高频痛点 &gt; 传播型功能（如发现）&gt; 平台扩张。每个版本只承诺 1 个「主菜」，其余为配菜——避免摊大饼。</div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="s3">
+<h2><span class="no">三</span>v1.2.x · 质量与安全打磨（1 ~ 2 个月）</h2>
+<h3>3.1 主菜：不可信网络防护（P0）</h3>
+<p>现状：接口无密码，公共/半可信 Wi-Fi 下同网段任何人都能操作——这是文档里明说的边界，但推广后会成为最大差评来源。</p>
+<table>
+<tr><th style="width:180px">项</th><th>方案</th><th style="width:60px">优先级</th></tr>
+<tr><td>配对码模式</td><td>服务端生成 6 位动态码（有效期会话级），手机端首次访问需输入；桌面端常驻显示。开关式（默认关，保持「零学习成本」；检测到公网 Wi-Fi 特征时提示开启）</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td>控制接口令牌</td><td>删除/启停/清日志等写操作要求 <code>X-Token</code>（QR 内嵌），只读浏览不设卡</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td>HTTPS 自签 + 扫码信任</td><td>自签证书随服务生成，二维码带上证书指纹，手机首次扫码即信任（消除「HTTP 明文」在推广后的安全性质疑）</td><td><span class="tag t-p1">P1</span></td></tr>
+</table>
+<h3>3.2 配菜（P1）</h3>
+<ul>
+<li><b>传输历史</b>：本地记录最近收发（不含文件本体），解决「刚才那个文件呢」；</li>
+<li><b>断网自愈增强</b>：手机页面断连后自动按原地址重连 + 成功提示（现失联画面被动等恢复）；</li>
+<li><b>路径安全回归测试集</b>：路径穿越双防护补自动化测试（fuzz 边界用例入库 CI）；</li>
+<li><b>小尾巴清零</b>：前后端大小单位表统一、日志文案一致性过一遍。</li>
+</ul>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="s4">
+<h2><span class="no">四</span>v1.3 · 能力扩展（第 3 ~ 5 月）</h2>
+<table>
+<tr><th style="width:150px">项</th><th>说明</th><th>量级</th><th style="width:60px">优先级</th></tr>
+<tr><td><b>断点续传</b></td><td>大文件传一半断网/锁屏后可续：HTTP Range 分块 + 前端分片队列（局域网场景收益最高的功能，10GB 视频场景刚需）</td><td>约 3~5 天</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td><b>临时分享链接</b></td><td>「仅下载」只读链接：带 token + 过期时间（10 分钟/1 天/7 天），发给同事不用怕被删改——补齐协作场景</td><td>约 1~2 天</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td><b>WebSocket 推送</b></td><td>聊天/列表/状态由轮询改推送（技术文档已列为演进项）：省电、实时性从 3s → 即时；轮询保留为降级通道</td><td>约 3~4 天</td><td><span class="tag t-p1">P1</span></td></tr>
+<tr><td><b>mDNS 发现（wft.local）</b></td><td>已评估方案入库：<code>mdns-sd</code> 广播 <code>_http._tcp</code>（约 60~80 行）；手机记一次 wft.local 书签，IP 变化不再失效。硬边界（Android 不解析 .local、企业网禁多播）已在需求文档写明——<b>定位为「锦上添花」，失败自动退回扫码路径</b></td><td>约 0.5 天</td><td><span class="tag t-p1">P1</span></td></tr>
+<tr><td><b>整目录/文件夹上传</b></td><td>拖文件夹进页面保持目录结构上传</td><td>约 1~2 天</td><td><span class="tag t-p2">P2</span></td></tr>
+<tr><td><b>共享文件夹监控同步</b></td><td>指定子目录变化自动出现/失效（轻量 Dropbox 感）——注意范围，不做双向同步</td><td>约 2~3 天</td><td><span class="tag t-p2">P2</span></td></tr>
+</table>
+<div class="callout c-warn"><b>取舍说明</b>「文件夹监控同步」与「双向同步」一线之隔，后者是 Syncthing 的地盘——v2.0 前明确不做双向，避免掉进数据一致性深坑。</div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="s5">
+<h2><span class="no">五</span>v2.0 · 生态演进（第 6 月起）</h2>
+<ul>
+<li><b>iOS 真机包</b>：依赖 Apple 开发者账号（$99/年，决策点见第八节）；workflow 已留注释模板，账号到位即可启用；iOS 需做 Bonjour 权限声明（<code>NSLocalNetworkUsageDescription</code> + <code>_http._tcp</code> 服务声明）；</li>
+<li><b>应用内自更新</b>：<code>tauri-plugin-updater</code>（遗留清单第二项）：后台下载 + 自动重启，前置 minisign 签名密钥与 latest.json 托管（GitHub Releases 即可）；与现「检查更新跳转下载」并存，老用户平滑过渡；</li>
+<li><b>应用市场上架</b>：Google Play（AAB）+ 国内主流商店（华为/小米/OPPO/vivo，需软著与上架材料）——<b>上架版本建议走「配对码默认开」的安全姿态</b>；</li>
+<li><b>国际化 i18n</b>：界面英/日文（vue-i18n），配合推广阶段五打开国际市场；文档英文版同步；</li>
+<li><b>设备间互传（谨慎评估）</b>：手机 ↔ 手机直传（无电脑参与，LocalSend 核心场景）——需要「谁当服务端」的UX 设计，<b>列为探索项，先小范围原型再定</b>。</li>
+</ul>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="s6">
+<h2><span class="no">六</span>平台与分发路线</h2>
+<table>
+<tr><th>平台/渠道</th><th>现状</th><th>计划</th><th>依赖</th></tr>
+<tr><td>macOS</td><td>dmg（未签名/公证）</td><td>→ Apple Developer 签名+公证（消除「无法验证开发者」首启摩擦）</td><td>$99/年 账号（与 iOS 同一决策）</td></tr>
+<tr><td>Windows</td><td>msi/exe</td><td>→ 签名证书（SmartScreen 名声）+ winget 收录</td><td>代码签名证书（OV 约 $70~150/年）或先走社区信任</td></tr>
+<tr><td>Android</td><td>4 ABI APK 已 release 签名</td><td>→ AAB（Play）/ 商店上架（国内）</td><td>商店材料/软著</td></tr>
+<tr><td>iOS</td><td>workflow 注释模板</td><td>v2.0 启用</td><td>开发者账号</td></tr>
+<tr><td>Linux</td><td>源码构建</td><td>AppImage + deb + AUR</td><td>低</td></tr>
+<tr><td>包管理器</td><td>无</td><td>Homebrew Cask → winget → scoop → AUR</td><td>配合推广阶段五</td></tr>
+</table>
+</section>
+
+<!-- ============ 7 ============ -->
+<section id="s7">
+<h2><span class="no">七</span>工程质量基建线（持续，随版本搭车）</h2>
+<ul>
+<li><b>服务端测试</b>：axum 路由级集成测试（上传/删除/路径安全/聊天）进 CI，目标核心路由覆盖 80%+；</li>
+<li><b>崩溃收集（可选退出）</b>：<code>tauri-plugin-sentry</code> 或自建 panic 上报，默认关闭、文档明示——开源工具的信任红线是「不悄悄收集」；</li>
+<li><b>发布工程</b>：自动 Changelog（conventional commits 已具备）、Nightly 构建通道（tag <code>nightly</code> 触发，尝鲜用户分流）、产物校验和（SHA256SUMS）随 Release 发布；</li>
+<li><b>依赖与安全巡检</b>：Dependabot/Renovate 开启，cargo audit + npm audit 进 CI（只报告不阻断）；</li>
+<li><b>性能基线</b>：1GB 文件传输内存曲线、列表 5000 文件时渲染性能，留成基准脚本防回归。</li>
+</ul>
+</section>
+
+<!-- ============ 8 ============ -->
+<section id="s8">
+<h2><span class="no">八</span>依赖与决策点</h2>
+<table>
+<tr><th>决策点</th><th>影响</th><th>建议</th></tr>
+<tr><td>是否购买 Apple 开发者账号（$99/年）</td><td>同时解锁：iOS 真机包 + macOS 签名公证</td><td>推广起量后（约 500★+ 反馈集中于「装不上」）再买，转化率最高时投入</td></tr>
+<tr><td>是否买独立域名</td><td>官网落地页 + 邮箱信誉 + SEO</td><td>阶段四前决定，60~100 元/年，早买早积累权重</td></tr>
+<tr><td>Windows 代码签名证书</td><td>SmartScreen「未知发布者」弹窗消除</td><td>等 Windows 用户占比数据出来再定，个人项目可先靠 README 教学降摩擦</td></tr>
+<tr><td>配对码默认开 or 默认关</td><td>安全 vs 零学习成本</td><td>默认关 + 检测到可疑网络时提示开启（v1.2.x 内定稿）</td></tr>
+<tr><td>是否接受商店上架（国内）</td><td>软著/材料成本 vs 分发量</td><td>v2.0 视用户量决定，APK 直发 GitHub 已覆盖基本盘</td></tr>
+</table>
+</section>
+
+<!-- ============ 9 ============ -->
+<section id="s9">
+<h2><span class="no">九</span>明确不做（范围红线）</h2>
+<div class="callout c-danger"><b>以下方向一律不碰</b>——它们每一个都会把项目拖离「轻量局域网工具」的定位：</div>
+<ul>
+<li>❌ <b>账号体系 / 云存储 / 公网中转</b>：那就变成了网盘，与「数据不出局域网」的根本卖点冲突；</li>
+<li>❌ <b>双向文件夹同步</b>：一致性深坑，是 Syncthing/Resilio 的地盘；</li>
+<li>❌ <b>音视频通话 / 屏幕共享</b>：完全另一类工程；</li>
+<li>❌ <b>内嵌广告 / 推送弹窗</b>：口碑红线；</li>
+<li>❌ <b>功能型 fork 追求大而全</b>：新功能一律过「是否服务同一 Wi-Fi 传文件主场景」这一问。</li>
+</ul>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+<h2><span class="no">十</span>里程碑总表</h2>
+<table>
+<tr><th style="width:100px">版本</th><th style="width:130px">时间窗</th><th>主菜</th><th>发布标志</th></tr>
+<tr><td>v1.1.2</td><td class="muted">已发布（2026-10）</td><td>介绍页 / 唤窗单实例 / 自启 / Android 签名链路</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.2.0</td><td class="muted">+1 个月</td><td>配对码 + 写接口令牌 + HTTPS 自签扫码信任</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
+<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>传输历史 / 断网自愈 / 路径安全测试集 / 小尾巴清零</td><td>CI 含服务端测试与审计</td></tr>
+<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>断点续传 + 临时分享链接（+WS 推送 / mDNS 视进度）</td><td>10GB 断点续传实测通过</td></tr>
+<tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
+</table>
+<div class="callout c-info"><b>与推广方案的联动</b>v1.2.0 的「公共 Wi-Fi 安全感」是推广阶段三大量曝光前的必要前置——先修城墙，再开城门。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-10-28 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
+</section>
+
+</main>
+</div>
+</body>
+</html>
