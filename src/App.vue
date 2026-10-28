@@ -47,7 +47,12 @@ function applyServerConfig(c) {
 const isDesktop = "__TAURI_INTERNALS__" in window;
 // 真实桌面 OS: isDesktop 在 Android/iOS 的 Tauri WebView 里同样为 true, 但 autostart/托盘
 // 等桌面插件按 #[cfg(desktop)] 未注册 —— 依赖这些插件的 UI 必须用 isRealDesktop 门控
-const isRealDesktop = isDesktop && !/Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+// iPadOS 13+ 伪装桌面 UA("Macintosh"), 单看 UA 会把 iPad 网页误判为真实桌面:
+// 用 MacIntel + 多点触控补判(Apple 官方推荐手法)
+const isIOSFamily = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isRealDesktop = isDesktop && !isIOSFamily && !/Android/.test(navigator.userAgent);
+const isIOS = isIOSFamily;   // Safari 不支持 webkitdirectory, 文件夹入口对 iOS/iPadOS 隐藏
 // 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
 const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || DEFAULT_PORT}` : ""));
 function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
@@ -182,7 +187,11 @@ async function pickShareDir() {
     } else {
       showToast(d.error || "设置失败", "error");
     }
-  } catch (_) { /* 用户取消 */ }
+  } catch (e) {
+    // Android/iOS 的 dialog 插件未实现目录选择(直接返回错误) → 明确提示;
+    // 真实桌面的失败(IPC 竞态等)如实报错, 不误报"平台不支持"
+    showToast(isRealDesktop ? ("设置失败：" + (e?.message || e)) : "当前平台不支持目录选择，请手动输入路径", "error");
+  }
 }
 function openFile(name) {
   const dir = shareInput.value.replace(/\/+$/, "");
@@ -528,6 +537,9 @@ async function sendChunk(name, upId, totalSize, offset, chunk) {
   } finally { clearTimeout(timer); }
 }
 function uploadFile(file) {
+  // 停服拦截(与删除/分享一致): 否则每个文件先探断点再 8×1.5s 空转重试才报错,
+  // 粘贴大量文件即大量并发失败链 + toast 刷屏
+  if (serviceDown()) { showToast("服务未启动，无法上传", "error"); return; }
   const id = "up-" + Date.now() + "-" + upSeq++;
   const name = uploadRelName(file);
   const total = file.size;
@@ -570,7 +582,7 @@ function uploadFile(file) {
           it2.speed = fmtSize((offset - base) / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
         } while (offset < total);
         const it3 = stat(); if (it3) { it3.pct = 100; it3.status = "done"; it3.speed = ""; }
-        currentPage.value = 1; loadFiles();
+        loadFiles();   // 不再强跳第 1 页: 批量上传会把正在第 5 页浏览/勾选的用户每秒拽回去, 页码收缩由 loadFiles 内回收
         setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
         return;
       } catch (e) {
@@ -678,20 +690,33 @@ function onDocChatClick(e) {
 }
 /* 清空显示: 仅清本窗口(与 PyQt 镜像清空语义一致); 新消息到达后恢复显示 */
 const chatCleared = ref(false);
-const clearedAt = ref(0);
+const clearedTs = ref(0);   // 清空水位: 消息时间戳(服务端封顶 200 条, 用条数做水位在满 200 时永不解除)
 function clearChatDisplay() {
   chatCleared.value = true;
-  clearedAt.value = chatCount.value;
+  // 水位取最后一条消息的时间戳而非条数: 条数 ≤200 恒成立, "length > 水位条数" 永假 → 满 200 条时
+  // 点清空后本机永久空白; 时间戳在服务端重启(消息清零)后依然单调可比
+  clearedTs.value = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].timestamp : 0;   // 无消息时任意新消息即解除
   showToast("已清空数据（不影响其他设备与服务端记录）");
 }
+let loadingChat = false;
+let reloadChatQueued = false;
 async function loadChat() {
+  // 在途互斥 + 补拉(与 loadFiles 对齐): 刷屏时每个 chat:new 都触发全量拉取,
+  // 后发先至的旧响应会覆盖新数据 → 消息回闪
+  if (loadingChat) { reloadChatQueued = true; return; }
+  loadingChat = true;
   try {
-    const r = await fetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(deviceNick()));
+    // 超时保护: 无 AbortController 时单个挂死请求会让 loadingChat 恒 true,
+    // 互斥把影响面从"单次"放大为"聊天停更直至浏览器默认超时(~5min)"
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 10000);
+    const r = await fetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(deviceNick()), { signal: ctl.signal });
+    clearTimeout(timer);
     const d = await r.json();
     const msgs = d.messages || [];
     const old = chatCount.value;
-    if (chatCleared.value && msgs.length > clearedAt.value) chatCleared.value = false;
-    chatMsgs.value = chatCleared.value && msgs.length <= clearedAt.value ? [] : msgs;
+    if (chatCleared.value && msgs.some(m => m.timestamp > clearedTs.value)) chatCleared.value = false;
+    chatMsgs.value = chatCleared.value ? [] : msgs;
     chatCount.value = msgs.length;
     if (view.value === "chat" || chatOpen.value || (!isDesktop && !isNarrow)) seenChat.value = chatCount.value;
     if (msgs.length !== old || !loadChat._init) {
@@ -699,6 +724,8 @@ async function loadChat() {
       nextTick(scrollChats);
     }
   } catch (e) { console.error(e); }
+  loadingChat = false;
+  if (reloadChatQueued) { reloadChatQueued = false; loadChat(); }
 }
 async function sendChat() {
   const text = chatInput.value.trim();
@@ -1064,7 +1091,7 @@ async function refreshStatus() {
       chatCount.value = 0;
       seenChat.value = 0;
       chatCleared.value = false;
-      clearedAt.value = 0;
+      clearedTs.value = 0;
     }
   }
 }
@@ -1184,8 +1211,8 @@ async function refreshStatus() {
                @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
             <div class="ic">⬆️</div>
             <h5>点击选择文件 或 拖拽到此处</h5>
-            <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件 ·
-              <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a>
+            <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
+              <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
               · 大文件断网/锁屏后自动续传</p>
             <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
             <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
@@ -1435,8 +1462,8 @@ async function refreshStatus() {
                  @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
               <div class="ic">⬆️</div>
               <h5>点击选择文件 或 拖拽到此处</h5>
-              <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件 ·
-                <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a>
+              <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
+                <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
                 · 大文件断网/锁屏后自动续传</p>
               <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
               <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
