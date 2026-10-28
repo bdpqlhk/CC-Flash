@@ -96,6 +96,8 @@ macOS builds are **universal** (arm64 + x86_64 in one package). **iOS**: no auto
 
 This tool is built for **trusted LANs** (home / trusted office): anyone on the same network can view, download, delete shared files, and post messages — there is no auth by design. Do not use it on public Wi-Fi, and never expose the service address to the internet.
 
+⚠️ The service listens on all network interfaces: while connected to a **corporate VPN**, other hosts on the VPN segment can reach your shared directory — keep the service stopped on untrusted networks. The address/QR code automatically prefers the real LAN IP over VPN virtual interfaces (multiple candidates are selectable in the QR dialog).
+
 ## Documentation
 
 Docs are currently in Chinese:

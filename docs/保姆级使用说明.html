@@ -251,6 +251,10 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <div class="qa"><div class="q">Q13：安卓手机怎么装？</div>到项目 Releases 页按机型下载对应安装包：<b><code>arm64-v8a</code></b>（绝大多数手机）/ <code>armeabi-v7a</code> / <code>x86</code> / <code>x86_64</code>，文件名形如 <code>CC-Flash-vX.Y.Z-android-arm64-v8a.apk</code>。传到手机点开安装，系统提示「未知来源」时选择允许即可。注意 APK 与电脑端是配套的：APK 只是操作界面，真正的文件服务仍跑在电脑上——手机装的 APP 也要和电脑连同一个 Wi-Fi。</div>
 <div class="qa"><div class="q">Q14：托盘里出现好几个 CC-Flash 图标？</div>旧版本重复启动会各自开一个进程、各占一个托盘图标。新版内置<b>单实例守卫</b>：重复打开只会唤起已有窗口，不会再堆积图标。若从旧版升级后残留多个图标，把它们逐个「退出」（或任务管理器结束进程）后重新打开一次即可。</div>
 <div class="qa"><div class="q">Q15：怎么让软件开机自动运行？</div>「CC设置」→ 打开「开机自动启动」开关（<b>默认关闭</b>，打开时才会向系统注册登录项）。开启后每次登录电脑，服务在后台自动启动、不弹窗口。注意：请先正式安装到「应用程序」目录再开启——从 DMG 或开发目录运行时注册的是临时路径，重启后会失效。</div>
+<div class="qa"><div class="q">Q16：手机连不上，提示超时？</div>十有八九是 <b>Windows 防火墙</b>。首次启动服务时系统会弹「允许 CC-Flash 访问网络」的对话框——如果当时点了「取消」，手机就连不上了。修复：控制面板 → Windows Defender 防火墙 → 允许应用通过，勾选 CC-Flash 的「专用网络」；或直接重装一次、弹窗时点「允许」。其次检查手机和电脑是否同一 Wi-Fi（有些访客网络会隔离设备互相访问）。</div>
+<div class="qa"><div class="q">Q17：Windows 打开安装包提示"已保护你的电脑"（SmartScreen）？</div>安装包未做付费代码签名，SmartScreen 会拦截，属正常。三步放行：点<b>「更多信息」</b> → 点<b>「仍要运行」</b> → 按提示完成安装。只从项目官方 Releases 页下载即可放心运行。</div>
+<div class="qa"><div class="q">Q18：macOS 打开提示"已损坏，无法打开"或"无法验证开发者"？</div>未签名未公证的正常现象，两种放行方式：<b>方式一</b>——首次打开时按住 <kbd>Control</kbd> 点击图标 → 菜单选「打开」→ 再点「打开」；<b>方式二</b>——打开「系统设置 → 隐私与安全性」，下滑找到被拦截的 CC-Flash，点「仍要打开」。若提示「已损坏」且方式一无效，可打开终端执行：<code>xattr -dr com.apple.quarantine /Applications/CC-Flash.app</code>。</div>
+<div class="qa"><div class="q">Q19：开着公司 VPN / 代理（科学上网）时二维码扫不开？</div>服务会自动避开 VPN 虚拟网卡、优先展示真实局域网地址；若地址仍不对，看桌面端二维码弹窗里是否列出了多个候选地址——点选与手机同网段的那个即可。另外注意：<b>连着不可信网络（公司 VPN、酒店 Wi-Fi）时共享目录对同网段可见，请用完及时停止服务</b>。</div>
 </section>
 
 <!-- ================= 11 ================= -->
