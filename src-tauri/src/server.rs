@@ -869,7 +869,7 @@ async fn upload(
     {
         use std::os::windows::ffi::OsStrExt;
         let full: std::path::PathBuf = share.join(format!("{name}{UPLOAD_PART_META_SUFFIX}"));
-        let units: usize = full.encode_wide().count();
+        let units: usize = full.as_os_str().encode_wide().count();
         if units > 259 {
             return err(
                 StatusCode::BAD_REQUEST,
