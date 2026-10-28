@@ -41,10 +41,10 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::config::{
     APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHUNK_HINT, DEFAULT_NICK, DEFAULT_PORT,
-    MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS,
-    POLL_STATUS_MS, PORT_PROBE_EXTRA, PORT_RANGE_END, REQ_LOG_MAX, SHARE_DIR_NAME,
-    SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH,
-    UPLOAD_PART_META_SUFFIX, UPLOAD_PART_SUFFIX,
+    LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, POLL_CHAT_MS, POLL_FILES_MS,
+    POLL_LOGS_MS, POLL_STATUS_MS, PORT_PROBE_EXTRA, PORT_RANGE_END, REQ_LOG_MAX, SHARE_DIR_NAME,
+    SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, UPLOAD_FREE_CHECK_BYTES, UPLOAD_IDLE_TIMEOUT_SECS,
+    UPLOAD_MAX_DEPTH, UPLOAD_PART_META_SUFFIX, UPLOAD_PART_SUFFIX,
 };
 
 // ---------------------------------------------------------------- //
@@ -71,8 +71,15 @@ fn req_log() -> &'static Mutex<VecDeque<String>> {
 }
 
 fn push_log(line: String) {
+    // 统一消毒: ① 剥 CR/LF 防日志注入(?nick=%0A 伪造条目/嫁祸 IP);
+    // ② 整行硬截断——hyper 允许数百 KB 的 URL, 1000 条不截断可把内存推高数百 MB
+    let clean: String = line
+        .replace(['\r', '\n'], " ")
+        .chars()
+        .take(LOG_LINE_MAX)
+        .collect();
     let mut q = req_log().lock().unwrap();
-    q.push_back(format!("[{}] {}", now_hms(), line));
+    q.push_back(format!("[{}] {}", now_hms(), clean));
     while q.len() > REQ_LOG_MAX {
         q.pop_front();
     }
@@ -225,6 +232,11 @@ pub fn lan_ip() -> String {
 /// 启动服务(优先尝试指定端口, 被占用自动顺延);返回实际端口。
 /// 注意:tokio 的 socket 操作必须在 runtime 上下文内,故整体包进 block_on。
 pub fn start(preferred: Option<u16>) -> Result<u16, String> {
+    // 整个 start 流程(检查+bind+写入)持同一把锁: 否则并发双启(托盘连点 + HTTP ctrl_start,
+    // 或两个 LAN 客户端同时 POST /api/control/start)都通过 None 检查、各自 bind,
+    // 后者覆写 running_slot 时 drop 前者的 shutdown Sender → 前一个服务自杀式关停
+    static START_GUARD: Mutex<()> = Mutex::new(());
+    let _guard = START_GUARD.lock().unwrap_or_else(|e| e.into_inner());
     {
         let lock = running_slot().lock().unwrap();
         if let Some(h) = lock.as_ref() {
@@ -240,7 +252,11 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         let mut candidates: Vec<u16> = Vec::new();
         if let Some(p0) = preferred {
             candidates.push(p0);
-            candidates.extend(p0 + 1..p0 + 1 + PORT_PROBE_EXTRA);
+            // u32 算术防 u16 溢出(p0 接近 65535 时 p0+1 在 debug 构建 panic)
+            candidates.extend(
+                (u32::from(p0) + 1..u32::from(p0) + 1 + u32::from(PORT_PROBE_EXTRA))
+                    .filter_map(|p| u16::try_from(p).ok()),
+            );
         }
         candidates.extend(DEFAULT_PORT..PORT_RANGE_END);
         let mut picked: Option<(tokio::net::TcpListener, u16)> = None;
@@ -330,7 +346,14 @@ pub fn stop() -> bool {
         let task = h.task;
         drop(lock); // 别持有全局锁等待关闭
         tauri::async_runtime::block_on(async move {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
+            let mut task = task;
+            if tokio::time::timeout(std::time::Duration::from_secs(2), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort(); // 超时必须显式中止: 直接 drop JoinHandle 是 detach 不是取消,
+                              // 反复启停会在后台累积僵尸 serve 任务/连接
+            }
         });
         true
     } else {
@@ -384,6 +407,17 @@ fn safe_rel_path(raw: &str) -> Option<String> {
         }
         if seg.ends_with('.') {
             return None; // Windows 保留形态(结尾点)
+        }
+        // Windows 保留设备名: NUL/CON/COM1… 打开的是设备而非文件(写入被静默丢弃或挂起,
+        // rename 转正必失败 → 上传"成功"后文件消失); 带扩展名也保留, 按 '.' 前缀段判
+        let stem = seg.split('.').next().unwrap_or("").to_ascii_uppercase();
+        if matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL"
+                | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
+                | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+        ) {
+            return None;
         }
         parts.push(seg.to_string());
     }
@@ -655,6 +689,15 @@ async fn upload(
     // 断点校验必须持锁进行(TOCTOU): 否则"校验时断点有效、写入前被并发的 offset0 请求截断"
     // 会 seek 到空文件深处写出零洞; 409 带服务端实际断点, 客户端据此重排
     if offset > 0 {
+        // 续传必须携带会话 id: 否则两个都不带 id 的客户端先后传同名文件,
+        // 空 meta 与空 id 校验通过, 后者的字节直接拼在前者半截上, 无告警转正为损坏文件
+        if upload_id.trim().is_empty() {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": 0 })),
+            )
+                .into_response();
+        }
         let have = tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0);
         let meta_id = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
         if have == 0 || (meta_id.trim() != upload_id.trim()) {
@@ -689,12 +732,24 @@ async fn upload(
                 None => break,
             }
         }
-        if let (Ok(base), Ok(probe_canon)) = (share.canonicalize(), probe.canonicalize()) {
-            if !probe_canon.starts_with(&base) {
-                return err(StatusCode::BAD_REQUEST, "路径越界");
-            }
+        // canonicalize 失败(权限错误等)一律拒绝——静默放行等于跳过整道越界校验
+        let (Ok(base), Ok(probe_canon)) = (share.canonicalize(), probe.canonicalize()) else {
+            return err(StatusCode::INTERNAL_SERVER_ERROR, "路径校验失败");
+        };
+        if !probe_canon.starts_with(&base) {
+            return err(StatusCode::BAD_REQUEST, "路径越界");
         }
         let _ = tokio::fs::create_dir_all(parent).await;
+        // 事后复验: 预检与 create_dir_all 之间存在 TOCTOU 窗口(中间目录被换成指向界外的
+        // 符号链接), 建完再查一次; 发现越界则回滚(remove_dir_all 对符号链接只删链本身)
+        match (parent.canonicalize(), share.canonicalize()) {
+            (Ok(parent_canon), Ok(base)) if parent_canon.starts_with(&base) => {}
+            (Ok(_), Ok(_)) => {
+                let _ = tokio::fs::remove_dir_all(parent).await;
+                return err(StatusCode::BAD_REQUEST, "路径越界");
+            }
+            _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "路径校验失败"),
+        }
     }
     let mut file = match tokio::fs::OpenOptions::new()
         .create(true)
@@ -729,6 +784,8 @@ async fn upload(
     let started = std::time::Instant::now();
     let mut stream = body.into_data_stream();
     let mut received: u64 = offset;
+    // 未知大小(size=0)无法预检磁盘: 每写 UPLOAD_FREE_CHECK_BYTES 复查一次剩余空间
+    let mut next_free_check: u64 = UPLOAD_FREE_CHECK_BYTES;
     loop {
         // 空闲超时: 半开连接(hyper 无 body 超时)的残留 handler 靠它退出并释放写锁
         let next =
@@ -761,6 +818,34 @@ async fn upload(
                     return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
                 }
                 received += c.len() as u64;
+                // 边收边查, 不等 body 收完: 声明 100 字节实际灌 100GB 时,
+                // 旧逻辑全部落盘后才截断, 磁盘早已打满
+                if size > 0 && received > size {
+                    let _ = file.set_len(size).await;
+                    push_log(format!(
+                        "上传拒绝 {name}: 实际流量超出声明大小({}) ← {}",
+                        humans(size),
+                        addr.ip()
+                    ));
+                    return err(StatusCode::BAD_REQUEST, "实际流量超出声明大小");
+                }
+                if size == 0 && received >= next_free_check {
+                    next_free_check = received + UPLOAD_FREE_CHECK_BYTES;
+                    if let Ok(free) = fs2::available_space(&share) {
+                        if free < CHUNK_HINT as u64 {
+                            push_log(format!(
+                                "上传中止 {name}: 磁盘剩余不足({}) ← {}",
+                                humans(free),
+                                addr.ip()
+                            ));
+                            return (
+                                StatusCode::INSUFFICIENT_STORAGE,
+                                Json(serde_json::json!({ "error": "磁盘空间不足", "received": received })),
+                            )
+                                .into_response();
+                        }
+                    }
+                }
             }
             Err(_) => {
                 // 断点保留(不再删除): 客户端可通过 upload_progress 查询后续传
@@ -1101,9 +1186,20 @@ pub fn copy_file_cmd(name: String) -> serde_json::Value {
         return serde_json::json!({ "ok": false, "error": "文件不存在" });
     }
     let p = path.to_string_lossy().to_string();
+    // macOS: 路径经 ARGV 传参而非拼进 AppleScript 源码 —— 共享目录路径本身可含 \" 组合
+    // (macOS 均为合法文件名字符), 字符串转义在 AppleScript 里不可靠, 拼接可导致代码注入
     #[cfg(target_os = "macos")]
-    let res = std::process::Command::new("osascript").args(["-e", &format!(
-        "set the clipboard to POSIX file \"{}\"", p.replace('"', "\\\""))])
+    let res = std::process::Command::new("osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "set the clipboard to POSIX file (item 1 of argv)",
+            "-e",
+            "end run",
+            "--",
+            &p,
+        ])
         .output();
     #[cfg(target_os = "windows")]
     let res = {
@@ -1207,10 +1303,15 @@ fn browser_origin_guard(req: &axum::extract::Request) -> Option<Response> {
         return Some(err(StatusCode::BAD_REQUEST, "非法的 Host"));
     }
     if let Some(origin) = req.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
-        let self_ok = origin.contains(host)
-            || origin.starts_with("tauri://localhost")
-            || origin.contains("tauri.localhost")
-            || origin.starts_with("http://localhost:"); // tauri dev: 窗口加载自 devServer(5173)
+        // 全部精确匹配: 子串匹配可被 tauri.localhost.evil.com 绕过(该域名合法注册即含此子串),
+        // 叠加 CorsLayer::permissive 的 ACAO:* 后攻击者 JS 可读取全部响应
+        let self_ok = origin == format!("http://{host}")
+            || origin == "tauri://localhost"          // macOS/iOS WKWebView
+            || origin == "http://tauri.localhost"     // Windows WebView2
+            || origin == "https://tauri.localhost"    // Android WebView(https 源)
+            // tauri dev: 窗口加载自 devServer(5173); 仅回环源, 风险限本机开发场景
+            || origin.starts_with("http://localhost:")
+            || origin.starts_with("http://127.0.0.1:");
         if !self_ok {
             return Some(err(StatusCode::FORBIDDEN, "跨源请求被拒绝"));
         }
@@ -1231,18 +1332,29 @@ async fn log_middleware(
     }
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    // 控制接口(启停/日志/清空)仅限本机: 桌面壳走 127.0.0.1 回环或 Tauri 命令,
+    // 局域网任意设备可 curl 调用的话, 任何人能关停服务/读走全部活动日志(文件名+IP+聊天预览)
+    if path.starts_with("/api/control/") && !addr.ip().is_loopback() {
+        return err(StatusCode::FORBIDDEN, "控制接口仅限本机访问");
+    }
     let query = req.uri().query().unwrap_or("").to_string();
     // 昵称: 优先 X-Nickname 头, 其次 ?nick= 参数(浏览器端避免自定义头触发 CORS 预检)
     let qnick = query.split('&').find_map(|kv| kv.strip_prefix("nick=")).map(|v| {
         percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string()
     });
-    let nick = qnick.unwrap_or_else(|| {
-        req.headers()
-            .get("X-Nickname")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string()
-    });
+    // 日志昵称消毒: 剥 CR/LF 防伪造日志条目; 截断到 NICK_MAX(查询参数昵称不受 chat_post 截断约束)
+    let nick: String = qnick
+        .unwrap_or_else(|| {
+            req.headers()
+                .get("X-Nickname")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        })
+        .replace(['\r', '\n'], " ")
+        .chars()
+        .take(NICK_MAX_CHARS)
+        .collect();
     let device = req
         .headers()
         .get(header::USER_AGENT)

@@ -39,6 +39,8 @@ pub const DEFAULT_NICK: &str = "匿名用户";
 // ---- 日志 ---- //
 /// 服务日志环形队列上限
 pub const REQ_LOG_MAX: usize = 1000;
+/// 单条日志行硬截断: hyper 允许数百 KB 的 URL, 不截断可被超长路径灌爆内存(1000 条 × 数百 KB)
+pub const LOG_LINE_MAX: usize = 400;
 /// 高频轮询端点(不写请求日志)。与前端 config.js 的 POLL_* 轮询路径一一对应,
 /// 前端新增/更名轮询接口时必须同步此清单, 否则服务日志会被轮询刷屏。
 pub const NOISY_GET_PATHS: &[&str] = &[
@@ -60,6 +62,9 @@ pub const UPLOAD_PART_META_SUFFIX: &str = ".ccpart.meta";
 pub const UPLOAD_MAX_DEPTH: usize = 8;
 /// 上传请求体空闲超时(秒): 半开连接的残留 handler 靠它释放断点文件的写锁
 pub const UPLOAD_IDLE_TIMEOUT_SECS: u64 = 120;
+/// 未知大小上传(size=0, 无法预检)每写入该字节数复查一次磁盘剩余,
+/// 剩余不足一个流缓冲时中止——防"声明 0 大小无限灌盘"打满系统盘
+pub const UPLOAD_FREE_CHECK_BYTES: u64 = 64 * 1024 * 1024;
 
 // ---- 共享目录 ---- //
 /// 默认共享目录名(家目录下)
