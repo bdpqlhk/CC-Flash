@@ -252,16 +252,20 @@ pub fn lan_ip() -> String {
             s.local_addr().ok()
         })
         .map(|a| a.ip().to_string());
-    const TUNNEL_PREFIXES: &[&str] = &["utun", "tun", "tap", "wg", "ppp", "bridge", "vethernet", "docker", "vmnet", "virbr"];
+    const TUNNEL_PREFIXES: &[&str] = &["utun", "tun", "tap", "wg", "ppp", "vethernet", "docker", "vmnet", "virbr"];
     let is_tunnel = |name: &str| {
         let n = name.to_ascii_lowercase();
         TUNNEL_PREFIXES.iter().any(|p| n.starts_with(p))
     };
+    // bridge*(macOS 互联网共享/热点)不硬过滤: 手机直连 Mac 热点时唯一可达地址就是它,
+    // 但普通场景它只是冗余 —— 降为末位候选(真实网卡/探测都失效时才取)
+    let is_bridge = |name: &str| name.to_ascii_lowercase().starts_with("bridge");
     let is_private = |ip: &std::net::Ipv4Addr| {
         ip.is_private() || ip.is_link_local()
     };
     let mut private: Vec<String> = Vec::new();
     let mut other: Vec<String> = Vec::new();
+    let mut bridge_last: Option<String> = None;
     if let Ok(ifaces) = if_addrs::get_if_addrs() {
         for iface in ifaces {
             if is_tunnel(&iface.name) {
@@ -272,7 +276,11 @@ pub fn lan_ip() -> String {
                     continue;
                 }
                 let s = v4.ip.to_string();
-                if is_private(&v4.ip) && !private.contains(&s) {
+                if is_bridge(&iface.name) {
+                    if bridge_last.is_none() {
+                        bridge_last = Some(s);
+                    }
+                } else if is_private(&v4.ip) && !private.contains(&s) {
                     private.push(s);
                 } else if !other.contains(&s) {
                     other.push(s);
@@ -291,6 +299,9 @@ pub fn lan_ip() -> String {
     }
     if let Some(first) = other.first() {
         return first.clone();
+    }
+    if let Some(b) = bridge_last {
+        return b; // macOS 互联网共享场景: 手机直连热点时唯一可达地址
     }
     // 全部失败才回落探测值/回环(此时二维码应配合 UI 提示"未检测到局域网地址")
     probe.unwrap_or_else(|| "127.0.0.1".into())
@@ -851,11 +862,15 @@ async fn upload(
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
     };
     // Windows MAX_PATH(260) 预检: 深目录整目录上传时 create_dir_all 会报 ERROR_FILENAME_EXCED_RANGE,
-    // 不预检的话前端把它当网络问题空转重试 8 次才报错; 提前 400 + 明确文案
+    // 不预检的话前端把它当网络问题空转重试 8 次才报错; 提前 400 + 明确文案。
+    // 按 UTF-16 code unit 计(MAX_PATH 的真实计量, 中文 1 字=1 单元, 否则 3 倍过度保守);
+    // 预检用最长的内部产物后缀 .ccpart.meta(比 .ccpart 再多 5 字节), 防过预检后 meta 写入静默失败
     #[cfg(windows)]
     {
-        let full_len = share.join(format!("{name}{UPLOAD_PART_SUFFIX}")).as_os_str().len();
-        if full_len > 259 {
+        use std::os::windows::ffi::OsStrExt;
+        let full: std::path::PathBuf = share.join(format!("{name}{UPLOAD_PART_META_SUFFIX}"));
+        let units: usize = full.encode_wide().count();
+        if units > 259 {
             return err(
                 StatusCode::BAD_REQUEST,
                 "路径过长（Windows 单路径上限 260 字符），请缩短目录层级或文件名",

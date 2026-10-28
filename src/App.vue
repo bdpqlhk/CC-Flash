@@ -502,7 +502,11 @@ function pickFiles() { document.getElementById("fileInput").click(); }
 function removeUpload(id) { uploads.value = uploads.value.filter(u => u.id !== id); }
 function pickDir() { document.getElementById("dirInput").click(); }
 function onPick(e) { handleFiles(e.target.files); e.target.value = ""; }
-function onPickDir(e) { handleFiles(e.target.files); e.target.value = ""; }
+function onPickDir(e) {
+  // 选空文件夹与拖入空文件夹一致给反馈(原静默 return 像软件坏了)
+  if (!e.target.files || !e.target.files.length) { showToast("文件夹为空或不含可上传文件", "error"); e.target.value = ""; return; }
+  handleFiles(e.target.files); e.target.value = "";
+}
 function handleFiles(list) {
   if (!list || !list.length) return;
   for (const f of Array.from(list)) uploadFile(f);
@@ -1022,6 +1026,7 @@ onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
   document.removeEventListener("click", onDocChatClick);
   clearInterval(wsWatchdogTimer);
+  clearTimeout(filesThrottleTimer);
   document.body.style.overflow = "";
   stopIntroSpy();
   closeWs();
@@ -1059,8 +1064,13 @@ function lastCheckedAt() {
 }
 function curVersion() { return appVersion.value || APP_VERSION_FALLBACK; }
 async function checkUpdate(manual = false) {
-  // 仅真实桌面检查更新: Android 的「前往下载」走 xdg-open 必失败, 弹框是死路
-  if (!isRealDesktop || checkingUpdate.value) return;
+  // 仅真实桌面检查更新: Android 的「前往下载」走 xdg-open 必失败, 弹框是死路;
+  // 手动点击时给反馈, 不做哑巴按钮
+  if (!isRealDesktop) {
+    if (manual) showToast("请在电脑端检查更新（手机端请到 Releases 页按机型下载 APK）", "error");
+    return;
+  }
+  if (checkingUpdate.value) return;
   checkingUpdate.value = true;
   const rel = await fetchLatestRelease();
   checkingUpdate.value = false;
