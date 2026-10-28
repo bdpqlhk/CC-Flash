@@ -40,7 +40,9 @@ if [ "$VERSION" = "$CUR" ]; then echo "✘ 版本号未变化(仍是 $CUR), 请�
 echo "版本: $CUR → $VERSION"
 
 # ---------- 1) 升版本 ----------
-sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+# -i.bak 双平台兼容(macOS BSD sed 需后缀参数, GNU sed 同样接受)
+sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+rm -f src-tauri/Cargo.toml.bak
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null 2>&1  # 刷新 Cargo.lock
 echo "Cargo.toml → $(grep -m1 '^version' src-tauri/Cargo.toml)"
 
@@ -71,7 +73,8 @@ push_retry() {
   return 1
 }
 
-push_retry "main" || { echo "✘ main 推送失败, 网络恢复后手动执行: git push origin main"; exit 1; }
+# 推当前分支(而非硬编码 main): 在特性分支发版时不会把 main 误推到远端
+push_retry "$BRANCH" || { echo "✘ $BRANCH 推送失败, 网络恢复后手动执行: git push origin $BRANCH"; exit 1; }
 
 if push_retry "v$VERSION"; then
   echo "✔ 标签已推送, 应已触发构建"
