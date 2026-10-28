@@ -526,7 +526,21 @@ pre code{background:none;color:inherit;padding:0}
   </table>
   <p>验证：<code>cargo check</code> / <code>vite build</code> / 三个 shell 脚本 <code>bash -n</code> / workflow YAML 解析 / tauri.conf JSON 全部通过。</p>
 
-  <div class="note">📌 下一步：人工验收（中文文件名上传、桌面窄窗导航、桌面聊天滚动）→ 提交推送 → 配置 Android Secrets → 发版（发版时顺带在真机验证 -debug 命名与 universal 包）。</div>
+  <h3>12.8 二轮深度审查修复（同日；三路复查：对抗性回归 / 新鲜视角重扫 / CI 与多端配置）</h3>
+  <table>
+    <tr><th>严重度</th><th>问题与修复</th></tr>
+    <tr><td>高</td><td><b>CSP 回归（12.7 引入）</b>：img-src 缺 <code>http://127.0.0.1</code>，桌面/Android 缩略图全被静默拦截 → 补 host-source（省略端口=任意端口）；connect-src 补 <code>ipc: http://ipc.localhost</code>（Tauri 2 IPC 官方建议）</td></tr>
+    <tr><td>高</td><td><b>Android 出厂即核心功能不可用</b>：应用进程 $HOME 无效 → 默认共享目录 EACCES 服务启动即败，目录选择器又静默失败 → setup 注入 app 专属目录（tauri path API）、目录偏好文件同挪、catch 改明确提示</td></tr>
+    <tr><td>严重</td><td><b>Windows 复制文件 100% 失效</b>：Set-Clipboard 无 -LiteralPath 参数（只有 -Value，放的是路径文本）→ 改 SetFileDropList（CF_HDROP）+ STA，资源管理器直接粘贴出文件</td></tr>
+    <tr><td>严重</td><td><b>聊天清空在满 200 条后永久空白</b>：水位用条数（≤200 恒成立，解除条件永假）→ 改时间戳水位（重启后仍单调）</td></tr>
+    <tr><td>中等</td><td>私钥守卫 pipefail fail-open（已实测复现）：grep -q 命中大列表开头吃 SIGPIPE → 先落变量再 grep；publish job 警告死代码：job 级 if 全绿才运行导致警告 step 永不执行 → "非取消即运行"+step 级条件</td></tr>
+    <tr><td>中等</td><td>.ccpart 启动即清改为 7 天 TTL：立即全清毁掉"进程/系统重启后续传"（Android 退后台被杀无声归零）；part_lock 键 case-fold（APFS 大小写不敏感下同一文件两把锁交错写）；等锁 10s 超时 409（同名大文件不再无限排队撞死）；转正 rename 5×300ms 退避（Windows 目标被占用时"字节完整却报上传中断"）；safe_rel_path 保留形态仅上传拒绝（既有 aux.pdf/尾随空格文件不再下载删除全 400）；建目录失败显式报错 + 回滚改非递归 remove_dir</td></tr>
+    <tr><td>中等</td><td>前端：停服拦截上传；loadChat 在途互斥+补拉+10s 超时；上传完成不强跳第 1 页；iPadOS 伪装 UA 补判（MacIntel+多点触控）；iOS 隐藏文件夹入口与双分隔符；<code>clearedAt</code> 笔误（重命名漏改，失联路径每 2.5s ReferenceError）</td></tr>
+    <tr><td>低</td><td>release.sh 同步 package-lock 根版本；模块头"与 Python 版完全一致"注释更新</td></tr>
+  </table>
+  <p>验证：两路复查代理 17 项逐项推演全部通过（409 链路无脏写、PowerShell 逐字符核对、dialog 取消 vs 错误语义、CSP host-source 语义、CI 真值表）；<code>cargo check</code> / <code>vite build</code> 绿。版本号四处一致（1.1.2）。</p>
+
+  <div class="note">📌 下一步：人工验收（Windows 复制粘贴、桌面缩略图、聊天清空、真机 Android 共享目录）→ 打 tag v1.1.3 发版 → 真机验证 -debug 命名 / universal 包 / Android 目录链路。</div>
 </section>
 
 <p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-27 · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>

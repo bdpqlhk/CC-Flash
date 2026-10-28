@@ -12,7 +12,7 @@ Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite**. Desktop installer is just a
 
 ## Features
 
-- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), **whole-folder upload** (structure preserved) and **resumable transfer** for large files (auto-resumes after network drop or screen lock), streaming download, full Unicode filename support
+- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), **whole-folder upload** (structure preserved) and **resumable transfer** for large files (auto-resumes after network drop, screen lock, or restart; resume points kept for 7 days), streaming download, full Unicode filename support
 - 💬 **Chat** — real-time LAN messaging (WebSocket push) with nicknames, emoji avatars, clickable links, and lightweight Markdown
 - 📱 **Three form factors** — desktop window (tray-resident) / two-pane desktop browser / single-column mobile browser with floating chat ball; one codebase adapts everywhere
 - 🗂 **Native folder picker** — click "Choose" next to the share directory and pick with the OS dialog

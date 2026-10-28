@@ -212,7 +212,7 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <tr><td><code>set_share_dir_cmd(path)</code></td><td>校验目录存在后切换共享目录</td></tr>
 <tr><td><code>open_path_cmd(path)</code></td><td>系统程序打开文件/目录</td></tr>
 <tr><td><code>open_url_cmd(url)</code></td><td>系统浏览器打开 URL（顶栏"打开浏览器"按钮/分享兜底）</td></tr>
-<tr><td><code>copy_file_cmd(name)</code></td><td>复制文件本体到剪贴板：macOS osascript / Windows PowerShell Set-Clipboard / Linux 未支持</td></tr>
+<tr><td><code>copy_file_cmd(name)</code></td><td>复制文件本体到剪贴板：macOS osascript（ARGV 传参防注入）/ Windows PowerShell <code>SetFileDropList</code>（CF_HDROP，资源管理器直接粘贴出文件；注意 Set-Clipboard 无 -LiteralPath 参数且只会粘出路径文本）/ Linux 未支持</td></tr>
 </table>
 <div class="callout c-warn"><b>踩坑记录</b>invoke 参数键必须与 Rust 端参数名完全一致——曾因缺 <code>url</code> 键报 "command open_url_cmd missing required key url" 导致按钮无响应（用户调试截图定位）。</div>
 </section>
@@ -222,28 +222,33 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <h2><span class="no">5</span>关键流程实现</h2>
 <h3>5.1 上传（分片断点续传 + 预检 + 目录结构保留）</h3>
 <pre>
-HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验) ─非法→ 400
+HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验, 保留形态仅上传拒绝) ─非法→ 400
 → (size-offset) &gt; fs2::available_space ─是→ 400 + 日志「上传拒绝」
-→ part_lock(.ccpart 路径异步锁): 同一断点文件同一时刻仅一个写者(超时重试后旧 handler 防交错写)
-→ offset&gt;0: 校验 .ccpart 存在且 .meta 会话 id 匹配(TOCTOU 持锁校验)
+→ part_lock(.ccpart 路径异步锁, 键 case-fold 防 APFS 大小写不敏感双锁):
+  等锁 10s 超时 → 409「该文件正被其他设备上传」(同名大文件不无限排队)
+→ offset&gt;0: 校验 .ccpart 存在且 .meta 会话 id 匹配(TOCTOU 持锁校验; 空 id 一律拒绝防脏拼接)
    ├─ 无断点/会话不匹配 → 409 {received:0}(客户端从头重传)
    ├─ 断点 &lt; offset → 409 {received:have}
    └─ 断点 &gt; offset → set_len(offset) 截断(客户端回退到更早断点)
-→ 建目录前对最近存在的祖先 canonicalize 越界预检(防符号链接建到界外) → create_dir_all
+→ 建目录前对最近存在的祖先 canonicalize 越界预检 → create_dir_all(失败显式 500)
+→ 建后复验(补 TOCTOU; 越界回滚用非递归 remove_dir, 永不误删界外数据)
 → OpenOptions(create+write, truncate 当 offset==0) → seek(offset)
 → offset==0: 固化 .meta 会话 id + 日志「上传开始 (声明) ← IP」
 → loop: 空闲超时 120s(半开连接释放写锁) / body_stream.next()
    ├─ 写失败 → 500(保留断点)
    ├─ 连接断开/空闲超时 → 502/504 {received}(保留断点, 可续传)
+   ├─ size&gt;0 且 received&gt;size → 立即 400(边收边查, 不等 body 收完才截断)
+   ├─ size==0 每 64MB 复查磁盘剩余, 不足 → 507(未知大小上传防灌满系统盘)
    └─ 正常写入累加 received
-→ received&gt;size → set_len(size) 截断(超额字节视为脏数据)
 → sync_all → size&gt;0 且 received&lt;size → 200 {ok,received,done:false}(分片确认, 断点保留)
-→ create_dir_all(父目录) → (Windows: 先删已存在目标) rename 转正 → 删 .meta
+→ create_dir_all(父目录) → 删已存在目标(失败记日志) → rename 转正(5×300ms 退避重试,
+  防 Windows 目标被资源管理器/杀软占用时"字节完整却报失败") → 删 .meta
 → 日志「上传完成 (大小, 耗时ms[, 续传自 N])」+ 广播 files:changed → 200 {ok,received,done:true}
 </pre>
+<p class="small">断点生命周期：服务启动只清理<b>超过 7 天</b>的 .ccpart/.meta（TTL）——期内保留使进程/系统重启后重选同一文件可凭会话指纹续传（Android 退后台被杀不再无声归零）；过期才回收磁盘。</p>
 <h3>5.2 下载</h3>
 <pre>
-safe_name → safe_join_existing(共享目录内且存在) → File::open
+safe_rel_path(读路径: 保留形态放行, 否则既有 aux.pdf 等取不回) → safe_join_existing → File::open
 → 日志「下载 (大小) ← IP」
 → headers: Content-Type / Content-Disposition(attachment; filename*=UTF-8'') /
    Cache-Control: no-cache / Content-Length(显式)

@@ -141,7 +141,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（每页 8 条，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-04</td><td>按平台差异化操作按钮：桌面=打开/复制/删除/分享；浏览器=下载/删除/分享</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-05</td><td>上传前磁盘空间预检（按剩余未传量），空间不足明确拒绝；<b>分片断点续传</b>：大文件分片上传，断网/锁屏/半开连接中断后自动从服务端断点继续（会话指纹校验防同名脏拼接），无需人工干预</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-05</td><td>上传前磁盘空间预检（按剩余未传量；未知大小上传边写边复查），空间不足明确拒绝；<b>分片断点续传</b>：大文件分片上传，断网/锁屏/半开连接中断后自动从服务端断点继续（会话指纹校验防同名脏拼接），断点保留 7 天——进程/系统重启（含 Android 退后台被杀）后重选同一文件仍可续传，无需人工干预</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -361,7 +361,7 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">14</span>平台差异矩阵</h2>
 <table>
 <tr><th>能力</th><th>桌面窗口</th><th>电脑浏览器</th><th>手机浏览器</th></tr>
-<tr><td>文件上传</td><td>✅ 四途径</td><td>✅ 四途径</td><td>✅ 选择/拍照</td></tr>
+<tr><td>文件上传</td><td>✅ 四途径</td><td>✅ 四途径（iOS/iPadOS 无「选择文件夹」——Safari 不支持 <code>webkitdirectory</code>，入口自动隐藏）</td><td>✅ 选择/拍照</td></tr>
 <tr><td>文件下载</td><td>—（用打开/复制）</td><td>✅ fetch+完成提示，&gt;1GB 原生下载</td><td>✅ 原生下载</td></tr>
 <tr><td>打开文件</td><td>✅ 系统程序</td><td>—</td><td>—</td></tr>
 <tr><td>复制文件</td><td>✅ 剪贴板</td><td>—</td><td>—</td></tr>
