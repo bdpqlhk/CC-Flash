@@ -793,7 +793,10 @@ async fn download(
             return err(StatusCode::INTERNAL_SERVER_ERROR, "读取失败");
         }
     }
-    let reader = tokio::io::BufReader::with_capacity(CHUNK_HINT, tokio_file);
+    // N-M 区间必须用 take 截断到 end_excl: ReaderStream 读到文件 EOF 为止,
+    // 不截断会多发 M 之后的字节, 与 CONTENT_LENGTH 声明不符 → 破坏 HTTP 分帧
+    let bounded = tokio::io::AsyncReadExt::take(tokio_file, if is_partial { end_excl - start } else { u64::MAX });
+    let reader = tokio::io::BufReader::with_capacity(CHUNK_HINT, bounded);
     let stream = tokio_util::io::ReaderStream::with_capacity(reader, CHUNK_HINT);
     push_log(format!(
         "下载 {name} ({}) ← {}{}",
