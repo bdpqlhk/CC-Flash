@@ -89,10 +89,12 @@ pub fn run() {
             #[cfg(target_os = "android")]
             {
                 use tauri::Manager;
+                // 注入的是 app_data_dir 本身(父目录): 共享目录与目录偏好文件分置其下
+                // (share=父/CC-Flash, pref=父/.ccflash-share)。若直接注入 share,
+                // 偏好文件会落进共享目录内部, 被 HTTP 列表当普通文件展示/下载/删除
                 if let Ok(dir) = app.path().app_data_dir() {
-                    let share = dir.join(config::SHARE_DIR_NAME);
-                    let _ = std::fs::create_dir_all(&share);
-                    server::set_platform_default_dir(share.to_string_lossy().to_string());
+                    let _ = std::fs::create_dir_all(dir.join(config::SHARE_DIR_NAME));
+                    server::set_platform_default_dir(dir.to_string_lossy().to_string());
                 }
             }
             // ---- 托盘 + 关窗收纳(桌面专属; 移动端无托盘概念) ----
@@ -128,7 +130,9 @@ pub fn run() {
                         if server::is_running() {
                             server::stop();
                         } else {
-                            let _ = server::start(None);
+                            // 回放用户最近指定的端口: start(None) 会漂移回默认 1688,
+                            // 已复制给手机的地址/二维码静默失效
+                            let _ = server::start(server::last_preferred_port());
                         }
                     }
                     "web" => {

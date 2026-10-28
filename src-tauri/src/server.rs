@@ -147,10 +147,11 @@ fn default_share_dir() -> PathBuf {
         }
     }
     // Android 应用进程 $HOME 无效(落到 "/" 或相对路径 → EACCES, 服务启动即失败):
-    // 由 lib.rs setup 用 tauri path API 注入 app 专属目录(免存储权限可读写)
+    // 由 lib.rs setup 注入 app 专属目录(父); 共享目录为其下 CC-Flash 子目录,
+    // 偏好文件平级置放(不进共享目录内部, 否则会被 HTTP 列表当普通文件展示)
     #[cfg(target_os = "android")]
-    if let Some(d) = platform_default_dir().map(PathBuf::from) {
-        return d;
+    if let Some(d) = platform_default_dir() {
+        return Path::new(d).join(SHARE_DIR_NAME);
     }
     #[cfg(target_os = "windows")]
     let home = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:".into());
@@ -257,12 +258,25 @@ pub fn lan_ip() -> String {
 
 /// 启动服务(优先尝试指定端口, 被占用自动顺延);返回实际端口。
 /// 注意:tokio 的 socket 操作必须在 runtime 上下文内,故整体包进 block_on。
+/// 用户最近一次指定的首选端口(0=未指定): 托盘"启动"/应用重启时回放,
+/// 防止重启后端口静默漂移回默认值、用户早先复制给手机的地址/二维码失效
+static LAST_PREFERRED_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+pub fn last_preferred_port() -> Option<u16> {
+    match LAST_PREFERRED_PORT.load(Ordering::Relaxed) {
+        0 => None,
+        p => Some(p),
+    }
+}
+
 pub fn start(preferred: Option<u16>) -> Result<u16, String> {
     // 整个 start 流程(检查+bind+写入)持同一把锁: 否则并发双启(托盘连点 + HTTP ctrl_start,
     // 或两个 LAN 客户端同时 POST /api/control/start)都通过 None 检查、各自 bind,
     // 后者覆写 running_slot 时 drop 前者的 shutdown Sender → 前一个服务自杀式关停
     static START_GUARD: Mutex<()> = Mutex::new(());
     let _guard = START_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(p) = preferred {
+        LAST_PREFERRED_PORT.store(p, Ordering::Relaxed);
+    }
     {
         let lock = running_slot().lock().unwrap();
         if let Some(h) = lock.as_ref() {
@@ -331,9 +345,11 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
 /// 不跟随符号链接: 否则会删到共享目录之外(或把外部目录列进文件表)。
 fn clean_stale_parts(share: &Path) {
     fn expired(md: &std::fs::Metadata) -> bool {
+        // 比较"距今的年龄": now - mtime。曾误写成 mtime - UNIX_EPOCH(mtime 的 epoch
+        // 秒值 ~1.79e9 恒 ≥ TTL), 所有文件都被判过期, 7 天保留成空实现
         md.modified()
             .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
             .map(|d| d.as_secs() >= UPLOAD_PART_TTL_SECS)
             .unwrap_or(true) // 时间戳拿不到按过期处理
     }
@@ -389,6 +405,9 @@ pub fn stop() -> bool {
             {
                 task.abort(); // 超时必须显式中止: 直接 drop JoinHandle 是 detach 不是取消,
                               // 反复启停会在后台累积僵尸 serve 任务/连接
+                // abort 后短等任务真正退出: 否则紧接的 start() 可能因旧 listener
+                // 尚未释放而不必要地顺延端口(网页端表现为地址漂移失联)
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(300), &mut task).await;
             }
         });
         true
@@ -398,8 +417,9 @@ pub fn stop() -> bool {
 }
 
 /// 应用启动时自动拉起(失败仅打日志, 不阻断 GUI)。
+/// 回放上次指定的端口: 重启应用后地址不漂移
 pub fn autostart() -> Result<u16, String> {
-    start(None)
+    start(last_preferred_port())
 }
 
 pub fn status() -> (bool, u16, String) {
@@ -761,6 +781,24 @@ async fn upload(
         }
         let have = tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0);
         let meta_id = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
+        if have == 0 && meta_id.trim().is_empty() {
+            // 断点与 meta 都不存在: 另一设备(相同 upId 语义 = 同名同大小同修改时间,
+            // 即同一内容)大概率已转正。最终文件恰为目标大小时直接确认完成——
+            // 否则败者会从头重传整份并覆盖, 大文件白白浪费整份带宽
+            if size > 0 {
+                if let Ok(fm) = tokio::fs::metadata(&final_path).await {
+                    if fm.len() == size {
+                        return Json(serde_json::json!({ "ok": true, "received": size, "done": true }))
+                            .into_response();
+                    }
+                }
+            }
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": 0 })),
+            )
+                .into_response();
+        }
         if have == 0 || (meta_id.trim() != upload_id.trim()) {
             // 无断点, 或断点属于另一次上传(同名新内容) → 视为无效, 让客户端从头重传
             return (
@@ -1322,7 +1360,7 @@ fn run_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Op
 }
 
 async fn ctrl_start() -> Response {
-    match run_blocking(|| start(None)) {
+    match run_blocking(|| start(last_preferred_port())) {
         Some(Ok(port)) => Json(serde_json::json!({ "ok": true, "port": port })).into_response(),
         Some(Err(e)) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
         None => err(StatusCode::GATEWAY_TIMEOUT, "启动超时"),
