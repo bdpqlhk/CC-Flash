@@ -51,6 +51,8 @@ rm -f src/config.js.bak
 # package.json 仅一处 "version"(无 dependencies 内嵌同名字段), 全局替换安全且 BSD/GNU sed 通用
 sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
 rm -f package.json.bak
+# 同步 package-lock 根 version(两处): 勿用全局 sed(lock 里有几千行依赖 version 字段)
+npm install --package-lock-only >/dev/null 2>&1 || echo "⚠ package-lock 同步失败(不阻断发版, CI 用 npm install)"
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null  # 刷新 Cargo.lock
 echo "Cargo.toml → $(grep -m1 '^version' src-tauri/Cargo.toml)"
 echo "config.js  → $(grep -m1 'APP_VERSION_FALLBACK' src/config.js)"
@@ -58,10 +60,14 @@ echo "config.js  → $(grep -m1 'APP_VERSION_FALLBACK' src/config.js)"
 # ---------- 2) 提交 ----------
 [ -z "$MSG" ] && MSG="release: v$VERSION"
 git add -A
-# 私钥守卫: 仓库为 Public, keystore 入库即泄露(任何人可签冒名更新包)
-if git diff --cached --name-only | grep -qiE '\.(keystore|jks|p12|mobileprovision)$'; then
+# 私钥守卫: 仓库为 Public, keystore 入库即泄露(任何人可签冒名更新包)。
+# 先把清单落到变量再 grep(不带 -q): grep -q 命中大列表开头即关管道,
+# git diff 吃 SIGPIPE 以 141 退出, pipefail 下整条 if 为假 —— 守卫恰好在
+# "发版夹带大量改动+私钥"这种该触发的场景被绕过(已实测复现)
+staged_files=$(git diff --cached --name-only)
+if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision)$' >/dev/null; then
   echo "✘ 暂存区含签名私钥文件, 已中止(请移出仓库目录并从暂存区移除)"
-  git diff --cached --name-only | grep -iE '\.(keystore|jks|p12|mobileprovision)$'
+  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision)$'
   exit 1
 fi
 if git diff --cached --quiet; then

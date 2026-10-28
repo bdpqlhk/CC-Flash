@@ -201,17 +201,21 @@ jobs:
   # 会留下残缺的"正式版"(如只有 macOS 包), 更新检查还会把它推给全平台用户
   publish:
     needs: [desktop, android]
-    if: ${{ always() && needs.desktop.result == 'success' && needs.android.result == 'success' }}
+    # job 级只要求"没被取消"就运行 —— 全绿条件放到 step 级: 若 job 级 if 要求双
+    # success, 不全绿时整个 job 被 skip, "保持草稿"的警告 step 永远不执行,
+    # 草稿卡住时操作者零提示
+    if: ${{ always() && needs.desktop.result != 'cancelled' && needs.android.result != 'cancelled' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: 发布 Release(草稿 → 正式)
+        if: ${{ needs.desktop.result == 'success' && needs.android.result == 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
           echo "✔ ${{ github.ref_name }} 已发布"
       - name: 未全绿时提示
-        if: ${{ always() && (needs.desktop.result != 'success' || needs.android.result != 'success') }}
+        if: ${{ needs.desktop.result != 'success' || needs.android.result != 'success' }}
         run: echo "::warning::desktop(${{ needs.desktop.result }})/android(${{ needs.android.result }}) 未全部成功, Release 保持草稿 —— 修复后可重新跑本 job 或手动 Publish"
