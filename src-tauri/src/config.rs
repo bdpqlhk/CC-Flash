@@ -69,6 +69,9 @@ pub const UPLOAD_FREE_CHECK_BYTES: u64 = 64 * 1024 * 1024;
 /// 立即全清会毁掉"进程/系统重启后续传"(Android 退后台被杀、电脑重启后
 /// 重选同一文件本可靠会话指纹命中服务端断点继续)
 pub const UPLOAD_PART_TTL_SECS: u64 = 7 * 24 * 3600;
+/// 新上传会话(offset=0)接管保护窗(秒): 断点属于其他会话且该时间内仍在写入时拒绝接管。
+/// 防两台设备传同名文件陷入"互截断断点→互从零重启"的无限拉锯; 写入停止超时则放行覆盖
+pub const UPLOAD_PART_BUSY_SECS: u64 = 30;
 
 // ---- 共享目录 ---- //
 /// 默认共享目录名(家目录下)
@@ -77,3 +80,8 @@ pub const SHARE_DIR_NAME: &str = "CC-Flash";
 pub const SHARE_DIR_NAME_LEGACY: &str = "Wlan-Flash-Transfer";
 /// 共享目录选择持久化文件(家目录隐藏文件, 内容为一行路径)
 pub const SHARE_PREF_FILE: &str = ".ccflash-share";
+/// 端口偏好持久化文件(与目录偏好同目录): 跨进程重启回放, 兑现"重启后地址不漂移"
+pub const PORT_PREF_FILE: &str = ".ccflash-port";
+/// 访问码持久化文件(内容为码值; 文件存在即开启): 静默失效比没有保护更危险 ——
+/// 用户开了访问码, 重启后若保护自动消失, 局域网在无感知下裸奔
+pub const PIN_PREF_FILE: &str = ".ccflash-pin";

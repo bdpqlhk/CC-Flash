@@ -66,6 +66,7 @@ pub fn run() {
             server::control_stop_cmd,
             server::control_clear_logs_cmd,
             server::set_share_dir_cmd,
+            server::set_access_pin_cmd,
             server::open_path_cmd,
             server::open_url_cmd,
             server::copy_file_cmd

@@ -382,6 +382,17 @@ body {
 .dialog-box .qr-img { width: 200px; height: 200px; border-radius: 8px; background: #fff; padding: 6px; margin: 10px auto; display: block; }
 .dialog-actions { display: flex; gap: 10px; justify-content: center; }
 
+/* 访问码配对弹框: 精简两行式 —— 标题 + 一句副题 + 居中输入 + 通栏渐变按钮 */
+.pin-box { max-width: 320px; }
+.pin-box h4 { font-size: 17px; }
+.pin-box .pin-sub { margin: 0 0 16px; font-size: 12.5px; color: var(--text3); }
+.pin-box .pin-input { text-align: center; letter-spacing: 3px; font-size: 16px; padding: 12px; border-radius: 10px; }
+.pin-box .pin-input::placeholder { letter-spacing: 2px; }
+/* display:flex + justify-content:center: .btn 是 inline-flex 且无主轴居中,
+   通栏(width:100%)后文字会贴左端 —— 覆写为块级 flex 并主轴居中 */
+.pin-box .pin-btn { width: 100%; display: flex; align-items: center; justify-content: center; margin-top: 12px; padding: 12px 0; font-size: 14.5px; font-weight: 600; border-radius: 10px; letter-spacing: 6px; text-indent: 6px; }
+.pin-box .pin-btn:active { transform: scale(0.98); }
+
 /* 窄屏:侧栏变顶部导航 */
 @media (max-width: 980px) {
     .shell { flex-direction: column; height: auto; min-height: 100vh; }
@@ -397,6 +408,17 @@ body {
     .svc-top { grid-template-columns: 1fr; }
     .svc-fields { grid-template-columns: 1fr; }
     .svc-log-card { flex: none; height: 340px; }
+}
+
+/* 更窄(桌面壳窗口最小可到 560px): 导航只留图标, 名称靠按钮 title 悬停提示 ——
+   品牌 + 4 个入口 + 运行状态在最小宽度也能一行放下, 不再横向滚动。
+   仅命中桌面壳专属类(.sidebar/.nav-item/.side-*), 网页端无这些节点不受影响 */
+@media (max-width: 720px) {
+    .nav-item { padding: 8px 9px; }
+    .nav-label { display: none; }
+    /* 未读徽标改为角标, 贴在图标右上角(nav-item 本身 position:relative) */
+    .nav-badge { position: absolute; top: 2px; right: 0; margin-left: 0; }
+    .side-status { font-size: 11px; }
 }
 
 /* ===== 悬浮球 + 底部聊天面板(手机端) ===== */
@@ -426,7 +448,6 @@ body {
     .chat-fab, .chat-sheet { display: none !important; }
 }
 @media (max-width: 980px) {
-    .nav-item.svc { display: none; }
     .chat-fab { display: flex; }
     .chat-card.in-sheet .chat-header { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; column-gap: 10px; row-gap: 8px; }
     .chat-card.in-sheet .chat-head-right { display: contents; }

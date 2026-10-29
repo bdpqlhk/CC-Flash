@@ -189,7 +189,7 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>递归收集（深度 ≤8，相对路径作 name，隐藏 .ccpart 产物与符号链接，<code>spawn_blocking</code>）→ name/size/modified(JSON 时间秒)，按修改时间倒序</td></tr>
 <tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载</td><td>通配路由支持子目录；<b>Range 断点续传</b>（单区间 206 + Content-Range + Accept-Ranges，416 越界；N-M 以 take 截断防分帧破坏）；目录 is_file 拒绝；流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>；MIME 按扩展名猜</td></tr>
 <tr><td>POST</td><td><code>/api/upload</code></td><td>上传（分片断点续传）</td><td><code>X-Filename</code>(URL编码, 相对路径) + <code>X-File-Size</code> + <code>X-Upload-Offset</code> + <code>X-Upload-Id</code>；磁盘预检（按剩余量）；分片追加写 .ccpart（按路径异步锁互斥），收齐转正；中断保留断点返回 {received}；完成返回 {ok,received,done:true}</td></tr>
-<tr><td>GET</td><td><code>/api/upload_progress</code></td><td>断点查询</td><td>?name=&amp;id= → {received}；会话 id 不匹配返回 0（从头传）；纯只读不建目录</td></tr>
+<tr><td>GET</td><td><code>/api/upload_progress</code></td><td>断点查询</td><td>?name=&amp;id=[&amp;size=] → {received}；会话 id 不匹配返回 0（从头传）；断点不存在但 size 与已转正最终文件吻合 → 返回 size（响应冻结后重查直接确认完成，不从零重传）；纯只读不建目录</td></tr>
 <tr><td>DELETE</td><td><code>/api/delete/*name</code></td><td>删除</td><td>safe_rel_path + 越界校验后删文件（支持子目录）</td></tr>
 <tr><td>GET</td><td><code>/api/chat</code></td><td>拉取聊天</td><td>返回全部（≤200）消息数组</td></tr>
 <tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、记录来源 IP；id 分配与入队同一临界区（防并发重复 id）；返回自增 id</td></tr>
@@ -226,7 +226,8 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <h3>5.1 上传（分片断点续传 + 预检 + 目录结构保留）</h3>
 <pre>
 HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验, 保留形态与系统垃圾文件
-  [.DS_Store/._*/Thumbs.db/desktop.ini, 防目录文件名元数据泄露]仅上传拒绝) ─非法→ 400
+  [.DS_Store/._*/Thumbs.db/desktop.ini, 防目录文件名元数据泄露]、控制字符(CR/LF/NUL 等,
+  Windows 文件名非法且跨端不一致)与 RTL 覆写符(U+202A-E, 防"exe.jpg"反转伪装扩展名)仅上传拒绝) ─非法→ 400
 → #[cfg(windows)] MAX_PATH(260) 预检: 路径按 UTF-16 code unit 计 + 最长内部后缀 .ccpart.meta
   超限 → 400「路径过长」(前端 4xx 快速失败, 不做无意义重试)
 → (size-offset) &gt; fs2::available_space ─是→ 400 + 日志「上传拒绝」
@@ -246,8 +247,9 @@ HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐�
    ├─ size&gt;0 且 received&gt;size → 立即 400(边收边查, 不等 body 收完才截断)
    ├─ size==0 每 64MB 复查磁盘剩余, 不足 → 507(未知大小上传防灌满系统盘)
    └─ 正常写入累加 received
-→ sync_all → size&gt;0 且 received&lt;size → 200 {ok,received,done:false}(分片确认, 断点保留)
-→ create_dir_all(父目录) → 删已存在目标(失败记日志) → rename 转正(5×300ms 退避重试,
+→ size&gt;0 且 received&lt;size → 200 {ok,received,done:false}(分片确认, 断点保留; 中间片不 sync_all——
+   续传按服务端实际文件长度对齐, 掉电丢页缓存尾巴由 409 {received:have} 重排兜底, 不拼洞)
+→ 收齐才 sync_all(先落数据再改名, 掉电不出现"有文件名无数据") → create_dir_all(父目录) → 删已存在目标(失败记日志) → rename 转正(5×300ms 退避重试,
   防 Windows 目标被资源管理器/杀软占用时"字节完整却报失败") → 删 .meta
 → 日志「上传完成 (大小, 耗时ms[, 续传自 N])」+ 广播 files:changed → 200 {ok,received,done:true}
 </pre>
@@ -288,6 +290,15 @@ safe_rel_path → safe_join_existing → remove_file
 </ol>
 <div class="callout c-info"><b>上传的额外预检</b>上传可能创建新路径：建目录前对「最近存在的祖先」做 canonicalize 越界校验——<code>create_dir_all</code> 会跟随符号链接，先建后查会把目录建到共享目录之外。断点查询（upload_progress）纯只读、不创建任何目录（防任意查询串刷出空目录树）。</div>
 <div class="callout c-tip"><b>解码边界</b>axum 的 Path/Query 提取器自带一次 percent 解码；<code>X-Filename</code> 请求头不经提取器，由 upload 处理解一次再传入。<code>safe_rel_path</code> 本身不再解码——避免含字面 <code>%XX</code> 的文件名被双重解码后指向别的文件。</div>
+<h3>6.1 访问令牌与请求准入（中间件）</h3>
+<ul>
+<li><b>本机来源豁免</b>：<code>is_local_source</code> = 回环地址 ∪「源 IP 绑定 UDP socket 试探」（同机浏览器经局域网 IP 访问时源地址是网卡 IP 而非 127.0.0.1，只判回环会把电脑前的人锁在外面）；伪造源地址需完成 TCP 握手（收不到 SYN-ACK），不可冒充。双栈监听（<code>[::]</code>）下 IPv4 连接的源地址是 v4-mapped 形态（<code>::ffff:a.b.c.d</code>），而 is_loopback/UDP 探测只认纯 v4——统一经 <code>normalize_peer</code> 折回纯 IPv4 再判定（v1.1.4 修复：此前桌面壳经 127.0.0.1 的控制接口调用被误判远程 403，"服务日志"面板因此全瞎）；</li>
+<li><b>控制接口仅限本机</b>：<code>/api/control/*</code>（启停/日志）非回环来源一律 403；</li>
+<li><b>Host/Origin 守卫</b>：Host 必须是 IP / localhost / *.local（挡 DNS 重绑定）；带 Origin 的请求只放行自身与 tauri WebView 源（挡跨源 CSRF）；</li>
+<li><b>访问令牌（可选）</b>：开启后非本机的 API/WS 请求必须携带 <code>?pin=</code> 或 <code>X-Access-Pin</code>；6 位数字码（时间纳秒^进程id^自增序号经 splitmix64 扩散），状态落盘重启不静默失效；导航请求（Accept 含 text/html）回可输入配对码的 HTML 中转页而非裸 JSON；</li>
+<li><b>防爆破退避（v1.1.4）</b>：只统计「实际提交了配对码」的尝试（无码的后台轮询不计额度）；同一 IP 连续失败 8 次后指数退避（15s 起步每次翻倍、封顶 1h）——<b>锁定窗内一律 429，正确码也拒绝</b>（若放行，对/错码响应可区分，攻击者伪造 Accept 头即可全速逐个试码，退避形同虚设）；锁定中不记数不延长（轰炸无法续窗），配对成功立即清零；逐 IP 计数使攻击者只能锁住自己的源地址。导航请求在锁定窗内回可重试的 429 表单页；</li>
+<li><b>日志卫生</b>：日志行剥 CR/LF 防伪造注入、单行硬截断 400 字符；查询串中的 pin 一律脱敏为 <code>pin=***</code>。</li>
+</ul>
 </section>
 
 <!-- ================= 7 ================= -->
@@ -378,7 +389,11 @@ safe_rel_path → safe_join_existing → remove_file
 </table>
 <h3>9.4 上传实现（分片 + 断点续传 + 整目录 + 并发闸）</h3>
 <ul>
-<li>分片 fetch 循环：8MB 分片（<code>UPLOAD_CHUNK</code>）逐片 POST，单片 30s 超时（AbortController，仅计真实请求时间），进度/速率按累计偏移计算；</li>
+<li><b>大分片单请求（v1.1.4 实测定策）</b>：分片大小 1GB（<code>UPLOAD_CHUNK</code>）——常规文件即整文件单请求。依据：企业 Wi-Fi 上实测 iPhone 对每个分片边界冻结 ~63s（服务端每片仅 1.3-2.1s 收完，片间无任何请求、亦无重试查询，iOS TCP 重传退避上限 60s 的特征；Mac 同服务毫秒级连发），大分片把边界降到最少。服务端协议对分片大小无假设，断点粒度不受此值影响（按服务端实际收到的字节续传）；</li>
+<li><b>XHR 替代 fetch</b>：fetch 无上传进度事件，单请求整文件时进度只能 0%→100% 跳变；XHR <code>upload.onprogress</code> 提供实时已发字节数，进度/速率平滑推进；<b>进度闲置中止</b>（<code>UPLOAD_STALL_MS</code> 15s，onprogress 每次到达即续命）替代原"按片大小缩放的总时长"超时——传输中永不误杀，停滞（半死连接/iOS 冻结）到点即中止走续传；</li>
+<li><b>并发闸（5 路）</b>：浏览器（尤其 Safari/WebKit）每 host 仅 6 条 HTTP/1.1 连接且 WS/轮询/缩略图已占槽——一次选数百文件全并发时排队请求会被误杀集体报"上传中断"；入队真正排队（waiting 状态真实生效）；</li>
+<li><b>4xx 快速失败</b>：路径过长等确定性业务错误直接报错（408/409/429 例外仍重试），不做 8×1.5s 空转；</li>
+<li>断点续传：会话 id = <code>文件名|大小|lastModified</code> 稳定指纹（name 做 encodeURIComponent——请求头是 ByteString，原始中文会抛 TypeError）；开传前与每次失败后 <code>GET /api/upload_progress</code>（携带 <code>size</code> 参数）以服务端断点为准重排，<b>查询失败（null）保持当前 offset 不动</b>（防网络抖动误将数 GB 断点清零）；断点已转正且大小吻合直接确认完成（响应冻结场景不从零重传）；连续失败 8 次（成功一片清零）报错；</li>
 <li><b>并发闸（5 路）</b>：浏览器（尤其 Safari/WebKit）每 host 仅 6 条 HTTP/1.1 连接且 WS/轮询/缩略图已占槽——一次选数百文件全并发时排队请求会被 30s 超时误杀集体报"上传中断"；入队真正排队（waiting 状态真实生效）；</li>
 <li><b>4xx 快速失败</b>：路径过长等确定性业务错误直接报错（408/409/429 例外仍重试），不做 8×1.5s 空转；</li>
 <li>断点续传：会话 id = <code>文件名|大小|lastModified</code> 稳定指纹（name 做 encodeURIComponent——请求头是 ByteString，原始中文会抛 TypeError）；开传前与每次失败后 <code>GET /api/upload_progress</code> 以服务端断点为准重排，<b>查询失败（null）保持当前 offset 不动</b>（防网络抖动误将数 GB 断点清零）；连续失败 8 次（成功一片清零）报错；</li>

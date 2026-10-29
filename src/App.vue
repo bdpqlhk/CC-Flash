@@ -10,11 +10,11 @@ import {
   GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, NATIVE_DOWNLOAD_OVER, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
   REL_TIME_MS, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
-  UPDATE_CHECK_INTERVAL_MS, UPLOAD_CHUNK, UPLOAD_CHUNK_TIMEOUT_MS, UPLOAD_DONE_KEEP_MS,
-  UPLOAD_RETRY_MS, UPLOAD_RETRY_TIMES, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
+  UPDATE_CHECK_INTERVAL_MS, UPLOAD_CHUNK, UPLOAD_DONE_KEEP_MS, UPLOAD_RETRY_MS,
+  UPLOAD_RETRY_TIMES, UPLOAD_STALL_MS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog";
 
 /* ---------- 运行参数: 下面是启动兜底值, 服务端(/api/info、control_status_cmd)下发后以其为准 ---------- */
 const appVersion = ref("");   // 应用版本, 唯一来源 Cargo.toml, 随状态接口下发
@@ -57,6 +57,56 @@ const isWeChat = /MicroMessenger/i.test(navigator.userAgent);   // 微信内置�
 // 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
 const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || DEFAULT_PORT}` : ""));
 function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
+
+/* ---------- 访问码(可选; 电脑端 CC设置 开启后, 局域网网页端需输入一次) ---------- */
+const accessPin = ref((() => { try { return localStorage.getItem(LS.pin) || ""; } catch (e) { return ""; } })());
+const needPin = ref(false);      // 401 → 弹出输入框; 验证通过后全量重载
+const pinInput = ref("");
+const pinEnabled = ref(false);   // 桌面设置页展示用(仅 Tauri 命令下发, HTTP /api/info 不携带码值)
+const pinCode = ref("");
+function withPin(url, pin = accessPin.value) {
+  return pin ? url + (url.includes("?") ? "&" : "?") + "pin=" + encodeURIComponent(pin) : url;
+}
+/* 统一请求入口: 自动附带令牌; 401/429 时置 needPin 配对弹框(网页端输入一次后全流程透明)。
+   429 = 配对码连续错进退避锁定 —— 若不当配对信号处理, 页面会静默退化成"已停止/无文件" */
+async function apiFetch(url, opts) {
+  const r = await fetch(withPin(url), opts);
+  if (r.status === 401 || r.status === 429) {
+    needPin.value = true;
+    throw new Error(r.status === 429 ? "配对尝试过于频繁" : "需要配对码");
+  }
+  return r;
+}
+/* 下载/图片/分享链接统一经此: 分享链接带上令牌, 接收方打开即验证 */
+function downloadUrl(name) { return withPin(apiBase.value + API.download(name)); }
+async function submitPin() {
+  const p = pinInput.value.trim();
+  if (!p) return;
+  try {
+    const r = await fetch(apiBase.value + API.info + "?pin=" + encodeURIComponent(p));
+    if (r.ok) {
+      accessPin.value = p;
+      try { localStorage.setItem(LS.pin, p); } catch (e) {}
+      needPin.value = false;
+      statusFail = 0;
+      offline.value = false;
+      showToast("配对成功");
+      refreshStatus(); loadFiles(); loadChat(); connectWs();
+    } else if (r.status === 429) showToast("尝试过于频繁，请稍后再试", "error");
+    else showToast("配对码不正确", "error");
+  } catch (e) { showToast("验证失败，请检查网络", "error"); }
+}
+async function toggleAccessPin() {
+  try {
+    const d = await tauriInvoke("set_access_pin_cmd", { enable: !pinEnabled.value });
+    if (d.ok) {
+      pinEnabled.value = !pinEnabled.value;
+      pinCode.value = d.pin || "";
+      showToast(pinEnabled.value ? `访问令牌已开启：${d.pin}` : "访问令牌已关闭");
+    } else showToast(d.error || "设置失败", "error");
+  } catch (e) { showToast("设置失败，请重试", "error");
+  }
+}
 /* 当前设备昵称(供日志/请求头使用) */
 function deviceNick() { return nickInput.value.trim() || autoNick; }
 
@@ -128,11 +178,12 @@ async function refreshControl() {
     try {
       const d = isDesktop
         ? await tauriInvoke("control_status_cmd")
-        : await (await fetch(API.info)).json();
+        : await (await apiFetch(API.info)).json();
       running.value = d.running;
       port.value = d.port;
       lanIp.value = d.ip;
       if (typeof d.version === "string") appVersion.value = d.version;
+      if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; }
       applyServerConfig(d.config);
       if (d.share) shareInput.value = d.share;
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
@@ -152,12 +203,24 @@ function syncPortInput(isRunning, port) {
     portInput.value = String(port);
   }
 }
+/* 应用共享目录(含高危目录二次确认): 家目录/其祖先/磁盘根一旦共享,
+   个人全部文件对整个 Wi-Fi 开放读写删, 必须让用户明确知情后才放行 */
+async function applyShareDir(path) {
+  const d = await tauriInvoke("set_share_dir_cmd", { path });
+  if (!d.dangerous) return d;
+  const yes = await askDialog(
+    `「${path}」是高风险目录（家目录、其上级或磁盘根目录）。\n\n共享后同一 Wi-Fi 内的任何设备都能读取、覆盖、删除其中的全部文件。确定继续吗？`,
+    { title: "高风险共享目录", kind: "warning" }
+  );
+  if (!yes) return { ok: false, cancelled: true };
+  return tauriInvoke("set_share_dir_cmd", { path, force: true });
+}
 async function startServer() {
   if (!isDesktop) { showToast("请在桌面端控制服务", "error"); return; }
   try {
     // 先应用共享目录(含持久化), 再启动 —— 否则输入框里的目录从未生效过
-    const s = await tauriInvoke("set_share_dir_cmd", { path: shareInput.value });
-    if (!s.ok) { showToast(s.error || "共享目录无效", "error"); return; }
+    const s = await applyShareDir(shareInput.value);
+    if (!s.ok) { if (!s.cancelled) showToast(s.error || "共享目录无效", "error"); return; }
     const d = await tauriInvoke("control_start_cmd", { port: Number(portInput.value) || null });
     if (d.ok) {
       running.value = true;
@@ -183,11 +246,11 @@ async function pickShareDir() {
     const sel = await openDialog({ directory: true, title: "选择共享目录" });
     if (!sel) return;   // 用户取消
     // 立即落盘: 后端更新后轮询回写的才是新目录, 否则 2.5s 内会被旧值冲掉
-    const d = await tauriInvoke("set_share_dir_cmd", { path: sel });
+    const d = await applyShareDir(sel);
     if (d.ok) {
       shareInput.value = sel;
       showToast("共享目录已更新，下次启动服务生效");
-    } else {
+    } else if (!d.cancelled) {
       showToast(d.error || "设置失败", "error");
     }
   } catch (e) {
@@ -366,7 +429,7 @@ async function loadFiles(manual = false) {
   if (manual) refreshing.value = true;
   try {
     // 昵称走 URL 参数: 避免 X-Nickname 自定义头触发 CORS 预检, 刷新只需一次往返
-    const r = await fetch(apiBase.value + API.files + "?nick=" + encodeURIComponent(deviceNick()));
+    const r = await apiFetch(apiBase.value + API.files + "?nick=" + encodeURIComponent(deviceNick()));
     const d = await r.json();
     allFiles.value = d.files || [];
     // 列表缩水(删除本页等)后回收越界页码: 否则页码条无高亮、‹ 可点到更越界的页
@@ -391,8 +454,15 @@ async function loadFiles(manual = false) {
 async function shareFile(name) {
   if (serviceDown()) { showToast("服务已停止，无法分享", "error"); return; }   // 停服后链接打不开, 先拦截
   const base = isDesktop ? `http://${lanIp.value}:${port.value}` : location.origin;
-  const url = base + API.download(name);
-  copyText(url + TIP_SHARE, "分享链接已复制：" + name);
+  // 链接嵌入当前访问码, 接收方打开即过校验:
+  // 浏览器端用本机已验证的 accessPin; 桌面壳走回环豁免不存码, 但可嵌入可信 IPC
+  // 下发的 pinCode —— 否则壳复制的链接永远裸奔, 接收方必然撞 401
+  const url = withPin(base + API.download(name), accessPin.value || pinCode.value);
+  // 链接内嵌了配对码 = 收到的人不止能下这个文件, 而是可访问全部共享内容(上传/删除/聊天)
+  const pinNote = (accessPin.value || pinCode.value)
+    ? "\n⚠️ 链接含配对码：对方可访问全部共享内容，请仅发给可信对象"
+    : "";
+  copyText(url + TIP_SHARE + pinNote, "分享链接已复制：" + name);
 }
 
 /* ---------- 下载(浏览器端): fetch 回来再触发保存, 才有"下载完成"时机 ---------- */
@@ -408,7 +478,7 @@ function nativeDownload(url, filename) {
   a.remove();
 }
 async function downloadFileWeb(name) {
-  const url = apiBase.value + API.download(name);
+  const url = downloadUrl(name);
   const base = name.split("/").pop() || name;   // download 属性不带子目录路径(部分移动端拒收)
   try {
     const r = await fetch(url);
@@ -469,7 +539,7 @@ async function doDelete() {
   let ok = 0, fail = 0;
   for (const n of targets) {
     try {
-      const r = await fetch(apiBase.value + API.del(n), { method: "DELETE" });
+      const r = await apiFetch(apiBase.value + API.del(n), { method: "DELETE" });
       r.ok ? ok++ : fail++;
     } catch (e) { fail++; }
   }
@@ -484,6 +554,8 @@ const uploads = ref([]);
 let upSeq = 0;
 /* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 条上传链, 其余真正停在"等待中" */
 const UPLOAD_CONCURRENCY = 5;
+/* "从零重排"上限: 超过视为同名文件被其他会话争抢, 报错退出而非无限拉锯 */
+const UPLOAD_RESET_LIMIT = 3;
 let upActive = 0;
 const upQueue = [];
 function pumpUploadQueue() {
@@ -542,63 +614,97 @@ async function collectDroppedFiles(dt) {
   for (const en of entries) await walk(en, "");
   return out;
 }
+const collecting = ref(false);   // 递归收集拖入条目期间置位: 超大目录树收集耗时秒级, 得让用户知道在干活
 async function onDrop(e) {
   dragOver.value = false;
-  const list = await collectDroppedFiles(e.dataTransfer);
-  // 空文件夹拖入零反馈会让用户反复拖、以为软件坏了
-  if (!list || !list.length) { showToast("文件夹为空或不含可上传文件", "error"); return; }
-  handleFiles(list);
+  if (collecting.value) return;
+  collecting.value = true;
+  try {
+    const list = await collectDroppedFiles(e.dataTransfer);
+    // 空文件夹拖入零反馈会让用户反复拖、以为软件坏了
+    if (!list || !list.length) { showToast("文件夹为空或不含可上传文件", "error"); return; }
+    handleFiles(list);
+  } finally { collecting.value = false; }
 }
 /* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
 function uploadRelName(file) { return file.webkitRelativePath || file.name; }
-async function fetchServerReceived(name, upId) {
+async function fetchServerReceived(name, upId, total = 0) {
   // 返回 null 表示查询失败(网络抖动) —— 与"服务端确认为 0"严格区分:
   // 失败时调用方保持当前 offset 不动(下一片若与服务端断点错位, 服务端 409 会带
   // 真实断点兜底重排); 若把失败当 0, 重试链会 offset=0 → 下一片 truncate
   // 掉数 GB 服务端断点从头重传(AP 漫游/休眠双重失败即触发)
   try {
-    const r = await fetch(apiBase.value + API.uploadProgress(name, upId));
+    // size: 断点已不存在时, 服务端核对"最终文件大小吻合"即视为完成 ——
+    // 大分片下响应在途丢失/冻结的重试, 不至于把已转正的文件从头重传
+    const r = await apiFetch(apiBase.value + API.uploadProgress(name, upId) + `&size=${total}`);
     if (!r.ok) return null;
     const d = await r.json();
     return Number.isFinite(d.received) ? d.received : null;
   } catch (_) { return null; }
 }
-async function sendChunk(name, upId, totalSize, offset, chunk) {
-  // 超时保护: 半死连接(无 RST 的断网/AP 休眠)靠它触发续传, 而不是挂到浏览器 TCP 超时
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), UPLOAD_CHUNK_TIMEOUT_MS);
-  try {
-    const r = await fetch(apiBase.value + API.upload, {
-      method: "POST",
-      headers: {
-        "X-Filename": encodeURIComponent(name),
-        "X-File-Size": String(totalSize),
-        "X-Upload-Offset": String(offset),
-        "X-Upload-Id": upId,
-        "Content-Type": "application/octet-stream",
-      },
-      body: chunk,
-      signal: ctrl.signal,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const err = new Error(d.error || `HTTP ${r.status}`);
+/* 单片上传: XHR 而非 fetch —— fetch 没有上传进度事件, 大分片(见 config UPLOAD_CHUNK,
+   整文件单请求)时进度只能 0%→100% 跳变; XHR upload.onprogress 提供实时已发字节数。
+   协议头/响应语义与原 fetch 版一致。
+   超时改为"进度闲置中止": onprogress 每次到达即续命(UPLOAD_STALL_MS) —— 传输中永不误杀,
+   停滞(半死连接/iOS 响应冻结)到点即中止走续传, 替代原"按片大小缩放的总时长"超时 */
+function sendChunk(name, upId, totalSize, offset, chunk, entrySignal, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let timer = null;
+    const armIdle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { try { xhr.abort(); } catch (e) {} }, UPLOAD_STALL_MS);
+    };
+    const relay = () => xhr.abort();
+    if (entrySignal) {
+      if (entrySignal.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+      entrySignal.addEventListener("abort", relay);
+    }
+    const settle = (fn, arg) => {
+      clearTimeout(timer);
+      if (entrySignal) entrySignal.removeEventListener("abort", relay);
+      fn(arg);
+    };
+    xhr.open("POST", withPin(apiBase.value + API.upload));
+    xhr.setRequestHeader("X-Filename", encodeURIComponent(name));
+    xhr.setRequestHeader("X-File-Size", String(totalSize));
+    xhr.setRequestHeader("X-Upload-Offset", String(offset));
+    xhr.setRequestHeader("X-Upload-Id", upId);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => {
+      armIdle();
+      if (onProgress && e.lengthComputable) onProgress(e.loaded);
+    };
+    xhr.onload = () => {
+      let d = {};
+      try { d = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300) { settle(resolve, d); return; }
+      // 与 apiFetch 对齐: 401/429 都要唤起配对弹框(XHR 不经过 apiFetch)
+      if (xhr.status === 401 || xhr.status === 429) needPin.value = true;
+      const err = new Error(d.error || `HTTP ${xhr.status}`);
       err.received = d.received;
       err.server = !!d.error;   // 服务端业务错误(如"正被其他设备上传"), 重试文案应如实展示
       // 4xx 业务错误重试无意义(路径非法/超长等确定性失败), 快速失败;
       // 408/429/409 例外: 超时/限流/续传重排值得重试
-      err.fatal = r.status >= 400 && r.status < 500
-        && ![408, 409, 429].includes(r.status);
-      throw err;
-    }
-    return d;
-  } finally { clearTimeout(timer); }
+      err.fatal = xhr.status >= 400 && xhr.status < 500
+        && ![408, 409, 429].includes(xhr.status);
+      settle(reject, err);
+    };
+    xhr.onerror = () => settle(reject, new Error("网络中断"));
+    xhr.onabort = () => settle(reject, new DOMException("Aborted", "AbortError"));
+    armIdle();
+    xhr.send(chunk);
+  });
 }
 function uploadFile(file) {
   // 停服拦截(与删除/分享一致): 否则每个文件先探断点再 8×1.5s 空转重试才报错,
   // 粘贴大量文件即大量并发失败链 + toast 刷屏
   if (serviceDown()) { showToast("服务未启动，无法上传", "error"); return; }
   const id = "up-" + Date.now() + "-" + upSeq++;
+  const ac = new AbortController();   // 条目级取消: 中断在途请求与整条上传链
   const name = uploadRelName(file);
   const total = file.size;
   // 会话 id = 文件稳定指纹(名+大小+修改时间): 页面重载/锁屏后重选同一文件仍命中
@@ -611,33 +717,46 @@ function uploadFile(file) {
   if (uploads.value.some(u => u.upId === upId && (u.status === "waiting" || u.status === "uploading"))) {
     return;
   }
-  uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting" });
+  uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting", ac });
   const stat = () => uploads.value.find(u => u.id === id);
   // 并发闸: 浏览器(尤其 Safari/WebKit)每 host 仅 6 条 HTTP/1.1 连接, 且 WS/轮询/缩略图
   // 已占槽 —— 一次选几百个文件全并发时, 排队请求会被单片 30s 超时(从 fetch 调用即计时)
   // 误杀, 集体报"上传中断"。入队后真正排队等待, 超时只计真实请求时间
   upQueue.push(async () => {
+    if (ac.signal.aborted) return;
     // 断点续传: 服务端已有本次会话的断点则从其长度继续(覆盖 锁屏/断网 中断的场景);
     // 断点比本地文件还长 → 内容必然不一致, 强制从头重传
-    let serverReceived = await fetchServerReceived(name, upId);
+    let serverReceived = await fetchServerReceived(name, upId, total);
+    if (ac.signal.aborted) return;
     if (serverReceived === null) {
       // 查询失败重试一次再放弃: 误把失败当 0 会让首片 truncate 掉服务端数 GB 断点
       await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
-      serverReceived = (await fetchServerReceived(name, upId)) ?? 0;
+      if (ac.signal.aborted) return;
+      serverReceived = (await fetchServerReceived(name, upId, total)) ?? 0;
     }
     if (serverReceived > total) serverReceived = 0;
     let offset = serverReceived;
     let base = offset;
     let t0 = Date.now();
     let attempts = 0;
+    let resets = 0;   // "从零重排"计数: 同名文件被其他会话反复争抢的客户端保险(见下方使用处)
+    let lastChunkOffset = offset;
     for (;;) {
       const it = stat(); if (!it) return;
       it.status = "uploading";
       try {
         // do-while: 0 字节文件也要发出至少一次请求(空 body, 服务端直接转正)
         do {
+          lastChunkOffset = offset;
           const chunk = file.slice(offset, Math.min(offset + UPLOAD_CHUNK, total));
-          const d = await sendChunk(name, upId, total, offset, chunk);
+          // 实时进度(XHR onprogress): 已发字节叠加在服务端确认的起点上,
+          // 大分片(整文件单请求)时也能平滑推进而非 0%→100% 跳变
+          const d = await sendChunk(name, upId, total, offset, chunk, ac.signal, (loaded) => {
+            const itp = stat(); if (!itp) return;
+            itp.pct = total ? Math.round((Math.min(offset + loaded, total) / total) * 100) : 100;
+            itp.speed = fmtSize(loaded / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
+          });
+          if (ac.signal.aborted) return;   // 取消后不再消费响应
           offset = Math.min(
             Number.isFinite(d.received) ? d.received : offset + chunk.size,
             total
@@ -653,6 +772,7 @@ function uploadFile(file) {
         return;
       } catch (e) {
         const it4 = stat(); if (!it4) return;
+        if (ac.signal.aborted) return;   // 用户取消: 条目已移除, 静默退出
         if (e && e.fatal) {
           // 确定性业务失败(如"路径过长"): 直接报错, 不做 8×1.5s 无意义空转
           it4.status = "error";
@@ -664,23 +784,46 @@ function uploadFile(file) {
         if (attempts > UPLOAD_RETRY_TIMES) {
           it4.status = "error";
           it4.speed = "";   // 清掉"自动续传中"残留文案: 否则失败条目永远显示它, 用户以为还在重试
-          showToast("上传中断: " + name, "error");
+          // 服务端业务错误(如"该文件正被其他设备上传")如实进 toast, 网络类保持原样
+          showToast("上传中断: " + name + (e && e.server ? " — " + String(e.message).slice(0, 40) : ""), "error");
           return;
         }
         // 服务端业务错误(如"该文件正被其他设备上传")如实展示, 仅网络类异常才提示自动续传
         it4.speed = e && e.server ? String(e.message).slice(0, 24) : "网络中断，自动续传中…";
         await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
+        if (ac.signal.aborted) return;
         // 以服务端断点为准重排; 查询失败(null)保持当前 offset 不动 ——
         // 服务端重启清了断点则下一片 409 会带回真实进度, 网络抖动误清零数 GB 断点
-        const recv = await fetchServerReceived(name, upId);
+        const recv = await fetchServerReceived(name, upId, total);
         if (recv !== null) {
-          offset = recv > total ? 0 : recv;
+          const next = recv > total ? 0 : recv;
+          // 从零重排保险: 原有进度被反复清零基本可断定同名文件正被其他会话争抢
+          // (两设备互踢时每轮首片总成功, attempts 永不清零到不了上限) ——
+          // 与服务端 busy 守卫双保险, 数次后即报错退出, 不做无限拉锯
+          if (offset > 0 && next === 0) {
+            resets += 1;
+            if (resets > UPLOAD_RESET_LIMIT) {
+              it4.status = "error";
+              it4.speed = "";
+              showToast("上传冲突: 「" + name + "」可能正被其他设备上传同名文件，请稍后重试", "error");
+              return;
+            }
+          }
+          // 弱网推进不计失败额度: 单片超时但断点已前进(recv > 本片起点), 说明链路只是慢
+          // 而非死 —— 照旧计 8 次额度会把"每片都超时但每次都在前进"的链路误判为中断
+          if (recv > lastChunkOffset) attempts = 0;
+          offset = next;
           base = offset; t0 = Date.now();
         }
       }
     }
   });
   pumpUploadQueue();
+}
+/* 取消进行中/排队中的上传(中断在途请求 → 上传链静默退出), 失败行等同移除 */
+function cancelUpload(u) {
+  if (u.ac) { try { u.ac.abort(); } catch (e) {} }
+  removeUpload(u.id);
 }
 function onPaste(e) {
   const items = e.clipboardData && e.clipboardData.items;
@@ -788,7 +931,7 @@ async function loadChat() {
     // 互斥把影响面从"单次"放大为"聊天停更直至浏览器默认超时(~5min)"
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);
-    const r = await fetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(deviceNick()), { signal: ctl.signal });
+    const r = await apiFetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(deviceNick()), { signal: ctl.signal });
     clearTimeout(timer);
     const d = await r.json();
     const msgs = d.messages || [];
@@ -811,7 +954,7 @@ async function sendChat() {
   const nickname = curNick.value;
   saveNick();
   try {
-    const r = await fetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(nickname), {
+    const r = await apiFetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(nickname), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nickname, message: text }),
@@ -904,12 +1047,16 @@ let wsWatchdogTimer = null;
 let lastWsMsg = 0;   // 最近一次收到 WS 消息(含服务端 15s 心跳)的时间戳
 function wsEndpoint() {
   if (isDesktop) return port.value ? `ws://127.0.0.1:${port.value}${API.ws}` : null;
-  return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + API.ws;
+  // withPin: 访问码开启后非回环 WS 握手同样需要校验
+  return withPin((location.protocol === "https:" ? "wss://" : "ws://") + location.host + API.ws);
 }
 function scheduleWsRetry() {
   clearTimeout(wsRetryTimer);
   // 桌面端服务已停时停止重试, 等 running 变化再连; 网页端持续退避重试(服务回来自动恢复)
   if (isDesktop && !running.value) return;
+  // 配对弹框挂起时停止重试: 陈旧/错误配对码的每次握手都会被服务端记一次失败,
+  // 10s 退避重试几分钟就把该 IP 烧进锁定 —— submitPin 成功路径会主动 connectWs
+  if (needPin.value) return;
   wsRetryTimer = setTimeout(() => {
     wsRetryDelay = Math.min(wsRetryDelay * 2, 10000);
     connectWs();
@@ -997,9 +1144,9 @@ onMounted(() => {
       try { ws.close(); } catch (_) {}
     }
   }, WS_WATCHDOG_MS);
-  // F5 刷新文件列表(输入框聚焦时除外)
+  // F5 刷新文件列表(输入框聚焦时除外)—— 仅桌面壳劫持; 浏览器端用户按 F5 期望整页重载
   const f5 = (e) => {
-    if (e.key === "F5" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
+    if (isDesktop && e.key === "F5" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
       e.preventDefault(); loadFiles(true);
     }
   };
@@ -1035,7 +1182,7 @@ onUnmounted(() => {
 
 async function refreshLogs() {
   try {
-    const r = await fetch(apiBase.value + API.logs);
+    const r = await apiFetch(apiBase.value + API.logs);
     const d = await r.json();
     logs.value = d.logs || [];
   } catch (e) {}
@@ -1044,7 +1191,7 @@ async function refreshLogs() {
 async function clearLogs() {
   try {
     if (isDesktop) await tauriInvoke("control_clear_logs_cmd");
-    else await fetch(apiBase.value + API.logsClear, { method: "POST" });
+    else await apiFetch(apiBase.value + API.logsClear, { method: "POST" });
     logs.value = [];
     showToast("日志已清空");
   } catch (e) {
@@ -1132,7 +1279,19 @@ async function refreshStatus() {
   try {
     const d = isDesktop
       ? await tauriInvoke("control_status_cmd")
-      : await (await fetch(API.info)).json();
+      : await (await apiFetch(API.info)).json();
+    if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; }
+    // 轮询成功(=电脑端已关闭访问码, 约束真实解除)才收起输入框, 且给提示让"自动消失"可理解;
+    // 访问码仍开启时所有请求 401, 永远走不到这里 —— 弹框不会被静默清掉。
+    // 刻意不设"取消"按钮: 码仍生效时, 底下页面每次请求都会 401 再度弹回
+    if (needPin.value) {
+      needPin.value = false;
+      // 来路有二: ① 电脑端真关了开关(本机未存码) ② submitPin 刚成功、在途旧轮询迟到 401 又被收起
+      showToast(accessPin.value ? "已恢复与服务的连接" : "配对保护已由电脑端关闭");
+      loadFiles();
+      loadChat();
+      connectWs();   // 解锁瞬间补拉断档数据, 与 submitPin 成功路径一致
+    }
     statusFail = 0;
     const wasOffline = offline.value;
     offline.value = false;
@@ -1166,6 +1325,7 @@ async function refreshStatus() {
     // 生成失败/仍在途导致 qrData 为空时, 下一轮状态轮询(2.5s)重试
     if (running.value && !qrData.value) syncQr();
   } catch (e) {
+    if (needPin.value) return;   // 401 已弹访问码输入框, 不按失联处理(不清空数据不显示无信号)
     // 浏览器端连续失败 → 判定与服务失联: 状态回落为"已停止", 共享列表/聊天数据一并清空不再展示
     if (!isDesktop && ++statusFail >= OFFLINE_FAILS) {
       offline.value = true;
@@ -1197,18 +1357,18 @@ async function refreshStatus() {
         </button>
       </div>
       <nav class="nav">
-        <button class="nav-item" :class="{ active: view === 'files' }" @click="setView('files')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件传输
+        <button class="nav-item" :class="{ active: view === 'files' }" title="文件传输" @click="setView('files')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span><span class="nav-label">文件传输</span>
         </button>
-        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'chat' }" @click="setView('chat')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>文本消息
+        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'chat' }" title="文本消息" @click="setView('chat')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span><span class="nav-label">文本消息</span>
           <span v-if="unread > 0 && view !== 'chat'" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
         </button>
-        <button v-if="isDesktop || !isNarrow" class="nav-item svc" :class="{ active: view === 'service' }" @click="setView('service')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务中心
+        <button v-if="isDesktop || !isNarrow" class="nav-item svc" :class="{ active: view === 'service' }" title="服务中心" @click="setView('service')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span><span class="nav-label">服务中心</span>
         </button>
-        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'settings' }" @click="setView('settings')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>CC设置
+        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'settings' }" title="CC设置" @click="setView('settings')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="nav-label">CC设置</span>
         </button>
       </nav>
       <div class="side-foot">
@@ -1297,7 +1457,7 @@ async function refreshStatus() {
                @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false"
                @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
             <div class="ic">⬆️</div>
-            <h5>点击选择文件 或 拖拽到此处</h5>
+            <h5>{{ collecting ? "正在读取拖入的文件…" : "点击选择文件 或 拖拽到此处" }}</h5>
             <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
               <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
               · 大文件断网/锁屏后自动续传</p>
@@ -1312,8 +1472,8 @@ async function refreshStatus() {
                  : u.status === "waiting" ? "等待中"
                  : u.status === "done" ? "完成" : u.speed || "失败" }}
               </span>
-              <button v-if="u.status === 'error'" class="icon-btn" title="移除"
-                      style="margin-left:6px" @click="removeUpload(u.id)">✕</button>
+              <button v-if="u.status !== 'done'" class="icon-btn" :title="u.status === 'error' ? '移除' : '取消上传'"
+                      style="margin-left:6px" @click="cancelUpload(u)">✕</button>
             </div>
             <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
           </div>
@@ -1354,7 +1514,7 @@ async function refreshStatus() {
                 <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
               </label>
               <div class="file-thumb">
-                <img v-if="isImage(f.name)" :src="apiBase + API.download(f.name)" loading="lazy"
+                <img v-if="isImage(f.name)" :src="downloadUrl(f.name)" loading="lazy"
                      @error="$event.target.style.display = 'none'" />
                 <span class="icon-overlay">{{ iconFor(f.name) }}</span>
               </div>
@@ -1532,6 +1692,23 @@ async function refreshStatus() {
               <span class="knob"></span>
             </button>
           </div>
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-title">访问令牌保护</div>
+              <div class="setting-desc">
+                开启后同一 Wi-Fi 下的设备需输入配对码才能使用（本机不受影响）
+                <template v-if="pinEnabled"> · 当前令牌 <b>{{ pinCode }}</b></template>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button v-if="pinEnabled" class="btn btn-ghost" style="height:28px"
+                      @click="copyText(pinCode, '令牌已复制')">复制令牌</button>
+              <button class="switch" :class="{ on: pinEnabled }" role="switch" :aria-checked="pinEnabled"
+                      :title="pinEnabled ? '点击关闭' : '点击开启'" @click="toggleAccessPin">
+                <span class="knob"></span>
+              </button>
+            </div>
+          </div>
         </div>
         <!-- Android/iOS 的 Tauri WebView 也走桌面壳(isDesktop), 但桌面插件未注册, 给出说明而非坏开关 -->
         <div class="card" v-else>
@@ -1549,7 +1726,7 @@ async function refreshStatus() {
                  @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false"
                  @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
               <div class="ic">⬆️</div>
-              <h5>点击选择文件 或 拖拽到此处</h5>
+              <h5>{{ collecting ? "正在读取拖入的文件…" : "点击选择文件 或 拖拽到此处" }}</h5>
               <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
                 <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
                 · 大文件断网/锁屏后自动续传</p>
@@ -1564,8 +1741,8 @@ async function refreshStatus() {
                    : u.status === "waiting" ? "等待中"
                    : u.status === "done" ? "完成" : u.speed || "失败" }}
                 </span>
-                <button v-if="u.status === 'error'" class="icon-btn" title="移除"
-                        style="margin-left:6px" @click="removeUpload(u.id)">✕</button>
+                <button v-if="u.status !== 'done'" class="icon-btn" :title="u.status === 'error' ? '移除' : '取消上传'"
+                        style="margin-left:6px" @click="cancelUpload(u)">✕</button>
               </div>
               <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
             </div>
@@ -1606,7 +1783,7 @@ async function refreshStatus() {
                   <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
                 </label>
                 <div class="file-thumb">
-                  <img v-if="isImage(f.name)" :src="apiBase + API.download(f.name)" loading="lazy"
+                  <img v-if="isImage(f.name)" :src="downloadUrl(f.name)" loading="lazy"
                        @error="$event.target.style.display = 'none'" />
                   <span class="icon-overlay">{{ iconFor(f.name) }}</span>
                 </div>
@@ -1675,8 +1852,8 @@ async function refreshStatus() {
     </main>
   </div>
 
-  <!-- 悬浮球(手机端) -->
-  <button v-if="isNarrow && !chatOpen" class="chat-fab" title="聊天室" @click="openChat">
+  <!-- 悬浮球(手机端浏览器): 桌面壳窄窗不展示 —— 聊天走侧边栏「文本消息」, FAB 是手机端专属入口 -->
+  <button v-if="!isDesktop && isNarrow && !chatOpen" class="chat-fab" title="聊天室" @click="openChat">
     💬<span v-show="unread > 0" class="fab-badge">{{ unread > 99 ? "99+" : unread }}</span>
   </button>
 
@@ -1967,6 +2144,18 @@ async function refreshStatus() {
         <button class="btn btn-ghost" @click="showDel = false">取消</button>
         <button class="btn btn-danger" @click="doDelete">确认</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 配对弹框(网页端): 电脑端开启访问令牌保护后, 401 引导到此输入一次 -->
+  <div v-if="needPin" class="dialog-overlay">
+    <div class="dialog-box pin-box">
+      <h4>需要配对</h4>
+      <p class="pin-sub">输入电脑「访问令牌」完成配对</p>
+      <input class="svc-input pin-input" v-model="pinInput" maxlength="12" placeholder="配对码"
+             autocomplete="off" inputmode="numeric"
+             @keydown.enter.prevent="submitPin" />
+      <button class="btn btn-primary pin-btn" @click="submitPin">配 对</button>
     </div>
   </div>
 

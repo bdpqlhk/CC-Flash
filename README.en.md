@@ -17,7 +17,7 @@ Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite**. Desktop installer is just a
 - 📱 **Three form factors** — desktop window (tray-resident) / two-pane desktop browser / single-column mobile browser with floating chat ball; one codebase adapts everywhere
 - 🗂 **Native folder picker** — click "Choose" next to the share directory and pick with the OS dialog
 - 🎨 **5 dark themes** — Deep Space Blue, Graphite, Aurora, Warm Night, Dark Purple; switch instantly, synced everywhere
-- 🛡 **Security hardening** — double path-traversal protection, browser cross-origin guard (DNS rebinding / CSRF), XSS escaping in chat, disk-space pre-check
+- 🛡 **Security hardening** — double path-traversal protection, browser cross-origin guard (DNS rebinding / CSRF), XSS escaping in chat, disk-space pre-check, optional **access token** (6-digit pairing code with brute-force backoff; enter once per device; the desktop itself is exempt)
 - 🔄 **Update checker** — watches GitHub Releases, prompts with release notes, one click to download
 - 📘 **In-app tour** — sidebar "ⓘ Intro" opens a full-screen walkthrough (features / 3-step guide / tech / FAQ)
 - 🖥 **Tray & single-instance** — closing the window keeps the service running; dock icon, tray click, or relaunching all re-focus the same window
@@ -94,7 +94,7 @@ macOS builds are **universal** (arm64 + x86_64 in one package). **iOS**: no auto
 
 ## Security Notice
 
-This tool is built for **trusted LANs** (home / trusted office): anyone on the same network can view, download, delete shared files, and post messages — there is no auth by design. Do not use it on public Wi-Fi, and never expose the service address to the internet.
+This tool is built for **trusted LANs** (home / trusted office): by default anyone on the same network can view, download, delete shared files, and post messages. On semi-trusted networks, enable the **access token** in "CC Settings" on the desktop — phones enter the 6-digit pairing code on first open (once per device; too many wrong attempts trigger a temporary lockout as brute-force protection; the desktop itself is exempt). In any case, do not use it on public Wi-Fi, and never expose the service address to the internet.
 
 ⚠️ The service listens on all network interfaces: while connected to a **corporate VPN**, other hosts on the VPN segment can reach your shared directory — keep the service stopped on untrusted networks. The address/QR code automatically prefers the real LAN IP over VPN virtual interfaces (multiple candidates are selectable in the QR dialog).
 

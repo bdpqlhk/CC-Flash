@@ -549,10 +549,21 @@ pre code{background:none;color:inherit;padding:0}
   </table>
   <p>验证基线：每轮 <code>cargo check</code> / <code>vite build</code> 全绿；发版前双路终检（发版门 0 阻断 + 对抗回归 16 项全过）。累计五轮审查共修复 <b>90+ 项</b>（致命 9 / 严重 10+ / 中等 40+）。</p>
 
+  <h3>12.10 手机上传慢结案 + 六轮深查 + v1.1.4（10-29）</h3>
+  <table>
+    <tr><th>类别</th><th>要点</th></tr>
+    <tr><td>排查结案<br><span class="small">手机上传视频慢</span></td><td><b>分片协议无罪</b>：服务端日志实锤——每片 8MB 仅 1.3-2.1s（5-6MB/s），但 iPhone 每片之间冻结 ~63s（片间无请求、无重试查询，iOS TCP 重传退避上限 60s 特征；Mac 同服务同文件毫秒级连发）。对策落地：<b>分片 1GB（整文件单请求）</b>把边界降到最少 + <b>XHR 替代 fetch</b>（fetch 无上传进度事件，单请求进度 0%→100% 跳变）→ onprogress 实时进度 + <b>进度闲置中止 15s</b>（onprogress 续命；替代按片大小缩放的总时长超时）+ 断点查询带 size 核对（响应冻结后重查直接确认完成，不从零重传）；服务端 <b>fsync 挪到收齐后</b>（中间片不刷盘，续传按实际长度对齐不拼洞）</td></tr>
+    <tr><td>高危修复<br><span class="small">双栈 v4-mapped</span></td><td><b>桌面"服务日志"面板一直全瞎的根因</b>：[::] 双栈监听下 IPv4 连接源地址是 ::ffff:127.0.0.1，is_loopback 只认纯 v4 → 控制接口把本机请求当远程 403（每 2s 的日志轮询全在吃 403）；连带访问码开启时同机浏览器被 is_local_source 误拦。新增 <code>normalize_peer</code> 统一折回纯 IPv4（中间件 + 各 handler 日志）</td></tr>
+    <tr><td>安全加固<br><span class="small">访问令牌</span></td><td><b>防爆破退避</b>：按源 IP 记连续失败，8 次后指数退避（15s→1h 封顶）；只统计「带码尝试」（无码轮询不计——首版曾把未配对页面 20s 轰进锁定且 429 不弹配对框）；<b>二轮深查抓到自身缺陷</b>：锁定窗内"正确码放行+导航豁免"可被伪造 Accept 头绕过（对/错码响应可区分即全速试码）→ 改为<b>锁定窗内一律 429（正确码也拒）</b>，导航回 429 可重试表单页；锁定中不记数不延长、配对成功即清零；配套：配对弹框挂起时 WS 停止重试（陈旧码握手烧额度）；apiFetch 把 429 也导向配对弹框（曾静默退化成"已停止"）；429 提示文案区分</td></tr>
+    <tr><td>加固与修复<br><span class="small">六轮深查其余产出</span></td><td>上传拒绝控制字符（CR/LF/NUL，Windows 文件名非法/跨端不一致）与 RTL 覆写符（U+202A-E 伪装扩展名）；聊天消息剥 NUL（mdChat 占位符伪造）；set_share_dir 运行中拒绝（纵深防御）；chat 接口不下发发言者 IP；F5 仅桌面壳劫持；分享链接含配对码时明示"对方可访问全部共享内容"；配对按钮文字居中（inline-flex 无主轴居中，通栏后贴左）；二轮复查确认 XHR/闲置中止/断点核对/pin_admit/normalize_peer/fsync-final/上传循环各边界全部自洽</td></tr>
+    <tr><td>v1.1.4 发版</td><td>版本号 Cargo.toml/config.js 同步 → README（安全须知补访问令牌）+ 全部 docs 同步至最新代码 → tag <code>v1.1.4</code></td></tr>
+  </table>
+  <p>验证：每轮 <code>cargo check</code> / <code>vite build</code> 全绿；上传策略变更有服务端日志级实测数据支撑（分片 1292ms/8MB vs 片间 63s 空档）。</p>
+
   <div class="note">📌 下一步：真机人工验收（Windows 复制粘贴 / 桌面缩略图 / 聊天清空 / Android 目录取回 / VPN 二维码）→ 观察 CI Windows 腿 embedBootstrapper 首发表现 → 按后期规划推进（临时分享链接等）。</div>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-28（含 v1.1.3 发版） · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-29（含 v1.1.4） · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

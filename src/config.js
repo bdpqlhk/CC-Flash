@@ -21,10 +21,13 @@ export const REFRESH_SPIN_MS = 600;       // 手动刷新最短旋转时长(本�
 /* ---------- 列表 / 传输 ---------- */
 export const PAGE_SIZE = 8;                     // 文件分页大小
 export const NATIVE_DOWNLOAD_OVER = 1024 ** 3;  // 超过 1GB 交给浏览器原生下载(流式省内存)
-export const UPLOAD_CHUNK = 8 * 1024 * 1024;    // 上传分片大小(服务端按偏移追加, 对分片大小无假设)
+export const UPLOAD_CHUNK = 1024 * 1024 * 1024; // 上传分片大小: 实测 iPhone 对每个分片边界冻结 ~63s(iOS 重传退避, Mac 同服务毫秒级连发), 大分片把边界降到最少; 分片内进度由 XHR onprogress 提供(sendChunk), 断点粒度不受此值影响(服务端按实际收到字节续传)
 export const UPLOAD_RETRY_TIMES = 8;            // 连续失败重试上限(成功一片即清零, 非全文件配额)
 export const UPLOAD_RETRY_MS = 1500;            // 续传重试间隔
-export const UPLOAD_CHUNK_TIMEOUT_MS = 30000;   // 单片请求超时(半死连接靠它触发续传, 而非等 TCP 超时)
+export const UPLOAD_STALL_MS = 15000;     // 上传进度闲置中止: onprogress 每次到达即续命,
+                                          // 停滞(iOS 片边界冻结 ~63s/半死连接)超过即中止走续传。
+                                          // 误杀代价已很低(按服务端实际字节续传), 但别低于 10s:
+                                          // Wi-Fi 漫游/重关联的合法停顿 5-10s, 过小会频繁空转
 export const WS_HB_TIMEOUT_MS = 45000;          // WS 心跳超时(服务端 15s 一发; 超时未收到消息→强制重连)
 export const WS_WATCHDOG_MS = 10000;            // WS 看门狗巡检间隔
 
@@ -54,7 +57,7 @@ export const API = {
 };
 
 /* ---------- localStorage 键 ---------- */
-export const LS = { theme: "wft-theme", nick: "lft-nick", nickAuto: "lft-nick-auto", updateCheck: "wft-update-check" };
+export const LS = { theme: "wft-theme", nick: "lft-nick", nickAuto: "lft-nick-auto", updateCheck: "wft-update-check", pin: "wft-access-pin" };
 
 /* ---------- 展示 ---------- */
 export const REL_TIME_MS = { justNow: 60_000, minutes: 3_600_000, hours: 86_400_000 }; // 相对时间阈值
@@ -86,7 +89,7 @@ export const FOOTER_TEXT = "© 2026-现在 by hangkun.li";
 export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
-export const APP_VERSION_FALLBACK = "1.1.3";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
+export const APP_VERSION_FALLBACK = "1.1.4";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次
 export const UPDATE_CHECK_TIMEOUT_MS = 8000;             // 请求超时; 任何失败一律静默
