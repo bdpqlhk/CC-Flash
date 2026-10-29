@@ -140,7 +140,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-02</td><td>文件列表：文件类型徽标（FILE/PDF/VID…）、大小、相对时间、图片缩略图与「预览」</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（每页 8 条，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-04</td><td>按平台差异化操作按钮：桌面=打开/复制/删除/分享；浏览器=下载/删除/分享</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-04</td><td>按平台差异化操作按钮：<b>真实桌面</b>（mac/win/linux 壳）=打开/复制/删除/分享；<b>Android/iOS 壳与浏览器</b>=下载/删除/分享（移动端无系统程序打开/剪贴板复制能力，原按钮是死路）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-05</td><td>上传前磁盘空间预检（按剩余未传量；未知大小上传边写边复查），空间不足明确拒绝；<b>分片断点续传</b>：大文件分片上传，断网/锁屏/半开连接中断后自动从服务端断点继续（会话指纹校验防同名脏拼接），断点保留 7 天——进程/系统重启（含 Android 退后台被杀）后重选同一文件仍可续传，无需人工干预</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -186,7 +186,7 @@ pre code{background:none;color:inherit;padding:0}
 </ul>
 <h3>4.2 下载与分享</h3>
 <ul>
-<li>浏览器端：<code>GET /api/download/:name</code>，响应带 <code>Content-Disposition attachment</code>（RFC5987 支持中文）与 <code>Content-Length</code>（浏览器可显示进度）；</li>
+<li>浏览器端：<code>GET /api/download/*name</code>（支持子目录路径），响应带 <code>Content-Disposition attachment</code>（RFC5987 支持中文）与 <code>Content-Length</code>（浏览器可显示进度）；<b>断点续传</b>：支持 Range（浏览器断下重试自动从断点继续，206/416 语义完整），10GB 文件传到 8GB 断掉不再从零重来；</li>
 <li>分享：任何端点击「分享」= 复制下载链接到剪贴板，自动附加话术：
 <div class="callout c-tip" style="margin-top:8px"><b>固定话术（需求原文）</b>「🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。」</div>
 </li>
@@ -347,7 +347,8 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>路径穿越双重防护</b>：URL 解码 → 相对路径逐段校验（拒绝空/./../首尾空格/非法字符，支持子目录）→ 与共享目录拼接后 canonicalize 校验前缀越界；上传建目录前对最近存在的祖先做越界预检（防符号链接把目录建到界外）；</li>
 <li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost / <code>*.local</code>（挡 DNS 重绑定）；带 Origin 的请求<b>精确匹配</b>放行自身与 WebView（<code>tauri://localhost</code>、<code>http(s)://tauri.localhost</code>；子串匹配可被 tauri.localhost.evil.com 绕过，禁止使用）；无 Origin 的 curl/局域网 App 不受影响；</li>
 <li><b>控制接口仅限本机</b>：/api/control/*（启停/日志/清空）拒绝非回环来源——局域网任意设备可调用的话人人能关停服务、读走全部活动日志；网页端状态走 /api/info，不受影响；</li>
-<li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；</li>
+<li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；Windows 路径长度（MAX_PATH 260，按 UTF-16 计）上传预检；</li>
+<li><b>隐私与垃圾过滤</b>：系统垃圾文件（.DS_Store/._*/Thumbs.db/desktop.ini）不进列表、上传拒绝——.DS_Store 内含目录内曾出现过的文件名元数据；</li>
 <li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（script-src 'self' 等），即便出现注入型 XSS 也限制其能力；</li>
 <li><b>系统命令注入防护（Windows）</b>：打开 URL 走 <code>rundll32 FileProtocolHandler</code>、文件走 <code>explorer</code>，不经 <code>cmd</code> shell（cmd 会解释 <code>&amp;|^</code> 等字符）；</li>
 <li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>

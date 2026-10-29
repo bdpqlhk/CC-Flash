@@ -173,9 +173,12 @@ cc-flash/
 </ul>
 <h3>3.4 局域网 IP 探测 <code>lan_ip()</code></h3>
 <pre>
-UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip()
+if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/docker/vmnet/virbr)
+→ IPv4 非回环; RFC1918+link-local 进「私网池」, bridge*(macOS 互联网共享)降为末位候选
+→ 优先级: UDP 探测结果落在私网池(默认路由准头, 双网卡场景) > 私网池首个 > 其他网卡首个
+  > bridge > 探测值 > 127.0.0.1
 </pre>
-<p>UDP connect 不实际发包，由路由表判定出口网卡 IP；失败回退 <code>127.0.0.1</code>。<b>每次调用都重新探测</b>——这是"IP 变化检测"需求的基石：服务不重启也能拿到最新 IP。</p>
+<p>旧实现仅一次 UDP connect 探测（源地址由默认路由决定）：开 VPN/TUN/代理的机器返回隧道地址（如 10.8.0.2），二维码手机扫码必失败；IPv6-only 静默回落 127.0.0.1。<b>现枚举真实网卡</b>——VPN 虚拟网卡被排除，bridge100（手机直连 Mac 热点时唯一可达地址）作为末位候选保留。<b>每次调用都重新枚举</b>——这是"IP 变化检测"需求的基石：服务不重启也能拿到最新 IP。</p>
 </section>
 
 <!-- ================= 4 ================= -->
@@ -184,7 +187,7 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <table>
 <tr><th>方法</th><th>路径</th><th>功能</th><th>要点</th></tr>
 <tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>递归收集（深度 ≤8，相对路径作 name，隐藏 .ccpart 产物与符号链接，<code>spawn_blocking</code>）→ name/size/modified(JSON 时间秒)，按修改时间倒序</td></tr>
-<tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载</td><td>通配路由支持子目录；流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>（浏览器进度/前端预知大小）；MIME 按扩展名猜</td></tr>
+<tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载</td><td>通配路由支持子目录；<b>Range 断点续传</b>（单区间 206 + Content-Range + Accept-Ranges，416 越界；N-M 以 take 截断防分帧破坏）；目录 is_file 拒绝；流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>；MIME 按扩展名猜</td></tr>
 <tr><td>POST</td><td><code>/api/upload</code></td><td>上传（分片断点续传）</td><td><code>X-Filename</code>(URL编码, 相对路径) + <code>X-File-Size</code> + <code>X-Upload-Offset</code> + <code>X-Upload-Id</code>；磁盘预检（按剩余量）；分片追加写 .ccpart（按路径异步锁互斥），收齐转正；中断保留断点返回 {received}；完成返回 {ok,received,done:true}</td></tr>
 <tr><td>GET</td><td><code>/api/upload_progress</code></td><td>断点查询</td><td>?name=&amp;id= → {received}；会话 id 不匹配返回 0（从头传）；纯只读不建目录</td></tr>
 <tr><td>DELETE</td><td><code>/api/delete/*name</code></td><td>删除</td><td>safe_rel_path + 越界校验后删文件（支持子目录）</td></tr>
@@ -222,7 +225,10 @@ UdpSocket::bind("0.0.0.0:0") → connect("10.255.255.255:1") → local_addr().ip
 <h2><span class="no">5</span>关键流程实现</h2>
 <h3>5.1 上传（分片断点续传 + 预检 + 目录结构保留）</h3>
 <pre>
-HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验, 保留形态仅上传拒绝) ─非法→ 400
+HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验, 保留形态与系统垃圾文件
+  [.DS_Store/._*/Thumbs.db/desktop.ini, 防目录文件名元数据泄露]仅上传拒绝) ─非法→ 400
+→ #[cfg(windows)] MAX_PATH(260) 预检: 路径按 UTF-16 code unit 计 + 最长内部后缀 .ccpart.meta
+  超限 → 400「路径过长」(前端 4xx 快速失败, 不做无意义重试)
 → (size-offset) &gt; fs2::available_space ─是→ 400 + 日志「上传拒绝」
 → part_lock(.ccpart 路径异步锁, 键 case-fold 防 APFS 大小写不敏感双锁):
   等锁 10s 超时 → 409「该文件正被其他设备上传」(同名大文件不无限排队)
@@ -245,15 +251,19 @@ HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐�
   防 Windows 目标被资源管理器/杀软占用时"字节完整却报失败") → 删 .meta
 → 日志「上传完成 (大小, 耗时ms[, 续传自 N])」+ 广播 files:changed → 200 {ok,received,done:true}
 </pre>
-<p class="small">断点生命周期：服务启动只清理<b>超过 7 天</b>的 .ccpart/.meta（TTL）——期内保留使进程/系统重启后重选同一文件可凭会话指纹续传（Android 退后台被杀不再无声归零）；过期才回收磁盘。</p>
-<h3>5.2 下载</h3>
+<p class="small">断点生命周期：服务启动只清理<b>超过 7 天</b>的 .ccpart/.meta（TTL，按 now−mtime 真实年龄判定；<b>未来 mtime</b>（系统时钟被改）按未过期保留，宁多留不误删）——期内保留使进程/系统重启后重选同一文件可凭会话指纹续传（Android 退后台被杀不再无声归零）；过期才回收磁盘。</p>
+<h3>5.2 下载（流式 + Range 断点续传）</h3>
 <pre>
-safe_rel_path(读路径: 保留形态放行, 否则既有 aux.pdf 等取不回) → safe_join_existing → File::open
-→ 日志「下载 (大小) ← IP」
-→ headers: Content-Type / Content-Disposition(attachment; filename*=UTF-8'') /
-   Cache-Control: no-cache / Content-Length(显式)
-→ Body::from_stream(ReaderStream 1MB)
+safe_rel_path(读路径: 保留形态放行, 否则既有 aux.pdf 等取不回) → safe_join_existing
+→ metadata.is_file() 校验(目录在 Unix 上 open 成功但读到 EISDIR 中途断流 → 400)
+→ 解析 Range(单区间 "N-" / "N-M"; 多区间/畸形忽略按整体 200; start≥size → 416 + bytes */size)
+→ seek(start) → take(end_excl - start)(N-M 必须截断: 不截断读到 EOF 会多发字节,
+  与 CONTENT_LENGTH 不符破坏 HTTP 分帧) → BufReader → ReaderStream 1MB
+→ 日志「下载 (大小) ← IP[ · 续传自 N]」
+→ headers: Content-Type / Accept-Ranges: bytes / Content-Disposition(RFC5987) /
+   Cache-Control: no-cache / Content-Length(显式) [206 时附 Content-Range: bytes s-e/size]
 </pre>
+<p>浏览器断下重试携带 <code>Range: bytes=N-</code> 时返回 206 从断点继续——10GB 文件传到 8GB 断掉不再从零重来。</p>
 <h3>5.3 聊天收发</h3>
 <pre>
 POST: trim → 空消息 400 → 昵称 chars().take(20)（空则"匿名用户"）→ 消息 take(2000)
@@ -366,12 +376,15 @@ safe_rel_path → safe_join_existing → remove_file
 <tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + toast「本机 IP 已变为 …，手机请改用新地址访问」；二维码由 <code>watch [shareUrl, running]</code> 统一驱动重生成；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</b>；端口输入框由 <code>syncPortInput</code> 同步（运行中回显实际端口；停止态仅 <code>portDirty=false</code> 且未聚焦时回写，防用户输入被轮询冲掉）</td></tr>
 <tr><td>chatTimer / filesTimer</td><td>3s / 5s（可下发）</td><td><b>仅 WS 断开时存在</b>（applyWsMode 管理）；在途竞争用 <code>reloadQueued</code> 补拉队列保证删除后必刷新</td></tr>
 </table>
-<h3>9.4 上传实现（分片 + 断点续传 + 整目录）</h3>
+<h3>9.4 上传实现（分片 + 断点续传 + 整目录 + 并发闸）</h3>
 <ul>
-<li>分片 fetch 循环：8MB 分片（<code>UPLOAD_CHUNK</code>）逐片 POST，单片 30s 超时（AbortController），进度/速率按累计偏移计算；并发多文件队列；</li>
-<li>断点续传：会话 id = <code>文件名|大小|lastModified</code> 稳定指纹（页面重载/锁屏后重选同一文件仍命中服务端已有断点）；开传前与每次失败后 <code>GET /api/upload_progress</code> 以服务端断点为准重排；连续失败 8 次（成功一片清零）报错；</li>
-<li>整目录：拖拽走 <code>webkitGetAsEntry</code> 递归收集（混合拖入兼容），「选择文件夹」走 <code>webkitdirectory</code>，相对路径经 <code>webkitRelativePath</code> 保留；</li>
-<li>下载兜底：锚点挂 DOM 再 click（iOS Safari/部分国产浏览器忽略游离锚点）；HTTP 错误如实报错不走原生回退；blob 失败退回原生下载。</li>
+<li>分片 fetch 循环：8MB 分片（<code>UPLOAD_CHUNK</code>）逐片 POST，单片 30s 超时（AbortController，仅计真实请求时间），进度/速率按累计偏移计算；</li>
+<li><b>并发闸（5 路）</b>：浏览器（尤其 Safari/WebKit）每 host 仅 6 条 HTTP/1.1 连接且 WS/轮询/缩略图已占槽——一次选数百文件全并发时排队请求会被 30s 超时误杀集体报"上传中断"；入队真正排队（waiting 状态真实生效）；</li>
+<li><b>4xx 快速失败</b>：路径过长等确定性业务错误直接报错（408/409/429 例外仍重试），不做 8×1.5s 空转；</li>
+<li>断点续传：会话 id = <code>文件名|大小|lastModified</code> 稳定指纹（name 做 encodeURIComponent——请求头是 ByteString，原始中文会抛 TypeError）；开传前与每次失败后 <code>GET /api/upload_progress</code> 以服务端断点为准重排，<b>查询失败（null）保持当前 offset 不动</b>（防网络抖动误将数 GB 断点清零）；连续失败 8 次（成功一片清零）报错；</li>
+<li>整目录：拖拽走 <code>webkitGetAsEntry</code> 递归收集（混合拖入兼容、空文件夹给提示），「选择文件夹」走 <code>webkitdirectory</code>（iOS/iPadOS 无此能力入口隐藏），相对路径经 <code>webkitRelativePath</code> 保留；</li>
+<li>下载：锚点挂 DOM 再 click（iOS Safari/部分国产浏览器忽略游离锚点）；HTTP 错误如实报错不走原生回退；blob 失败退回原生下载；<b>blob 阈值桌面 1GB / 手机 50MB</b>（iOS Safari 数百 MB 即杀标签页）；<b>微信内打开顶部常驻引导条</b>（下载被拦 → 在浏览器打开）；</li>
+<li>完成侧合并节流：非手动 loadFiles 800ms 内合并（批量上传完成风暴不再数百次串行全量拉取）；<code>files:changed</code> WS 事件同享该节流。</li>
 </ul>
 <h3>9.5 主题系统</h3>
 <ul>
