@@ -7,11 +7,11 @@ import noSignalImg from "./assets/no-signal.png";
 import {
   API, APP_VERSION_FALLBACK, AVATAR_POOL, BLOB_REVOKE_MS, COPIED_RESET_MS, CONTROL_RETRY_MS,
   CONTROL_RETRY_TIMES, DEFAULT_NICK, DEFAULT_PORT, FOOTER_TEXT, ICON_MAP, IMG_EXTS, LS, MSG_MAX,
-  GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, NATIVE_DOWNLOAD_OVER, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
+  GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
   REL_TIME_MS, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
-  UPDATE_CHECK_INTERVAL_MS, UPLOAD_CHUNK, UPLOAD_DONE_KEEP_MS, UPLOAD_RETRY_MS,
-  UPLOAD_RETRY_TIMES, UPLOAD_STALL_MS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
+  UPDATE_CHECK_INTERVAL_MS, UPLOAD_CELL, UPLOAD_DONE_KEEP_MS, UPLOAD_RESPONSE_GRACE_MS,
+  UPLOAD_RETRY_MS, UPLOAD_RETRY_TIMES, UPLOAD_STALL_MS, UPLOAD_WORKERS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
 import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog";
@@ -122,6 +122,10 @@ const THEMES = [
     { id: "aurora",   name: "极光蓝",   preview: "linear-gradient(135deg,#0e1520,#12365e)" },
     { id: "eye",      name: "护眼暖黑", preview: "linear-gradient(135deg,#191611,#3a3222)" },
     { id: "purple",   name: "暗夜紫",   preview: "linear-gradient(135deg,#15121d,#33265a)" },
+    { id: "amber",    name: "墨色琥珀", preview: "linear-gradient(135deg,#141109,#4a3512)" },
+    { id: "mist",     name: "海雾蓝灰", preview: "linear-gradient(135deg,#12161c,#2c4257)" },
+    { id: "mint",     name: "森林薄荷", preview: "linear-gradient(135deg,#0f1712,#1d4634)" },
+    { id: "rose",     name: "石墨玫瑰", preview: "linear-gradient(135deg,#16151a,#4a2531)" },
 ];
 const theme = ref("default");
 function applyTheme(t) {
@@ -134,6 +138,31 @@ function setTheme(id) {
     try { localStorage.setItem(LS.theme, id); } catch (e) {}
 }
 try { theme.value = localStorage.getItem(LS.theme) || "default"; } catch (e) {}
+/* 主题模式(亮/暗/跟随系统)与配色正交: 配色(data-theme)定色相, 模式(data-mode)定明暗 */
+const THEME_MODES = [
+    { id: "light",  name: "亮色", icon: "☀️" },
+    { id: "dark",   name: "暗色", icon: "🌙" },
+    { id: "system", name: "跟随系统", icon: "🖥️" },
+];
+const systemDarkMq = window.matchMedia("(prefers-color-scheme: dark)");
+const themeMode = ref((() => { try { return localStorage.getItem(LS.mode) || "dark"; } catch (e) { return "dark"; } })());
+function applyThemeMode() {
+    // 显式写 data-mode("dark" 无对应 CSS 规则 = 默认深色), system 按当前系统外观解析
+    document.documentElement.dataset.mode =
+        themeMode.value === "system" ? (systemDarkMq.matches ? "dark" : "light") : themeMode.value;
+}
+function setThemeMode(m) {
+    themeMode.value = m;
+    applyThemeMode();
+    try { localStorage.setItem(LS.mode, m); } catch (e) {}
+}
+if (typeof systemDarkMq.addEventListener === "function") systemDarkMq.addEventListener("change", applyThemeMode);
+else if (typeof systemDarkMq.addListener === "function") systemDarkMq.addListener(applyThemeMode);
+onUnmounted(() => {
+    if (typeof systemDarkMq.removeEventListener === "function") systemDarkMq.removeEventListener("change", applyThemeMode);
+    else if (typeof systemDarkMq.removeListener === "function") systemDarkMq.removeListener(applyThemeMode);
+});
+applyThemeMode();   // 初始落地(与 main.js 挂载前兜底双保险, 并覆盖系统外观在启动间隙的变化)
 
 /* ---------- 手机端(窄屏): 悬浮球 + 底部聊天面板 ---------- */
 const mq = window.matchMedia(`(max-width: ${NARROW_MAX_PX}px)`);
@@ -465,7 +494,8 @@ async function shareFile(name) {
   copyText(url + TIP_SHARE + pinNote, "分享链接已复制：" + name);
 }
 
-/* ---------- 下载(浏览器端): fetch 回来再触发保存, 才有"下载完成"时机 ---------- */
+/* ---------- 下载(浏览器端): 手机小文件 fetch 回来再触发保存(有"下载完成"时机);
+   桌面浏览器一律 HEAD 预检 + 原生流式下载, 见 downloadFileWeb 内注释 ---------- */
 /* 浏览器端原生下载: 锚点必须挂进 DOM 再 click —— iOS Safari/部分国产浏览器(夸克等)
    对"游离锚点"的 click 静默忽略; 也不用 location.href(会把当前页面导航走) */
 function nativeDownload(url, filename) {
@@ -480,6 +510,31 @@ function nativeDownload(url, filename) {
 async function downloadFileWeb(name) {
   const url = downloadUrl(name);
   const base = name.split("/").pop() || name;   // download 属性不带子目录路径(部分移动端拒收)
+  // 桌面浏览器: HEAD 预检后直接交浏览器原生流式下载。
+  // 旧逻辑 ≤1GB 会把整个文件 fetch 进内存(blob)才触发保存 —— 500MB 在 Wi-Fi 上要
+  // 等几十秒且期间零进度零提示, 用户感知就是"点了没反应"; 等 blob 期间浏览器瞬态
+  // 用户激活早已过期, 程序化 click 可能被静默拦截。现在文件本体由浏览器下载管理器
+  // 流式落盘(自带进度条/断点续传, 零内存占用), fetch 只拿状态码 —— 响应头毫秒级
+  // 到达, 激活仍有效; 404/401 如实报错而不是把 JSON 错误体当文件下载
+  if (!isIOSFamily && !/Android/.test(navigator.userAgent)) {
+    try {
+      // 预检必须带超时: 服务失联时 fetch 会无限挂起, 表现恰恰是"点了没反应"
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(url, { method: "HEAD", signal: ctl.signal });
+      clearTimeout(timer);
+      if (!r.ok) {
+        showToast(`下载失败：HTTP ${r.status}`, "error");
+        return;
+      }
+    } catch (e) {
+      showToast("下载失败：连接超时，请确认电脑端服务已启动", "error");
+      return;
+    }
+    nativeDownload(url, base);
+    showToast("已开始下载，进度见浏览器下载列表");
+    return;
+  }
   try {
     const r = await fetch(url);
     if (!r.ok) {
@@ -490,9 +545,7 @@ async function downloadFileWeb(name) {
     const len = Number(r.headers.get("Content-Length") || 0);
     // 手机浏览器/WebView 的 blob 内存配额远低于桌面(iOS Safari 数百 MB 即杀标签页且无报错),
     // 阈值降到 50MB, 超出一律走原生流式下载
-    const over = (isIOSFamily || /Android/.test(navigator.userAgent))
-      ? 50 * 1024 * 1024 : NATIVE_DOWNLOAD_OVER;
-    if (len > over) {
+    if (len > 50 * 1024 * 1024) {
       // 超大文件交给浏览器原生下载(流式省内存, 但无完成回调)
       try { r.body?.cancel(); } catch (e) {}
       nativeDownload(url, base);
@@ -552,10 +605,11 @@ async function doDelete() {
 /* ---------- 上传(分片 + 断点续传 + 整目录) ---------- */
 const uploads = ref([]);
 let upSeq = 0;
-/* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 条上传链, 其余真正停在"等待中" */
-const UPLOAD_CONCURRENCY = 5;
-/* "从零重排"上限: 超过视为同名文件被其他会话争抢, 报错退出而非无限拉锯 */
-const UPLOAD_RESET_LIMIT = 3;
+/* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 条上传链(文件), 其余真正停在"等待中"。
+   必须与 UPLOAD_WORKERS 联动: WebKit 每 host 仅 6 条 HTTP/1.1 连接,
+   2 文件 × 3 连接 = 6 恰好用满预算 —— 文件数再多, 排队的 XHR 会被
+   15s 停滞看门狗误杀(连接被预算卡住时无任何进度事件), 集体报"上传中断" */
+const UPLOAD_CONCURRENCY = 2;
 let upActive = 0;
 const upQueue = [];
 function pumpUploadQueue() {
@@ -628,32 +682,34 @@ async function onDrop(e) {
 }
 /* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
 function uploadRelName(file) { return file.webkitRelativePath || file.name; }
-async function fetchServerReceived(name, upId, total = 0) {
+async function fetchUploadState(name, upId, total = 0) {
   // 返回 null 表示查询失败(网络抖动) —— 与"服务端确认为 0"严格区分:
-  // 失败时调用方保持当前 offset 不动(下一片若与服务端断点错位, 服务端 409 会带
-  // 真实断点兜底重排); 若把失败当 0, 重试链会 offset=0 → 下一片 truncate
-  // 掉数 GB 服务端断点从头重传(AP 漫游/休眠双重失败即触发)
+  // 失败时调用方保持现状重查, 若把失败当 0 会让服务端把已有断点当新会话覆盖。
+  // received = 服务端确认的覆盖字节数; chunks = 分片账本(并行会话才有, 旧版顺序会话无)。
+  // size: 断点不存在时服务端核对"最终文件大小吻合"即视为完成(响应丢失的补偿)
   try {
-    // size: 断点已不存在时, 服务端核对"最终文件大小吻合"即视为完成 ——
-    // 大分片下响应在途丢失/冻结的重试, 不至于把已转正的文件从头重传
     const r = await apiFetch(apiBase.value + API.uploadProgress(name, upId) + `&size=${total}`);
     if (!r.ok) return null;
     const d = await r.json();
-    return Number.isFinite(d.received) ? d.received : null;
+    if (!Number.isFinite(d.received)) return null;
+    return {
+      received: d.received,
+      chunks: d.chunks && typeof d.chunks === "object" && !Array.isArray(d.chunks) ? d.chunks : null,
+    };
   } catch (_) { return null; }
 }
-/* 单片上传: XHR 而非 fetch —— fetch 没有上传进度事件, 大分片(见 config UPLOAD_CHUNK,
-   整文件单请求)时进度只能 0%→100% 跳变; XHR upload.onprogress 提供实时已发字节数。
-   协议头/响应语义与原 fetch 版一致。
-   超时改为"进度闲置中止": onprogress 每次到达即续命(UPLOAD_STALL_MS) —— 传输中永不误杀,
-   停滞(半死连接/iOS 响应冻结)到点即中止走续传, 替代原"按片大小缩放的总时长"超时 */
-function sendChunk(name, upId, totalSize, offset, chunk, entrySignal, onProgress) {
+/* 单片(格)上传: XHR 而非 fetch —— fetch 没有上传进度事件; XHR upload.onprogress 提供实时已发字节数。
+   协议头/响应语义与原 fetch 版一致; 响应 received = 服务端账本覆盖字节(全文件进度)。
+   超时为"进度闲置中止": onprogress 每次到达即续命(UPLOAD_STALL_MS), 且服务端断点增长
+   同样续命(轮询驱动) —— 双信号任一活跃就不掐; 断点收齐后切等响应长宽限(UPLOAD_RESPONSE_GRACE_MS) */
+function sendChunk(name, upId, totalSize, offset, chunk, entrySignal, onProgress, onConfirmed) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let timer = null;
-    const armIdle = () => {
+    let alive = true;   // 本片仍在途(轮询结果只对本片生效, 过期轮询不得回拉进度条)
+    const armIdle = (ms = UPLOAD_STALL_MS) => {
       clearTimeout(timer);
-      timer = setTimeout(() => { try { xhr.abort(); } catch (e) {} }, UPLOAD_STALL_MS);
+      timer = setTimeout(() => { try { xhr.abort(); } catch (e) {} }, ms);
     };
     const relay = () => xhr.abort();
     if (entrySignal) {
@@ -663,7 +719,32 @@ function sendChunk(name, upId, totalSize, offset, chunk, entrySignal, onProgress
       }
       entrySignal.addEventListener("abort", relay);
     }
+    // 服务端真实进度轮询: XHR onprogress 只反映"已交给网络"的字节, 停滞/断连时
+    // 还堵在队列里的字节全部丢失 —— 进度条会先虚报到 ~100%, 中止续传时又按服务端
+    // 断点大幅回落, 观感就是"快传完却从 50% 重新开始"。分片在途期间每 3s 查一次
+    // 断点文件实际长度回调 onConfirmed, 进度条以服务端落盘字节封顶 —— 慢而真。
+    // 同时以服务端事实驱动看门狗: 断点仍在增长 = 连接活着(哪怕 onprogress 早已停发
+    // —— iOS 把字节一口气交给 radio 后进度就到 100% 了, 真实投递可能还在慢慢爬),
+    // 按增长续命, 爬多慢都不掐; 断点零增长才让计时器走完 → 中止走续传。
+    // 断点收齐(≥整片) = 只差响应, 换等响应长宽限(iOS 冻结 ~63s)
+    let lastConfirmed = offset;
+    const poll = setInterval(async () => {
+      if (!alive) return;
+      try {
+        const r = await apiFetch(apiBase.value + API.uploadProgress(name, upId));
+        if (!r.ok || !alive) return;
+        const d = await r.json();
+        if (!alive || !Number.isFinite(d.received)) return;
+        if (d.received > lastConfirmed) {
+          lastConfirmed = d.received;
+          armIdle(d.received >= totalSize ? UPLOAD_RESPONSE_GRACE_MS : UPLOAD_STALL_MS);
+        }
+        if (onConfirmed) onConfirmed(d.received);
+      } catch (_) {}
+    }, 3000);
     const settle = (fn, arg) => {
+      alive = false;
+      clearInterval(poll);
       clearTimeout(timer);
       if (entrySignal) entrySignal.removeEventListener("abort", relay);
       fn(arg);
@@ -675,7 +756,10 @@ function sendChunk(name, upId, totalSize, offset, chunk, entrySignal, onProgress
     xhr.setRequestHeader("X-Upload-Id", upId);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (e) => {
-      armIdle();
+      // 末字节已交网络 → 只剩等响应, 换长宽限: 服务端大文件 fsync/杀软扫描/iOS 响应
+      // 冻结(~63s)都可能超过 15s, 此刻掐断纯属浪费(重试链空转一轮); 真死了 TCP 会
+      // 先报 onerror, 长宽限只影响"半死不活"的极端连接
+      armIdle(e.loaded >= totalSize ? UPLOAD_RESPONSE_GRACE_MS : UPLOAD_STALL_MS);
       if (onProgress && e.lengthComputable) onProgress(e.loaded);
     };
     xhr.onload = () => {
@@ -724,99 +808,126 @@ function uploadFile(file) {
   // 误杀, 集体报"上传中断"。入队后真正排队等待, 超时只计真实请求时间
   upQueue.push(async () => {
     if (ac.signal.aborted) return;
-    // 断点续传: 服务端已有本次会话的断点则从其长度继续(覆盖 锁屏/断网 中断的场景);
-    // 断点比本地文件还长 → 内容必然不一致, 强制从头重传
-    let serverReceived = await fetchServerReceived(name, upId, total);
+    const it0 = stat(); if (!it0) return;
+    it0.status = "uploading";
+    // 会话状态查询: 完成记录命中(响应丢失/重选同文件)直接收尾; 断点账本命中则按格子续传。
+    // 查询失败重试一次再放弃: 误把失败当 0 会让服务端把已有断点当新会话覆盖
+    let state = await fetchUploadState(name, upId, total);
     if (ac.signal.aborted) return;
-    if (serverReceived === null) {
-      // 查询失败重试一次再放弃: 误把失败当 0 会让首片 truncate 掉服务端数 GB 断点
+    if (state === null) {
       await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
       if (ac.signal.aborted) return;
-      serverReceived = (await fetchServerReceived(name, upId, total)) ?? 0;
+      state = (await fetchUploadState(name, upId, total)) ?? { received: 0, chunks: null };
     }
-    if (serverReceived > total) serverReceived = 0;
-    let offset = serverReceived;
-    let base = offset;
-    let t0 = Date.now();
-    let attempts = 0;
-    let resets = 0;   // "从零重排"计数: 同名文件被其他会话反复争抢的客户端保险(见下方使用处)
-    let lastChunkOffset = offset;
-    for (;;) {
-      const it = stat(); if (!it) return;
-      it.status = "uploading";
-      try {
-        // do-while: 0 字节文件也要发出至少一次请求(空 body, 服务端直接转正)
-        do {
-          lastChunkOffset = offset;
-          const chunk = file.slice(offset, Math.min(offset + UPLOAD_CHUNK, total));
-          // 实时进度(XHR onprogress): 已发字节叠加在服务端确认的起点上,
-          // 大分片(整文件单请求)时也能平滑推进而非 0%→100% 跳变
+    if (state.received > total) state.received = 0;
+    // 网格: 全文件按 UPLOAD_CELL 切格(空文件补一格, 0 字节也要发一次请求转正)
+    const cells = [];
+    for (let off = 0; off < total; off += UPLOAD_CELL) cells.push(off);
+    if (!cells.length) cells.push(0);
+    // 已覆盖格子: 并行会话看账本(精确到格); 旧版顺序断点看长度(边界前的整格跳过,
+    // 半格整格重传 —— 服务端按区间幂等覆盖, 不会拼脏)
+    const covered = new Set();
+    if (state.chunks) {
+      for (const k of Object.keys(state.chunks)) {
+        const off = Number(k);
+        if (Number.isFinite(off) && off >= 0 && off < total) covered.add(off);
+      }
+    } else {
+      for (const off of cells) if (off + UPLOAD_CELL <= state.received) covered.add(off);
+    }
+    let pending = cells.filter((off) => !covered.has(off));
+    let finalName = "";   // 服务端同名自动改名后的实际落盘名(响应 final 字段)
+    let confirmed = Math.min(state.received, total);   // 服务端确认覆盖字节 —— 进度条的唯一事实
+    const confirmedBase = confirmed;
+    const t0 = Date.now();
+    let lastTipAt = 0;
+    const markConfirmed = (n) => {
+      if (!Number.isFinite(n)) return;
+      confirmed = Math.max(confirmed, Math.min(n, total));
+      const itc = stat(); if (!itc) return;
+      itc.pct = total ? Math.round((confirmed / total) * 100) : 100;
+      itc.speed = fmtSize((confirmed - confirmedBase) / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
+    };
+    markConfirmed(state.received);
+    // 单格执行: 内置重试; 致命错误/重试耗尽置 failed 并结束全链(统一在收尾处 toast)
+    let failed = null;
+    const runCell = async (offset) => {
+      let attempts = 0;
+      for (;;) {
+        if (ac.signal.aborted || failed) return;
+        try {
+          const chunk = file.slice(offset, Math.min(offset + UPLOAD_CELL, total));
           const d = await sendChunk(name, upId, total, offset, chunk, ac.signal, (loaded) => {
-            const itp = stat(); if (!itp) return;
-            itp.pct = total ? Math.round((Math.min(offset + loaded, total) / total) * 100) : 100;
-            itp.speed = fmtSize(loaded / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
-          });
-          if (ac.signal.aborted) return;   // 取消后不再消费响应
-          offset = Math.min(
-            Number.isFinite(d.received) ? d.received : offset + chunk.size,
-            total
-          );
-          attempts = 0; // 成功一片清零连续失败计数(重试额度是连续性的, 不是全文件配额)
-          const it2 = stat(); if (!it2) return;
-          it2.pct = total ? Math.round((offset / total) * 100) : 100;
-          it2.speed = fmtSize((offset - base) / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
-        } while (offset < total);
-        const it3 = stat(); if (it3) { it3.pct = 100; it3.status = "done"; it3.speed = ""; }
-        loadFiles();   // 不再强跳第 1 页: 批量上传会把正在第 5 页浏览/勾选的用户每秒拽回去, 页码收缩由 loadFiles 内回收
-        setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
-        return;
-      } catch (e) {
-        const it4 = stat(); if (!it4) return;
-        if (ac.signal.aborted) return;   // 用户取消: 条目已移除, 静默退出
-        if (e && e.fatal) {
-          // 确定性业务失败(如"路径过长"): 直接报错, 不做 8×1.5s 无意义空转
-          it4.status = "error";
-          it4.speed = "";
-          showToast("上传失败: " + name + " — " + (e.message || "请求被拒绝"), "error");
+            // 单连接瞬时速率(展示用); 百分比只认服务端确认覆盖值(多连接聚合)
+            const itp = stat();
+            if (itp) itp.speed = fmtSize(loaded / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
+          }, markConfirmed);
+          if (ac.signal.aborted) return;
+          if (d && typeof d.final === "string" && d.final) finalName = d.final;
+          markConfirmed(d && d.received);
           return;
-        }
-        attempts += 1;
-        if (attempts > UPLOAD_RETRY_TIMES) {
-          it4.status = "error";
-          it4.speed = "";   // 清掉"自动续传中"残留文案: 否则失败条目永远显示它, 用户以为还在重试
-          // 服务端业务错误(如"该文件正被其他设备上传")如实进 toast, 网络类保持原样
-          showToast("上传中断: " + name + (e && e.server ? " — " + String(e.message).slice(0, 40) : ""), "error");
-          return;
-        }
-        // 服务端业务错误(如"该文件正被其他设备上传")如实展示, 仅网络类异常才提示自动续传
-        it4.speed = e && e.server ? String(e.message).slice(0, 24) : "网络中断，自动续传中…";
-        await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
-        if (ac.signal.aborted) return;
-        // 以服务端断点为准重排; 查询失败(null)保持当前 offset 不动 ——
-        // 服务端重启清了断点则下一片 409 会带回真实进度, 网络抖动误清零数 GB 断点
-        const recv = await fetchServerReceived(name, upId, total);
-        if (recv !== null) {
-          const next = recv > total ? 0 : recv;
-          // 从零重排保险: 原有进度被反复清零基本可断定同名文件正被其他会话争抢
-          // (两设备互踢时每轮首片总成功, attempts 永不清零到不了上限) ——
-          // 与服务端 busy 守卫双保险, 数次后即报错退出, 不做无限拉锯
-          if (offset > 0 && next === 0) {
-            resets += 1;
-            if (resets > UPLOAD_RESET_LIMIT) {
-              it4.status = "error";
-              it4.speed = "";
-              showToast("上传冲突: 「" + name + "」可能正被其他设备上传同名文件，请稍后重试", "error");
-              return;
-            }
+        } catch (e) {
+          if (ac.signal.aborted) return;
+          if (e && e.fatal) { failed = e; return; }
+          attempts += 1;
+          const ite = stat(); if (!ite) return;
+          if (attempts > UPLOAD_RETRY_TIMES) { failed = e; return; }
+          // 服务端业务错误(如"正被其他设备上传")如实展示, 网络类提示自动续传
+          ite.speed = e && e.server ? String(e.message).slice(0, 24) : "网络中断，自动续传中…";
+          if (Date.now() - lastTipAt > 10000) {
+            lastTipAt = Date.now();
+            showToast("网络波动，正在多连接断点续传");
           }
-          // 弱网推进不计失败额度: 单片超时但断点已前进(recv > 本片起点), 说明链路只是慢
-          // 而非死 —— 照旧计 8 次额度会把"每片都超时但每次都在前进"的链路误判为中断
-          if (recv > lastChunkOffset) attempts = 0;
-          offset = next;
-          base = offset; t0 = Date.now();
+          await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
         }
       }
+    };
+    // 首格(offset=0)先行: 服务端以它建断点与账本, 其余格子等它确认后再并发,
+    // 杜绝"格子先于会话到达"被 409 空转
+    if (pending.length && pending[0] === 0) {
+      await runCell(0);
+      pending = pending.slice(1);
     }
+    if (!ac.signal.aborted && !failed && pending.length) {
+      // 并行工人: 各自从队列取格子 —— 一条连接僵死(iOS 单连接 RTO 停摆, 重试等待中)
+      // 不影响其余连接继续推进, 整体吞吐不再被单连接拖死
+      let qi = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(UPLOAD_WORKERS, pending.length) }, async () => {
+          for (;;) {
+            if (ac.signal.aborted || failed) return;
+            const i = qi++;
+            if (i >= pending.length) return;
+            await runCell(pending[i]);
+          }
+        })
+      );
+    }
+    if (ac.signal.aborted) return;   // 用户取消: 条目已移除, 静默退出
+    const ite = stat();
+    if (failed) {
+      if (ite) {
+        ite.status = "error";
+        ite.speed = "";   // 清掉"自动续传中"残留文案, 失败条目不再假装在重试
+        if (failed.fatal) {
+          // 确定性业务失败(如"路径过长"): 直接报错
+          showToast("上传失败: " + name + " — " + (failed.message || "请求被拒绝"), "error");
+        } else {
+          // 服务端业务错误(如"该文件正被其他设备上传")如实进 toast, 网络类保持原样
+          showToast("上传中断: " + name + (failed && failed.server ? " — " + String(failed.message).slice(0, 40) : ""), "error");
+        }
+      }
+      return;
+    }
+    // 全部格子确认 → 服务端已在最后一格收齐转正
+    const it3 = stat();
+    if (it3) { it3.pct = 100; it3.status = "done"; it3.speed = ""; it3.final = finalName.split("/").pop(); }
+    // 同名自动改名: 服务端落为 报告(1).zip 时明确告知, 否则用户在目录里找不到传的文件
+    if (finalName && finalName.split("/").pop() !== name.split("/").pop()) {
+      showToast("目录里已有同名文件，已改存为 「" + finalName.split("/").pop() + "」");
+    }
+    loadFiles();   // 不再强跳第 1 页: 批量上传会把正在第 5 页浏览/勾选的用户每秒拽回去, 页码收缩由 loadFiles 内回收
+    setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
   });
   pumpUploadQueue();
 }
@@ -1470,7 +1581,7 @@ async function refreshStatus() {
               <span class="up-status" :class="u.status">
                 {{ u.status === "uploading" ? u.pct + "% " + u.speed
                  : u.status === "waiting" ? "等待中"
-                 : u.status === "done" ? "完成" : u.speed || "失败" }}
+                 : u.status === "done" ? (u.final ? "已存为 " + u.final : "完成") : u.speed || "失败" }}
               </span>
               <button v-if="u.status !== 'done'" class="icon-btn" :title="u.status === 'error' ? '移除' : '取消上传'"
                       style="margin-left:6px" @click="cancelUpload(u)">✕</button>
@@ -1656,6 +1767,12 @@ async function refreshStatus() {
         <!-- 皮肤设置 -->
         <div class="card svc-skin">
           <h3>皮肤设置</h3>
+          <div class="mode-row" role="group" aria-label="主题模式">
+            <button v-for="m in THEME_MODES" :key="m.id" class="mode-btn" :class="{ active: themeMode === m.id }"
+                    @click="setThemeMode(m.id)">
+              <span>{{ m.icon }}</span><span>{{ m.name }}</span>
+            </button>
+          </div>
           <div class="theme-row">
             <button v-for="t in THEMES" :key="t.id" class="theme-sw" :class="{ active: theme === t.id }"
                     :title="t.name" @click="setTheme(t.id)">
@@ -1663,7 +1780,7 @@ async function refreshStatus() {
               <span>{{ t.name }}</span>
             </button>
           </div>
-          <div class="sub-hint">主题即时生效并自动记忆，所有页面同步换色</div>
+          <div class="sub-hint">主题模式决定明暗（跟随系统随系统外观自动切换），配色决定色相，两者可任意搭配；即时生效并自动记忆</div>
         </div>
         <!-- 关于 -->
         <div class="card svc-about">
@@ -1739,7 +1856,7 @@ async function refreshStatus() {
                 <span class="up-status" :class="u.status">
                   {{ u.status === "uploading" ? u.pct + "% " + u.speed
                    : u.status === "waiting" ? "等待中"
-                   : u.status === "done" ? "完成" : u.speed || "失败" }}
+                   : u.status === "done" ? (u.final ? "已存为 " + u.final : "完成") : u.speed || "失败" }}
                 </span>
                 <button v-if="u.status !== 'done'" class="icon-btn" :title="u.status === 'error' ? '移除' : '取消上传'"
                         style="margin-left:6px" @click="cancelUpload(u)">✕</button>
@@ -2008,8 +2125,8 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，五套深色皮肤即点即换。</p>
-          <div class="tags"><span class="tag">服务控制</span><span class="tag">二维码直达</span><span class="tag">五套皮肤</span></div>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，九套配色 × 明暗主题即点即换。</p>
+          <div class="tags"><span class="tag">服务控制</span><span class="tag">二维码直达</span><span class="tag">多主题配色</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
@@ -2058,7 +2175,7 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
           <h3>大文件不占内存</h3>
-          <p>后端流式读写，超大文件轻松传；下载超过 <code>1GB</code> 自动交给浏览器原生流式下载，稳定省资源。</p>
+          <p>后端流式读写，超大文件轻松传；浏览器端下载直接交给浏览器原生流式下载，边下边存、实时进度，稳定省资源。</p>
         </div>
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg></div>

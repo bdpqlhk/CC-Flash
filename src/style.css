@@ -43,6 +43,34 @@
     --text: #e6e1f2; --text2: #a89fc6; --text3: #6f6794;
     --accent: #a78bfa; --accent2: #8b7cf6; --accent-bg: rgba(167,139,250,0.10); --accent-text: #c4b5fd;
 }
+[data-theme="amber"] {
+    /* 墨色琥珀: 墨黑暖底 + 琥珀金, 沉稳贵气 */
+    --bg: #141109; --bg2: #191409; --panel: #1e1810; --card: #241d13;
+    --card-border: rgba(240,178,90,0.10); --card-hover: rgba(56,44,24,0.95);
+    --text: #ece4d2; --text2: #c2b394; --text3: #8a7d60;
+    --accent: #f0a232; --accent2: #d98324; --accent-bg: rgba(240,162,50,0.10); --accent-text: #f5c069;
+}
+[data-theme="mist"] {
+    /* 海雾蓝灰: 海雾青蓝 + 灰调, 安静克制 */
+    --bg: #12161c; --bg2: #161b23; --panel: #1b212b; --card: #202836;
+    --card-border: rgba(150,190,220,0.10); --card-hover: rgba(35,48,64,0.95);
+    --text: #dfe6ee; --text2: #a3b2c2; --text3: #6d7f92;
+    --accent: #6fb3d8; --accent2: #8fc1dd; --accent-bg: rgba(111,179,216,0.10); --accent-text: #a8d2ea;
+}
+[data-theme="mint"] {
+    /* 森林薄荷: 深林绿底 + 薄荷亮绿, 清爽自然 */
+    --bg: #0f1712; --bg2: #131c16; --panel: #17221b; --card: #1c2a21;
+    --card-border: rgba(120,220,180,0.10); --card-hover: rgba(28,52,40,0.95);
+    --text: #e0ece4; --text2: #a6c2b1; --text3: #6d8a7a;
+    --accent: #3ecfa3; --accent2: #7ce0c3; --accent-bg: rgba(62,207,163,0.10); --accent-text: #8fe9cf;
+}
+[data-theme="rose"] {
+    /* 石墨玫瑰: 石墨灰底 + 玫瑰红, 冷艳低调 */
+    --bg: #16151a; --bg2: #1a1920; --panel: #1f1e26; --card: #252430;
+    --card-border: rgba(235,150,175,0.10); --card-hover: rgba(52,38,48,0.95);
+    --text: #e8e2e8; --text2: #b8a8b4; --text3: #857486;
+    --accent: #e0698c; --accent2: #ef8aa8; --accent-bg: rgba(224,105,140,0.10); --accent-text: #f2a3ba;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -744,3 +772,62 @@ body {
     .intro-overlay .sec { padding: 64px 22px; }
     .intro-overlay .sec h2 { font-size: 25px; }
 }
+
+/* ===== 主题模式(亮/暗/跟随系统, data-mode) 与配色(data-theme) 正交: 主题定色相, 模式定明暗 ===== */
+/* 亮色中性面(置于全部主题块之后: 同特异性后者胜, 压掉主题的深色中性面而保留其强调色) */
+[data-mode="light"] {
+    --bg: #f4f6fa; --bg2: #edf0f5; --panel: #ffffff; --card: #ffffff;
+    --card-border: rgba(15,23,42,0.10); --card-hover: rgba(15,23,42,0.05);
+    --text: #232936; --text2: #5c6575; --text3: #99a2b1;
+    /* 强调色衍生随主题变色: color-mix 旧内核不支持时回退主题原值(深色淡彩/浅色文字, 可读性略降不破相) */
+    --accent-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+    --accent-text: color-mix(in srgb, var(--accent) 68%, #101828);
+    --shadow: 0 1px 2px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.08);
+    --shadow-lg: 0 4px 32px rgba(15,23,42,0.16);
+}
+/* 暗色皮肤惯用的"白色微透表面"在亮底下不可见: 亮色下统一换黑基微透(仅亮色生效, 深色零改动) */
+[data-mode="light"] .nav-item:hover { background: rgba(15,23,42,0.05); }
+[data-mode="light"] .icon-btn:not(:hover),
+[data-mode="light"] .refresh-btn:not(:hover):not(.spinning),
+[data-mode="light"] .page-btn,
+[data-mode="light"] .btn-act,
+[data-mode="light"] .btn-del,
+[data-mode="light"] .sort-group,
+[data-mode="light"] .badge,
+[data-mode="light"] .chat-nickname input,
+[data-mode="light"] .chat-input,
+[data-mode="light"] .svc-input,
+[data-mode="light"] .theme-sw,
+[data-mode="light"] .svc-box,
+[data-mode="light"] .upd-notes,
+[data-mode="light"] .ver-chip,
+[data-mode="light"] .upload-item,
+[data-mode="light"] .chat-card.in-sheet .icon-btn.sheet-only { background: rgba(15,23,42,0.035); }
+[data-mode="light"] .refresh-btn:hover { background: rgba(15,23,42,0.07); }
+[data-mode="light"] .refresh-btn.spinning { background: rgba(15,23,42,0.05); }
+[data-mode="light"] .chat-input:focus { background: rgba(15,23,42,0.05); }
+[data-mode="light"] .file-thumb,
+[data-mode="light"] .dropzone .ic,
+[data-mode="light"] .msg-avatar,
+[data-mode="light"] .avatar-chip,
+[data-mode="light"] .empty-state .es-icon { background: rgba(15,23,42,0.05); }
+[data-mode="light"] .dropzone { border-color: rgba(15,23,42,0.16); background: rgba(15,23,42,0.02); }
+[data-mode="light"] .up-bar-wrap { background: rgba(15,23,42,0.08); }
+[data-mode="light"] .chat-message { background: rgba(15,23,42,0.035); }
+[data-mode="light"] .chat-inline { background: rgba(15,23,42,0.07); color: inherit; }
+[data-mode="light"] .switch:not(.on) { background: rgba(15,23,42,0.16); }
+[data-mode="light"] .handle-bar { background: rgba(15,23,42,0.18); }
+[data-mode="light"] .card:hover { border-color: rgba(15,23,42,0.14); }
+[data-mode="light"] ::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); }
+[data-mode="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,0.28); }
+/* toast 文字原为浅色系, 亮底下换深色保证可读 */
+[data-mode="light"] .toast-success { background: rgba(52,201,124,0.14); color: #0e7a44; }
+[data-mode="light"] .toast-error { background: rgba(242,89,107,0.12); color: #c0263d; }
+
+/* 主题模式分段选择(皮肤设置卡) */
+.mode-row { display: flex; gap: 6px; margin-bottom: 12px; }
+.mode-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 0;
+    border-radius: var(--radius-sm); border: 1px solid var(--card-border); background: rgba(255,255,255,0.03);
+    color: var(--text2); cursor: pointer; font-size: 13px; font-family: inherit; transition: all var(--transition); }
+.mode-btn:hover { color: var(--text); border-color: var(--card-hover); }
+.mode-btn.active { border-color: var(--accent); color: var(--accent-text); background: var(--accent-bg); font-weight: 600; }

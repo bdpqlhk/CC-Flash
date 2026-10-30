@@ -609,6 +609,56 @@ fn part_meta_path(part: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// 会话私有断点文件: <name>.<idhash>.ccpart —— **part 按会话隔离**。
+/// 共享单一 part 文件时, 接管竞态会静默污染内容: A 传到一半连接僵死(字节滞留内核
+/// 缓冲), 30s 无写入后 B 接管(truncate 重置 part); A 的连接复活把迟到字节继续写进
+/// 同一个文件 —— A 的账本登记会被 id 校验拒绝, 但**字节已落进 B 的文件**: 若 B 恰好
+/// 已登记完成同一区间, 迟到字节覆盖其上, 收齐转正即产出脏数据且无任何告警。
+/// part 名带会话指纹后, 接管的新会话用全新文件, 旧会话的迟到字节写进的是无人消费
+/// 的旧文件(由 clean_stale_parts 按 TTL 回收), 窗口彻底关闭。
+/// idhash = FNV-1a 64 位十六进制: 派生自已消毒的 upload_id, 同会话稳定可续传,
+/// 不同会话(不同名/不同内容/不同 mtime)不同名
+fn session_part_path(share: &Path, name: &str, upload_id: &str) -> (PathBuf, PathBuf) {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in upload_id.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let part = share.join(format!("{name}.{h:016x}{UPLOAD_PART_SUFFIX}"));
+    (part.clone(), part_meta_path(&part))
+}
+
+/// 同名自动改名(上传不覆盖既有文件): `报告.pdf` 已存在 → 依次探测 `报告(1).pdf`、
+/// `报告(2).pdf` … 取第一个空闲名; 目录无同名时原样返回。
+/// 只改末段文件名, 子目录前缀不动; 无扩展名/点开头文件(.gitignore, 首段为空)整体视为
+/// stem, 避免 ".gitignore" 被拆成空 stem + "gitignore" 扩展名。循环上限防病态目录。
+/// 调用方必须在断点写锁的临界区内调用: 同名上传的开始与"完成转正 rename"都持同一把
+/// 锁, 串行化后两个并发会话才不会选中同一个空闲名。
+fn dedup_rel_name(dir: &Path, rel: &str) -> String {
+    if !dir.join(rel).exists() {
+        return rel.to_string();
+    }
+    let (dirp, file) = match rel.rsplit_once('/') {
+        Some((d, f)) => (format!("{d}/"), f),
+        None => (String::new(), rel),
+    };
+    let (stem, ext) = match file.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, Some(e)),
+        _ => (file, None),
+    };
+    for i in 1..10000u32 {
+        let cand = match ext {
+            Some(e) => format!("{stem}({i}).{e}"),
+            None => format!("{stem}({i})"),
+        };
+        let full = format!("{dirp}{cand}");
+        if !dir.join(&full).exists() {
+            return full;
+        }
+    }
+    rel.to_string() // 万级变体全占(实际不可达): 回落旧版覆盖行为
+}
+
 /// 共享目录遍历时跳过断点产物(中间文件与其 meta; 大小写不敏感——exFAT/U盘 拷来的变体同样跳)
 fn is_part_artifact(fname: &str) -> bool {
     let f = fname.to_ascii_lowercase();
@@ -945,15 +995,22 @@ async fn upload(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    // 上传会话标识: 新一次上传(新 id)会覆盖旧断点, 杜绝"同名改内容续传拼出脏文件"
+    // 上传会话标识: 新一次上传(新 id)会覆盖旧断点, 杜绝"同名改内容续传拼出脏文件"。
+    // **必须消毒**: id 会原样写入 meta 首行, 含换行等控制字符的 id 可伪造 meta 行 ——
+    // 把"最终落盘名"行换成 ..\ 越界路径, 转正 rename 即把内容写到共享目录之外
+    // (任意位置写文件)。真实客户端的 id 由 encodeURIComponent(name)|size|mtime 构成,
+    // 纯可打印 ASCII, 消毒零误伤
     let upload_id = headers
         .get("X-Upload-Id")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
+    if upload_id.len() > 200 || upload_id.chars().any(|c| c.is_control()) {
+        return err(StatusCode::BAD_REQUEST, "非法的会话标识");
+    }
     let final_path = share.join(&name); // 相对路径逐段已校验, 不会越界
-    let part_path = share.join(format!("{name}{UPLOAD_PART_SUFFIX}"));
-    let meta_path = part_meta_path(&part_path);
+    // part/meta 按"文件名+会话指纹"派生(见 session_part_path): 每会话独立断点文件
+    let (part_path, meta_path) = session_part_path(&share, &name, &upload_id);
     let need = size.saturating_sub(offset);
     if need > 0 {
         if let Ok(free) = fs2::available_space(&share) {
@@ -975,11 +1032,11 @@ async fn upload(
             }
         }
     }
-    // 同一断点文件同一时刻只允许一个写者(客户端超时重试后旧 handler 可能仍挂着)。
-    // 等锁带超时: 另一设备正在传同名大文件时, 本请求不能无限排队 ——
-    // 客户端单片超时才 30s, 排队到天荒地老只会 8 次重试全数撞死后报"上传中断"
+    // 锁分三段(并行分片的关键): PHASE1 短锁做建会话/校验 → 放锁流式收包(多连接才能
+    // 同时收不同区间, 全程持锁会把并行串行化) → PHASE3 短锁登记账本+收齐转正。
+    // 等锁带超时: 另一设备正在传同名文件时本请求不能无限排队
     let part_mutex = part_lock(&part_path);
-    let _part_guard = match tokio::time::timeout(
+    let part_guard = match tokio::time::timeout(
         std::time::Duration::from_secs(10),
         part_mutex.lock(),
     )
@@ -994,15 +1051,52 @@ async fn upload(
                 .into_response()
         }
     };
-    // 新会话(offset=0)接管保护: 断点属于其他会话且最近仍在写入时拒绝接管 ——
-    // 否则两台设备传同名文件会陷入"互截断断点→互从零重启"的无限拉锯(双方 attempts
-    // 因每轮首片总成功而永不清零), 文件永远传不完; 写入停止超过阈值(对方已中断/失败)
-    // 则放行, 新上传正常覆盖旧断点。持锁判断, 与断点写入互斥
+    // meta 三行: 会话 id / 同名自动改名的最终落盘名 / 分片账本 JSON(offset→len)。
+    // 有账本 = 并行分片会话(part 预分配为全量大小, 各连接写各自区间, 收齐转正);
+    // 无账本 = 旧版顺序会话(跨版本兼容: 断点按文件长度对齐)
+    let meta_raw = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
+    let mut meta_lines = meta_raw.lines();
+    let meta_id = meta_lines.next().unwrap_or("").trim().to_string();
+    // 最终名出自磁盘上的 meta(可能被旧版注入或手工伪造): 经 safe_rel_path 可信化,
+    // 含 ..\\ 等越界形态一律回落空串(按原名处理), 转正/完成核对永不逃出共享目录
+    let meta_final = meta_lines
+        .next()
+        .map(|l| safe_rel_path(l.trim(), false).unwrap_or_default())
+        .unwrap_or_default();
+    let meta_ledger: Option<std::collections::HashMap<String, u64>> =
+        meta_lines.next().and_then(|l| serde_json::from_str(l).ok());
+    let session_ours = !meta_id.is_empty() && meta_id == upload_id && meta_ledger.is_some();
+    let ledger = meta_ledger.unwrap_or_default();
+    let coverage: u64 = ledger.values().sum();
+    // 最终落盘名: 本会话已存在 → 沿用 meta 记录(改名只在建会话时决定一次,
+    // 格子重试/断点续传不再重排); 新会话 → 此刻 dedup 选定(持锁, 与他人转正串行不撞名)
+    let chosen = if !meta_id.is_empty() && meta_id == upload_id && !meta_final.is_empty() {
+        meta_final.clone()
+    } else {
+        dedup_rel_name(&share, &name)
+    };
+    let have = tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0);
     if offset == 0 {
-        let have = tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0);
-        if have > 0 {
-            let meta_id = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
-            if meta_id.trim() != upload_id.trim() {
+        if have == 0 && session_ours && !meta_final.is_empty() {
+            // 本会话已转正而断点不在(完成记录): 恰为目标大小直接确认完成
+            if size > 0 {
+                if let Ok(fm) = tokio::fs::metadata(share.join(&meta_final)).await {
+                    if fm.is_file() && fm.len() == size {
+                        return Json(serde_json::json!({
+                            "ok": true, "received": size, "done": true, "final": meta_final
+                        }))
+                        .into_response();
+                    }
+                }
+            }
+        }
+        if !session_ours || have == 0 {
+            // 建会话(含本会话完成记录已失效的重建: 上面完成核对未命中而落下, 说明最终
+            // 文件被外部改动/删除, 旧账本不可信, 必须清零重来 —— 否则残留账本会让
+            // 部分written就"收齐"提前转正, 稀疏未写区间成零洞)。
+            // 覆盖他人断点前做占用保护(最近 30s 仍在写 = 对方活着, 拒绝接管 ——
+            // 否则两台设备互截断点陷入"从零重启"拉锯; 写入停止超时则放行覆盖)
+            if !meta_id.is_empty() && meta_id != upload_id {
                 let busy = tokio::fs::metadata(&part_path)
                     .await
                     .ok()
@@ -1015,20 +1109,42 @@ async fn upload(
                         StatusCode::CONFLICT,
                         Json(serde_json::json!({
                             "error": "该文件正被其他设备上传，请稍后再试",
-                            "received": have,
+                            "received": coverage,
                             "busy": true
                         })),
                     )
                         .into_response()
                 }
             }
+            // part 预分配为声明大小(稀疏文件不占实际磁盘): 并行各连接才能任意区间 seek+写
+            let pf = match tokio::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&part_path)
+                .await
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    push_log(format!("上传失败 {name}: 创建断点文件失败({e}) ← {}", peer));
+                    return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
+                }
+            };
+            if let Err(e) = pf.set_len(size).await {
+                push_log(format!("上传失败 {name}: 预分配断点失败({e}) ← {}", peer));
+                return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
+            }
+            drop(pf);
+            let _ = tokio::fs::write(&meta_path, format!("{upload_id}\n{chosen}\n{{}}")).await;
+            let declared = if size > 0 { humans(size) } else { "未知大小".into() };
+            push_log(format!(
+                "上传开始 {name} (声明 {declared}) ← {}{}",
+                peer,
+                if chosen != name { format!(" · 已有同名，将改存为 {chosen}") } else { String::new() }
+            ));
         }
-    }
-    // 断点校验必须持锁进行(TOCTOU): 否则"校验时断点有效、写入前被并发的 offset0 请求截断"
-    // 会 seek 到空文件深处写出零洞; 409 带服务端实际断点, 客户端据此重排
-    if offset > 0 {
-        // 续传必须携带会话 id: 否则两个都不带 id 的客户端先后传同名文件,
-        // 空 meta 与空 id 校验通过, 后者的字节直接拼在前者半截上, 无告警转正为损坏文件
+    } else {
+        // 分片/续传必须携带会话 id: 否则无 id 请求的字节可能拼进他人会话
         if upload_id.trim().is_empty() {
             return (
                 StatusCode::CONFLICT,
@@ -1036,17 +1152,35 @@ async fn upload(
             )
                 .into_response();
         }
-        let have = tokio::fs::metadata(&part_path).await.map(|m| m.len()).unwrap_or(0);
-        let meta_id = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
-        if have == 0 && meta_id.trim().is_empty() {
-            // 断点与 meta 都不存在: 另一设备(相同 upId 语义 = 同名同大小同修改时间,
-            // 即同一内容)大概率已转正。最终文件恰为目标大小时直接确认完成——
-            // 否则败者会从头重传整份并覆盖, 大文件白白浪费整份带宽
-            if size > 0 {
-                if let Ok(fm) = tokio::fs::metadata(&final_path).await {
-                    if fm.len() == size {
-                        return Json(serde_json::json!({ "ok": true, "received": size, "done": true }))
+        if have == 0 {
+            // part 不在: 本会话已完成转正(完成记录按**最终名**核对, 按原始名核对不上
+            // 改名后的 xxx(1).zip 会误判未完成触发整份重传) 或 无会话
+            if meta_id == upload_id && !meta_final.is_empty() {
+                if size > 0 {
+                    if let Ok(fm) = tokio::fs::metadata(share.join(&meta_final)).await {
+                        if fm.is_file() && fm.len() == size {
+                            return Json(serde_json::json!({
+                                "ok": true, "received": size, "done": true, "final": meta_final
+                            }))
                             .into_response();
+                        }
+                    }
+                }
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": 0 })),
+                )
+                    .into_response();
+            }
+            if meta_id.is_empty() {
+                // 断点与 meta 都不存在(旧版本无完成记录): 另一设备大概率已转正,
+                // 最终文件恰为目标大小时直接确认完成, 避免败者整份重传
+                if size > 0 {
+                    if let Ok(fm) = tokio::fs::metadata(&final_path).await {
+                        if fm.len() == size {
+                            return Json(serde_json::json!({ "ok": true, "received": size, "done": true }))
+                                .into_response();
+                        }
                     }
                 }
             }
@@ -1056,26 +1190,32 @@ async fn upload(
             )
                 .into_response();
         }
-        if have == 0 || (meta_id.trim() != upload_id.trim()) {
-            // 无断点, 或断点属于另一次上传(同名新内容) → 视为无效, 让客户端从头重传
+        if session_ours {
+            // 并行格子: part 已预分配为全量大小, 任意格子直接写, 收齐判定在账本
+            if size > 0 && offset >= size {
+                return err(StatusCode::BAD_REQUEST, "分片偏移越界");
+            }
+        } else if meta_id == upload_id {
+            // 旧版顺序会话续传(无账本): 断点按文件长度对齐(原逻辑不变)
+            if have < offset {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": have })),
+                )
+                    .into_response();
+            }
+            if have > offset {
+                if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&part_path).await {
+                    let _ = f.set_len(offset).await;
+                }
+            }
+        } else {
+            // 断点属于另一次上传(同名新内容) → 视为无效, 让客户端从头重传
             return (
                 StatusCode::CONFLICT,
                 Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": 0 })),
             )
                 .into_response();
-        }
-        if have < offset {
-            return (
-                StatusCode::CONFLICT,
-                Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": have })),
-            )
-                .into_response();
-        }
-        if have > offset {
-            // 客户端回退到更早断点: 截断到请求偏移
-            if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&part_path).await {
-                let _ = f.set_len(offset).await;
-            }
         }
     }
     // 越界预检必须在建目录之前: create_dir_all 会跟随符号链接, 先建后查会把目录建到界外。
@@ -1111,36 +1251,26 @@ async fn upload(
             _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "路径校验失败"),
         }
     }
+    // 截断只发生在建会话时(上面); 分片写入一律不截断, 防止覆盖其他连接已写的区间
     let mut file = match tokio::fs::OpenOptions::new()
         .create(true)
         .write(true)
-        // offset 0 = 从头传: 必须截断旧断点, 否则更长的陈旧断点会在转正时拖进垃圾尾巴
-        .truncate(offset == 0)
+        .truncate(false)
         .open(&part_path)
         .await
     {
         Ok(f) => f,
         Err(e) => {
-            push_log(format!("上传失败 {name}: 创建文件失败({e}) ← {}", peer));
+            push_log(format!("上传失败 {name}: 打开断点失败({e}) ← {}", peer));
             return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
         }
     };
     if let Err(e) = file.seek(std::io::SeekFrom::Start(offset)).await {
-        push_log(format!("上传失败 {name}: 定位断点失败({e}) ← {}", peer));
+        push_log(format!("上传失败 {name}: 定位写入位置失败({e}) ← {}", peer));
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
     }
-    // 从头开始(或首片)时固化本次上传会话 id, 后续分片/断点查询据此校验身份
-    if offset == 0 {
-        let _ = tokio::fs::write(&meta_path, upload_id.as_bytes()).await;
-    }
-    let declared = if size > 0 { humans(size) } else { "未知大小".into() };
-    if offset == 0 {
-        push_log(format!(
-            "上传开始 {name} (声明 {declared}) ← {}{}",
-            peer,
-            if final_path.exists() { " · 覆盖同名文件" } else { "" }
-        ));
-    }
+    // 放锁进入流式收包: 其他连接此刻可并行收同一文件的不同区间
+    drop(part_guard);
     let started = std::time::Instant::now();
     let mut stream = body.into_data_stream();
     let mut received: u64 = offset;
@@ -1233,17 +1363,65 @@ async fn upload(
         ));
         received = size;
     }
-    if size > 0 && received < size {
-        // 分片协议: 本片 body 正常收完但整个文件未收齐 → 200 确认本片, 断点保留待续。
-        // 中间片不 fsync: 断点续传按服务端实际文件长度对齐(upload_progress 读真实
-        // metadata, 掉电丢页缓存尾巴后 409 带真实长度重排), 不会拼出洞 ——
-        // 每片强制刷盘会把磁盘延迟串进传输循环, HDD/杀软环境明显拖慢吞吐
-        return Json(serde_json::json!({ "ok": true, "received": received, "done": false }))
+    // PHASE 3: 短锁登记本分片 + 收齐判定。流式期间会话若被他人接管(meta 变了),
+    // 本片作废 → 409, 客户端按新会话重排。锁持到转正结束: 与他人建会话/转正串行
+    let _part_guard = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        part_mutex.lock(),
+    )
+    .await
+    {
+        Ok(g) => g,
+        Err(_) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "error": "该文件正被其他设备上传，请稍后再试", "received": 0 })),
+            )
+                .into_response()
+        }
+    };
+    let meta_now = tokio::fs::read_to_string(&meta_path).await.unwrap_or_default();
+    let mut now_lines = meta_now.lines();
+    let now_id = now_lines.next().unwrap_or("").trim().to_string();
+    // 最终名可信化(同 PHASE 1): 转正 rename 前最后一道越界防线
+    let now_final = now_lines
+        .next()
+        .map(|l| safe_rel_path(l.trim(), false).unwrap_or_default())
+        .unwrap_or_default();
+    let now_ledger: Option<std::collections::HashMap<String, u64>> =
+        now_lines.next().and_then(|l| serde_json::from_str(l).ok());
+    if now_id != upload_id || now_ledger.is_none() {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "续传点已失效，请从头重传", "received": 0 })),
+        )
             .into_response();
     }
-    // 收齐才落盘: 先 fsync 数据再改名, 掉电不会出现"有文件名无数据"
+    let mut led = now_ledger.unwrap();
+    // 本分片写入的区间 [offset, received) 登记进账本; 同格重试幂等覆盖
+    let wrote = received - offset;
+    led.insert(offset.to_string(), wrote);
+    let coverage: u64 = led.values().sum();
+    let _ = tokio::fs::write(
+        &meta_path,
+        format!(
+            "{upload_id}\n{now_final}\n{}",
+            serde_json::to_string(&led).unwrap_or_else(|_| "{}".into())
+        ),
+    )
+    .await;
+    if size > 0 && coverage < size {
+        // 未收齐: 200 确认本片(带回全局覆盖进度), 断点与账本保留待续。
+        // 中间不 fsync: 账本是完成度的唯一事实, 掉电丢页缓存只损失未登记的区间
+        return Json(serde_json::json!({ "ok": true, "received": coverage.min(size), "done": false }))
+            .into_response();
+    }
+    // 收齐才落盘: 先 fsync 数据再改名, 掉电不会出现"有文件名无数据"。
+    // (sync 的是本请求的句柄, fsync 按 inode 刷盘, 其他连接写区间的脏页一并落盘)
     let _ = file.sync_all().await;
     drop(file);
+    let final_name = if now_final.is_empty() { name.clone() } else { now_final };
+    let final_path = share.join(&final_name);
     if let Some(parent) = final_path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
@@ -1269,16 +1447,24 @@ async fn upload(
     }
     match renamed {
         Ok(()) => {
-            let _ = tokio::fs::remove_file(&meta_path).await;
+            // meta 保留为"完成记录"(id + 最终名 + 账本): 最终响应丢失/页面刷新后的补偿查询
+            // 靠它确认已完成, 避免整份重传; 同名新上传(offset=0)会覆写它,
+            // 残留记录由 clean_stale_parts 按 mtime(>TTL) 回收, 不占列表
             push_log(format!(
-                "上传完成 {name} ({}, {}ms{}) ← {}",
-                humans(received),
+                "上传完成 {final_name} ({}, {}ms{}{}) ← {}",
+                humans(coverage),
                 started.elapsed().as_millis(),
                 if offset > 0 { format!("，续传自 {}", humans(offset)) } else { String::new() },
+                if final_name != name { format!("，改名自 {name}") } else { String::new() },
                 peer
             ));
             broadcast_event("files:changed");
-            Json(serde_json::json!({ "ok": true, "received": received, "done": true })).into_response()
+            // final: 同名自动改名后的实际落盘名(相对路径), 前端据此提示"已存为 xxx";
+            // received 报全局覆盖量(并行时末格自身偏移 ≠ 全量)
+            Json(serde_json::json!({
+                "ok": true, "received": coverage.min(size), "done": true, "final": final_name
+            }))
+            .into_response()
         }
         Err(e) => {
             push_log(format!("上传失败 {name}: 转正失败({e}) ← {}", peer));
@@ -1297,22 +1483,63 @@ async fn upload_progress(
     let Some(name) = safe_rel_path(raw, true) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
     };
-    let part = share.join(format!("{name}{UPLOAD_PART_SUFFIX}"));
+    // part 路径按会话指纹派生(带 id 时, 与 upload 一致); 无 id 的查询回落旧命名
+    // (仅升级接力时可能命中升级前的旧断点)
+    let id_param = params.get("id").cloned().unwrap_or_default();
+    let (part, part_meta) = if id_param.is_empty() {
+        let p = share.join(format!("{name}{UPLOAD_PART_SUFFIX}"));
+        (p.clone(), part_meta_path(&p))
+    } else {
+        session_part_path(&share, &name, &id_param)
+    };
     let part_len = tokio::fs::metadata(&part).await.map(|m| m.len()).ok();
-    let mut received = part_len.unwrap_or(0);
-    // 带会话 id 查询时校验断点归属: 断点属于别的上传 → 返回 0(从头传), 防同名拼接脏文件
+    // meta 三行: 会话 id / 最终落盘名 / 分片账本(并行会话)
+    let meta = tokio::fs::read_to_string(&part_meta)
+        .await
+        .unwrap_or_default();
+    let mut meta_lines = meta.lines();
+    let meta_id = meta_lines.next().unwrap_or("").trim().to_string();
+    let meta_final = meta_lines
+        .next()
+        .map(|l| safe_rel_path(l.trim(), false).unwrap_or_default())
+        .unwrap_or_default();
+    let mut ledger: Option<std::collections::HashMap<String, u64>> =
+        meta_lines.next().and_then(|l| serde_json::from_str(l).ok());
+    // 并行分片会话: part 是预分配的稀疏文件, 长度恒等于全量 —— 完成度只能看账本
+    let mut received = match &ledger {
+        Some(led) => led.values().sum::<u64>(),
+        None => part_len.unwrap_or(0),
+    };
+    // 带会话 id 查询时校验断点归属: 断点属于别的上传 → 返回 0(从头传), 防同名拼接脏文件。
+    // **账本同样必须按归属下发**: 同名新内容是不同会话, 若把上一会话的账本发给它,
+    // 客户端会把这些格子当"已覆盖"直接跳过 —— 大小相同时全部跳过 → 假报"完成",
+    // 新内容根本没上传, 也不会触发同名改名(正是实测遇到的"改名不生效")
     if let Some(id) = params.get("id") {
-        let meta_id = tokio::fs::read_to_string(part_meta_path(&part))
-            .await
-            .unwrap_or_default();
-        if meta_id.trim() != id.trim() {
+        if meta_id != id.trim() {
             received = 0;
+            ledger = None;
+        } else if part_len.is_none() && !meta_final.is_empty() {
+            // 断点不在但 meta 记录本会话 = 已转正: 按 meta 的**最终名**核对大小
+            // (按原始名核对不上改名后的 xxx(1).zip, 会误判未完成触发整份重传)
+            if let Some(s) = params.get("size").and_then(|v| v.parse::<u64>().ok()) {
+                if s > 0 {
+                    if let Ok(fm) = tokio::fs::metadata(share.join(&meta_final)).await {
+                        if fm.is_file() && fm.len() == s {
+                            received = s;
+                        }
+                    }
+                }
+            }
         }
     }
-    // 断点不存在但最终文件已转正且大小吻合(可选 size 参数) → 报告完成:
+    // 断点与 meta 都不在但最终文件(原始名)已转正且大小吻合(可选 size 参数) → 报告完成:
     // 大分片下"响应在途冻结/丢失 → 客户端闲置超时中止重查"的场景,
-    // 不至于把已转正的文件从头重传(与 upload handler 的"恰为目标大小即确认"同语义)
-    if part_len.is_none() && received == 0 {
+    // 不至于把已转正的文件从头重传(与 upload handler 的"恰为目标大小即确认"同语义;
+    // 兜底旧版单行 meta/无 meta 的会话 —— 并行会话账本存在时不可走此径, 空账本会被误判完成)。
+    // **只对本会话或不带 id 的旧版查询生效**: 同名新会话(id 不匹配)绝不能套用
+    // 上一会话的完成事实, 否则同样会假报"完成"跳过上传、不触发改名
+    let id_ok = params.get("id").map_or(true, |id| meta_id == id.trim());
+    if id_ok && ledger.is_none() && part_len.is_none() && received == 0 {
         if let Some(s) = params.get("size").and_then(|v| v.parse::<u64>().ok()) {
             if s > 0 {
                 if let Ok(fm) = tokio::fs::metadata(share.join(&name)).await {
@@ -1323,7 +1550,11 @@ async fn upload_progress(
             }
         }
     }
-    Json(serde_json::json!({ "received": received })).into_response()
+    Json(serde_json::json!({
+        "received": received,
+        "chunks": ledger,
+    }))
+    .into_response()
 }
 
 /// 大小格式化 [同步: App.vue fmtSize] —— B 不带小数, 其余一位小数, 单位表两端一致
@@ -2076,7 +2307,10 @@ async fn log_middleware(
     let started = std::time::Instant::now();
     let res = next.run(req).await;
     let noisy = (method == "GET" && NOISY_GET_PATHS.contains(&path.as_str()))
-        || path == "/favicon.ico";
+        || path == "/favicon.ico"
+        // 并行分片上传: 每个大文件几十个成功分片请求, 逐条记会把日志环冲爆;
+        // 开始/完成/中断由 upload handler 自己记关键日志, 中间片仅失败时留痕
+        || (path == "/api/upload" && method == "POST" && res.status().is_success());
     if !noisy {
         let ms = started.elapsed().as_millis();
         let size = res
@@ -2129,4 +2363,334 @@ fn router(share: PathBuf) -> Router {
         .fallback(static_handler)
         .layer(tower_http::cors::CorsLayer::permissive()) // 桌面窗口跨源调用 API
         .with_state(share)
+}
+
+// ---------------------------------------------------------------- //
+// 自检(cargo test): 同名自动改名 + 分片续传 + 下载(全量/HEAD/Range)。
+// 直连 lib 起真实服务(不经 GUI/单实例), 用裸 TcpStream 走 HTTP —— 与浏览器
+// 行为同源。测试文件写入实际共享目录(__e2e_ 前缀, 结束即删); start 会把测试
+// 端口写进端口偏好文件, 结束时还原, 避免污染用户下次启动的地址
+// ---------------------------------------------------------------- //
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    /// 极简 percent-encode(路径段): 测试用中文文件名过 X-Filename/URL 需要
+    fn enc(s: &str) -> String {
+        let mut out = String::new();
+        for b in s.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(b as char)
+                }
+                _ => out.push_str(&format!("%{b:02X}")),
+            }
+        }
+        out
+    }
+
+    /// 裸 HTTP 客户端: 返回 (状态码, 响应头文本, 响应体)。依赖 Connection: close 让
+    /// hyper 回完即断, read_to_end 才有尽头
+    fn http_raw(port: u16, req: &str) -> (u16, String, Vec<u8>) {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        s.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        s.write_all(req.as_bytes()).unwrap();
+        let mut buf = Vec::new();
+        let _ = s.read_to_end(&mut buf);
+        let pos = buf
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("no header terminator");
+        let head = String::from_utf8_lossy(&buf[..pos]).to_string();
+        let status: u16 = head
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap();
+        (status, head, buf[pos + 4..].to_vec())
+    }
+
+    /// 服务是全局单例(running_slot): 两个 e2e 并行跑会互相关掉对方的服务,
+    /// 用串行锁保证同一时刻只有一个测试在操作服务
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 上传一个分片: 返回 (状态码, JSON 响应)。sess = 会话 id(真实客户端按
+    /// 名字+大小+修改时间派生, 同会话分片同 id, 新会话新 id)
+    fn upload(port: u16, sess: &str, name: &str, offset: u64, total: u64, data: &[u8]) -> (u16, serde_json::Value) {
+        let head = format!(
+            "POST /api/upload HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             X-Filename: {}\r\nX-File-Size: {total}\r\nX-Upload-Offset: {offset}\r\n\
+             X-Upload-Id: {sess}\r\nContent-Type: application/octet-stream\r\n\
+             Content-Length: {}\r\nConnection: close\r\n\r\n",
+            enc(name),
+            data.len()
+        );
+        let mut full = head.into_bytes();
+        full.extend_from_slice(data);
+        let req = String::from_utf8(full).unwrap();
+        let (st, _h, body) = http_raw(port, &req);
+        (st, serde_json::from_slice(&body).unwrap_or_default())
+    }
+
+    #[test]
+    fn dedup_picks_first_free_variant() {
+        let tmp = std::env::temp_dir().join(format!("ccflash-dedup-test-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // 无同名 → 原样返回
+        assert_eq!(dedup_rel_name(&tmp, "报告.pdf"), "报告.pdf");
+        std::fs::write(tmp.join("报告.pdf"), b"x").unwrap();
+        assert_eq!(dedup_rel_name(&tmp, "报告.pdf"), "报告(1).pdf");
+        std::fs::write(tmp.join("报告(1).pdf"), b"x").unwrap();
+        assert_eq!(dedup_rel_name(&tmp, "报告.pdf"), "报告(2).pdf");
+        // 无扩展名
+        std::fs::write(tmp.join("README"), b"x").unwrap();
+        assert_eq!(dedup_rel_name(&tmp, "README"), "README(1)");
+        // 点开头文件: 整体作 stem, 不拆出空 stem
+        std::fs::write(tmp.join(".gitignore"), b"x").unwrap();
+        assert_eq!(dedup_rel_name(&tmp, ".gitignore"), ".gitignore(1)");
+        // 子目录: 前缀不动, 只改末段
+        std::fs::create_dir_all(tmp.join("子目录")).unwrap();
+        std::fs::write(tmp.join("子目录/图.png"), b"x").unwrap();
+        assert_eq!(dedup_rel_name(&tmp, "子目录/图.png"), "子目录/图(1).png");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// 清理某文件名的全部会话断点产物: part 文件名带会话指纹(idhash), 需按前缀扫
+    fn clean_parts(share: &Path, name: &str) {
+        let prefix = format!("{name}.");
+        let Ok(rd) = std::fs::read_dir(share) else { return };
+        for e in rd.flatten() {
+            let fn_ = e.file_name().to_string_lossy().to_string();
+            if fn_.starts_with(&prefix) && (fn_.ends_with(".ccpart") || fn_.ends_with(".ccpart.meta")) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+
+    #[test]
+    fn upload_rename_resume_download_e2e() {
+        let _serial = SERIAL.lock().unwrap();
+        // 还原端口偏好: start() 会把测试端口持久化, 不还原会污染用户下次启动的地址
+        let pref = port_pref_file();
+        let orig_pref = std::fs::read_to_string(&pref).ok();
+
+        let port = start(Some(17701)).expect("start server on 17701");
+        let share = share_dir();
+        let base = "__e2e_同名改名.txt";
+        let v1 = "__e2e_同名改名(1).txt";
+        let v2 = "__e2e_同名改名(2).txt";
+        for n in [base, v1, v2] {
+            let _ = std::fs::remove_file(share.join(n)); // 预清理上次异常残留
+        }
+        clean_parts(&share, base);
+
+        // 1) 首次上传分两片: 首片 5 字节(共 10) → 中间片确认, 断点保留
+        let (st, j) = upload(port, "e2e-id-1", base, 0, 10, b"AAAAA");
+        assert_eq!(st, 200, "首片: {j}");
+        assert_eq!(j["done"], serde_json::json!(false));
+        assert_eq!(j["received"], serde_json::json!(5), "received 应为账本覆盖量");
+
+        // 2) 断点查询: 账本会话报覆盖量并下发 chunks(客户端跨重启按格续传的依据)
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/upload_progress?name={}&id=e2e-id-1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 200);
+        let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(q["received"], serde_json::json!(5), "断点查询应报覆盖量 5");
+        assert_eq!(q["chunks"]["0"], serde_json::json!(5), "账本应含已收区间");
+
+        // 3) 续传后 5 字节 → 收齐转正; 目录无同名 → 不改名
+        let (st, j) = upload(port, "e2e-id-1", base, 5, 10, b"BBBBB");
+        assert_eq!(st, 200, "续传片: {j}");
+        assert_eq!(j["done"], serde_json::json!(true));
+        assert_eq!(j["final"], serde_json::json!(base));
+        assert_eq!(
+            std::fs::read(share.join(base)).unwrap(),
+            b"AAAAABBBBB",
+            "两片拼接内容应完整"
+        );
+
+        // 3b) 完成记录: 转正后 meta 保留, 断点查询按最终名核对大小 → 报满量(不再误判未完成)
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/upload_progress?name={}&id=e2e-id-1&size=10 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 200);
+        let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(q["received"], serde_json::json!(10), "完成记录应让断点查询报满量");
+
+        // 3b-2) 会话隔离: 同名新会话(不同 id)查询绝不能拿到上一会话的进度与账本 ——
+        // 否则客户端把旧格子当"已覆盖"直接跳过: 大小相同时假报"完成", 新内容没上传、
+        // 也不触发同名改名(实测踩过的"改名不生效"回归)
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/upload_progress?name={}&id=e2e-id-other&size=10 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 200);
+        let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(q["received"], serde_json::json!(0), "他人会话不得报进度");
+        assert!(q["chunks"].is_null(), "他人账本不得下发");
+
+        // 3c) 完成后的补偿续传请求(offset=满量, 响应丢失场景) → 直接确认 done, 不重传不覆盖
+        let (st, j) = upload(port, "e2e-id-1", base, 10, 10, b"");
+        assert_eq!(st, 200, "补偿续传: {j}");
+        assert_eq!(j["done"], serde_json::json!(true));
+        assert_eq!(j["final"], serde_json::json!(base));
+        assert_eq!(std::fs::read(share.join(base)).unwrap(), b"AAAAABBBBB", "补偿确认不得改动文件");
+
+        // 4) 同名再传(新会话新 id, 如同真实客户端不同内容同名) → 落为 (1), 原文件不被覆盖
+        let (st, j) = upload(port, "e2e-id-2", base, 0, 6, b"second");
+        assert_eq!(st, 200, "同名第 2 次: {j}");
+        assert_eq!(j["final"], serde_json::json!(v1));
+        assert_eq!(std::fs::read(share.join(base)).unwrap(), b"AAAAABBBBB", "原文件不得被覆盖");
+
+        // 4b) 改名会话的完成记录: 按 meta 最终名 (1) 核对大小 → 报完成
+        // (按原始名核对不上改名后的文件, 会误判未完成 → 整份重传, 正是本次修的回归)
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/upload_progress?name={}&id=e2e-id-2&size=6 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 200);
+        let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(q["received"], serde_json::json!(6), "改名会话应按 meta 最终名确认完成");
+
+        // 5) 第三次 → (2)
+        let (st, j) = upload(port, "e2e-id-3", base, 0, 6, b"third!");
+        assert_eq!(st, 200);
+        assert_eq!(j["final"], serde_json::json!(v2));
+
+        // 6) 下载全量
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/download/{} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 200);
+        assert_eq!(body, b"AAAAABBBBB");
+
+        // 7) HEAD 预检: 200 + 正确 Content-Length + 空体(axum 自动 HEAD, 前端下载预检依赖它)
+        let (st, h, body) = http_raw(
+            port,
+            &format!(
+                "HEAD /api/download/{} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 200);
+        assert!(h.to_ascii_lowercase().contains("content-length: 10"), "head: {h}");
+        assert!(body.is_empty(), "HEAD 不应带响应体");
+
+        // 8) Range 单区间 → 206 + 截断后的字节
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/download/{} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 206);
+        assert_eq!(body, b"AAAAA");
+
+        // 9) 超出文件大小 → 416
+        let (st, _h, _body) = http_raw(
+            port,
+            &format!(
+                "GET /api/download/{} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n",
+                enc(base)
+            ),
+        );
+        assert_eq!(st, 416);
+
+        // 清理测试文件 + 还原端口偏好
+        for n in [base, v1, v2] {
+            let _ = std::fs::remove_file(share.join(n));
+        }
+        clean_parts(&share, base);
+        stop();
+        match orig_pref {
+            Some(s) => { let _ = std::fs::write(&pref, s); }
+            None => { let _ = std::fs::remove_file(&pref); }
+        }
+    }
+
+    #[test]
+    fn upload_parallel_out_of_order() {
+        let _serial = SERIAL.lock().unwrap();
+        // 并行分片核心语义: 格子乱序到达(哪条连接先完成取决于链路), 账本逐格登记,
+        // 收齐才转正 —— 服务端必须对任意完成顺序健壮
+        let pref = port_pref_file();
+        let orig_pref = std::fs::read_to_string(&pref).ok();
+
+        let port = start(Some(17702)).expect("start server on 17702");
+        let share = share_dir();
+        let name = "__e2e_并行乱序.bin";
+        let _ = std::fs::remove_file(share.join(name));
+        clean_parts(&share, name);
+
+        // 格 A(0-10) 先到: 建会话 + 预分配
+        let (st, j) = upload(port, "e2e-par", name, 0, 30, b"AAAAAAAAAA");
+        assert_eq!(st, 200, "格 A: {j}");
+        assert_eq!(j["done"], serde_json::json!(false));
+        assert_eq!(j["received"], serde_json::json!(10));
+
+        // 格 C(20-30) 先于格 B 到达(乱序)
+        let (st, j) = upload(port, "e2e-par", name, 20, 30, b"CCCCCCCCCC");
+        assert_eq!(st, 200, "格 C: {j}");
+        assert_eq!(j["done"], serde_json::json!(false));
+        assert_eq!(j["received"], serde_json::json!(20));
+
+        // 中途查询: 账本应含 A/C 两格
+        let (st, _h, body) = http_raw(
+            port,
+            &format!(
+                "GET /api/upload_progress?name={}&id=e2e-par HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+                enc(name)
+            ),
+        );
+        assert_eq!(st, 200);
+        let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(q["received"], serde_json::json!(20));
+        assert_eq!(q["chunks"]["20"], serde_json::json!(10), "乱序格也应登记进账本");
+
+        // 格 B(10-20) 补齐 → 转正, 内容按区间各就各位
+        let (st, j) = upload(port, "e2e-par", name, 10, 30, b"BBBBBBBBBB");
+        assert_eq!(st, 200, "格 B: {j}");
+        assert_eq!(j["done"], serde_json::json!(true));
+        assert_eq!(j["received"], serde_json::json!(30), "done 响应应报全量覆盖");
+        assert_eq!(
+            std::fs::read(share.join(name)).unwrap(),
+            b"AAAAAAAAAABBBBBBBBBBCCCCCCCCCC",
+            "乱序写入必须按区间落位"
+        );
+
+        let _ = std::fs::remove_file(share.join(name));
+        clean_parts(&share, name);
+        stop();
+        match orig_pref {
+            Some(s) => { let _ = std::fs::write(&pref, s); }
+            None => { let _ = std::fs::remove_file(&pref); }
+        }
+    }
 }

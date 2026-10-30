@@ -48,6 +48,7 @@ pub const NOISY_GET_PATHS: &[&str] = &[
     "/api/info",
     "/api/files",
     "/api/control/logs",
+    "/api/upload_progress",
 ];
 
 // ---- 传输 ---- //
