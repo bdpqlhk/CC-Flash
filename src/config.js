@@ -91,13 +91,18 @@ export const TIP_COPY_URL = "\n\n🔔 温馨提示：请确保分享方和接收
 export const TIP_QR = "🔔 请确保在同一 Wi-Fi 下打开；文件请尽快下载到本地";
 
 /* ---------- 页脚 ---------- */
-export const FOOTER_TEXT = "© 2026-现在 by hangkun.li";
+export const FOOTER_TEXT = "Copyright © 2026-Present 李航坤. All Rights Reserved.";
+
+/* ---------- 主题迁移(v1.1.6: 皮肤 9 套精简为 6 套) ---------- */
+/* main.js(挂载前预上色)与 App.vue(选择器高亮)都要用 —— 求值顺序是 App.vue 先于
+   main.js 本体, 两端各自应用才能保证首启高亮与视觉一致 */
+export const THEME_MIGRATE = { aurora: "default", mist: "graphite", eye: "mint" };
 
 /* ---------- 版本更新(桌面端, GitHub Releases) ---------- */
 export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
-export const APP_VERSION_FALLBACK = "1.1.5";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
+export const APP_VERSION_FALLBACK = "1.1.6";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次
 export const UPDATE_CHECK_TIMEOUT_MS = 8000;             // 请求超时; 任何失败一律静默

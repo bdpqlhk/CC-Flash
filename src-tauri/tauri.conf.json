@@ -11,18 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "CC-Flash",
-        "width": 1180,
-        "height": 840,
-        "minWidth": 560,
-        "minHeight": 520,
-        "visible": false,
-        "dragDropEnabled": false,
-        "backgroundColor": "#0d1017"
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1 http://localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http: https: ws: wss:; frame-src 'none'; object-src 'none'; base-uri 'self'"
     }

@@ -1,7 +1,7 @@
 //! CC-Flash · Tauri 桌面壳
 //! 职责:托盘(关窗收到托盘,服务不停) + 启动时自动拉起局域网文件服务。
 
-use tauri::Manager;
+use tauri::{Emitter, Manager, WebviewUrl};
 // 托盘为桌面专属能力, 移动端构建不编译这部分
 #[cfg(desktop)]
 use tauri::{
@@ -98,6 +98,61 @@ pub fn run() {
                     server::set_platform_default_dir(dir.to_string_lossy().to_string());
                 }
             }
+            // ---- 主窗口(代码创建以挂下载处理器): 配置文件不再定义窗口 ----
+            // 移动壳的"下载"按钮依赖此处理器(WebView 锚点下载默认无操作);
+            // 统一落盘到系统下载目录, 完成后事件通知前端 toast
+            let app_handle = app.handle();
+            tauri::WebviewWindowBuilder::new(app_handle, "main", WebviewUrl::App("index.html".into()))
+                .title(config::APP_NAME)
+                .inner_size(1180.0, 840.0)
+                .min_inner_size(560.0, 520.0)
+                .visible(false)
+                .background_color(tauri::webview::Color(13, 16, 23, 255))
+                // 前端拖拽上传走 HTML5 API, Windows 上必须关掉内部拖拽 handler
+                .disable_drag_drop_handler()
+                .on_download(move |webview, event| match event {
+                    tauri::webview::DownloadEvent::Requested { url, destination } => {
+                        // 文件名三道防线: 先取 URL 末段 → 百分号解码 → 再取末段。
+                        // 解码可能还原出 / \ (如 %2F), join 后会逃出下载目录;
+                        // 空段(路径以 / 结尾)与 .. 同样兜底为 download
+                        let raw = url.path().rsplit('/').next().unwrap_or("download");
+                        let decoded = percent_encoding::percent_decode_str(raw)
+                            .decode_utf8_lossy()
+                            .to_string();
+                        let fname = decoded
+                            .rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or("download")
+                            .to_string();
+                        let fname = if fname.is_empty() || fname == ".." {
+                            "download".to_string()
+                        } else {
+                            fname
+                        };
+                        let dir = match webview.app_handle().path().download_dir() {
+                            Ok(d) => d,
+                            // 移动端无系统下载目录概念时退回应用专属目录
+                            Err(_) => match webview.app_handle().path().app_data_dir() {
+                                Ok(d) => d.join("downloads"),
+                                Err(_) => return false,
+                            },
+                        };
+                        let _ = std::fs::create_dir_all(&dir);
+                        *destination = dir.join(fname);
+                        true
+                    }
+                    tauri::webview::DownloadEvent::Finished { path, success, .. } => {
+                        let saved = path.as_deref().map(|p| p.to_string_lossy()).unwrap_or_default();
+                        let _ = webview.emit(
+                            "download://done",
+                            serde_json::json!({ "success": success, "path": saved }),
+                        );
+                        true
+                    }
+                    _ => true,
+                })
+                .build()
+                .map_err(|e| format!("创建主窗口失败: {e}"))?;
             // ---- 托盘 + 关窗收纳(桌面专属; 移动端无托盘概念) ----
             #[cfg(desktop)]
             {

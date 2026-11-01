@@ -9,7 +9,7 @@ import {
   CONTROL_RETRY_TIMES, DEFAULT_NICK, DEFAULT_PORT, FOOTER_TEXT, ICON_MAP, IMG_EXTS, LS, MSG_MAX,
   GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
-  REL_TIME_MS, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
+  REL_TIME_MS, THEME_MIGRATE, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
   UPDATE_CHECK_INTERVAL_MS, UPLOAD_CELL, UPLOAD_DONE_KEEP_MS, UPLOAD_RESPONSE_GRACE_MS,
   UPLOAD_RETRY_MS, UPLOAD_RETRY_TIMES, UPLOAD_STALL_MS, UPLOAD_WORKERS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
@@ -113,18 +113,22 @@ function deviceNick() { return nickInput.value.trim() || autoNick; }
 /* ---------- 视图切换 ---------- */
 const view = ref("files");   // files | chat | service | settings
 const VIEW_TITLES = { files: "文件传输", chat: "文本消息", service: "服务中心", settings: "CC设置" };
-function setView(v) { view.value = v; }
+function setView(v) {
+  view.value = v;
+  // 切进聊天页立即追平已读: WS 在线时 loadChat 只由新消息事件触发,
+  // 不追平的话未读徽标会一直挂到下一条消息到达才消失
+  if (v === "chat") seenChat.value = chatCount.value;
+}
 
 /* ---------- 外观主题 ---------- */
+/* 6 套 = 每色相一个(蓝/灰/绿/紫/金/红粉); v1.1.6 从 9 套精简,
+   被移除的选择在 main.js 启动时迁移(aurora→default, mist→graphite, eye→mint) */
 const THEMES = [
     { id: "default",  name: "深空蓝",   preview: "linear-gradient(135deg,#0d1017,#1a2233)" },
     { id: "graphite", name: "石墨灰",   preview: "linear-gradient(135deg,#15171b,#2a2f38)" },
-    { id: "aurora",   name: "极光蓝",   preview: "linear-gradient(135deg,#0e1520,#12365e)" },
-    { id: "eye",      name: "护眼暖黑", preview: "linear-gradient(135deg,#191611,#3a3222)" },
+    { id: "mint",     name: "森林薄荷", preview: "linear-gradient(135deg,#0f1712,#1d4634)" },
     { id: "purple",   name: "暗夜紫",   preview: "linear-gradient(135deg,#15121d,#33265a)" },
     { id: "amber",    name: "墨色琥珀", preview: "linear-gradient(135deg,#141109,#4a3512)" },
-    { id: "mist",     name: "海雾蓝灰", preview: "linear-gradient(135deg,#12161c,#2c4257)" },
-    { id: "mint",     name: "森林薄荷", preview: "linear-gradient(135deg,#0f1712,#1d4634)" },
     { id: "rose",     name: "石墨玫瑰", preview: "linear-gradient(135deg,#16151a,#4a2531)" },
 ];
 const theme = ref("default");
@@ -137,7 +141,16 @@ function setTheme(id) {
     applyTheme(id);
     try { localStorage.setItem(LS.theme, id); } catch (e) {}
 }
-try { theme.value = localStorage.getItem(LS.theme) || "default"; } catch (e) {}
+try {
+  // 读取时同样应用迁移: 本模块先于 main.js 本体求值, 不迁移的话升级后
+  // 首次启动选择器高亮会停留在已被移除的旧 id 上(网格无高亮)
+  let t = localStorage.getItem(LS.theme) || "default";
+  if (THEME_MIGRATE[t]) {
+    t = THEME_MIGRATE[t];
+    try { localStorage.setItem(LS.theme, t); } catch (e) {}
+  }
+  theme.value = t;
+} catch (e) {}
 /* 主题模式(亮/暗/跟随系统)与配色正交: 配色(data-theme)定色相, 模式(data-mode)定明暗 */
 const THEME_MODES = [
     { id: "light",  name: "亮色", icon: "☀️" },
@@ -515,8 +528,10 @@ async function downloadFileWeb(name) {
   // 等几十秒且期间零进度零提示, 用户感知就是"点了没反应"; 等 blob 期间浏览器瞬态
   // 用户激活早已过期, 程序化 click 可能被静默拦截。现在文件本体由浏览器下载管理器
   // 流式落盘(自带进度条/断点续传, 零内存占用), fetch 只拿状态码 —— 响应头毫秒级
-  // 到达, 激活仍有效; 404/401 如实报错而不是把 JSON 错误体当文件下载
-  if (!isIOSFamily && !/Android/.test(navigator.userAgent)) {
+  // 到达, 激活仍有效; 404/401 如实报错而不是把 JSON 错误体当文件下载。
+  // 桌面/移动壳(isDesktop)同样走原生下载: WebView 的锚点下载由 on_download
+  // 处理器接管落盘(壳内没有浏览器下载管理器, blob 路径在壳内不可靠)
+  if (isDesktop || (!isIOSFamily && !/Android/.test(navigator.userAgent))) {
     try {
       // 预检必须带超时: 服务失联时 fetch 会无限挂起, 表现恰恰是"点了没反应"
       const ctl = new AbortController();
@@ -532,7 +547,7 @@ async function downloadFileWeb(name) {
       return;
     }
     nativeDownload(url, base);
-    showToast("已开始下载，进度见浏览器下载列表");
+    showToast(isDesktop ? "已开始下载，完成后提示保存位置" : "已开始下载，进度见浏览器下载列表");
     return;
   }
   try {
@@ -795,7 +810,12 @@ function uploadFile(file) {
   // 服务端已有断点(自动续传真正生效); 内容变化(大小/修改时间变)则视为新会话覆盖旧断点。
   // name 必须 encodeURIComponent: 请求头值是 ByteString, 原始中文/emoji 在所有浏览器/WebView
   // 里 fetch 直接抛 TypeError(中文文件名上传全线失败); 服务端原样存 meta 原样比对, 自洽
-  const upId = `${encodeURIComponent(name)}|${file.size}|${file.lastModified}`;
+  // 会话 id = 文件指纹(名+大小+修改时间) + 可选代次后缀:
+  // 首传/断点续传用纯指纹(跨重启按格接力); 该文件已完成后再主动重传时换新代次 ——
+  // 服务端将其视为新会话, 同名自动改名落为 报告(1).pdf(用户重传 = 明确要一份新副本)。
+  // 代次存 localStorage: 副本传一半崩溃后再选同一文件, 仍按格精确续传
+  const fp = `${encodeURIComponent(name)}|${file.size}|${file.lastModified}`;
+  let upId = lastSessionId(fp);
   // 同一文件已在队列中(等待/上传中)则跳过: 快速双击/多选重复会以相同 upId 并发推进,
   // 两条链互相截断断点导致整体重传数次、UI 出现重复进度行
   if (uploads.value.some(u => u.upId === upId && (u.status === "waiting" || u.status === "uploading"))) {
@@ -820,6 +840,16 @@ function uploadFile(file) {
       state = (await fetchUploadState(name, upId, total)) ?? { received: 0, chunks: null };
     }
     if (state.received > total) state.received = 0;
+    if (state.received >= total) {
+      // 服务端报告本会话已完成 = 同内容已在目录里。用户此时主动重选上传,
+      // 意图是要一份新副本 → 换新代次走完整上传, 服务端同名改名落为 (1);
+      // 断点续传(部分覆盖)与链内自动重试不受影响, 仍按原会话接力
+      upId = fp + "|" + Date.now().toString(36);
+      saveSessionId(fp, upId);
+      state = { received: 0, chunks: null };
+    } else {
+      saveSessionId(fp, upId);   // 续传会话记录下来, 崩溃后再选同一文件按格接力
+    }
     // 网格: 全文件按 UPLOAD_CELL 切格(空文件补一格, 0 字节也要发一次请求转正)
     const cells = [];
     for (let off = 0; off < total; off += UPLOAD_CELL) cells.push(off);
@@ -931,6 +961,13 @@ function uploadFile(file) {
   });
   pumpUploadQueue();
 }
+/* 会话代次存取: key 按文件指纹, 值为该文件最近一次的会话 id(断点续传的接力棒) */
+function lastSessionId(fp) {
+  try { return localStorage.getItem("wft-usess-" + fp) || fp; } catch (e) { return fp; }
+}
+function saveSessionId(fp, id) {
+  try { localStorage.setItem("wft-usess-" + fp, id); } catch (e) {}
+}
 /* 取消进行中/排队中的上传(中断在途请求 → 上传链静默退出), 失败行等同移除 */
 function cancelUpload(u) {
   if (u.ac) { try { u.ac.abort(); } catch (e) {} }
@@ -1028,6 +1065,9 @@ function clearChatDisplay() {
   // 水位取最后一条消息的时间戳而非条数: 条数 ≤200 恒成立, "length > 水位条数" 永假 → 满 200 条时
   // 点清空后本机永久空白; 时间戳在服务端重启(消息清零)后依然单调可比
   clearedTs.value = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].timestamp : 0;   // 无消息时任意新消息即解除
+  // 必须立即清显示列表: WS 在线时 loadChat 只由"新消息事件"触发, 安静的聊天室里
+  // 清空后 loadChat 永远不来, 只设标记会表现为"点了清空没反应"(轮询时代的回归)
+  chatMsgs.value = [];
   showToast("已清空数据（不影响其他设备与服务端记录）");
 }
 let loadingChat = false;
@@ -1232,6 +1272,7 @@ let chatTimer = null;
 let logTimer = null;
 let filesTimer = null;
 let statusTimer = null;
+let unlistenDl = null;   // 壳内下载完成事件的反注册
 /* 轮询定时器统一启停: 服务端下发间隔变化时重排; 聊天/列表由 applyWsMode 按 WS 状态增减 */
 function startPolling() {
   stopPolling();
@@ -1248,6 +1289,13 @@ function stopPolling() {
 onMounted(() => {
   document.addEventListener("paste", onPaste);
   document.addEventListener("click", onDocChatClick);
+  // 壳内下载完成通知(Rust on_download 落盘后 emit): 提示保存位置
+  if (isDesktop && window.__TAURI__) {
+    window.__TAURI__.event.listen("download://done", (e) => {
+      const p = e.payload || {};
+      p.success ? showToast("已下载到 " + (p.path || "下载目录")) : showToast("下载失败", "error");
+    }).then((un) => { unlistenDl = un; });
+  }
   // WS 半开连接看门狗: 超时收不到任何消息(含服务端心跳) → 强制关闭,
   // onclose 恢复轮询兜底并退避重连 —— 桌面端状态轮询走 invoke 永远成功, 无此看门狗会永久卡死
   wsWatchdogTimer = setInterval(() => {
@@ -1283,6 +1331,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("paste", onPaste);
   document.removeEventListener("click", onDocChatClick);
+  if (unlistenDl) unlistenDl();
   clearInterval(wsWatchdogTimer);
   clearTimeout(filesThrottleTimer);
   document.body.style.overflow = "";
@@ -2125,7 +2174,7 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，九套配色 × 明暗主题即点即换。</p>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，六套配色 × 明暗主题即点即换。</p>
           <div class="tags"><span class="tag">服务控制</span><span class="tag">二维码直达</span><span class="tag">多主题配色</span></div>
         </div>
         <div class="card">
