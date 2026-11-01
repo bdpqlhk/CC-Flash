@@ -73,8 +73,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC-Flash · 后期规划</h1>
 <div class="meta">
-<span>文档日期：<b>2026-10-28</b></span>
-<span>基线：<b>v1.1.2</b>（介绍页/唤窗单实例/自启/Android 签名链路已发布）</span>
+<span>文档日期：<b>2026-11-02（v1.1.6 后修订）</b></span>
+<span>基线：<b>v1.1.6</b>（并行分片上传 / 壳内下载 / 同名自动改名 / 明暗主题×六配色 / e2e 自检已发布）</span>
 <span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
 </div>
 </header>
@@ -110,16 +110,16 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <p>现状：接口无密码，公共/半可信 Wi-Fi 下同网段任何人都能操作——这是文档里明说的边界，但推广后会成为最大差评来源。</p>
 <table>
 <tr><th style="width:180px">项</th><th>方案</th><th style="width:60px">优先级</th></tr>
-<tr><td>配对码模式</td><td>服务端生成 6 位动态码（有效期会话级），手机端首次访问需输入；桌面端常驻显示。开关式（默认关，保持「零学习成本」；检测到公网 Wi-Fi 特征时提示开启）</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td>配对码模式</td><td><span class="tag t-done">✔ 已实现（v1.1.4，超出原方案）</span>服务端生成 6 位访问令牌，持久化防静默失效；<b>全部 /api/* 与 WS 均需配对</b>（比原方案只保护写接口更严）；配对尝试带指数退避防爆破（锁定窗内正确码也拒，防 Accept 伪造绕过）；桌面端设置页常驻显示/复制。剩余项：检测到公共 Wi-Fi 特征时提示开启</td><td><span class="tag t-done">✔</span></td></tr>
 <tr><td>控制接口令牌</td><td>删除/启停/清日志等写操作要求 <code>X-Token</code>（QR 内嵌），只读浏览不设卡</td><td><span class="tag t-p0">P0</span></td></tr>
 <tr><td>HTTPS 自签 + 扫码信任</td><td>自签证书随服务生成，二维码带上证书指纹，手机首次扫码即信任（消除「HTTP 明文」在推广后的安全性质疑）</td><td><span class="tag t-p1">P1</span></td></tr>
 </table>
 <h3>3.2 配菜（P1）</h3>
 <ul>
 <li><b>传输历史</b>：本地记录最近收发（不含文件本体），解决「刚才那个文件呢」；</li>
-<li><b>断网自愈增强</b>：手机页面断连后自动按原地址重连 + 成功提示（现失联画面被动等恢复）；</li>
-<li><b>路径安全回归测试集</b>：路径穿越双防护补自动化测试（fuzz 边界用例入库 CI）；</li>
-<li><b>小尾巴清零</b>：前后端大小单位表统一、日志文案一致性过一遍。</li>
+<li><b>断网自愈增强</b>：<span class="tag t-done">✔ 已实现</span>WS 看门狗强制重连 + 失联/恢复状态机（清空与全量重载 + 恢复提示），手机页面断连后自动按原地址恢复；</li>
+<li><b>路径安全回归测试集</b>：<span class="tag t-done">✔ 已实现</span>内置 e2e（裸 TCP 全链路：乱序并行/续传/完成记录/下载 HEAD/Range/416/路径穿越加固断言）；fuzz 边界用例仍可继续扩充；</li>
+<li><b>小尾巴清零</b>：前后端大小单位表统一（ humans/fmtSize 已同步）；日志文案一致性已过一遍（并行分片降噪 + 关键事件留存）。</li>
 </ul>
 </section>
 
@@ -130,7 +130,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><th style="width:150px">项</th><th>说明</th><th>量级</th><th style="width:60px">优先级</th></tr>
 <tr><td><b>断点续传</b></td><td>大文件传一半断网/锁屏后可续：HTTP Range 分块 + 前端分片队列 —— <b>✅ 已于 v1.1.3 提前落地</b>（上传侧：大分片整文件单请求 + 会话指纹 + 7 天断点 + XHR 实时进度；下载侧：Range 206）</td><td>约 3~5 天</td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td><b>临时分享链接</b></td><td>「仅下载」只读链接：带 token + 过期时间（10 分钟/1 天/7 天），发给同事不用怕被删改——补齐协作场景</td><td>约 1~2 天</td><td><span class="tag t-p0">P0</span></td></tr>
-<tr><td><b>WebSocket 推送</b></td><td>聊天/列表/状态由轮询改推送（技术文档已列为演进项）：省电、实时性从 3s → 即时；轮询保留为降级通道</td><td>约 3~4 天</td><td><span class="tag t-p1">P1</span></td></tr>
+<tr><td><b>WebSocket 推送</b></td><td>聊天/列表/状态由轮询改推送 —— <b>✅ 已于 v1.1.4 提前落地</b>（聊天/列表/状态事件推送 + 15s 心跳 + 看门狗强制重连，轮询保留为降级通道）</td><td>约 3~4 天</td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td><b>mDNS 发现（wft.local）</b></td><td>已评估方案入库：<code>mdns-sd</code> 广播 <code>_http._tcp</code>（约 60~80 行）；手机记一次 wft.local 书签，IP 变化不再失效。硬边界（Android 不解析 .local、企业网禁多播）已在需求文档写明——<b>定位为「锦上添花」，失败自动退回扫码路径</b></td><td>约 0.5 天</td><td><span class="tag t-p1">P1</span></td></tr>
 <tr><td><b>整目录/文件夹上传</b></td><td>拖文件夹进页面保持目录结构上传 —— <b>✅ 已于 v1.1.3 提前落地</b>（拖拽递归 + webkitdirectory + 子目录列表）</td><td>约 1~2 天</td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td><b>共享文件夹监控同步</b></td><td>指定子目录变化自动出现/失效（轻量 Dropbox 感）——注意范围，不做双向同步</td><td>约 2~3 天</td><td><span class="tag t-p2">P2</span></td></tr>
@@ -157,7 +157,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><th>平台/渠道</th><th>现状</th><th>计划</th><th>依赖</th></tr>
 <tr><td>macOS</td><td>dmg（未签名/公证）</td><td>→ Apple Developer 签名+公证（消除「无法验证开发者」首启摩擦）</td><td>$99/年 账号（与 iOS 同一决策）</td></tr>
 <tr><td>Windows</td><td>msi/exe</td><td>→ 签名证书（SmartScreen 名声）+ winget 收录</td><td>代码签名证书（OV 约 $70~150/年）或先走社区信任</td></tr>
-<tr><td>Android</td><td>4 ABI APK 已 release 签名</td><td>→ AAB（Play）/ 商店上架（国内）</td><td>商店材料/软著</td></tr>
+<tr><td>Android</td><td>4 ABI APK 已 release 签名；<span class="tag t-done">✔ v1.1.6 应用内下载已支持</span></td><td>→ AAB（Play）/ 商店上架（国内）</td><td>商店材料/软著</td></tr>
 <tr><td>iOS</td><td>workflow 注释模板</td><td>v2.0 启用</td><td>开发者账号</td></tr>
 <tr><td>Linux</td><td>源码构建</td><td>AppImage + deb + AUR</td><td>低</td></tr>
 <tr><td>包管理器</td><td>无</td><td>Homebrew Cask → winget → scoop → AUR</td><td>配合推广阶段五</td></tr>
@@ -208,7 +208,10 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <table>
 <tr><th style="width:100px">版本</th><th style="width:130px">时间窗</th><th>主菜</th><th>发布标志</th></tr>
 <tr><td>v1.1.2</td><td class="muted">已发布（2026-10）</td><td>介绍页 / 唤窗单实例 / 自启 / Android 签名链路</td><td><span class="tag t-done">✔ 已发</span></td></tr>
-<tr><td>v1.2.0</td><td class="muted">+1 个月</td><td>配对码 + 写接口令牌 + HTTPS 自签扫码信任</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
+<tr><td>v1.1.4</td><td class="muted">已发布（2026-10-30）</td><td>配对码 + PIN 防爆破 + WS 推送 + 上传链路提速</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.1.5</td><td class="muted">已发布（2026-10-31）</td><td>并行分片上传（范围账本）+ 同名自动改名 + 浏览器下载重构 + 会话隔离</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.1.6</td><td class="muted">已发布（2026-11-02）</td><td>Android 壳内下载 + 主题精简（明暗×六配色）+ 聊天清空/未读/网页布局修复</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.2.0</td><td class="muted">下一个</td><td>HTTPS 自签扫码信任 + 下载并行化 + 应用内自更新 + 传输历史</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
 <tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>传输历史 / 断网自愈 / 路径安全测试集 / 小尾巴清零</td><td>CI 含服务端测试与审计</td></tr>
 <tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>断点续传 + 临时分享链接（+WS 推送 / mDNS 视进度）</td><td>10GB 断点续传实测通过</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>

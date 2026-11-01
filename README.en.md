@@ -12,11 +12,11 @@ Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite**. Desktop installer is just a
 
 ## Features
 
-- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), **whole-folder upload** (structure preserved) and **resumable transfer** for large files (auto-resumes after network drop, screen lock, or restart; resume points kept for 7 days), streaming download, full Unicode filename support
+- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), large files uploaded via **16MB chunks × 3 parallel connections** (immune to single-connection stalls on mobile), **whole-folder upload** (structure preserved) and **resumable transfer** (auto-resumes per 16MB chunk after network drop, screen lock, or restart; resume points kept for 7 days); same-name files are **never overwritten** — auto-renamed to `file(1).zip`, `(2)`, `(3)`…; streaming download, full Unicode filename support
 - 💬 **Chat** — real-time LAN messaging (WebSocket push) with nicknames, emoji avatars, clickable links, and lightweight Markdown
 - 📱 **Three form factors** — desktop window (tray-resident) / two-pane desktop browser / single-column mobile browser with floating chat ball; one codebase adapts everywhere
 - 🗂 **Native folder picker** — click "Choose" next to the share directory and pick with the OS dialog
-- 🎨 **5 dark themes** — Deep Space Blue, Graphite, Aurora, Warm Night, Dark Purple; switch instantly, synced everywhere
+- 🎨 **Theme system** — Light / Dark / Follow-system modes (auto-switches with OS appearance) × **6 color schemes** (Deep Space Blue, Graphite, Forest Mint, Dark Purple, Ink Amber, Graphite Rose); switch instantly, synced everywhere
 - 🛡 **Security hardening** — double path-traversal protection, browser cross-origin guard (DNS rebinding / CSRF), XSS escaping in chat, disk-space pre-check, optional **access token** (6-digit pairing code with brute-force backoff; enter once per device; the desktop itself is exempt)
 - 🔄 **Update checker** — watches GitHub Releases, prompts with release notes, one click to download
 - 📘 **In-app tour** — sidebar "ⓘ Intro" opens a full-screen walkthrough (features / 3-step guide / tech / FAQ)
@@ -55,7 +55,7 @@ npm run tauri build    # release build: produces .app / .dmg / .msi
 │   ├── App.vue                     # all UI + interaction logic
 │   ├── config.js                   # frontend config center (polling, thresholds, copy…)
 │   ├── update.js                   # release checker (GitHub Releases + semver compare)
-│   ├── style.css                   # theme tokens + all styles (incl. 5 skins)
+│   ├── style.css                   # theme tokens + all styles (6 color schemes × light/dark)
 │   ├── main.js
 │   └── assets/                     # embedded static assets
 ├── docs/                           # design / tech / user guides (Chinese)
@@ -103,7 +103,7 @@ This tool is built for **trusted LANs** (home / trusted office): by default anyo
 Docs are currently in Chinese:
 
 - [Requirements Design](docs/需求设计文档.html) · [Technical Implementation](docs/技术实现文档.html) · [User Guide](docs/保姆级使用说明.html)
-- [History Log](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) · [Marketing Plan](docs/推广营销方案.html) · [Roadmap](docs/后期规划.html)
+- [History Log 2026-10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) · [History Log 10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) · [Marketing Plan](docs/推广营销方案.html) · [Roadmap](docs/后期规划.html)
 
 <!-- 🖼 Screenshots (阶段一素材): save under assets/ and place here, e.g.
 - assets/screenshot-desktop.png   — desktop window (files view)
@@ -113,4 +113,4 @@ Docs are currently in Chinese:
 
 ---
 
-© 2026–present by hangkun.li
+Copyright © 2026-Present 李航坤. All Rights Reserved.

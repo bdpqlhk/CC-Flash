@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC-Flash · 整个过程历史改动记录（2026-10-28 至 2026-11-02）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC-Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-10-28 至 2026-11-02</b> · 版本：<b>v1.1.3 → v1.1.6</b> · 与《技术实现文档》《后期规划》配套阅读</div>
+
+<h2>一、v1.1.3（10-28）</h2>
+<ul>
+<li>文件夹/整目录上传（拖拽递归 + webkitdirectory，保持目录结构）；大分片断点续传（会话指纹 + 7 天断点保留）；XHR 实时进度；五套深色皮肤；软件介绍页。</li>
+</ul>
+
+<h2>二、v1.1.4（10-30）</h2>
+<ul>
+<li><b>配对码（访问令牌）</b>：6 位码持久化防静默失效；全部 <code>/api/*</code> 与 WS 需配对；指数退避防爆破（锁定窗内正确码也拒，修复 Accept 伪造绕过）；日志打码。</li>
+<li><b>WebSocket 推送</b>：聊天/列表/状态事件化 + 15s 心跳 + 看门狗强制重连，轮询降级为兜底通道。</li>
+<li><b>上传链路提速</b>：大分片单请求（1GB）实测定策（iOS 分片边界冻结 ~63s 的规避）；XHR 实时进度。</li>
+<li>v4-mapped 回环误判修复（桌面日志面板曾因此全瞎）；上传拒绝控制字符/RTL 伪装文件名。</li>
+</ul>
+
+<h2>三、v1.1.5（10-31）</h2>
+<ul>
+<li><b>并行分片上传（架构级重写）</b>：16MB 格子 × 3 连接并发；服务端"范围账本"协议——会话私有断点文件预分配稀疏全量、三段锁（建会话→放锁收包→短锁登记账本+转正）、收齐 fsync 转正；iOS 单连接 RTO 停摆免疫，断点粒度细化到 16MB。</li>
+<li><b>同名自动改名</b>：所有场景目录已有同名一律不覆盖，自动 <code>xxx(1).zip</code> 顺延（持锁决策防撞名）；"已完成文件重传"经会话代次生成新副本。</li>
+<li><b>浏览器下载重构</b>：HEAD 预检（8s 超时）+ 锚点原生流式下载——修复大文件点击无反应、进度条虚报后回落。</li>
+<li><b>会话隔离与安全</b>：断点/进度/完成记录按会话 id 严格隔离（修账本跨会话泄露）；断点元数据落盘名可信化 + 会话 id 消毒（防注入逃逸）；接管竞态污染窗口关闭（会话指纹隔离 part 文件）。</li>
+<li>进度诚实化：以服务端账本覆盖字节封顶；看门狗由"客户端进度事件 + 服务端断点增长"双信号驱动；响应等待宽限 90s。</li>
+<li>内置 e2e 自检：裸 TCP 全链路（乱序并行/按格续传/完成记录/同名改名/下载 HEAD/Range/416）。</li>
+</ul>
+
+<h2>四、v1.1.6（11-02）</h2>
+<ul>
+<li><b>Android 壳内下载</b>：主窗口改代码创建并挂 <code>on_download</code>，锚点下载统一落盘系统下载目录（文件名三道防线防路径逃逸），完成事件通知前端——修复 Android 用户"应用内下载无效"。</li>
+<li><b>主题系统</b>：亮色 / 暗色 / 跟随系统三模式（prefers-color-scheme 实时切换）× 六套配色；旧皮肤选择自动迁移。</li>
+<li><b>同名策略统一</b>：所有场景不覆盖自动 (1)(2) 顺延——含"重复上传相同文件"（会话代次机制，服务端零改动）。</li>
+<li><b>修复</b>：聊天"清空数据"在 WS 在线时无效（立即清显示列表）；未读徽标进聊天页不消失（切入即追平）；网页端聊天室被消息拉长（高度锁定一屏 + 吸顶）；并发批量上传误报中断（连接预算 6 对齐）。</li>
+<li>页脚版权更新为 Copyright © 2026-Present 李航坤. All Rights Reserved.。</li>
+</ul>
+
+<div class="callout">同期工程基建：内置 e2e 测试（cargo test 直跑）；vite dev/preview 代理；仓库级 GitHub 代理配置；六轮多方法深度审计（组件级/旅程级/重构复核/新代码对抗/未验证增量）记录在案。</div>
+<p class="small">CC-Flash · 历史改动记录 · 2026-11-02</p>
+</body>
+</html>
