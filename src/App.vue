@@ -821,18 +821,56 @@ function uploadFile(file) {
   if (uploads.value.some(u => u.upId === upId && (u.status === "waiting" || u.status === "uploading"))) {
     return;
   }
-  uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting", ac });
-  const stat = () => uploads.value.find(u => u.id === id);
-  // 并发闸: 浏览器(尤其 Safari/WebKit)每 host 仅 6 条 HTTP/1.1 连接, 且 WS/轮询/缩略图
-  // 已占槽 —— 一次选几百个文件全并发时, 排队请求会被单片 30s 超时(从 fetch 调用即计时)
-  // 误杀, 集体报"上传中断"。入队后真正排队等待, 超时只计真实请求时间
-  upQueue.push(async () => {
-    if (ac.signal.aborted) return;
-    const it0 = stat(); if (!it0) return;
-    it0.status = "uploading";
-    // 会话状态查询: 完成记录命中(响应丢失/重选同文件)直接收尾; 断点账本命中则按格子续传。
-    // 查询失败重试一次再放弃: 误把失败当 0 会让服务端把已有断点当新会话覆盖
-    let state = await fetchUploadState(name, upId, total);
+  uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting", ac, file, fp });
+  // 链体抽成独立函数(可复活): 网络耗尽暂停后, 回前台/网络恢复/定时巡检自动按账本续传
+  upQueue.push(() => runUploadChain(uploads.value.find(u => u.id === id)));
+  pumpUploadQueue();
+}
+/* 唤醒锁: 有上传进行中时申请屏幕常亮 —— iOS 锁屏/切后台会冻结上传连接(失败主因) */
+let wakeLock = null;
+async function updateWakeLock() {
+  const want = uploads.value.some(u => u.status === "uploading" || u.status === "waiting");
+  try {
+    if (want && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!want && wakeLock) {
+      try { await wakeLock.release(); } catch (e) {}
+      wakeLock = null;
+    }
+  } catch (e) {}
+}
+/* 自动复活: 网络耗尽而暂停的条目, 页面回前台/网络恢复/定时巡检时按账本续传(零成本) */
+function reviveResumable() {
+  if (document.hidden) return;
+  let revived = false;
+  for (const u of uploads.value) {
+    if (u.status === "error" && u.resumable && !u.reviving) {
+      u.reviving = true; u.resumable = false;
+      u.ac = new AbortController();
+      u.status = "waiting";
+      upQueue.push(() => runUploadChain(uploads.value.find(x => x.id === u.id)).finally(() => { u.reviving = false; }));
+      revived = true;
+    }
+  }
+  if (revived) { showToast("网络恢复，正在自动续传"); pumpUploadQueue(); }
+  updateWakeLock();
+}
+/* 单文件上传链: 账本恢复 → 并行格子 → 收齐转正。网络耗尽不永久失败(可自动复活) */
+async function runUploadChain(u) {
+  if (!u) return;
+  const stat = () => uploads.value.find(x => x.id === u.id);
+  const file = u.file, fp = u.fp, name = u.name;
+  const total = u.file.size;
+  const ac = u.ac;   // 本链的AbortController(复活时已换新)
+  if (ac.signal.aborted) return;
+  const it0 = stat(); if (!it0) return;
+  it0.status = "uploading";
+  updateWakeLock();
+  // 会话状态查询: 完成记录命中(响应丢失/重选同文件)直接收尾; 断点账本命中则按格子续传。
+  // 查询失败重试一次再放弃: 误把失败当 0 会让服务端把已有断点当新会话覆盖
+  let upId = lastSessionId(fp);
+  let state = await fetchUploadState(name, upId, total);
     if (ac.signal.aborted) return;
     if (state === null) {
       await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
@@ -938,17 +976,21 @@ function uploadFile(file) {
     if (failed) {
       if (ite) {
         ite.status = "error";
-        ite.speed = "";   // 清掉"自动续传中"残留文案, 失败条目不再假装在重试
+        ite.speed = "";
         if (failed.fatal) {
-          // 确定性业务失败(如"路径过长"): 直接报错
+          // 确定性业务失败(如"路径过长"): 直接报错, 不可复活
           showToast("上传失败: " + name + " — " + (failed.message || "请求被拒绝"), "error");
         } else {
-          // 服务端业务错误(如"该文件正被其他设备上传")如实进 toast, 网络类保持原样
-          showToast("上传中断: " + name + (failed && failed.server ? " — " + String(failed.message).slice(0, 40) : ""), "error");
+          // 网络耗尽 ≠ 永久失败: 标记可复活, 回前台/网络恢复/定时巡检自动按账本续传
+          ite.resumable = true;
+          ite.speed = "已暂停，网络恢复后自动续传";
+          showToast("上传暂停: " + name + " — 网络恢复后自动续传", "error");
         }
       }
+      updateWakeLock();
       return;
     }
+    updateWakeLock();
     // 全部格子确认 → 服务端已在最后一格收齐转正
     const it3 = stat();
     if (it3) { it3.pct = 100; it3.status = "done"; it3.speed = ""; it3.final = finalName.split("/").pop(); }
@@ -957,10 +999,14 @@ function uploadFile(file) {
       showToast("目录里已有同名文件，已改存为 「" + finalName.split("/").pop() + "」");
     }
     loadFiles();   // 不再强跳第 1 页: 批量上传会把正在第 5 页浏览/勾选的用户每秒拽回去, 页码收缩由 loadFiles 内回收
-    setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
-  });
-  pumpUploadQueue();
-}
+    setTimeout(() => { uploads.value = uploads.value.filter(x => x.id !== u.id); }, UPLOAD_DONE_KEEP_MS);
+    updateWakeLock();   // 链结束, 若无其他上传进行中则释放屏幕常亮
+  }
+/* 自动复活触发器: 回前台 / 网络恢复 / 30s 巡检(仅当存在可复活条目时有实际动作) */
+
+setInterval(reviveResumable, 30000);
+window.addEventListener("online", reviveResumable);
+document.addEventListener("visibilitychange", reviveResumable);
 /* 会话代次存取: key 按文件指纹, 值为该文件最近一次的会话 id(断点续传的接力棒) */
 function lastSessionId(fp) {
   try { return localStorage.getItem("wft-usess-" + fp) || fp; } catch (e) { return fp; }
