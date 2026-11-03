@@ -8,7 +8,7 @@
 [![CC-Flash 演示](assets/demo.gif)](assets/demo.gif)
 -->
 
-技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**。桌面端安装包 dmg ≈4.6 MB / .app ≈5.9 MB。
+技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**。桌面端安装包 dmg ≈7.0 MB / .app ≈6.1 MB，Windows exe ≈3.7 MB，Android APK(arm64) ≈7.4 MB。
 
 ## 功能特性
 

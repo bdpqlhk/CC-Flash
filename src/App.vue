@@ -14,6 +14,10 @@ import {
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
 import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog";
+// 模块化 API 取代 window.__TAURI__ 全局暴露(withGlobalTauri=false): XSS 即便发生也拿不到
+// 覆盖全部自定义命令的 invoke 面 —— isDesktop 判定走 __TAURI_INTERNALS__(IPC 内部注入, 不受此开关影响)
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 /* ---------- 运行参数: 下面是启动兜底值, 服务端(/api/info、control_status_cmd)下发后以其为准 ---------- */
 const appVersion = ref("");   // 应用版本, 唯一来源 Cargo.toml, 随状态接口下发
@@ -55,7 +59,7 @@ const isIOS = isIOSFamily;   // Safari 不支持 webkitdirectory, 文件夹入�
 const isWeChat = /MicroMessenger/i.test(navigator.userAgent);   // 微信内置浏览器: 下载被拦需引导到系统浏览器
 // 桌面模式:窗口页面不在服务端口上,API 走回环地址;网页模式:相对路径即可
 const apiBase = computed(() => (isDesktop ? `http://127.0.0.1:${port.value || DEFAULT_PORT}` : ""));
-function tauriInvoke(cmd, args) { return window.__TAURI__.core.invoke(cmd, args || {}); }
+function tauriInvoke(cmd, args) { return invoke(cmd, args || {}); }
 
 /* ---------- 访问码(可选; 电脑端 CC设置 开启后, 局域网网页端需输入一次) ---------- */
 const accessPin = ref((() => { try { return localStorage.getItem(LS.pin) || ""; } catch (e) { return ""; } })());
@@ -1276,8 +1280,8 @@ onMounted(() => {
   document.addEventListener("paste", onPaste);
   document.addEventListener("click", onDocChatClick);
   // 壳内下载完成通知(Rust on_download 落盘后 emit): 提示保存位置
-  if (isDesktop && window.__TAURI__) {
-    window.__TAURI__.event.listen("download://done", (e) => {
+  if (isDesktop) {
+    listen("download://done", (e) => {
       const p = e.payload || {};
       p.success ? showToast("已下载到 " + (p.path || "下载目录")) : showToast("下载失败", "error");
     }).then((un) => { unlistenDl = un; });
@@ -2198,13 +2202,13 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
           <h3>文本消息</h3>
-          <p>电脑手机实时互通，约 3 秒同步一轮。自定义昵称与 24 款 emoji 头像，支持代码块、粗体、链接的轻量 Markdown；链接点击直达系统浏览器，未读角标不漏消息。</p>
+          <p>电脑手机实时互通（WebSocket 推送秒级到达，断线自动降级轮询）。自定义昵称与 24 款 emoji 头像，支持代码块、粗体、链接的轻量 Markdown；链接点击直达系统浏览器，未读角标不漏消息。</p>
           <div class="tags"><span class="tag">实时互通</span><span class="tag">Markdown</span><span class="tag">未读提醒</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码扫码直达手机，服务日志实时滚动，六套配色 × 明暗主题即点即换。</p>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。二维码常驻侧边栏（流光动效），任意页面扫码直达；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
           <div class="tags"><span class="tag">服务控制</span><span class="tag">二维码直达</span><span class="tag">多主题配色</span></div>
         </div>
         <div class="card">

@@ -46,7 +46,7 @@ use crate::config::{
     POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, PORT_PREF_FILE, PORT_PROBE_EXTRA, PORT_RANGE_END,
     REQ_LOG_MAX,
     SHARE_DIR_NAME, SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, UPLOAD_FREE_CHECK_BYTES,
-    UPLOAD_MAX_DEPTH,
+    UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH,
     UPLOAD_PART_META_SUFFIX,
     UPLOAD_PART_SUFFIX, UPLOAD_PART_TTL_SECS,
 };
@@ -1168,37 +1168,54 @@ async fn upload(
     let mut stream = body.into_data_stream();
     let mut written: u64 = 0;
     let mut last_check: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(c) => {
-                // 周期查盘(审查回归): size=0 与谎报 size 的请求体绕过了启动预检,
-                // 每 64MB 复查一次, 剩余不足即中止 —— 防灌满共享盘
-                if written - last_check >= UPLOAD_FREE_CHECK_BYTES {
-                    if let Ok(free) = fs2::available_space(&share) {
-                        if free < UPLOAD_FREE_CHECK_BYTES {
-                            let _ = tokio::fs::remove_file(&path).await;
-                            push_log_warn(format!(
-                                "上传中止 {name}: 磁盘剩余不足，已写入 {}，已清理半截文件 ← {peer}",
-                                humans(written)
-                            ));
-                            return err(StatusCode::INSUFFICIENT_STORAGE, "磁盘空间不足，上传已中止");
-                        }
-                    }
-                    last_check = written;
-                }
-                if let Err(e) = file.write_all(&c).await {
-                    let _ = tokio::fs::remove_file(&path).await;
-                    push_log_err(format!("上传失败 {name}: 写入失败({e})，已清理半截文件 ← {peer}"));
-                    return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
-                }
-                written += c.len() as u64;
-            }
+    loop {
+        // 空闲超时(审查回归): 半开连接(信号黑洞/锁屏切换无 RST)会让读循环永久悬挂 ——
+        // 120s 无任何字节即中止并清理, 同时限定半截文件可见/可下载的窗口
+        let chunk = match tokio::time::timeout(
+            std::time::Duration::from_secs(UPLOAD_IDLE_TIMEOUT_SECS),
+            stream.next(),
+        )
+        .await
+        {
+            Ok(c) => c,
             Err(_) => {
                 let _ = tokio::fs::remove_file(&path).await;
-                push_log_err(format!("上传中断 {name}: 连接断开，已清理半截文件 ← {peer}"));
-                return err(StatusCode::INTERNAL_SERVER_ERROR, "上传中断");
+                push_log_warn(format!(
+                    "上传中止 {name}: 空闲超时({}s 无数据)，已清理半截文件 ← {peer}",
+                    UPLOAD_IDLE_TIMEOUT_SECS
+                ));
+                return err(StatusCode::GATEWAY_TIMEOUT, "上传超时，请重试");
             }
+        };
+        let Some(c) = chunk else {
+            break; // body 正常结束
+        };
+        let Ok(c) = c else {
+            let _ = tokio::fs::remove_file(&path).await;
+            push_log_err(format!("上传中断 {name}: 连接断开，已清理半截文件 ← {peer}"));
+            return err(StatusCode::INTERNAL_SERVER_ERROR, "上传中断");
+        };
+        // 周期查盘(审查回归): size=0 与谎报 size 的请求体绕过了启动预检,
+        // 每 64MB 复查一次, 剩余不足即中止 —— 防灌满共享盘
+        if written - last_check >= UPLOAD_FREE_CHECK_BYTES {
+            if let Ok(free) = fs2::available_space(&share) {
+                if free < UPLOAD_FREE_CHECK_BYTES {
+                    let _ = tokio::fs::remove_file(&path).await;
+                    push_log_warn(format!(
+                        "上传中止 {name}: 磁盘剩余不足，已写入 {}，已清理半截文件 ← {peer}",
+                        humans(written)
+                    ));
+                    return err(StatusCode::INSUFFICIENT_STORAGE, "磁盘空间不足，上传已中止");
+                }
+            }
+            last_check = written;
         }
+        if let Err(e) = file.write_all(&c).await {
+            let _ = tokio::fs::remove_file(&path).await;
+            push_log_err(format!("上传失败 {name}: 写入失败({e})，已清理半截文件 ← {peer}"));
+            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
+        }
+        written += c.len() as u64;
     }
     let _ = file.sync_all().await;
     push_log_ok(format!(
@@ -1212,6 +1229,9 @@ async fn upload(
         },
         ""
     ));
+    // 广播列表变更(审查回归: 整文件直传回滚重写 handler 时丢失) —— WS 在线时前端
+    // 已停掉 5s 列表轮询, 无此广播则手机上传完成后桌面列表永不自动刷新
+    broadcast_event("files:changed");
     // final: 改名后的实际落盘名(相对路径), 前端据此提示"已存为 xxx"
     Json(serde_json::json!({
         "ok": true,
@@ -1651,6 +1671,10 @@ const PIN_FAIL_FREE: u32 = 8;
 /// 基础退避秒数: 第 8 次失败锁 15s, 之后每次翻倍, 上限 1h
 const PIN_FAIL_BASE_SECS: u64 = 15;
 const PIN_FAIL_MAX_SECS: u64 = 3600;
+/// IPv6 /64 聚合层(隐私扩展轮换接口地址不换前缀, 轮换刷不掉聚合窗口):
+/// 阈值放宽 5 倍、基础退避 60s —— 提高分布式试码成本, 又不误伤同网段真人
+const PIN6_FAIL_FREE: u32 = 40;
+const PIN6_BASE_SECS: u64 = 60;
 
 fn pin_fails() -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
     static FAILS: OnceLock<Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
@@ -1658,40 +1682,111 @@ fn pin_fails() -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u3
     FAILS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-/// 配对尝试准入: 配对成功清零该 IP 计数并放行; 失败时若处于退避锁定窗内
-/// 返回 false(拒绝且**不计数不延长** —— 轰炸无法把锁定推到无穷, 窗口到期自动解),
-/// 否则记一次失败并放行比较。调用方语义: false → 429; true 且 !ok → 401
+fn pin_prefix_fails() -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static FAILS: OnceLock<Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    FAILS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// IPv6 聚合键: /64 前缀(同网段设备同前缀, 隐私扩展只换接口标识); v4 与已折叠的
+/// v4-mapped 返回 None —— v4 无轮换诉求, 单 IP 层足够
+fn pin_prefix6(ip: std::net::IpAddr) -> Option<std::net::IpAddr> {
+    match ip {
+        std::net::IpAddr::V6(v6) => {
+            let o = v6.octets();
+            let mut p = [0u8; 16];
+            p[..8].copy_from_slice(&o[..8]);
+            Some(std::net::IpAddr::V6(p.into()))
+        }
+        _ => None,
+    }
+}
+
+/// 滑动退避锁定判定: 累计失败 ≥ free 后, 距上次失败不足 base×2^(n-free) 秒(封顶 max)内为锁定。
+/// 锁定窗内**不计数不延长**(轰炸无法把窗口推到无穷, 到期自动解)
+fn pin_locked(
+    map: &mut std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>,
+    key: std::net::IpAddr,
+    now: std::time::Instant,
+    free: u32,
+    base: u64,
+    max: u64,
+) -> bool {
+    let Some(&(n, t)) = map.get(&key) else {
+        return false;
+    };
+    if n < free {
+        return false;
+    }
+    let extra = n.saturating_sub(free).min(16) as u32;
+    let wait = base.checked_shl(extra).unwrap_or(max).min(max);
+    now.duration_since(t) < std::time::Duration::from_secs(wait)
+}
+
+fn pin_count(
+    map: &mut std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>,
+    key: std::net::IpAddr,
+    now: std::time::Instant,
+) -> u32 {
+    let e = map.entry(key).or_insert((0, now));
+    e.0 = e.0.saturating_add(1);
+    e.1 = now;
+    e.0
+}
+
+/// 常量时间比较(纵深防御): 等长后逐字节异或累计, 无逐字符短路时序差。
+/// 网络抖动下时序攻击实操不可行, 此处成本为零
+fn ct_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// 配对尝试准入(双层滑动退避): ① 单 IP 指数退避(公平: 只锁自己) ② IPv6 额外按 /64
+/// 聚合计数(隐私扩展轮换接口地址刷新不了聚合窗口; 阈值放宽 5 倍防误伤同网段真人)。
+/// 成功清零两层; 失败时任一层处于锁定窗内 → false(429 且两层都不计数不延长)。
+/// 调用方语义: false → 429; true 且 !ok → 401
 fn pin_admit(peer: std::net::IpAddr, ok: bool) -> bool {
-    let mut m = pin_fails().lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    let pfx = pin_prefix6(peer);
     if ok {
-        m.remove(&peer);
+        pin_fails().lock().unwrap_or_else(|e| e.into_inner()).remove(&peer);
+        if let Some(p) = pfx {
+            pin_prefix_fails().lock().unwrap_or_else(|e| e.into_inner()).remove(&p);
+        }
         return true;
     }
-    let now = std::time::Instant::now();
+    // ② 聚合层先行: /64 窗口锁定中 → 直接 429(两层都不计数, 轮换地址与持续轰炸同样徒劳)
+    if let Some(p) = pfx {
+        let mut pm = pin_prefix_fails().lock().unwrap_or_else(|e| e.into_inner());
+        if pm.len() > 4096 {
+            pm.retain(|_, (_, t)| now.duration_since(*t).as_secs() < PIN_FAIL_MAX_SECS);
+        }
+        if pin_locked(&mut pm, p, now, PIN6_FAIL_FREE, PIN6_BASE_SECS, PIN_FAIL_MAX_SECS) {
+            return false;
+        }
+        pin_count(&mut pm, p, now);
+    }
+    // ① 单 IP 层(原语义): 锁定窗内不计数不延长
+    let mut m = pin_fails().lock().unwrap_or_else(|e| e.into_inner());
     if m.len() > 1024 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < PIN_FAIL_MAX_SECS);
     }
-    let e = m.entry(peer).or_insert((0, now));
-    let (n, prev_t) = (e.0, e.1);
-    if n >= PIN_FAIL_FREE {
-        // 已失败 n 次 → 下次尝试须距上次失败 15s×2^(n-阈值), 封顶 1h
-        let extra = n.saturating_sub(PIN_FAIL_FREE).min(8) as u32;
-        let wait = PIN_FAIL_BASE_SECS
-            .checked_shl(extra)
-            .unwrap_or(PIN_FAIL_MAX_SECS)
-            .min(PIN_FAIL_MAX_SECS);
-        if now.duration_since(prev_t) < std::time::Duration::from_secs(wait) {
-            return false;
-        }
+    if pin_locked(&mut m, peer, now, PIN_FAIL_FREE, PIN_FAIL_BASE_SECS, PIN_FAIL_MAX_SECS) {
+        return false;
     }
-    e.0 = n.saturating_add(1);
-    e.1 = now;
-    if e.0 == PIN_FAIL_FREE {
+    let n = pin_count(&mut m, peer, now);
+    if n == PIN_FAIL_FREE {
         // 锁定窗从此刻开始(此后窗口内该 IP 一律 429): 桌面日志给出明确安全事件。
-        // 次数用 e.0(含本次)而非 n(自增前值) —— 否则第 8 次失败日志写成 7 次
+        // 次数用 n(含本次)而非自增前值 —— 否则第 8 次失败日志写成 7 次
         push_log_warn(format!(
-            "访问码连续输错 {} 次，已锁定 {peer}，{}s 内拒绝重试(指数退避)",
-            e.0, PIN_FAIL_BASE_SECS
+            "访问码连续输错 {n} 次，已锁定 {peer}，{}s 内拒绝重试(指数退避)",
+            PIN_FAIL_BASE_SECS
         ));
     }
     true
@@ -2084,7 +2179,7 @@ async fn log_middleware(
                         .and_then(|v| v.to_str().ok())
                         .map(String::from)
                 });
-            let ok = given.as_deref() == Some(pin.as_str());
+            let ok = ct_eq(given.as_deref().unwrap_or(""), &pin);
             // 爆破防护: 只统计"实际提交了配对码"的尝试(未配对设备的无码轮询不计,
             // 否则正常页面十几秒把自己轰进锁定)。带码连续失败达阈值后按 IP 指数退避。
             // 锁定窗内一律 429 —— 正确码也必须拒: 若放行, 对/错码的响应可区分,

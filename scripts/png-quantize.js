@@ -2,8 +2,8 @@
 // 自校验: 输出先解码回 RGB 与原图逐像素比对, 完全一致才落盘; 颜色超 256 色、
 // 带有效透明通道或量化后未变小则放弃(不破坏原图)。
 // 用法: node scripts/png-quantize.js <png路径>
-const fs = require("fs");
-const zlib = require("zlib");
+import fs from "fs";
+import zlib from "zlib";
 
 function crc32(buf) {
   let table = crc32.table;
@@ -67,28 +67,50 @@ function decodeRGB(file) {
   return { w, h, bpp, px };
 }
 
-function quantize(img) {
+// 自适应均匀量化: 按 bits/通道 分桶、桶内加权平均色作代表; 桶超 256 由调用方降 bits 重试。
+// 抗锯齿边缘的过渡色会被就近归桶(有损, 但 maxErr 有界, 对纯色测试卡视觉无损)
+function buildPalette(img, bits) {
   const { w, h, bpp, px } = img;
-  const map = new Map();
-  const idx = Buffer.alloc(w * h);
-  let n = 0;
+  const shift = 8 - bits;
+  const buckets = new Map();
   for (let i = 0; i < w * h; i++) {
-    const key = (px[i * bpp] << 16) | (px[i * bpp + 1] << 8) | px[i * bpp + 2];
-    let id = map.get(key);
-    if (id === undefined) {
-      if (n >= 256) throw new Error(`颜色数超 256 (${n})`);
-      id = n++;
-      map.set(key, id);
-    }
+    const r = px[i * bpp], g = px[i * bpp + 1], b = px[i * bpp + 2];
+    const key = ((r >> shift) << (bits + bits)) | ((g >> shift) << bits) | (b >> shift);
+    let e = buckets.get(key);
+    if (!e) { e = { r: 0, g: 0, b: 0, n: 0 }; buckets.set(key, e); }
+    e.r += r; e.g += g; e.b += b; e.n++;
+  }
+  if (buckets.size > 256) return null;
+  const pal = Buffer.alloc(buckets.size * 3);
+  const rep = new Map();
+  let id = 0;
+  for (const [key, e] of buckets) {
+    pal[id * 3] = Math.round(e.r / e.n);
+    pal[id * 3 + 1] = Math.round(e.g / e.n);
+    pal[id * 3 + 2] = Math.round(e.b / e.n);
+    rep.set(key, id++);
+  }
+  return { bits, shift, pal, rep, count: buckets.size };
+}
+
+// 就近归桶并统计最大单通道色差(质量指标)
+function remap(img, q) {
+  const { w, h, bpp, px } = img;
+  const idx = Buffer.alloc(w * h);
+  let maxErr = 0;
+  for (let i = 0; i < w * h; i++) {
+    const r = px[i * bpp], g = px[i * bpp + 1], b = px[i * bpp + 2];
+    const key = ((r >> q.shift) << (q.bits + q.bits)) | ((g >> q.shift) << q.bits) | (b >> q.shift);
+    const id = q.rep.get(key);
     idx[i] = id;
+    const err = Math.max(
+      Math.abs(r - q.pal[id * 3]),
+      Math.abs(g - q.pal[id * 3 + 1]),
+      Math.abs(b - q.pal[id * 3 + 2])
+    );
+    if (err > maxErr) maxErr = err;
   }
-  const pal = Buffer.alloc(n * 3);
-  for (const [key, id] of map) {
-    pal[id * 3] = (key >> 16) & 255;
-    pal[id * 3 + 1] = (key >> 8) & 255;
-    pal[id * 3 + 2] = key & 255;
-  }
-  return { idx, pal, count: n };
+  return { idx, maxErr };
 }
 
 function encode(w, h, idx, pal) {
@@ -145,13 +167,20 @@ function decodePalRGB(buf) {
 const src = process.argv[2];
 if (!src) { console.error("用法: node scripts/png-quantize.js <png路径>"); process.exit(1); }
 const img = decodeRGB(src);
-const { idx, pal, count } = quantize(img);
-const cand = encode(img.w, img.h, idx, pal);
+let q = buildPalette(img, 5) || buildPalette(img, 4);
+if (!q) throw new Error("4bit/通道 仍超 256 色, 放弃(图太复杂)");
+const { idx, maxErr } = remap(img, q);
+const cand = encode(img.w, img.h, idx, q.pal);
 const back = decodePalRGB(cand);
-for (let i = 0; i < img.w * img.h * 3; i++) {
-  if (back.rgb[i] !== img.px[i * img.bpp]) throw new Error(`回验失败 @像素${Math.floor(i / 3)}`);
+// 回验: 输出解码后必须与调色板映射逐像素一致(编码器正确性); 有损度另由 maxErr 约束
+for (let i = 0; i < img.w * img.h; i++) {
+  const id = idx[i];
+  if (back.rgb[i * 3] !== q.pal[id * 3] || back.rgb[i * 3 + 1] !== q.pal[id * 3 + 1] || back.rgb[i * 3 + 2] !== q.pal[id * 3 + 2]) {
+    throw new Error(`回验失败 @像素${i}`);
+  }
 }
 const before = fs.statSync(src).size;
 if (cand.length >= before) throw new Error("量化后未变小, 不替换");
+if (maxErr > 24) throw new Error(`最大单通道色差 ${maxErr} 超 24(视觉可能可察), 不替换`);
 fs.writeFileSync(src, cand);
-console.log(`OK ${img.w}x${img.h} 颜色数=${count} ${before}B -> ${cand.length}B (-${Math.round((1 - cand.length / before) * 100)}%)`);
+console.log(`OK ${img.w}x${img.h} ${q.bits}bit/通道 色板=${q.count} 最大色差=${maxErr} ${before}B -> ${cand.length}B (-${Math.round((1 - cand.length / before) * 100)}%)`);

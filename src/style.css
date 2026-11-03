@@ -490,6 +490,9 @@ body {
 /* 窄屏:侧栏变顶部导航 */
 @media (max-width: 980px) {
     .shell { flex-direction: column; height: auto; min-height: 100vh; }
+    /* 侧栏此时变横向导航条 —— 常驻二维码塞进横条会撑出 ~140px 白卡(移动壳必然命中:
+       本机即服务端, running 恒真)。手机扫自身屏幕无意义, 需要时走顶栏二维码按钮弹窗 */
+    .side-qr { display: none !important; }
     .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 10px 14px; border-right: none; border-bottom: 1px solid var(--card-border); overflow-x: auto; gap: 8px; }
     .brand { padding: 0 8px 0 0; }
     .brand .t { display: none; }
