@@ -141,7 +141,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（每页 8 条，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-04</td><td>按平台差异化操作按钮：<b>真实桌面</b>（mac/win/linux 壳）=打开/复制/删除/分享；<b>Android/iOS 壳与浏览器</b>=下载/删除/分享（移动端无系统程序打开/剪贴板复制能力，原按钮是死路）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-05</td><td>上传前磁盘空间预检（按剩余未传量；未知大小上传边写边复查），空间不足明确拒绝；<b>分片断点续传</b>：大文件分片上传，断网/锁屏/半开连接中断后自动从服务端断点继续（会话指纹校验防同名脏拼接），断点保留 7 天——进程/系统重启（含 Android 退后台被杀）后重选同一文件仍可续传，无需人工干预</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-05</td><td>上传前磁盘空间预检（按声明大小），空间不足明确拒绝；<b>流式落盘每 64MB 复查剩余</b>，不足即中止——size=0/谎报大小的请求体也无法灌满磁盘；<b>下载断点续传</b>：Range 206/416 语义完整，浏览器断下自动续传。<b>上传断点续传</b>随 v1.1.8 整文件直传决策移入后期规划（中断的半截文件立即清理，目录不残留残缺文件）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -178,11 +178,11 @@ pre code{background:none;color:inherit;padding:0}
 <h3>4.1 上传</h3>
 <ul>
 <li>入口：拖拽区点击、拖放文件/文件夹（递归收集、保持目录结构）、粘贴事件（截图直接 Ctrl+V / Cmd+V）、「选择文件夹」、多选；</li>
-<li>每项展示：文件名（含子目录相对路径）、状态（等待中 / 百分比+速率 / 网络中断自动续传中 / 完成 / 失败原因）、进度条；</li>
-<li>协议：<code>POST /api/upload</code>，文件名（相对路径）放请求头 <code>X-Filename</code>（URL 编码），声明大小放 <code>X-File-Size</code>，分片偏移放 <code>X-Upload-Offset</code>，会话指纹放 <code>X-Upload-Id</code>；</li>
-<li>服务端先做磁盘空间预检：剩余未传量 &gt; 可用空间 → 明确拒绝并写日志「上传拒绝」；</li>
-<li><b>并行分片上传 + 范围账本</b>：文件切 16MB 格子、3 连接并发上传；服务端按会话预分配稀疏断点文件（<code>&lt;名&gt;.&lt;idhash&gt;.ccpart</code>），各连接写各自区间，账本逐格登记、收齐 fsync 转正；断网/锁屏中断后以账本（<code>GET /api/upload_progress</code> 下发 <code>chunks</code>）为准按格续传；会话指纹（名|大小|修改时间）+ 会话私有断点文件隔离多设备；已完成文件主动重传换新会话代次，由同名自动改名落为新副本，任何场景不覆盖既有文件；</li>
-<li>半开连接由服务端 120s 空闲超时兜底释放；客户端单片 30s 超时 + 连续失败 8 次重试（成功一片清零）。</li>
+<li>每项展示：文件名（含子目录相对路径）、状态（等待中 / 百分比+速率 / 完成 / 失败原因）、进度条；</li>
+<li>协议：<code>POST /api/upload</code>，文件名（相对路径）放请求头 <code>X-Filename</code>（URL 编码），声明大小放 <code>X-File-Size</code>，body 为文件本体（单请求整文件直传）；</li>
+<li>服务端先做磁盘空间预检（按声明大小）；<b>流式落盘每 64MB 复查剩余空间</b>，不足即中止并清理半截文件（防 size=0/谎报大小灌满磁盘）；</li>
+<li><b>单请求整文件直传</b>（v1.1.8 定策）：body 逐帧流式落盘、零内存占用；<code>create_new</code> 原子占位 + 同名自动改名 <code>xxx(1).zip</code> 顺延，任何场景不覆盖既有文件；Windows MAX_PATH(260) 双重预检（原名 + 改名变体）；中断的半截文件立即清理，目录中不残留残缺文件；</li>
+<li>客户端<b>并发闸</b>限制同时 3 个文件在传（WebKit 每 host 6 连接预算），其余排队；上传期间手机屏幕<b>自动保持常亮</b>防锁屏冻结；上传断点续传移入后期规划（见里程碑）。</li>
 </ul>
 <h3>4.2 下载与分享</h3>
 <ul>

@@ -14,28 +14,16 @@ export const CONTROL_RETRY_TIMES = 10;    // 桌面窗口就绪竞态: invoke �
 export const CONTROL_RETRY_MS = 500;
 export const TOAST_MS = 2400;             // 提示停留时长
 export const COPIED_RESET_MS = 1500;      // "已复制"图标复位
-export const UPLOAD_DONE_KEEP_MS = 1500;  // 上传完成条目残留时长
+export const UPLOAD_DONE_KEEP_MS = 1000;  // 上传完成条目残留时长
 export const BLOB_REVOKE_MS = 10_000;     // 下载 blob: URL 回收延时
 export const REFRESH_SPIN_MS = 600;       // 手动刷新最短旋转时长(本地请求太快, 不兜底动画会一闪而过)
 
 /* ---------- 列表 / 传输 ---------- */
 export const PAGE_SIZE = 8;                     // 文件分页大小
-export const UPLOAD_CELL = 16 * 1024 * 1024;    // 并行分片格子大小: 文件切成格子由多连接并发上传。
-                                                // 实证 iOS 对单条上传连接会周期性僵死(RTO 退避, 单连接冻结 ~63s,
-                                                // 期间 WS/下行全程畅通 = 链路活着只是这条连接死了), 多连接互相掩护;
-                                                // 断点粒度也随之细化到单格(冻结一次最多重传一格)
-export const UPLOAD_WORKERS = 3;                // 每个文件的并发上传连接数: WebKit 每 host 6 连接, 留余量给 WS/轮询/缩略图;
-                                                // 一条连接僵死时其余连接继续推进, 整体吞吐不再被单连接拖死
-export const UPLOAD_RETRY_TIMES = 8;            // 连续失败重试上限(成功一片即清零, 非全文件配额)
-export const UPLOAD_RETRY_MS = 1500;            // 续传重试间隔
-export const UPLOAD_STALL_MS = 15000;     // 上传进度闲置中止: onprogress 每次到达即续命,
-                                          // 停滞(iOS 片边界冻结 ~63s/半死连接)超过即中止走续传。
-                                          // 误杀代价已很低(按服务端实际字节续传), 但别低于 10s:
-                                          // Wi-Fi 漫游/重关联的合法停顿 5-10s, 过小会频繁空转
-export const UPLOAD_RESPONSE_GRACE_MS = 90000; // 末字节已交网络后的等响应宽限: 此刻中止纯属浪费
-                                          // (服务端大文件 fsync/杀软扫描/iOS 响应冻结 ~63s 都可能
-                                          // 超 15s), 真死了 TCP 自己会先报错; 须 < 服务端上传空闲
-                                          // 超时上限的合理量级, 覆盖 iOS 63s 冻结即可
+/* 上传 = 单请求整文件直传(回归 1.1.2 语义): 整文件就是"最大的分片", 无分片/账本/
+   断点状态, 因此没有可调的分片常数。服务端 /api/upload_progress、/api/upload_cancel
+   仅保留用于 v1.1.5-1.1.7 旧版 .ccpart 断点的查询与清理(常量在 config.rs UPLOAD_PART_*);
+   历史并行分片参数(UPLOAD_CELL/UPLOAD_WORKERS/UPLOAD_STALL_MS 等)已随上传链回滚删除 */
 export const WS_HB_TIMEOUT_MS = 45000;          // WS 心跳超时(服务端 15s 一发; 超时未收到消息→强制重连)
 export const WS_WATCHDOG_MS = 10000;            // WS 看门狗巡检间隔
 
@@ -56,6 +44,8 @@ export const API = {
   upload: "/api/upload",
   uploadProgress: (name, id) =>
     `/api/upload_progress?name=${encodeURIComponent(name)}&id=${encodeURIComponent(id || "")}`,
+  uploadCancel: (id, name) =>
+    `/api/upload_cancel?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
   del: (name) => `/api/delete/${encPath(name)}`,
   chat: "/api/chat",
   info: "/api/info",
@@ -102,7 +92,7 @@ export const THEME_MIGRATE = { aurora: "default", mist: "graphite", eye: "mint" 
 export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
-export const APP_VERSION_FALLBACK = "1.1.7";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
+export const APP_VERSION_FALLBACK = "1.1.8";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次
 export const UPDATE_CHECK_TIMEOUT_MS = 8000;             // 请求超时; 任何失败一律静默

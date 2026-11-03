@@ -10,8 +10,7 @@ import {
   GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
   REL_TIME_MS, THEME_MIGRATE, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
-  UPDATE_CHECK_INTERVAL_MS, UPLOAD_CELL, UPLOAD_DONE_KEEP_MS, UPLOAD_RESPONSE_GRACE_MS,
-  UPLOAD_RETRY_MS, UPLOAD_RETRY_TIMES, UPLOAD_STALL_MS, UPLOAD_WORKERS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
+  UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
 import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog";
@@ -117,7 +116,21 @@ function setView(v) {
   view.value = v;
   // 切进聊天页立即追平已读: WS 在线时 loadChat 只由新消息事件触发,
   // 不追平的话未读徽标会一直挂到下一条消息到达才消失
-  if (v === "chat") seenChat.value = chatCount.value;
+  if (v === "chat") {
+    seenChat.value = chatCount.value;
+    // 桌面聊天视图是 v-if 惰性挂载: 全新容器从顶部(最旧一条)开始, 切入即定位到最新一条;
+    // loadChat 的滚动有"条数变化"门槛, 消息没更新时不会滚 —— 必须在此处主动滚
+    nextTick(scrollChats);
+  }
+}
+
+/* ---------- 侧边栏展开/收起(仅桌面壳; 状态记忆, 窄屏顶栏布局不受影响) ---------- */
+const sidebarCollapsed = ref((() => {
+  try { return localStorage.getItem("wft-side-collapsed") === "1"; } catch (e) { return false; }
+})());
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  try { localStorage.setItem("wft-side-collapsed", sidebarCollapsed.value ? "1" : "0"); } catch (e) {}
 }
 
 /* ---------- 外观主题 ---------- */
@@ -151,6 +164,8 @@ try {
   }
   theme.value = t;
 } catch (e) {}
+/* 配色行的"当前"标注: 色板芯片不显示名字(走 tooltip), 选中名在此回显 */
+const currentThemeName = computed(() => THEMES.find(t => t.id === theme.value)?.name || "");
 /* 主题模式(亮/暗/跟随系统)与配色正交: 配色(data-theme)定色相, 模式(data-mode)定明暗 */
 const THEME_MODES = [
     { id: "light",  name: "亮色", icon: "☀️" },
@@ -193,6 +208,9 @@ function openChat() {
   chatOpen.value = true;
   seenChat.value = chatCount.value;
   nextTick(scrollChats);
+  // sheetUp 入场动画(0.3s)期间, 部分移动内核(WebKit 系尤其)会丢弃 display:none→block
+  // 容器刚设置的滚动位置 → 打开面板停在顶部。动画结束后再钉一次, 确保必定位到最新一条
+  setTimeout(scrollChats, 350);
 }
 function closeChat() { chatOpen.value = false; }
 function scrollChats() {
@@ -247,15 +265,86 @@ function syncPortInput(isRunning, port) {
 }
 /* 应用共享目录(含高危目录二次确认): 家目录/其祖先/磁盘根一旦共享,
    个人全部文件对整个 Wi-Fi 开放读写删, 必须让用户明确知情后才放行 */
+/* 端口参数解析(启动与目录切换重启共用): 空=默认(null); 非法返回 NaN 由调用方提示 */
+function portArgOrNaN() {
+  const raw = portInput.value.trim();
+  if (!raw) return null;
+  const p = Number(raw);
+  return Number.isInteger(p) && p >= 1 && p <= 65535 ? p : NaN;
+}
+/* 启动服务并回写状态(与 startServer 的启动段一致); 失败自行 toast 并返回 false */
+async function _restartForDirSwitch() {
+  try {
+    const portArg = portArgOrNaN();
+    if (Number.isNaN(portArg)) { showToast("端口需为 1-65535 的整数，服务未自动重启", "error"); return false; }
+    const st = await tauriInvoke("control_start_cmd", { port: portArg });
+    if (st.ok) {
+      running.value = true;
+      port.value = st.port;
+      portInput.value = String(st.port);
+      portDirty.value = false;
+      return true;
+    }
+    showToast(st.error || "服务重启失败，请手动点「启动服务」", "error");
+    return false;
+  } catch (e) {
+    showToast("服务重启失败，请手动点「启动服务」", "error");
+    return false;
+  }
+}
 async function applyShareDir(path) {
+  // 运行中选目录: 自动"停止 → 切换 → 重启"一键完成, 不再要求用户手动三步
+  // (后端"运行中拒绝"保留为安全兜底; 高危目录确认与失败回滚逻辑不变)
+  let wasRunning = false;
+  if (running.value) {
+    const yes = await askDialog(
+      `服务正在运行。修改共享目录将自动执行：\n停止服务 → 切换目录 → 重启服务（手机端需刷新页面）。继续吗？`,
+      { title: "切换共享目录", kind: "warning" }
+    );
+    if (!yes) return { ok: false, cancelled: true };
+    try {
+      await tauriInvoke("control_stop_cmd");
+    } catch (e) {
+      return { ok: false, error: "停止服务失败，共享目录未修改" };
+    }
+    running.value = false;
+    wasRunning = true;
+  }
+  const finish = (res) => {
+    // 切换被取消/失败且已停过服务 → 把服务恢复原状, 不留半停状态
+    if (wasRunning && !res.ok) {
+      if (res.cancelled) {
+        _restartForDirSwitch();
+        return { ok: false, cancelled: true };
+      }
+      _restartForDirSwitch();
+      return res;
+    }
+    return res;
+  };
   const d = await tauriInvoke("set_share_dir_cmd", { path });
-  if (!d.dangerous) return d;
+  if (!d.dangerous) {
+    if (!d.ok) return finish(d);
+    if (wasRunning) {
+      const restarted = await _restartForDirSwitch();
+      if (restarted) showToast("共享目录已切换，服务已重启");
+      return { ok: true, restarted: restarted };
+    }
+    return d;
+  }
   const yes = await askDialog(
     `「${path}」是高风险目录（家目录、其上级或磁盘根目录）。\n\n共享后同一 Wi-Fi 内的任何设备都能读取、覆盖、删除其中的全部文件。确定继续吗？`,
     { title: "高风险共享目录", kind: "warning" }
   );
-  if (!yes) return { ok: false, cancelled: true };
-  return tauriInvoke("set_share_dir_cmd", { path, force: true });
+  if (!yes) return finish({ ok: false, cancelled: true });
+  const d2 = await tauriInvoke("set_share_dir_cmd", { path, force: true });
+  if (!d2.ok) return finish(d2);
+  if (wasRunning) {
+    const restarted = await _restartForDirSwitch();
+    if (restarted) showToast("共享目录已切换，服务已重启");
+    return { ok: true, restarted: restarted };
+  }
+  return d2;
 }
 async function startServer() {
   if (!isDesktop) { showToast("请在桌面端控制服务", "error"); return; }
@@ -263,7 +352,13 @@ async function startServer() {
     // 先应用共享目录(含持久化), 再启动 —— 否则输入框里的目录从未生效过
     const s = await applyShareDir(shareInput.value);
     if (!s.ok) { if (!s.cancelled) showToast(s.error || "共享目录无效", "error"); return; }
-    const d = await tauriInvoke("control_start_cmd", { port: Number(portInput.value) || null });
+    // 端口校验前置: "99999"/非数字不再落到 invoke 反序列化失败的笼统报错
+    const portArg = portArgOrNaN();
+    if (Number.isNaN(portArg)) {
+      showToast("端口需为 1-65535 的整数", "error");
+      return;
+    }
+    const d = await tauriInvoke("control_start_cmd", { port: portArg });
     if (d.ok) {
       running.value = true;
       port.value = d.port;
@@ -291,7 +386,8 @@ async function pickShareDir() {
     const d = await applyShareDir(sel);
     if (d.ok) {
       shareInput.value = sel;
-      showToast("共享目录已更新，下次启动服务生效");
+      // 运行中切换已由 applyShareDir 重启并提示, 这里只补静默停服场景的文案
+      if (!d.restarted) showToast("共享目录已更新，下次启动服务生效");
     } else if (!d.cancelled) {
       showToast(d.error || "设置失败", "error");
     }
@@ -495,7 +591,11 @@ async function loadFiles(manual = false) {
 /* ---------- 分享: 全平台统一复制链接(带温馨提示话术) ---------- */
 async function shareFile(name) {
   if (serviceDown()) { showToast("服务已停止，无法分享", "error"); return; }   // 停服后链接打不开, 先拦截
-  const base = isDesktop ? `http://${lanIp.value}:${port.value}` : location.origin;
+  // 浏览器端优先 shareUrl(与二维码同源), 但首次状态刷新前 lanIp 还是占位 "--" ——
+  // 此时必须回落 location.origin, 否则复制出 http://--:0 无效地址
+  const base = isDesktop
+    ? `http://${lanIp.value}:${port.value}`
+    : (lanIp.value === "--" ? location.origin : shareUrl.value);
   // 链接嵌入当前访问码, 接收方打开即过校验:
   // 浏览器端用本机已验证的 accessPin; 桌面壳走回环豁免不存码, 但可嵌入可信 IPC
   // 下发的 pinCode —— 否则壳复制的链接永远裸奔, 接收方必然撞 401
@@ -550,8 +650,15 @@ async function downloadFileWeb(name) {
     showToast(isDesktop ? "已开始下载，完成后提示保存位置" : "已开始下载，进度见浏览器下载列表");
     return;
   }
+  let gotResp = false;
   try {
-    const r = await fetch(url);
+    // 响应头必须带超时(对齐桌面分支的 8s): 服务半开时 fetch 永久挂起 = "点了没反应"。
+    // 拿到响应后立即清表, blob 阶段不限时, 免得慢速大文件被误杀
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 10000);
+    const r = await fetch(url, { signal: ctl.signal });
+    clearTimeout(timer);
+    gotResp = true;
     if (!r.ok) {
       // HTTP 错误(404/400 等)如实报错, 不走原生回退 —— 否则会把 JSON 错误体当文件下载
       showToast(`下载失败：HTTP ${r.status}`, "error");
@@ -573,6 +680,11 @@ async function downloadFileWeb(name) {
     setTimeout(() => URL.revokeObjectURL(objUrl), BLOB_REVOKE_MS);
     showToast(`已下载：${name}${len ? " (" + fmtSize(len) + ")" : ""}`);
   } catch (e) {
+    // 响应头都没等到 = 链路不通, 回退原生下载也只会再失败一次 —— 直接报超时
+    if (!gotResp) {
+      showToast("下载失败：连接超时，请确认电脑端服务已启动", "error");
+      return;
+    }
     // blob 路径失败(内存/内核限制等) → 退回原生下载, 交给浏览器下载管理器
     nativeDownload(url, name.split("/").pop() || name);
     showToast("已交由浏览器下载");
@@ -617,14 +729,15 @@ async function doDelete() {
   loadFiles(true);   // 手动刷新: 带旋转反馈; 与轮询在途竞争时由补拉机制保证不丢
 }
 
-/* ---------- 上传(分片 + 断点续传 + 整目录) ---------- */
+/* ---------- 上传(单请求整文件直传 + 整目录) ---------- */
 const uploads = ref([]);
 let upSeq = 0;
-/* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 条上传链(文件), 其余真正停在"等待中"。
-   必须与 UPLOAD_WORKERS 联动: WebKit 每 host 仅 6 条 HTTP/1.1 连接,
-   2 文件 × 3 连接 = 6 恰好用满预算 —— 文件数再多, 排队的 XHR 会被
-   15s 停滞看门狗误杀(连接被预算卡住时无任何进度事件), 集体报"上传中断" */
-const UPLOAD_CONCURRENCY = 2;
+/* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 个文件在传, 其余真正停在"等待中"。
+   WebKit 每 host 仅 6 条 HTTP/1.1 连接, WS/轮询/下载要留预算 —— 一次选数百文件
+   全并发时会把所有 XHR 压上 6 条连接(整文件版无看门狗, 不会像旧版那样集体误报
+   "上传中断", 但手机端明显变慢且失败无掩护)。整文件版一个文件=一条连接,
+   3 并发用掉一半预算; 纯内存排队, 完成即出队, 无任何持久状态 */
+const UPLOAD_CONCURRENCY = 3;
 let upActive = 0;
 const upQueue = [];
 function pumpUploadQueue() {
@@ -651,6 +764,21 @@ function onPickDir(e) {
 function handleFiles(list) {
   if (!list || !list.length) return;
   for (const f of Array.from(list)) uploadFile(f);
+}
+/* 全局粘贴上传(Ctrl+V/Cmd+V): mounted 挂载监听 —— 此函数曾在上传重构的
+   块删除中被越界移除, 导致挂载钩子 ReferenceError 整页黑屏, 已恢复 */
+function onPaste(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const files = [];
+  // getAsFile() 在富文本剪贴板场景可返回 null, 不过滤会在 uploadFile 里抛 TypeError
+  for (const item of items) {
+    if (item.kind === "file") {
+      const f = item.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  if (files.length) handleFiles(files);
 }
 /* 拖拽收集: 支持文件夹(webkitGetAsEntry 递归)与混合拖入, 目录结构经 webkitRelativePath 保留 */
 async function collectDroppedFiles(dt) {
@@ -697,139 +825,46 @@ async function onDrop(e) {
 }
 /* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
 function uploadRelName(file) { return file.webkitRelativePath || file.name; }
-async function fetchUploadState(name, upId, total = 0) {
-  // 返回 null 表示查询失败(网络抖动) —— 与"服务端确认为 0"严格区分:
-  // 失败时调用方保持现状重查, 若把失败当 0 会让服务端把已有断点当新会话覆盖。
-  // received = 服务端确认的覆盖字节数; chunks = 分片账本(并行会话才有, 旧版顺序会话无)。
-  // size: 断点不存在时服务端核对"最终文件大小吻合"即视为完成(响应丢失的补偿)
-  try {
-    const r = await apiFetch(apiBase.value + API.uploadProgress(name, upId) + `&size=${total}`);
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (!Number.isFinite(d.received)) return null;
-    return {
-      received: d.received,
-      chunks: d.chunks && typeof d.chunks === "object" && !Array.isArray(d.chunks) ? d.chunks : null,
-    };
-  } catch (_) { return null; }
-}
-/* 单片(格)上传: XHR 而非 fetch —— fetch 没有上传进度事件; XHR upload.onprogress 提供实时已发字节数。
-   协议头/响应语义与原 fetch 版一致; 响应 received = 服务端账本覆盖字节(全文件进度)。
-   超时为"进度闲置中止": onprogress 每次到达即续命(UPLOAD_STALL_MS), 且服务端断点增长
-   同样续命(轮询驱动) —— 双信号任一活跃就不掐; 断点收齐后切等响应长宽限(UPLOAD_RESPONSE_GRACE_MS) */
-function sendChunk(name, upId, totalSize, offset, chunk, entrySignal, onProgress, onConfirmed) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    let timer = null;
-    let alive = true;   // 本片仍在途(轮询结果只对本片生效, 过期轮询不得回拉进度条)
-    const armIdle = (ms = UPLOAD_STALL_MS) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => { try { xhr.abort(); } catch (e) {} }, ms);
-    };
-    const relay = () => xhr.abort();
-    if (entrySignal) {
-      if (entrySignal.aborted) {
-        reject(new DOMException("Aborted", "AbortError"));
-        return;
-      }
-      entrySignal.addEventListener("abort", relay);
-    }
-    // 服务端真实进度轮询: XHR onprogress 只反映"已交给网络"的字节, 停滞/断连时
-    // 还堵在队列里的字节全部丢失 —— 进度条会先虚报到 ~100%, 中止续传时又按服务端
-    // 断点大幅回落, 观感就是"快传完却从 50% 重新开始"。分片在途期间每 3s 查一次
-    // 断点文件实际长度回调 onConfirmed, 进度条以服务端落盘字节封顶 —— 慢而真。
-    // 同时以服务端事实驱动看门狗: 断点仍在增长 = 连接活着(哪怕 onprogress 早已停发
-    // —— iOS 把字节一口气交给 radio 后进度就到 100% 了, 真实投递可能还在慢慢爬),
-    // 按增长续命, 爬多慢都不掐; 断点零增长才让计时器走完 → 中止走续传。
-    // 断点收齐(≥整片) = 只差响应, 换等响应长宽限(iOS 冻结 ~63s)
-    let lastConfirmed = offset;
-    const poll = setInterval(async () => {
-      if (!alive) return;
-      try {
-        const r = await apiFetch(apiBase.value + API.uploadProgress(name, upId));
-        if (!r.ok || !alive) return;
-        const d = await r.json();
-        if (!alive || !Number.isFinite(d.received)) return;
-        if (d.received > lastConfirmed) {
-          lastConfirmed = d.received;
-          armIdle(d.received >= totalSize ? UPLOAD_RESPONSE_GRACE_MS : UPLOAD_STALL_MS);
-        }
-        if (onConfirmed) onConfirmed(d.received);
-      } catch (_) {}
-    }, 3000);
-    const settle = (fn, arg) => {
-      alive = false;
-      clearInterval(poll);
-      clearTimeout(timer);
-      if (entrySignal) entrySignal.removeEventListener("abort", relay);
-      fn(arg);
-    };
-    xhr.open("POST", withPin(apiBase.value + API.upload));
-    xhr.setRequestHeader("X-Filename", encodeURIComponent(name));
-    xhr.setRequestHeader("X-File-Size", String(totalSize));
-    xhr.setRequestHeader("X-Upload-Offset", String(offset));
-    xhr.setRequestHeader("X-Upload-Id", upId);
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (e) => {
-      // 末字节已交网络 → 只剩等响应, 换长宽限: 服务端大文件 fsync/杀软扫描/iOS 响应
-      // 冻结(~63s)都可能超过 15s, 此刻掐断纯属浪费(重试链空转一轮); 真死了 TCP 会
-      // 先报 onerror, 长宽限只影响"半死不活"的极端连接
-      armIdle(e.loaded >= totalSize ? UPLOAD_RESPONSE_GRACE_MS : UPLOAD_STALL_MS);
-      if (onProgress && e.lengthComputable) onProgress(e.loaded);
-    };
-    xhr.onload = () => {
-      let d = {};
-      try { d = JSON.parse(xhr.responseText); } catch (_) {}
-      if (xhr.status >= 200 && xhr.status < 300) { settle(resolve, d); return; }
-      // 与 apiFetch 对齐: 401/429 都要唤起配对弹框(XHR 不经过 apiFetch)
-      if (xhr.status === 401 || xhr.status === 429) needPin.value = true;
-      const err = new Error(d.error || `HTTP ${xhr.status}`);
-      err.received = d.received;
-      err.server = !!d.error;   // 服务端业务错误(如"正被其他设备上传"), 重试文案应如实展示
-      // 4xx 业务错误重试无意义(路径非法/超长等确定性失败), 快速失败;
-      // 408/429/409 例外: 超时/限流/续传重排值得重试
-      err.fatal = xhr.status >= 400 && xhr.status < 500
-        && ![408, 409, 429].includes(xhr.status);
-      settle(reject, err);
-    };
-    xhr.onerror = () => settle(reject, new Error("网络中断"));
-    xhr.onabort = () => settle(reject, new DOMException("Aborted", "AbortError"));
-    armIdle();
-    xhr.send(chunk);
-  });
-}
-function uploadFile(file) {
-  // 停服拦截(与删除/分享一致): 否则每个文件先探断点再 8×1.5s 空转重试才报错,
-  // 粘贴大量文件即大量并发失败链 + toast 刷屏
-  if (serviceDown()) { showToast("服务未启动，无法上传", "error"); return; }
-  const id = "up-" + Date.now() + "-" + upSeq++;
-  const ac = new AbortController();   // 条目级取消: 中断在途请求与整条上传链
-  const name = uploadRelName(file);
-  const total = file.size;
-  // 会话 id = 文件稳定指纹(名+大小+修改时间): 页面重载/锁屏后重选同一文件仍命中
-  // 服务端已有断点(自动续传真正生效); 内容变化(大小/修改时间变)则视为新会话覆盖旧断点。
-  // name 必须 encodeURIComponent: 请求头值是 ByteString, 原始中文/emoji 在所有浏览器/WebView
-  // 里 fetch 直接抛 TypeError(中文文件名上传全线失败); 服务端原样存 meta 原样比对, 自洽
-  // 会话 id = 文件指纹(名+大小+修改时间) + 可选代次后缀:
-  // 首传/断点续传用纯指纹(跨重启按格接力); 该文件已完成后再主动重传时换新代次 ——
-  // 服务端将其视为新会话, 同名自动改名落为 报告(1).pdf(用户重传 = 明确要一份新副本)。
-  // 代次存 localStorage: 副本传一半崩溃后再选同一文件, 仍按格精确续传
-  const fp = `${encodeURIComponent(name)}|${file.size}|${file.lastModified}`;
-  let upId = lastSessionId(fp);
-  // 同一文件已在队列中(等待/上传中)则跳过: 快速双击/多选重复会以相同 upId 并发推进,
-  // 两条链互相截断断点导致整体重传数次、UI 出现重复进度行
-  if (uploads.value.some(u => u.upId === upId && (u.status === "waiting" || u.status === "uploading"))) {
-    return;
-  }
-  uploads.value.push({ id, upId, name, pct: total ? 0 : 100, speed: "", status: "waiting", ac, file, fp });
-  // 链体抽成独立函数(可复活): 网络耗尽暂停后, 回前台/网络恢复/定时巡检自动按账本续传
-  upQueue.push(() => runUploadChain(uploads.value.find(u => u.id === id)));
-  pumpUploadQueue();
-}
+
 /* 唤醒锁: 有上传进行中时申请屏幕常亮 —— iOS 锁屏/切后台会冻结上传连接(失败主因) */
 let wakeLock = null;
+/* iOS 屏幕保活(视频通路): Wake Lock API 在 HTTP 非安全上下文不存在(手机浏览器恰好是),
+   改用 2px 静音内联视频循环播放 —— 媒体播放通路不受 HTTP 限制, 可阻止 iOS 锁屏熄屏 */
+let keepAliveVideo = null, keepAliveStream = null;
+function setScreenKeepAlive(on) {
+  if (on) {
+    if (!keepAliveVideo) {
+      // **先在局部变量上构造, 全部成功才落全局**: captureStream 在微信 WebView/
+      // 部分 iOS 上会抛错, 半初始化对象一旦占了全局槽, 后续 `!keepAliveVideo`
+      // 永假 → 整个会话保活静默失效
+      try {
+        const v = document.createElement("video");
+        v.muted = true;
+        v.setAttribute("playsinline", "");
+        v.loop = true;
+        const c = document.createElement("canvas");
+        c.width = c.height = 2;
+        c.getContext("2d").fillRect(0, 0, 2, 2);
+        const s = c.captureStream(2);
+        v.srcObject = s;
+        v.style.cssText = "position:fixed;left:-20px;top:-20px;width:2px;height:2px;opacity:0.01;pointer-events:none";
+        document.body.appendChild(v);
+        keepAliveVideo = v;
+        keepAliveStream = s;
+      } catch (e) {
+        keepAliveVideo = null;
+        keepAliveStream = null;
+        return;   // 创建失败: 保持 null, 下次调用重试
+      }
+    }
+    try { keepAliveVideo.play().catch(() => {}); } catch (e) {}
+  } else if (keepAliveVideo) {
+    try { keepAliveVideo.pause(); } catch (e) {}
+  }
+}
 async function updateWakeLock() {
   const want = uploads.value.some(u => u.status === "uploading" || u.status === "waiting");
+  setScreenKeepAlive(want);
   try {
     if (want && !wakeLock && navigator.wakeLock) {
       wakeLock = await navigator.wakeLock.request("screen");
@@ -840,197 +875,91 @@ async function updateWakeLock() {
     }
   } catch (e) {}
 }
-/* 自动复活: 网络耗尽而暂停的条目, 页面回前台/网络恢复/定时巡检时按账本续传(零成本) */
-function reviveResumable() {
-  if (document.hidden) return;
-  let revived = false;
-  for (const u of uploads.value) {
-    if (u.status === "error" && u.resumable && !u.reviving) {
-      u.reviving = true; u.resumable = false;
-      u.ac = new AbortController();
-      u.status = "waiting";
-      upQueue.push(() => runUploadChain(uploads.value.find(x => x.id === u.id)).finally(() => { u.reviving = false; }));
-      revived = true;
-    }
-  }
-  if (revived) { showToast("网络恢复，正在自动续传"); pumpUploadQueue(); }
-  updateWakeLock();
+function uploadFile(file) {
+  // 单请求整文件直传(1.1.2 传输) + 保留功能: 同名自动改名、取消✕、锁屏防中断
+  const id = "up-" + Date.now() + "-" + upSeq++;
+  const name = uploadRelName(file);   // 文件夹入口保留: 相对路径经 X-Filename 下传
+  uploads.value.push({ id, name, pct: 0, speed: "", status: "waiting" });   // waiting = 真实排队
+  const stat = () => uploads.value.find(u => u.id === id);
+  upQueue.push(() => startUpload(file, id, name, stat));
+  pumpUploadQueue();
 }
-/* 单文件上传链: 账本恢复 → 并行格子 → 收齐转正。网络耗尽不永久失败(可自动复活) */
-async function runUploadChain(u) {
-  if (!u) return;
-  const stat = () => uploads.value.find(x => x.id === u.id);
-  const file = u.file, fp = u.fp, name = u.name;
-  const total = u.file.size;
-  const ac = u.ac;   // 本链的AbortController(复活时已换新)
-  if (ac.signal.aborted) return;
-  const it0 = stat(); if (!it0) return;
-  it0.status = "uploading";
-  updateWakeLock();
-  // 会话状态查询: 完成记录命中(响应丢失/重选同文件)直接收尾; 断点账本命中则按格子续传。
-  // 查询失败重试一次再放弃: 误把失败当 0 会让服务端把已有断点当新会话覆盖
-  let upId = lastSessionId(fp);
-  let state = await fetchUploadState(name, upId, total);
-    if (ac.signal.aborted) return;
-    if (state === null) {
-      await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
-      if (ac.signal.aborted) return;
-      state = (await fetchUploadState(name, upId, total)) ?? { received: 0, chunks: null };
-    }
-    if (state.received > total) state.received = 0;
-    if (state.received >= total) {
-      // 服务端报告本会话已完成 = 同内容已在目录里。用户此时主动重选上传,
-      // 意图是要一份新副本 → 换新代次走完整上传, 服务端同名改名落为 (1);
-      // 断点续传(部分覆盖)与链内自动重试不受影响, 仍按原会话接力
-      upId = fp + "|" + Date.now().toString(36);
-      saveSessionId(fp, upId);
-      state = { received: 0, chunks: null };
-    } else {
-      saveSessionId(fp, upId);   // 续传会话记录下来, 崩溃后再选同一文件按格接力
-    }
-    // 网格: 全文件按 UPLOAD_CELL 切格(空文件补一格, 0 字节也要发一次请求转正)
-    const cells = [];
-    for (let off = 0; off < total; off += UPLOAD_CELL) cells.push(off);
-    if (!cells.length) cells.push(0);
-    // 已覆盖格子: 并行会话看账本(精确到格); 旧版顺序断点看长度(边界前的整格跳过,
-    // 半格整格重传 —— 服务端按区间幂等覆盖, 不会拼脏)
-    const covered = new Set();
-    if (state.chunks) {
-      for (const k of Object.keys(state.chunks)) {
-        const off = Number(k);
-        if (Number.isFinite(off) && off >= 0 && off < total) covered.add(off);
-      }
-    } else {
-      for (const off of cells) if (off + UPLOAD_CELL <= state.received) covered.add(off);
-    }
-    let pending = cells.filter((off) => !covered.has(off));
-    let finalName = "";   // 服务端同名自动改名后的实际落盘名(响应 final 字段)
-    let confirmed = Math.min(state.received, total);   // 服务端确认覆盖字节 —— 进度条的唯一事实
-    const confirmedBase = confirmed;
-    const t0 = Date.now();
-    let lastTipAt = 0;
-    const markConfirmed = (n) => {
-      if (!Number.isFinite(n)) return;
-      confirmed = Math.max(confirmed, Math.min(n, total));
-      const itc = stat(); if (!itc) return;
-      itc.pct = total ? Math.round((confirmed / total) * 100) : 100;
-      itc.speed = fmtSize((confirmed - confirmedBase) / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
-    };
-    markConfirmed(state.received);
-    // 单格执行: 内置重试; 致命错误/重试耗尽置 failed 并结束全链(统一在收尾处 toast)
-    let failed = null;
-    const runCell = async (offset) => {
-      let attempts = 0;
-      for (;;) {
-        if (ac.signal.aborted || failed) return;
-        try {
-          const chunk = file.slice(offset, Math.min(offset + UPLOAD_CELL, total));
-          const d = await sendChunk(name, upId, total, offset, chunk, ac.signal, (loaded) => {
-            // 单连接瞬时速率(展示用); 百分比只认服务端确认覆盖值(多连接聚合)
-            const itp = stat();
-            if (itp) itp.speed = fmtSize(loaded / Math.max((Date.now() - t0) / 1000, 0.1)) + "/s";
-          }, markConfirmed);
-          if (ac.signal.aborted) return;
-          if (d && typeof d.final === "string" && d.final) finalName = d.final;
-          markConfirmed(d && d.received);
-          return;
-        } catch (e) {
-          if (ac.signal.aborted) return;
-          if (e && e.fatal) { failed = e; return; }
-          attempts += 1;
-          const ite = stat(); if (!ite) return;
-          if (attempts > UPLOAD_RETRY_TIMES) { failed = e; return; }
-          // 服务端业务错误(如"正被其他设备上传")如实展示, 网络类提示自动续传
-          ite.speed = e && e.server ? String(e.message).slice(0, 24) : "网络中断，自动续传中…";
-          if (Date.now() - lastTipAt > 10000) {
-            lastTipAt = Date.now();
-            showToast("网络波动，正在多连接断点续传");
-          }
-          await new Promise((r) => setTimeout(r, UPLOAD_RETRY_MS));
-        }
-      }
-    };
-    // 首格(offset=0)先行: 服务端以它建断点与账本, 其余格子等它确认后再并发,
-    // 杜绝"格子先于会话到达"被 409 空转
-    if (pending.length && pending[0] === 0) {
-      await runCell(0);
-      pending = pending.slice(1);
-    }
-    if (!ac.signal.aborted && !failed && pending.length) {
-      // 并行工人: 各自从队列取格子 —— 一条连接僵死(iOS 单连接 RTO 停摆, 重试等待中)
-      // 不影响其余连接继续推进, 整体吞吐不再被单连接拖死
-      let qi = 0;
-      await Promise.all(
-        Array.from({ length: Math.min(UPLOAD_WORKERS, pending.length) }, async () => {
-          for (;;) {
-            if (ac.signal.aborted || failed) return;
-            const i = qi++;
-            if (i >= pending.length) return;
-            await runCell(pending[i]);
-          }
-        })
-      );
-    }
-    if (ac.signal.aborted) return;   // 用户取消: 条目已移除, 静默退出
-    const ite = stat();
-    if (failed) {
-      if (ite) {
-        ite.status = "error";
-        ite.speed = "";
-        if (failed.fatal) {
-          // 确定性业务失败(如"路径过长"): 直接报错, 不可复活
-          showToast("上传失败: " + name + " — " + (failed.message || "请求被拒绝"), "error");
-        } else {
-          // 网络耗尽 ≠ 永久失败: 标记可复活, 回前台/网络恢复/定时巡检自动按账本续传
-          ite.resumable = true;
-          ite.speed = "已暂停，网络恢复后自动续传";
-          showToast("上传暂停: " + name + " — 网络恢复后自动续传", "error");
-        }
-      }
-      updateWakeLock();
-      return;
-    }
-    updateWakeLock();
-    // 全部格子确认 → 服务端已在最后一格收齐转正
-    const it3 = stat();
-    if (it3) { it3.pct = 100; it3.status = "done"; it3.speed = ""; it3.final = finalName.split("/").pop(); }
-    // 同名自动改名: 服务端落为 报告(1).zip 时明确告知, 否则用户在目录里找不到传的文件
-    if (finalName && finalName.split("/").pop() !== name.split("/").pop()) {
-      showToast("目录里已有同名文件，已改存为 「" + finalName.split("/").pop() + "」");
-    }
-    loadFiles();   // 不再强跳第 1 页: 批量上传会把正在第 5 页浏览/勾选的用户每秒拽回去, 页码收缩由 loadFiles 内回收
-    setTimeout(() => { uploads.value = uploads.value.filter(x => x.id !== u.id); }, UPLOAD_DONE_KEEP_MS);
-    updateWakeLock();   // 链结束, 若无其他上传进行中则释放屏幕常亮
-  }
-/* 自动复活触发器: 回前台 / 网络恢复 / 30s 巡检(仅当存在可复活条目时有实际动作) */
 
-setInterval(reviveResumable, 30000);
-window.addEventListener("online", reviveResumable);
-document.addEventListener("visibilitychange", reviveResumable);
-/* 会话代次存取: key 按文件指纹, 值为该文件最近一次的会话 id(断点续传的接力棒) */
-function lastSessionId(fp) {
-  try { return localStorage.getItem("wft-usess-" + fp) || fp; } catch (e) { return fp; }
-}
-function saveSessionId(fp, id) {
-  try { localStorage.setItem("wft-usess-" + fp, id); } catch (e) {}
-}
-/* 取消进行中/排队中的上传(中断在途请求 → 上传链静默退出), 失败行等同移除 */
-function cancelUpload(u) {
-  if (u.ac) { try { u.ac.abort(); } catch (e) {} }
-  removeUpload(u.id);
-}
-function onPaste(e) {
-  const items = e.clipboardData && e.clipboardData.items;
-  if (!items) return;
-  const files = [];
-  // getAsFile() 在富文本剪贴板场景可返回 null, 不过滤会在 uploadFile 里抛 TypeError
-  for (const item of items) {
-    if (item.kind === "file") {
-      const f = item.getAsFile();
-      if (f) files.push(f);
+/* 链体(可独立测试): 返回 Promise, 槽位在传输结束(成功/失败/取消)后经 resolve 释放 ——
+   xhr.send() 立即返回, 绝不能在 send 时就放槽, 否则并发闸形同虚设 */
+function startUpload(file, id, name, stat) {
+  return new Promise((resolve) => {
+    if (!stat()) return resolve();   // 排队期间条目被用户移除: 直接让出槽位
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", withPin(apiBase.value + API.upload), true);
+      xhr.setRequestHeader("X-Filename", encodeURIComponent(name));
+      xhr.setRequestHeader("X-File-Size", String(file.size));
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      const t0 = Date.now();
+      xhr.upload.onprogress = (e) => {
+        const it = stat(); if (!it) return;
+        it.status = "uploading";
+        if (e.lengthComputable) {
+          it.pct = Math.round((e.loaded / e.total) * 100);
+          const sp = e.loaded / Math.max((Date.now() - t0) / 1000, 0.1);
+          it.speed = fmtSize(sp) + "/s";
+        }
+      };
+      const finish = () => resolve();
+      xhr.onload = () => {
+        const it = stat(); if (!it) return finish();
+        if (xhr.status === 200) {
+          it.pct = 100; it.status = "done";
+          // 同名自动改名: 服务端把实际落盘名放 final 字段, 变了才提示"已存为"
+          let d = {};
+          try { d = JSON.parse(xhr.responseText); } catch (_) {}
+          const base = name.split("/").pop();
+          const finalBase = typeof d.final === "string" && d.final ? d.final.split("/").pop() : "";
+          if (finalBase && finalBase !== base) {
+            it.final = finalBase;
+            showToast("目录里已有同名文件，已改存为 「" + finalBase + "」");
+          }
+          updateWakeLock();
+          loadFiles();
+          setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
+        } else {
+          // 配对码是独立保留功能: 401/429 唤起弹框; 失败文案与 1.1.2 逐字一致
+          if (xhr.status === 401 || xhr.status === 429) needPin.value = true;
+          it.status = "error";
+          updateWakeLock();
+          showToast("上传失败: " + name, "error");
+        }
+        finish();
+      };
+      xhr.onerror = () => {
+        const it = stat(); if (!it) return finish();
+        it.status = "error";
+        updateWakeLock();
+        showToast("上传失败: " + name, "error");
+        finish();
+      };
+      xhr.onabort = finish;   // 取消✕ 走 abort → onabort(不触发 onerror/onload), 也要放槽
+      const row = stat();
+      row.status = "uploading";
+      row.xhr = xhr;          // 取消✕ 的中止句柄
+      updateWakeLock();       // 上传开始 → 申请屏幕常亮/保活
+      xhr.send(file);
+    } catch (e) {
+      console.error("上传异常:", e);
+      const it = stat(); if (it) it.status = "error";
+      updateWakeLock();
+      showToast("上传出错: " + (e && e.message ? e.message : "未知错误"), "error");
+      resolve();
     }
-  }
-  if (files.length) handleFiles(files);
+  });
+}
+/* 取消上传: 中止在途 XHR —— 服务端连接断开走"上传中断,已清理半截文件"路径,
+   无需额外请求; 行立即移除 */
+function cancelUpload(u) {
+  if (u.xhr) { try { u.xhr.abort(); } catch (e) {} }
+  removeUpload(u.id);
+  updateWakeLock();
 }
 
 /* ---------- 聊天 ---------- */
@@ -1103,14 +1032,13 @@ function onDocChatClick(e) {
   if (!url) return;
   openExternal(url);
 }
-/* 清空显示: 仅清本窗口(与 PyQt 镜像清空语义一致); 新消息到达后恢复显示 */
-const chatCleared = ref(false);
+/* 清空显示: 仅清本窗口(与 PyQt 镜像清空语义一致); 新消息到达后恢复显示(只显示新消息) */
 const clearedTs = ref(0);   // 清空水位: 消息时间戳(服务端封顶 200 条, 用条数做水位在满 200 时永不解除)
 function clearChatDisplay() {
-  chatCleared.value = true;
-  // 水位取最后一条消息的时间戳而非条数: 条数 ≤200 恒成立, "length > 水位条数" 永假 → 满 200 条时
-  // 点清空后本机永久空白; 时间戳在服务端重启(消息清零)后依然单调可比
-  clearedTs.value = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].timestamp : 0;   // 无消息时任意新消息即解除
+  // 水位取最后一条可见消息的时间戳而非条数: 条数 ≤200 恒成立, "length > 水位条数" 永假 → 满 200 条时
+  // 点清空后本机永久空白; 时间戳在服务端重启(消息清零)后依然单调可比。
+  // 已处于清空态(可见列表为空)时不得把水位覆盖成 0, 否则重复点清空丢水位、历史整段回归
+  if (chatMsgs.value.length) clearedTs.value = chatMsgs.value[chatMsgs.value.length - 1].timestamp;
   // 必须立即清显示列表: WS 在线时 loadChat 只由"新消息事件"触发, 安静的聊天室里
   // 清空后 loadChat 永远不来, 只设标记会表现为"点了清空没反应"(轮询时代的回归)
   chatMsgs.value = [];
@@ -1133,8 +1061,10 @@ async function loadChat() {
     const d = await r.json();
     const msgs = d.messages || [];
     const old = chatCount.value;
-    if (chatCleared.value && msgs.some(m => m.timestamp > clearedTs.value)) chatCleared.value = false;
-    chatMsgs.value = chatCleared.value ? [] : msgs;
+    // 水位过滤是"已清空历史不再复现"的唯一保证: 旧实现用 chatCleared 布尔开关, 新消息一到
+    // 开关即解除, 全量 msgs 覆盖显示 → 之前清掉的历史整段回来。过滤后新消息正常出现,
+    // 水位之下(已清空)的永远不再进入本窗口; clearedTs 初始为 0, 未清空时全员放行
+    chatMsgs.value = msgs.filter((m) => m.timestamp > clearedTs.value);
     chatCount.value = msgs.length;
     if (view.value === "chat" || chatOpen.value || (!isDesktop && !isNarrow)) seenChat.value = chatCount.value;
     if (msgs.length !== old || !loadChat._init) {
@@ -1144,6 +1074,13 @@ async function loadChat() {
   } catch (e) { console.error(e); }
   loadingChat = false;
   if (reloadChatQueued) { reloadChatQueued = false; loadChat(); }
+}
+/* 回车发送需豁免输入法组字: 中文 IME 组字期间的 Enter 是"确认候选词",
+   isComposing/keyCode 229 时不得触发发送 —— 否则把未上屏的拼音串当消息发出去 */
+function onChatEnter(e) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  sendChat();
 }
 async function sendChat() {
   const text = chatInput.value.trim();
@@ -1223,16 +1160,19 @@ function stopIntroSpy() { if (introSpy) { introSpy.disconnect(); introSpy = null
    silent=true 不弹成功/失败提示(更新弹框等自带上下文的场景用)。
    openBrowser / goDownload / 聊天链接 / 介绍页链接统一经此, 避免多份拷贝各自漂移 */
 function openExternal(url, silent = false) {
-  if (!isDesktop) { window.open(url, "_blank"); return; }
+  if (!isRealDesktop) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
   tauriInvoke("open_url_cmd", { url })
     .then((d) => {
       if (d.ok) { if (!silent) showToast("已在系统浏览器打开"); }
       else {
         if (!silent) showToast(d.error || "打开失败，尝试备用方式", "error");
-        window.open(url, "_blank");
+        window.open(url, "_blank", "noopener,noreferrer");
       }
     })
-    .catch(() => { window.open(url, "_blank"); });
+    .catch(() => { window.open(url, "_blank", "noopener,noreferrer"); });
 }
 
 /* ---------- WebSocket 推送(聊天/列表/状态), 轮询降级为兜底通道 ---------- */
@@ -1386,12 +1326,40 @@ onUnmounted(() => {
   stopPolling();
 });
 
+const logsBox = ref(null);
 async function refreshLogs() {
+  // 只在服务中心页在台前时拉取: 日志面板仅此页展示, 其余视图每 2s 空拉+全量重排是纯浪费
+  if (view.value !== "service") return;
   try {
+    // 贴底跟随: 更新前沿在底部附近才自动滚到最新; 用户上翻看历史时不打扰
+    const box = logsBox.value;
+    const stick = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 48;
     const r = await apiFetch(apiBase.value + API.logs);
     const d = await r.json();
     logs.value = d.logs || [];
+    if (stick) nextTick(() => { const b = logsBox.value; if (b) b.scrollTop = b.scrollHeight; });
   } catch (e) {}
+}
+/* 切入服务中心立即补一拉, 不等下一个 2s 轮询(期间日志可能已滚动很多条) */
+watch(() => view.value, (v) => { if (v === "service") refreshLogs(); });
+/* 日志行富化: 服务端已消毒(剥 CR/LF/截断), 前端先转义再上色 —— method 词高亮、
+   "→ NNN" 状态码按首位着色(2xx/3xx 绿、4xx/5xx 红)。v-html 前必须转义 */
+function escLog(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function logHtml(m) {
+  let s = escLog(m);
+  s = s.replace(/(^|·\s)((?:GET|POST|PUT|DELETE)\b)/g, '$1<span class="log-method">$2</span>');
+  s = s.replace(/→\s?(\d{3})/g, (m0, code) => {
+    const cls = code[0] === "4" || code[0] === "5" ? "st-bad" : code[0] === "2" || code[0] === "3" ? "st-ok" : "";
+    return cls ? `→ <span class="log-st ${cls}">${code}</span>` : m0;
+  });
+  return s;
+}
+/* 级别名映射(loguru 命名): info→INFO / ok→SUCCESS / warn→WARNING / err→ERROR */
+const LVL_NAMES = { info: "INFO", ok: "SUCCESS", warn: "WARNING", err: "ERROR" };
+function lvlName(l) {
+  return LVL_NAMES[l] || String(l || "?").toUpperCase();
 }
 
 async function clearLogs() {
@@ -1541,8 +1509,8 @@ async function refreshStatus() {
       chatMsgs.value = [];
       chatCount.value = 0;
       seenChat.value = 0;
-      chatCleared.value = false;
-      clearedTs.value = 0;
+      // clearedTs 不重置: 本机清空意图不应被一次网络抖动(离线→恢复)作废,
+      // 否则短暂失联重连后已清空的历史又会全量回来
     }
   }
 }
@@ -1553,7 +1521,7 @@ async function refreshStatus() {
     <!-- 微信内置浏览器拦非微信域名下载: 顶部常驻引导(右上角 ⋯ → 在浏览器打开) -->
     <div v-if="isWeChat" class="wx-banner">ⓘ 当前在微信内打开，文件下载可能被拦截 —— 点右上角 <b>⋯</b> 选择「<b>在浏览器打开</b>」即可正常传输</div>
     <!-- ===== 侧边栏(仅桌面壳) ===== -->
-    <aside v-if="isDesktop" class="sidebar">
+    <aside v-if="isDesktop" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="brand">
         <div class="logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
         <div class="t">CC-Flash</div>
@@ -1577,11 +1545,26 @@ async function refreshStatus() {
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span><span class="nav-label">CC设置</span>
         </button>
       </nav>
+      <!-- 全局常驻扫码(桌面壳): 服务运行中即在任意视图直接可扫, 不用切页/点顶栏图标;
+           点击弹大图(含完整地址)。收起态保留 40px 迷你码, 悬停浮出可扫大图(见 CSS) -->
+      <div v-if="running && qrData" class="side-qr" title="点击放大" @click="openQr">
+        <span class="side-qr-view">
+          <img class="side-qr-img" :src="qrData" alt="扫码打开" />
+          <span class="side-qr-scan" aria-hidden="true"></span>
+        </span>
+        <div class="side-qr-cap">扫码打开</div>
+      </div>
       <div class="side-foot">
-        <div class="side-status" :class="{ on: running }">
-          <span class="d"></span>{{ running ? `运行中 :${port}` : "已停止" }}
+        <div class="side-status" :class="{ on: running }" :title="running ? `运行中 :${port}` : '已停止'">
+          <span class="d"></span><span class="side-status-text">{{ running ? `运行中 :${port}` : "已停止" }}</span>
         </div>
         <div class="side-ver">{{ appVersion ? "v" + appVersion + " · Tauri" : "Tauri" }}</div>
+        <button class="collapse-btn" :class="{ open: sidebarCollapsed }"
+                :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+                :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" @click="toggleSidebar">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span v-if="!sidebarCollapsed" class="collapse-txt">收起</span>
+        </button>
       </div>
     </aside>
 
@@ -1666,7 +1649,7 @@ async function refreshStatus() {
             <h5>{{ collecting ? "正在读取拖入的文件…" : "点击选择文件 或 拖拽到此处" }}</h5>
             <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
               <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
-              · 大文件断网/锁屏后自动续传</p>
+              · 大文件稳定传输，锁屏自动防中断</p>
             <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
             <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
           </div>
@@ -1678,14 +1661,14 @@ async function refreshStatus() {
                  : u.status === "waiting" ? "等待中"
                  : u.status === "done" ? (u.final ? "已存为 " + u.final : "完成") : u.speed || "失败" }}
               </span>
-              <button v-if="u.status !== 'done'" class="icon-btn" :title="u.status === 'error' ? '移除' : '取消上传'"
+              <button v-if="u.status === 'waiting' || u.status === 'uploading'" class="icon-btn" title="取消上传"
                       style="margin-left:6px" @click="cancelUpload(u)">✕</button>
             </div>
             <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
           </div>
         </div>
 
-        <div class="card">
+        <div class="card files-card">
           <div class="list-head">
             <div class="lh-left">
               <h3>共享文件</h3>
@@ -1753,15 +1736,6 @@ async function refreshStatus() {
           </div>
         </div>
 
-        <div class="hint-card">
-          <h4>使用说明</h4>
-          <ol>
-            <li>电脑点「启动服务」（服务中心页），手机扫码或输入地址打开本页</li>
-            <li>上传：拖拽 / 点击选择 / Ctrl+V 粘贴截图，均支持批量</li>
-            <li>下载：点蓝色按钮；分享：点绿色按钮（手机拉起系统分享，电脑复制链接）</li>
-            <li>聊天在左侧「文本消息」，手机/电脑消息实时互通</li>
-          </ol>
-        </div>
       </template>
 
       <!-- 聊天室 -->
@@ -1792,17 +1766,15 @@ async function refreshStatus() {
           </div>
           <div class="chat-input-area">
             <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
-                   @keydown.enter.prevent="sendChat" />
+                   @keydown.enter="onChatEnter" />
             <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
           </div>
         </div>
       </template>
 
-      <!-- 服务中心 -->
+      <!-- 服务中心: 控制卡通栏 + 日志卡吃满剩余高度; 扫码走顶栏「显示二维码」弹窗(信息更全), 页面不再放冗余扫码卡 -->
       <template v-if="isDesktop && view === 'service'">
-        <div class="svc-top">
-          <!-- 服务控制 -->
-          <div class="card svc-ctrl">
+        <div class="card svc-ctrl">
             <div class="svc-head">
               <div class="svc-status-row">
                 <span class="chip" :class="running ? 'run' : 'stop'">
@@ -1840,52 +1812,29 @@ async function refreshStatus() {
               <button class="btn btn-ghost" :disabled="!running" @click="openShareDir">打开共享目录</button>
             </div>
           </div>
-          <!-- 手机扫码直达 -->
-          <div class="card svc-qr">
-            <h3>手机扫码直达</h3>
-            <img v-if="qrData" class="qr-img" :src="qrData" alt="QR" />
-            <div v-else class="qr-empty">启动服务后<br />显示二维码</div>
-            <div class="qr-caption">手机 / 平板同一 Wi-Fi 下扫码打开</div>
-          </div>
-        </div>
-        <!-- 服务日志: 独占整行 -->
+        <!-- 服务日志: 吃满剩余高度 -->
         <div class="card svc-log-card">
           <div class="list-head">
-            <h3>服务日志</h3>
+            <div class="lh-left">
+              <h3>服务日志</h3>
+              <span class="badge">{{ logs.length }} 条</span>
+            </div>
             <button class="btn btn-ghost" style="height:28px" title="清空服务日志显示（不影响服务运行）"
                     @click="clearLogs">清空日志</button>
           </div>
           <div class="svc-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:0;min-height:0">
-            <div class="logs" style="flex:1;height:auto">{{ logs.length ? logs.join("\n") : "HTTP 请求与服务事件…" }}</div>
-          </div>
-        </div>
-        <!-- 皮肤设置 -->
-        <div class="card svc-skin">
-          <h3>皮肤设置</h3>
-          <div class="mode-row" role="group" aria-label="主题模式">
-            <button v-for="m in THEME_MODES" :key="m.id" class="mode-btn" :class="{ active: themeMode === m.id }"
-                    @click="setThemeMode(m.id)">
-              <span>{{ m.icon }}</span><span>{{ m.name }}</span>
-            </button>
-          </div>
-          <div class="theme-row">
-            <button v-for="t in THEMES" :key="t.id" class="theme-sw" :class="{ active: theme === t.id }"
-                    :title="t.name" @click="setTheme(t.id)">
-              <span class="sw" :style="{ background: t.preview }"></span>
-              <span>{{ t.name }}</span>
-            </button>
-          </div>
-          <div class="sub-hint">主题模式决定明暗（跟随系统随系统外观自动切换），配色决定色相，两者可任意搭配；即时生效并自动记忆</div>
-        </div>
-        <!-- 关于 -->
-        <div class="card svc-about">
-          <h3>关于</h3>
-          <p class="about-text">CC-Flash（曹操是快😂）—— 局域网文件互传工具：电脑启动服务，手机/平板/电脑浏览器打开地址即可上传/下载/分享/聊天。</p>
-          <div class="about-ver">
-            <span class="ver-chip">当前版本 v{{ curVersion() }}</span>
-            <button class="btn btn-ghost" style="height:28px" :disabled="checkingUpdate" @click="checkUpdate(true)">
-              {{ checkingUpdate ? "检查中…" : "检查更新" }}
-            </button>
+            <div class="logs" ref="logsBox" style="flex:1;height:auto">
+              <div v-for="(e, i) in logs" :key="i" class="log-line">
+                <span class="log-ts">{{ e.ts }}</span>
+                <span class="log-sep">|</span>
+                <span class="log-lvl" :class="'lvl-' + e.level">{{ lvlName(e.level) }}</span>
+                <span class="log-sep">|</span>
+                <span class="log-loc">{{ e.loc }}</span>
+                <span class="log-sep">-</span>
+                <span class="log-msg" v-html="logHtml(e.msg)"></span>
+              </div>
+              <div v-if="!logs.length" class="log-empty">HTTP 请求与服务事件…</div>
+            </div>
           </div>
         </div>
       </template>
@@ -1927,6 +1876,40 @@ async function refreshStatus() {
           <h3>通用</h3>
           <p class="about-text">当前平台暂无可配置项 —— 开机自动启动等桌面功能仅在 macOS / Windows 版提供。</p>
         </div>
+        <!-- 皮肤设置: 两行"标签+控件"(外观/配色), 色板芯片即按钮本体 -->
+        <div class="card svc-skin">
+          <h3>皮肤设置</h3>
+          <div class="skin-row">
+            <span class="skin-label">外观</span>
+            <div class="mode-row" role="group" aria-label="主题模式">
+              <button v-for="m in THEME_MODES" :key="m.id" class="mode-btn" :class="{ active: themeMode === m.id }"
+                      @click="setThemeMode(m.id)">
+                <span>{{ m.icon }}</span><span>{{ m.name }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="skin-row">
+            <span class="skin-label">配色</span>
+            <div class="theme-row">
+              <button v-for="t in THEMES" :key="t.id" class="theme-sw" :class="{ active: theme === t.id }"
+                      :style="{ background: t.preview }" :title="t.name" :aria-label="t.name"
+                      @click="setTheme(t.id)"></button>
+              <span class="skin-cur">当前 · {{ currentThemeName }}</span>
+            </div>
+          </div>
+          <div class="sub-hint">跟随系统随系统外观自动切换；即时生效并自动记忆</div>
+        </div>
+        <!-- 关于 -->
+        <div class="card svc-about">
+          <h3>关于</h3>
+          <p class="about-text">CC-Flash（曹操是快😂）—— 局域网文件互传工具：电脑启动服务，手机/平板/电脑浏览器打开地址即可上传/下载/分享/聊天。</p>
+          <div class="about-ver">
+            <span class="ver-chip">当前版本 v{{ curVersion() }}</span>
+            <button class="btn btn-ghost" style="height:28px" :disabled="checkingUpdate" @click="checkUpdate(true)">
+              {{ checkingUpdate ? "检查中…" : "检查更新" }}
+            </button>
+          </div>
+        </div>
       </template>
 
       <!-- 网页端(PyQt 风格): 左列上传+文件, 右列聊天室 -->
@@ -1941,7 +1924,7 @@ async function refreshStatus() {
               <h5>{{ collecting ? "正在读取拖入的文件…" : "点击选择文件 或 拖拽到此处" }}</h5>
               <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
                 <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
-                · 大文件断网/锁屏后自动续传</p>
+                · 大文件稳定传输，锁屏自动防中断</p>
               <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
               <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
             </div>
@@ -1953,7 +1936,7 @@ async function refreshStatus() {
                    : u.status === "waiting" ? "等待中"
                    : u.status === "done" ? (u.final ? "已存为 " + u.final : "完成") : u.speed || "失败" }}
                 </span>
-                <button v-if="u.status !== 'done'" class="icon-btn" :title="u.status === 'error' ? '移除' : '取消上传'"
+                <button v-if="u.status === 'waiting' || u.status === 'uploading'" class="icon-btn" title="取消上传"
                         style="margin-left:6px" @click="cancelUpload(u)">✕</button>
               </div>
               <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
@@ -2059,8 +2042,9 @@ async function refreshStatus() {
         </div>
       </div>
 
-      <!-- 页脚: 版权(桌面/网页端共用; 内容不满一屏时贴底) -->
-      <footer class="app-foot">{{ FOOTER_TEXT }}</footer>
+      <!-- 页脚: 版权(内容不满一屏时贴底)。桌面端仅 CC设置页保留, 其余页面去掉、
+         底部统一收在主区内距上; 网页端不受影响, 全页显示 -->
+      <footer v-if="!isDesktop || view === 'settings'" class="app-foot">{{ FOOTER_TEXT }}</footer>
     </main>
   </div>
 
@@ -2104,7 +2088,7 @@ async function refreshStatus() {
           </div>
           <div class="chat-input-area">
             <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
-                   @keydown.enter.prevent="sendChat" />
+                   @keydown.enter="onChatEnter" />
             <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
           </div>
         </div>

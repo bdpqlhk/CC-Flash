@@ -138,7 +138,23 @@ pub fn run() {
                             },
                         };
                         let _ = std::fs::create_dir_all(&dir);
-                        *destination = dir.join(fname);
+                        // 同名不静默覆盖: stem(1).ext 顺延(审查回归 —— 原实现直接 join,
+                        // Downloads 里的同名旧文件可能被无声替换)
+                        let mut target = dir.join(&fname);
+                        if target.exists() {
+                            let (stem, ext) = match fname.rsplit_once('.') {
+                                Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+                                _ => (fname.clone(), String::new()),
+                            };
+                            for i in 1..10000u32 {
+                                let cand = dir.join(format!("{stem}({i}){ext}"));
+                                if !cand.exists() {
+                                    target = cand;
+                                    break;
+                                }
+                            }
+                        }
+                        *destination = target;
                         true
                     }
                     tauri::webview::DownloadEvent::Finished { path, success, .. } => {

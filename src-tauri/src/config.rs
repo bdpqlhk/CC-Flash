@@ -37,8 +37,8 @@ pub const CHAT_PREVIEW_CHARS: usize = 40;
 pub const DEFAULT_NICK: &str = "匿名用户";
 
 // ---- 日志 ---- //
-/// 服务日志环形队列上限
-pub const REQ_LOG_MAX: usize = 1000;
+/// 服务日志环形队列上限(结构化条目后单条含时间戳/级别/位置, 上限相应提高保详细度)
+pub const REQ_LOG_MAX: usize = 2000;
 /// 单条日志行硬截断: hyper 允许数百 KB 的 URL, 不截断可被超长路径灌爆内存(1000 条 × 数百 KB)
 pub const LOG_LINE_MAX: usize = 400;
 /// 高频轮询端点(不写请求日志)。与前端 config.js 的 POLL_* 轮询路径一一对应,
@@ -54,25 +54,22 @@ pub const NOISY_GET_PATHS: &[&str] = &[
 // ---- 传输 ---- //
 /// 下载流式读取缓冲
 pub const CHUNK_HINT: usize = 1024 * 1024;
-/// 断点续传临时文件后缀(隐藏于列表; 服务启动时清理残留)。
-/// 分片大小是客户端关注点(见 config.js UPLOAD_CHUNK), 服务端只按 X-Upload-Offset 追加写。
+/// 断点续传临时文件后缀(隐藏于列表; 服务启动时清理过期残留)。
+/// v1.1.8 起上传为单请求整文件直传、不再产生新断点; 该后缀仅服务 v1.1.5-1.1.7
+/// 旧版遗留 .ccpart 的查询(upload_progress)与清理(7 天 TTL / upload_cancel)
 pub const UPLOAD_PART_SUFFIX: &str = ".ccpart";
 /// 断点旁路元数据(会话 id)后缀, 与 .ccpart 一同视为内部产物
 pub const UPLOAD_PART_META_SUFFIX: &str = ".ccpart.meta";
 /// 上传相对路径的最大段数(与文件列表递归深度上限一致, 超深目录列表不可见)
 pub const UPLOAD_MAX_DEPTH: usize = 8;
-/// 上传请求体空闲超时(秒): 半开连接的残留 handler 靠它释放断点文件的写锁
-pub const UPLOAD_IDLE_TIMEOUT_SECS: u64 = 120;
-/// 未知大小上传(size=0, 无法预检)每写入该字节数复查一次磁盘剩余,
-/// 剩余不足一个流缓冲时中止——防"声明 0 大小无限灌盘"打满系统盘
+/// 流式落盘每 N 字节复查一次磁盘剩余, 剩余不足 N 即中止。
+/// 声明 size 的预检只挡得住诚实客户端 —— size=0(无法预检)与谎报 size 的
+/// 请求体(HTTP 分块传输可无上限)全靠它兜底, 防灌满共享盘
 pub const UPLOAD_FREE_CHECK_BYTES: u64 = 64 * 1024 * 1024;
 /// 断点保留期(秒): 启动清理只删超过该期限的残留 .ccpart。
 /// 立即全清会毁掉"进程/系统重启后续传"(Android 退后台被杀、电脑重启后
 /// 重选同一文件本可靠会话指纹命中服务端断点继续)
 pub const UPLOAD_PART_TTL_SECS: u64 = 7 * 24 * 3600;
-/// 新上传会话(offset=0)接管保护窗(秒): 断点属于其他会话且该时间内仍在写入时拒绝接管。
-/// 防两台设备传同名文件陷入"互截断断点→互从零重启"的无限拉锯; 写入停止超时则放行覆盖
-pub const UPLOAD_PART_BUSY_SECS: u64 = 30;
 
 // ---- 共享目录 ---- //
 /// 默认共享目录名(家目录下)

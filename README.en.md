@@ -12,7 +12,8 @@ Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite**. Desktop installer is just a
 
 ## Features
 
-- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), large files uploaded via **16MB chunks × 3 parallel connections** (immune to single-connection stalls on mobile), **whole-folder upload** (structure preserved) and **resumable transfer** (auto-resumes per 16MB chunk after network drop, screen lock, or restart; resume points kept for 7 days); same-name files are **never overwritten** — auto-renamed to `file(1).zip`, `(2)`, `(3)`…; streaming download, full Unicode filename support
+- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), large files uploaded as a **single whole-file streaming request** (server-side streaming to disk, zero memory bloat), **screen keep-alive during upload** (prevents lock-screen interruptions, smart concurrency queue), **whole-folder upload** (structure preserved); **always-on QR code in the desktop sidebar** — scan from any page; same-name files are **never overwritten** — auto-renamed to `file(1).zip`, `(2)`, `(3)`…; streaming download with Range resume support, full Unicode filename support
+- 🖥 **Service center** — start/stop, port, disk space at a glance; **loguru-style structured logs** (color-coded levels / source file:line / auto-follow), issues spotted at a glance
 - 💬 **Chat** — real-time LAN messaging (WebSocket push) with nicknames, emoji avatars, clickable links, and lightweight Markdown
 - 📱 **Three form factors** — desktop window (tray-resident) / two-pane desktop browser / single-column mobile browser with floating chat ball; one codebase adapts everywhere
 - 🗂 **Native folder picker** — click "Choose" next to the share directory and pick with the OS dialog
