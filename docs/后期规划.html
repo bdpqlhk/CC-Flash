@@ -73,8 +73,9 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC-Flash · 后期规划</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-06（v1.1.9 后修订）</b></span>
-<span>基线：<b>v1.1.9 已发布</b>（悬浮码贴边呼吸球与悬停预览 / 移动端客户端模式 / 服务端安全加固；继承 v1.1.8：整文件直传+并发闸 / loguru 风格日志 / 侧边栏常驻扫码；v1.1.6：壳内下载 / 同名自动改名 / 明暗主题×六配色 / e2e 自检）</span>
+<span>文档日期：<b>2026-11-07（v1.2.0 发布修订）</b></span>
+<span>基线：<b>v1.2.0 已发布</b>（悬浮码扩展屏与跨屏修复 / 分享复制票据预取修复 / 分享票据 6 位 token；继承 v1.1.9：悬浮码贴边呼吸球与悬停预览 / 移动端客户端模式 / 服务端安全加固；v1.1.8：整文件直传+并发闸 / loguru 日志 / 侧边栏常驻扫码）</span>
+<span>约束：<b>不做分片上传（红线）· 全线轻量化</b></span>
 <span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
 </div>
 </header>
@@ -96,8 +97,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">二</span>规划总览与版本节奏</h2>
 <table>
 <tr><th>版本</th><th>主题</th><th>时间窗</th><th>一句话</th></tr>
-<tr><td><b>v1.2.x</b></td><td>质量与安全打磨</td><td>1 ~ 2 个月</td><td>不加新功能，把「敢在任意 Wi-Fi 打开」补上</td></tr>
-<tr><td><b>v1.3</b></td><td>能力扩展</td><td>第 3 ~ 5 月</td><td>临时分享链接、共享文件夹监控、发现（mDNS）—— 推送化/整目录已于 v1.1.3 提前落地；上传断点续传随 v1.1.8 回滚移回本表重规划</td></tr>
+<tr><td><b>v1.2.x</b></td><td>质量与安全打磨</td><td>1 ~ 2 个月</td><td>安全缺口优先，穿插轻量体验补齐（系统通知 / 回收站 / 搜索等小步快跑，每个都可感知）</td></tr>
+<tr><td><b>v1.3</b></td><td>能力扩展</td><td>第 3 ~ 5 月</td><td>临时分享链接、在线预览增强、UDP 广播发现、共享文件夹监控—— 推送化/整目录已于 v1.1.3 提前落地；<b>上传断点续传已列入红线不做</b></td></tr>
 <tr><td><b>v2.0</b></td><td>生态演进</td><td>第 6 月起</td><td>iOS、应用市场、应用内更新、国际化</td></tr>
 </table>
 <div class="callout c-tip"><b>排序原则</b>安全缺口 &gt; 高频痛点 &gt; 传播型功能（如发现）&gt; 平台扩张。每个版本只承诺 1 个「主菜」，其余为配菜——避免摊大饼。</div>
@@ -119,7 +120,12 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <li><b>传输历史</b>：本地记录最近收发（不含文件本体），解决「刚才那个文件呢」；</li>
 <li><b>断网自愈增强</b>：<span class="tag t-done">✔ 已实现</span>WS 看门狗强制重连 + 失联/恢复状态机（清空与全量重载 + 恢复提示），手机页面断连后自动按原地址恢复；</li>
 <li><b>路径安全回归测试集</b>：<span class="tag t-done">✔ 已实现</span>内置 e2e（裸 TCP 全链路：乱序并行/续传/完成记录/下载 HEAD/Range/416/路径穿越加固断言）；fuzz 边界用例仍可继续扩充；</li>
-<li><b>小尾巴清零</b>：前后端大小单位表统一（ humans/fmtSize 已同步）；日志文案一致性已过一遍（并行分片降噪 + 关键事件留存）。</li>
+<li><b>小尾巴清零</b>：前后端大小单位表统一（ humans/fmtSize 已同步）；日志文案一致性已过一遍（并行分片降噪 + 关键事件留存）；</li>
+<li><b>系统通知</b>：上传完成 / 服务启动失败推系统通知——<code>tauri-plugin-notification</code> 已注册进依赖，只差调用，约 0.3 天；</li>
+<li><b>托盘「复制地址」</b>：托盘菜单加一项复制 <code>IP:端口</code>，少开一次主窗口，约 0.2 天；</li>
+<li><b>删除进回收站</b>：硬删除改为移入 <code>.trash/</code>（复用现有隐藏目录规则），可选保留 N 天 / 手动清空——防手滑，约 0.5 天；</li>
+<li><b>列表搜索</b>：文件页本地搜索框（纯前端过滤），文件多了是刚需，约 0.2 天；</li>
+<li><b>轻量 PWA</b>：<code>apple-touch-icon</code> + manifest + 「添加到主屏幕」，手机桌面一键进共享页；Service Worker 离线缓存暂不碰（复杂度不轻）。</li>
 </ul>
 </section>
 
@@ -128,13 +134,18 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">四</span>v1.3 · 能力扩展（第 3 ~ 5 月）</h2>
 <table>
 <tr><th style="width:150px">项</th><th>说明</th><th>量级</th><th style="width:60px">优先级</th></tr>
-<tr><td><b>断点续传</b></td><td>大文件传一半断网/锁屏后可续：<b>下载侧 ✅ Range 206 已实现</b>（浏览器断下自动续传）；<b>上传侧</b>随 v1.1.8 整文件直传回滚而移除（iOS 单连接停摆 + 维护成本权衡），现中断即整份重传（半截文件即时清理）——需基于新架构重新设计后落地</td><td>约 3~5 天</td><td><span class="tag t-p0">重规划</span></td></tr>
 <tr><td><b>临时分享链接</b></td><td>「仅下载」只读链接：带 token + 过期时间（10 分钟/1 天/7 天），发给同事不用怕被删改——补齐协作场景</td><td>约 1~2 天</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td><b>在线预览增强</b></td><td>视频/音频用浏览器原生 <code>&lt;video&gt;/&lt;audio&gt;</code> 播放（服务端 Range 已就绪，只差标签）；TXT/Markdown/代码 fetch 后转义渲染在线看；PDF 走 iframe 内嵌——纯前端零新依赖</td><td>约 1 天</td><td><span class="tag t-p1">P1</span></td></tr>
+<tr><td><b>UDP 广播发现</b></td><td>手机页面点「发现」→ UDP 广播 → 电脑回 IP:port；<code>std::net</code> <b>零依赖</b>，绕开 mDNS 两个硬边界（Android 不解析 .local、企业网禁多播）。<b>mDNS（wft.local）方案降为备选</b>；失败自动退回扫码路径</td><td>约 0.3 天</td><td><span class="tag t-p1">P1</span></td></tr>
 <tr><td><b>WebSocket 推送</b></td><td>聊天/列表/状态由轮询改推送 —— <b>✅ 已于 v1.1.4 提前落地</b>（聊天/列表/状态事件推送 + 15s 心跳 + 看门狗强制重连，轮询保留为降级通道）</td><td>约 3~4 天</td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td><b>mDNS 发现（wft.local）</b></td><td>已评估方案入库：<code>mdns-sd</code> 广播 <code>_http._tcp</code>（约 60~80 行）；手机记一次 wft.local 书签，IP 变化不再失效。硬边界（Android 不解析 .local、企业网禁多播）已在需求文档写明——<b>定位为「锦上添花」，失败自动退回扫码路径</b></td><td>约 0.5 天</td><td><span class="tag t-p1">P1</span></td></tr>
 <tr><td><b>整目录/文件夹上传</b></td><td>拖文件夹进页面保持目录结构上传 —— <b>✅ 已于 v1.1.3 提前落地</b>（拖拽递归 + webkitdirectory + 子目录列表）</td><td>约 1~2 天</td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td><b>按需校验和</b></td><td>详情/右键显示文件 MD5/SHA256（按需计算，大文件不自动算），重要文件传输后人工比对</td><td>约 0.5 天</td><td><span class="tag t-p2">P2</span></td></tr>
+<tr><td><b>流式 zip 打包下载</b></td><td>多选文件 on-the-fly 打包下载；stored 模式可<b>零依赖手写约 100 行</b>，不引压缩库</td><td>约 1~2 天</td><td><span class="tag t-p2">P2</span></td></tr>
+<tr><td><b>悬浮球拖拽上传</b></td><td>桌面拖文件落到悬浮球直接上传——最短上传路径</td><td>约 1 天</td><td><span class="tag t-p2">P2</span></td></tr>
+<tr><td><b>悬浮球右键菜单</b></td><td>右键快速打开共享文件夹 / 复制地址</td><td>约 0.5 天</td><td><span class="tag t-p2">P2</span></td></tr>
 <tr><td><b>共享文件夹监控同步</b></td><td>指定子目录变化自动出现/失效（轻量 Dropbox 感）——注意范围，不做双向同步</td><td>约 2~3 天</td><td><span class="tag t-p2">P2</span></td></tr>
 </table>
+<div class="callout c-warn"><b>已移除：上传断点续传</b>它只能靠分片实现，与「不做分片上传」约束冲突——整文件直传（中断即整份重传、半截即时清理）是刻意取舍，<b>下载侧 Range 断点续传不受影响</b>（那不是分片上传）。</div>
 <div class="callout c-warn"><b>取舍说明</b>「文件夹监控同步」与「双向同步」一线之隔，后者是 Syncthing 的地盘——v2.0 前明确不做双向，避免掉进数据一致性深坑。</div>
 </section>
 
@@ -172,7 +183,9 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <li><b>崩溃收集（可选退出）</b>：<code>tauri-plugin-sentry</code> 或自建 panic 上报，默认关闭、文档明示——开源工具的信任红线是「不悄悄收集」；</li>
 <li><b>发布工程</b>：自动 Changelog（conventional commits 已具备）、Nightly 构建通道（tag <code>nightly</code> 触发，尝鲜用户分流）、产物校验和（SHA256SUMS）随 Release 发布；</li>
 <li><b>依赖与安全巡检</b>：Dependabot/Renovate 开启，cargo audit + npm audit 进 CI（只报告不阻断）；</li>
-<li><b>性能基线</b>：1GB 文件传输内存曲线、列表 5000 文件时渲染性能，留成基准脚本防回归。</li>
+<li><b>性能基线</b>：1GB 文件传输内存曲线、列表 5000 文件时渲染性能，留成基准脚本防回归；</li>
+<li><b>一键诊断包</b>：设置页「导出诊断」——日志 + 配置（脱敏）+ <code>pref-pet-dbg-*</code> 等诊断文件 + 版本信息打成一个文件，用户报障一条附件说清，约 0.5 天；</li>
+<li><b>日志导出</b>：日志页「导出 .log」按钮，约 0.2 天。</li>
 </ul>
 </section>
 
@@ -198,7 +211,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <li>❌ <b>双向文件夹同步</b>：一致性深坑，是 Syncthing/Resilio 的地盘；</li>
 <li>❌ <b>音视频通话 / 屏幕共享</b>：完全另一类工程；</li>
 <li>❌ <b>内嵌广告 / 推送弹窗</b>：口碑红线；</li>
-<li>❌ <b>功能型 fork 追求大而全</b>：新功能一律过「是否服务同一 Wi-Fi 传文件主场景」这一问。</li>
+<li>❌ <b>功能型 fork 追求大而全</b>：新功能一律过「是否服务同一 Wi-Fi 传文件主场景」这一问；</li>
+<li>❌ <b>上传断点续传 / 分片上传</b>：整文件直传是 v1.1.8 的刻意取舍（中断即整份重传、半截即时清理），分片会把复杂度与维护成本带回桌面；下载侧 Range 断点续传不受影响（那不是分片上传）。</li>
 </ul>
 </section>
 
@@ -215,13 +229,14 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td>v1.1.7</td><td class="muted">已发布（2026-11-02）</td><td>iOS 上传稳定性：wakeLock 防锁屏冻结 + 失败自动复活按账本续传</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.8</td><td class="muted">已发布（2026-11-04）</td><td>上传回滚整文件直传（+并发闸）+ loguru 风格结构化日志 + 侧边栏常驻扫码 + Windows MAX_PATH 预检 + 磁盘周期查盘 + 布局收紧</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.9</td><td class="muted">已发布（2026-11-06）</td><td>悬浮码贴边呼吸球与悬停预览 + 移动端客户端模式 + 服务端安全加固</td><td><span class="tag t-done">✔ 已发</span></td></tr>
-<tr><td>v1.2.0</td><td class="muted">下一个</td><td>HTTPS 自签扫码信任 + 下载并行化 + 应用内自更新 + 传输历史</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
-<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>传输历史 / 断网自愈 / 路径安全测试集 / 小尾巴清零</td><td>CI 含服务端测试与审计</td></tr>
-<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>上传断点续传（回归，基于整文件直传架构重设计）+ 临时分享链接（+mDNS 视进度）</td><td>10GB 断点续传实测通过</td></tr>
+<tr><td>v1.2.0</td><td class="muted">已发布（2026-11-07）</td><td>悬浮码扩展屏与跨屏修复（选屏/坐标空间/系统阴影）+ 分享复制票据预取修复 + 票据 6 位 token + 文档与规划全量同步</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.2.1</td><td class="muted">下一个</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索 / 在线预览）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
+<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>小尾巴清零 / 诊断包导出 / 轻量增强包收尾（断网自愈、路径安全测试集已提前落地）</td><td>CI 含服务端测试与审计</td></tr>
+<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接 + UDP 广播发现 + 在线预览增强（上传断点续传已列入红线不做）</td><td>临时链接与发现能力上线</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
 </table>
-<div class="callout c-info"><b>与推广方案的联动</b>v1.2.0 的「公共 Wi-Fi 安全感」是推广阶段三大量曝光前的必要前置——先修城墙，再开城门。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-06 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
+<div class="callout c-info"><b>与推广方案的联动</b>v1.2.1 的「公共 Wi-Fi 安全感」（HTTPS 自签扫码信任）是推广阶段三大量曝光前的必要前置——先修城墙，再开城门。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-07 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
 </section>
 
 </main>
