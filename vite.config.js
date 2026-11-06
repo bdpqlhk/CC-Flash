@@ -6,6 +6,11 @@ export default defineConfig({
   clearScreen: false,
   server: {
     port: 5173,
+    // docs/*.md 是文档不是前端代码: 改文档不触发整页 reload —— 每次 reload 都会让
+    // 桌面壳两个 WebView(主窗/悬浮球)白屏闪一下, 悬浮球窗尤其明显(透明窗瞬间变白)
+    watch: {
+      ignored: ["**/docs/**", "**/*.md"],
+    },
     // dev/preview 下前端(5173/4173)与 API(桌面壳的 1688)不同源, 代理对齐线上同源形态:
     // 网页端 apiBase 为空串, 请求按相对路径打到同源 —— 不代理则 dev 调试下载/上传全 404
     proxy: {

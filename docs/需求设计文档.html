@@ -79,7 +79,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-05</b></span>
+<span>文档日期：<b>2026-11-06</b></span>
 <span>状态：<b>已实现，macOS 包已出</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
@@ -108,7 +108,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>零配置</b>：安装即用，端口/目录全自动，端口被占自动顺延；</li>
 <li><b>零学习成本</b>：所有操作一目了然，文案口语化（"保姆级"标准）；</li>
 <li><b>可信赖的反馈</b>：每个动作都有 toast 提示（上传/下载/复制/清空/错误），服务状态常驻可见（三圆点脉冲徽标）；</li>
-<li><b>低刺激视觉</b>：全局深色主题，5 套可切换皮肤，颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
+<li><b>低刺激视觉</b>：亮色 / 暗色 / 跟随系统三种模式 × 6 套可切换配色（深空蓝 / 石墨灰 / 森林薄荷 / 暗夜紫 / 墨色琥珀 / 石墨玫瑰），颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
 </ul>
 </section>
 
@@ -142,7 +142,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-04</td><td>按平台差异化操作按钮：<b>真实桌面</b>（mac/win/linux 壳）=打开/复制/删除/分享；<b>Android/iOS 壳与浏览器</b>=下载/删除/分享（移动端无系统程序打开/剪贴板复制能力，原按钮是死路）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-05</td><td>上传前磁盘空间预检（按声明大小），空间不足明确拒绝；<b>流式落盘每 64MB 复查剩余</b>，不足即中止——size=0/谎报大小的请求体也无法灌满磁盘；<b>下载断点续传</b>：Range 206/416 语义完整，浏览器断下自动续传。<b>上传断点续传</b>随 v1.1.8 整文件直传决策移入后期规划（中断的半截文件立即清理，目录不残留残缺文件）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）；开启访问令牌时链接携带<b>一次性票据</b>——仅授权下载该文件、10 分钟有效，接收方免输配对码（关闭令牌时链接为直连地址）；点「分享」立即完成复制</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息内 URL 自动识别为可点击链接（先转义防 XSS，桌面端点击走系统浏览器）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -155,7 +155,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-25</td><td>单实例守卫：应用运行中再次启动（桌面/开始菜单/程序坞图标）不再新建进程，改为唤起已有主窗口——杜绝 Windows 侧托盘图标越开越多</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-26</td><td>开机自启（手动开启）：仅在「CC设置」打开开关才注册登录项（<b>默认关闭</b>，杜绝首启静默注册绑定临时路径）；自启启动带 <code>--hidden</code>，登录后服务后台运行、窗口不弹出不闪屏；DMG/开发目录运行时文案警示路径失效风险；Android/iOS WebView 不展示该设置</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-75</td><td rowspan="5">桌面悬浮码</td><td>置顶呼吸圆点贴边收拢：窗口中心压屏幕边缘线（圆点<b>漏一半</b>在屏内），默认左侧垂直居中；指针<b>停留 1.5 秒</b>滑出「浏览器扫一扫」预览卡（纯预览、不提供点击功能），离开 250ms 收拢；点击圆点打开主窗口并收起面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-76</td><td>拖动换边：按住拖动松手自动吸附最近边缘（距离并列优先左侧）；位置写入 <code>pet-dock.json</code>（Rust 同步落盘），重启按原位置恢复；展开/收拢/吸附的窗口几何操作串行单飞，杜绝"卡片配收拢位姿"错配</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-76</td><td>拖动换边：按住拖动松手自动吸附最近边缘（距离并列优先左侧），<b>支持扩展屏</b>——拖到哪块屏吸哪块屏；位置与<b>所在显示器</b>写入 <code>pet-dock.json</code>（Rust 同步落盘），重启按原屏原位置恢复（记忆屏离线先落当前屏、插回自动归位）；展开/收拢/吸附的窗口几何操作串行单飞，杜绝"卡片配收拢位姿"错配</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-77</td><td>服务状态<b>以外圈呼吸为唯一语言</b>：运行中粉环呼吸（高保底透明度 + 辉光），已停止则静止常亮；显隐只由 CC设置开关控制，开关写入 <code>pref-qr-float-enabled</code> 重启保持；<b>关闭入口仅 CC设置</b>（圆点上不放 ✕）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-78</td><td>新文件 / 新消息角标：外圈<b>绿点弹入</b>提示（绿点画在 SVG 呼吸组内<b>与呼吸环同组随环缩放</b>，并按吸附边旋到屏幕可见半侧；文件名快照 diff / 消息条数基线 diff，首拉只记基线不误报）；<b>主窗可见时抑制并清零</b>（Rust 广播 <code>main-vis://changed</code> + 启动查询 <code>main_visible_cmd</code>）；无通知完全隐藏</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-79</td><td>停止态面板：白块改<b>暗底虚线空态 + 静默取景框</b>，文案「服务已停止 / 打开主窗口启动服务」；预览卡<b>不挂 title 悬浮提示</b>，任何时候不遮挡二维码；圆点悬停判定用<b>光标在场轮询</b>（250ms），不依赖 mouseenter 边界事件（窗口程序化移动后边界事件会丢配对）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -166,7 +166,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-41</td><td>手机浏览器：单列堆叠 + 右下角悬浮球（未读数）+ 底部聊天面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-42</td><td>面板打开时锁定背景滚动，面板内滑动不穿透；每 5s 刷新状态/IP；窄屏统计为 2×2 独立描边小卡</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据，删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-50</td><td rowspan="2">外观</td><td>5 套深色皮肤（深空蓝/石墨灰/极光蓝/护眼暖黑/暗夜紫），即时生效并记忆，三级文字色随主题色相联动</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × 6 套配色（深空蓝/石墨灰/森林薄荷/暗夜紫/墨色琥珀/石墨玫瑰），即时生效并记忆，三级文字色随主题色相联动</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-51</td><td>页脚版权：桌面与网页端页面底部统一展示「© 2026-现在 by hangkun.li」，内容短时贴底、长时顺延</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：对接 GitHub Releases，启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -195,6 +195,7 @@ pre code{background:none;color:inherit;padding:0}
 <li>分享：任何端点击「分享」= 复制下载链接到剪贴板，自动附加话术：
 <div class="callout c-tip" style="margin-top:8px"><b>固定话术（需求原文）</b>「🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。」</div>
 </li>
+<li>开启<b>访问令牌</b>时，分享链接自动携带<b>一次性票据</b>（绑定该文件、10 分钟有效、下载成功即作废）：接收方点开即可下载、<b>无需输入配对码</b>，且链接<b>只能下载这一个文件</b>；关闭令牌时链接为直连地址。票据在指针悬停到「分享」按钮时后台预取，点击时同步完成复制（不因等待签发而复制失败）；</li>
 </ul>
 <h3>4.3 操作按钮 · 平台差异（需求原文还原）</h3>
 <div class="callout c-info"><b>需求原文</b>「在手机/电脑浏览器上共享文件展示的线性图标只需要有 下载、删除、分享 按钮；Tauri 桌面窗口展示的线性图标有：打开、复制、删除、分享 按钮。」</div>
@@ -243,7 +244,7 @@ pre code{background:none;color:inherit;padding:0}
 <ul>
 <li><b>形态</b>：收拢态为 64px 呼吸圆点——<b>透明无底盘</b>（不画球体背景与投影，直接悬浮在桌面上），珊瑚粉呼吸环（缩放 .92↔1.08 + 描边加粗 + 明暗，2s 一循环）+ 微信绿 44px 圆芯（30px 取景框内嵌小号 CC 字标）；窗口中心压屏幕边缘线、圆点<b>漏一半</b>在屏内；默认停靠屏幕左侧垂直居中；</li>
 <li><b>预览</b>：指针停留 <b>1.5 秒</b> → 滑出 136×190「浏览器扫一扫」扫码卡（按吸附边方向滑入）；离开 250ms 收拢。预览卡是纯展示——点击它与点击圆点等效（打开主窗口并收起面板），不提供放大/关闭等按钮；</li>
-<li><b>拖动</b>：按住拖动、松手自动吸附最近边缘（并列优先左）；拖动位置持久化，重启后回到原位；顶部吸附受 macOS 限制钳制在菜单栏下沿（该边完整贴边而非半隐，属系统行为）；</li>
+<li><b>拖动</b>：按住拖动、松手自动吸附最近边缘（并列优先左）——<b>在哪块屏就吸哪块屏的边，支持扩展屏</b>；拖动位置与<b>所在显示器</b>一并持久化（<code>pet-dock.json</code> 记显示器锚），重启后回到同一块屏的原位；记忆的显示器离线（拔线/休眠）时先落到当前屏、不改记忆，插回后自动归位；启动时<b>先落位再显示</b>，不会先在主屏闪现；顶部吸附受 macOS 限制钳制在菜单栏下沿（该边完整贴边而非半隐，属系统行为）；</li>
 <li><b>服务状态</b>：外圈粉环<b>呼吸 = 运行中</b>，<b>静止常亮 = 已停止</b>——动效本身即状态，不再用灰环/去色重复表达；</li>
 <li><b>提醒</b>：有新文件或新消息时环上弹出<b>绿点</b>（与呼吸环同组、随环一起缩放，按吸附边落在屏幕可见的半侧）；主窗口打开期间不展示并在打开时清零（用户已在软件里，无需提醒）；</li>
 <li><b>开关</b>：唯一关闭入口是 CC设置「悬浮二维码」开关；关闭立即消失，状态本地持久化、重启保持；打开即恢复显示（含此前记忆的停靠位置）。</li>
@@ -297,14 +298,15 @@ pre code{background:none;color:inherit;padding:0}
 <section id="s10">
 <h2><span class="no">10</span>外观与动效规范</h2>
 <h3>10.1 皮肤系统</h3>
-<p>5 套低刺激深色皮肤，通过 <code>data-theme</code> 切换 CSS 变量实现，即时生效并记忆（localStorage）：</p>
+<p>三种模式（亮色 / 暗色 / 跟随系统）× 6 套配色，经 <code>data-theme</code>（配色定色相）与 <code>data-mode</code>（定明暗）正交切换 CSS 变量实现，即时生效并记忆（localStorage，旧皮肤 id 启动时自动迁移）：</p>
 <table>
-<tr><th>皮肤</th><th>主色气质</th><th>文字三级色</th></tr>
+<tr><th>配色</th><th>主色气质</th><th>文字三级色</th></tr>
 <tr><td>深空蓝（默认）</td><td>蓝 #4f8af7</td><td>蓝灰系（与主色同色相）</td></tr>
 <tr><td>石墨灰</td><td>沉稳蓝 #5b9bd5</td><td>中性灰（不偏色）</td></tr>
-<tr><td>极光蓝</td><td>青蓝 #38bdf8</td><td>冷蓝灰</td></tr>
-<tr><td>护眼暖黑</td><td>豆绿 #6fbf8f</td><td><b>暖米灰（低蓝光）</b></td></tr>
+<tr><td>森林薄荷</td><td>薄荷绿 #3ecfa3</td><td>冷绿灰</td></tr>
 <tr><td>暗夜紫</td><td>紫 #a78bfa</td><td>紫灰</td></tr>
+<tr><td>墨色琥珀</td><td>琥珀金 #f0a232</td><td><b>暖米灰（低蓝光）</b></td></tr>
+<tr><td>石墨玫瑰</td><td>玫瑰红 #e0698c</td><td>玫瑰灰</td></tr>
 </table>
 <h3>10.2 动效规范</h3>
 <table>
@@ -404,7 +406,7 @@ pre code{background:none;color:inherit;padding:0}
 <li>分享在桌面端/电脑浏览器/手机上均为复制链接且自带话术；</li>
 <li>改 Wi-Fi（换 IP）后 5 秒内桌面端弹出提示且二维码已更新；</li>
 <li>日志含每次上传/下载/删除/聊天的明细与来源，清空后有标记线；</li>
-<li>5 套皮肤切换即时生效；窄屏（375px 宽）下地址完整、聊天面板无滚动穿透；</li>
+<li>六配色 × 明暗模式切换即时生效；窄屏（375px 宽）下地址完整、聊天面板无滚动穿透；</li>
 <li>侧边栏「介绍」可打开全屏介绍页，锚点导航高亮跟随滚动，Esc 关闭；关窗后左键托盘图标 / 程序坞图标可唤回主窗口，运行中重复启动不再产生新托盘图标。</li>
 </ol>
 </section>
@@ -424,7 +426,7 @@ pre code{background:none;color:inherit;padding:0}
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-11-05 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-11-06 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

@@ -19,7 +19,7 @@ import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog"
 // 覆盖全部自定义命令的 invoke 面 —— isDesktop 判定走 __TAURI_INTERNALS__(IPC 内部注入, 不受此开关影响)
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { availableMonitors, cursorPosition } from "@tauri-apps/api/window";
+import { availableMonitors, cursorPosition, currentMonitor, primaryMonitor } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 
@@ -174,12 +174,21 @@ async function createShareTicket(name) {
     return typeof d.ticket === "string" ? d.ticket : null;
   } catch (e) { return null; }
 }
+/* 令牌关闭时必须同步清掉本地缓存的 accessPin —— shareFile 的 pinOn 判定是
+   accessPin || pinCode, 只清 pinCode 的话旧码还躺在 localStorage 里,
+   分享会继续误请求票据(链接仍带 ?ticket=) */
+function clearAccessPinIfOff(enabled) {
+  if (enabled || !accessPin.value) return;
+  accessPin.value = "";
+  try { localStorage.removeItem(LS.pin); } catch (e) {}
+}
 async function toggleAccessPin() {
   try {
     const d = await tauriInvoke("set_access_pin_cmd", { enable: !pinEnabled.value });
     if (d.ok) {
       pinEnabled.value = !pinEnabled.value;
       pinCode.value = d.pin || "";
+      clearAccessPinIfOff(pinEnabled.value);
       showToast(pinEnabled.value ? `访问令牌已开启：${d.pin}` : "访问令牌已关闭");
     } else showToast(d.error || "设置失败", "error");
   } catch (e) { showToast("设置失败，请重试", "error");
@@ -324,7 +333,7 @@ async function refreshControl() {
       port.value = d.port;
       lanIp.value = d.ip;
       if (typeof d.version === "string") appVersion.value = d.version;
-      if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; }
+      if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; clearAccessPinIfOff(pinEnabled.value); }
       applyServerConfig(d.config);
       if (d.share) shareInput.value = d.share;
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
@@ -523,7 +532,10 @@ const qrFloatEnabled = ref((() => {
 /* ---------- Pet: 贴边收拢的悬浮码 ----------
    收拢 = 呼吸圆点贴边"漏一半"(窗口中心压边缘线, 64px 圆点半隐半露, 四周 16px 透明缓冲
    即"鼠标靠近"命中区); 指针停留 1.5s = 滑出展开 136×190 扫码卡(纯预览, 离开 250ms 内收拢);
-   拖动松手吸附最近边。
+   拖动松手吸附最近边(在哪块屏就吸哪块屏的边, 支持扩展屏)。
+   dock 记忆带显示器锚(mon={name,x,y}), 重启恢复到同一块屏; 记忆屏离线时
+   落当前屏且不改锚, 插回后由 heal 巡检自动归位。首次落位完成前不 show,
+   防止先在 Rust 默认位(主屏左缘)闪现。
    窗口尺寸与位置全部由本窗 setSize/setPosition 同步(逻辑px):
    收拢 96×96(= Rust PET 窗初始 inner_size) / 展开 136×190。
    startDragging 是异步原生拖拽(macOS/Linux 发起即返回), 不能当"拖完"信号 ——
@@ -538,7 +550,10 @@ const petMainActive = ref(false);   // 可见且未最小化且获得焦点，�
 const petActivity = createPetActivityTracker();
 let petMainStateVersion = 0;
 let petMainStateQuery = null;
-let petDock = null;                 // { edge: left|right|top|bottom, cross: 沿边中心(相对工作区, 逻辑px) }
+let petDock = null;                 // { edge, cross(沿边中心, 相对工作区逻辑px), mon?:{name,x,y}(显示器锚) }
+let petPlaced = null;               // 首次成功落位 Promise: show 前 await, 防主屏默认位闪现
+let petPlacedResolve = null;
+let petWaFallback = false;          // 最近一次落位用了兜底屏(记忆显示器离线), 目标屏回归后 heal 归位
 let petPress = null;
 let petResizing = false;            // 程序化改窗口期间忽略 onMoved 吸附, 防缩放-悬停抖动回环
 let petOpDepth = 0;                 // 几何操作并发深度: 定时器清 petResizing 前复查, 防后继任务中途被放行
@@ -551,17 +566,69 @@ let petHoverTimer = null;   // 靠近后须停留 1.5s 才展开(路过不弹, �
 let petCloseTimer = null;   // 离开后 250ms 宽限再收起(指针在边界抖动不闪断)
 const petClamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
-/* 当前窗口所在显示器的工作区(避开任务栏/Dock, 逻辑px) + 该屏缩放比; 拿不到则 null */
-async function petWorkArea() {
+/* 显示器身份: {name, x, y}(物理原点) —— dock 记忆靠它跨重启定位到同一块屏。
+   同名多屏(双联同款)用原点就近; 系统改名但位置没动 → 退化按原点匹配。 */
+function petMonIdentity(mon) {
+  return { name: mon.name || "", x: mon.position.x, y: mon.position.y };
+}
+async function petFindMonitor(id) {
+  if (!id || typeof id.name !== "string" || !Number.isFinite(id.x) || !Number.isFinite(id.y)) return null;
+  let list = [];
+  try { list = await availableMonitors(); } catch (e) { return null; }
+  const dist = (m) => Math.abs(m.position.x - id.x) + Math.abs(m.position.y - id.y);
+  const byName = list.filter((m) => (m.name || "") === id.name);
+  if (byName.length) { byName.sort((a, b) => dist(a) - dist(b)); return byName[0]; }
+  return list.find((m) => m.position.x === id.x && m.position.y === id.y) || null;
+}
+function petMonWa(mon, viaFallback) {
+  const sf = mon.scaleFactor || 1;
+  const wa = mon.workArea;
+  return {
+    x: wa.position.x / sf, y: wa.position.y / sf,
+    w: wa.size.width / sf, h: wa.size.height / sf,
+    sf, id: petMonIdentity(mon), viaFallback: !!viaFallback,
+  };
+}
+/* 工作区(避开任务栏/Dock, 逻辑px) + 缩放比 + 显示器身份(id); 拿不到则 null。
+   preferDock=true: 先找 dock 记忆的显示器(启动恢复/展开落位/自愈 —— 不这样会
+   按窗口当前所在的主屏解析, 重启后从扩展屏跳回主屏); 记忆屏离线则退当前屏并
+   标 viaFallback(不改锚, 插回后 heal 归位)。
+   preferDock=false: 就近当前屏 —— 拖拽吸附专用, 松手在哪块屏就吸哪块屏的边。 */
+async function petWorkArea(preferDock) {
   try {
-    const win = getCurrentWebviewWindow();
+    if (preferDock && petDock && petDock.mon) {
+      const m = await petFindMonitor(petDock.mon);
+      if (m) return petMonWa(m, false);
+      // 记忆屏不在线: 退当前屏, viaFallback 提醒调用方别回写 cross/mon
+      const cur = await petWorkArea(false);
+      return cur ? { ...cur, viaFallback: true } : null;
+    }
+    // 必须用模块级 currentMonitor(): WebviewWindow 实例上没有该方法
+    // (win.currentMonitor() 会 TypeError 被静默吞掉, 从 v1.1.9 起一直走
+    //  availableMonitors()[0] 兜底 = 永远主屏 —— 球拖到扩展屏会被吸回主屏的根因)。
+    // 模块级版本经 plugin:window|current_monitor 注入调用方窗口, 返回球所在屏。
     let mon = null;
-    try { mon = await win.currentMonitor(); } catch (e) {}
-    if (!mon) { try { mon = (await availableMonitors())[0] || null; } catch (e) {} }
+    try { mon = await currentMonitor(); } catch (e) {}
+    if (!mon) {
+      // currentMonitor 拿不到时按几何选屏(全部换算到逻辑点比较, 跨屏混 DPI 安全):
+      // 窗口中心落在哪块屏就用哪块, 落空再退 [0]
+      try {
+        const win = getCurrentWebviewWindow();
+        const [lp, ls, winSf] = await Promise.all([
+          win.outerPosition(), win.outerSize(), win.scaleFactor(),
+        ]);
+        const cx = lp.x / winSf + ls.width / winSf / 2;
+        const cy = lp.y / winSf + ls.height / winSf / 2;
+        const list = await availableMonitors();
+        mon = list.find((m) => {
+          const sf = m.scaleFactor || 1;
+          const x = m.position.x / sf, y = m.position.y / sf;
+          return cx >= x && cx < x + m.size.width / sf && cy >= y && cy < y + m.size.height / sf;
+        }) || list[0] || null;
+      } catch (e) {}
+    }
     if (!mon) return null;
-    const sf = mon.scaleFactor || 1;
-    const wa = mon.workArea;
-    return { x: wa.position.x / sf, y: wa.position.y / sf, w: wa.size.width / sf, h: wa.size.height / sf, sf };
+    return petMonWa(mon, false);
   } catch (e) { return null; }
 }
 /* 吸附位姿: 边缘 + 沿边中心 → 窗口左上角(逻辑px), 跨轴夹紧在工作区内。
@@ -666,7 +733,15 @@ function petSyncMainState() {
 function petParseDock(s) {
   try {
     const d = JSON.parse(s || "null");
-    if (d && ["left", "right", "top", "bottom"].includes(d.edge) && Number.isFinite(d.cross)) return d;
+    if (d && ["left", "right", "top", "bottom"].includes(d.edge) && Number.isFinite(d.cross)) {
+      // mon(显示器锚)可选: 旧格式没有 —— 剥掉脏数据, 首次落位按当前屏补锚
+      const m = d.mon;
+      if (m && typeof m === "object" && typeof m.name === "string"
+          && Number.isFinite(m.x) && Number.isFinite(m.y)) {
+        d.mon = { name: m.name, x: m.x, y: m.y };
+      } else delete d.mon;
+      return d;
+    }
   } catch (e) {}
   return null;
 }
@@ -700,13 +775,14 @@ async function _petApply() {
   petOpDepth++;
   try {
     const win = getCurrentWebviewWindow();
-    let wa = await petWorkArea();
+    let wa = await petWorkArea(true);   // 记忆屏优先: 启动恢复不能按当前(主屏)屏解析
     if (!wa) {   // currentMonitor 偶发拿不到: 等 300ms 重试一次再判失败
       await new Promise((r) => setTimeout(r, 300));
-      wa = await petWorkArea();
+      wa = await petWorkArea(true);
     }
     if (!wa) { petDiag({ fn: "apply-fail", why: "wa" }); return false; }
     if (!petDock) { petDiag({ fn: "apply-fail", why: "dock" }); return false; }
+    petWaFallback = !!wa.viaFallback;   // 记忆屏离线中: heal 见它回归后主动归位
     const expanded = qrPetExpanded.value;   // 执行时刻的状态: 尺寸与半隐/贴边都用它
     const w = expanded ? PET_CARD_W : PET_ORB_W;
     const h = expanded ? PET_CARD_H : PET_ORB_H;
@@ -720,10 +796,15 @@ async function _petApply() {
       await win.setSize(new LogicalSize(w, h));
       await win.setPosition(new LogicalPosition(pos.x, pos.y));
     }
-    // 跨轴被夹紧时锚点会偏移 → 回写实际锚点; 收拢态锚点=球心(A布局纵向偏移48)
-    petDock.cross = (petDock.edge === "left" || petDock.edge === "right")
-      ? pos.y + h / 2 - wa.y
-      : pos.x + w / 2 - wa.x;
+    if (!wa.viaFallback) {
+      // 跨轴被夹紧时锚点会偏移 → 回写实际锚点; 收拢态锚点=球心(A布局纵向偏移48)
+      petDock.cross = (petDock.edge === "left" || petDock.edge === "right")
+        ? pos.y + h / 2 - wa.y
+        : pos.x + w / 2 - wa.x;
+      // 老记忆(无 mon)首次在某块屏落位 → 补显示器锚, 之后重启才能回到这块屏
+      if (!petDock.mon && wa.id) petDock.mon = wa.id;
+    }
+    // viaFallback(记忆屏离线)时 cross/mon 都不回写: 保持原锚, 插回后按原记忆归位
     petSaveDock();
     petDiag({ fn: "apply", expanded, w, h, pos, dock: petDock, wa });
     return true;
@@ -746,7 +827,7 @@ async function _petSnap() {
   petOpDepth++;
   try {
     const win = getCurrentWebviewWindow();
-    const wa = await petWorkArea();
+    const wa = await petWorkArea(false);   // 吸附按"当前所在屏"算 —— 拖到扩展屏就吸扩展屏的边
     if (!wa || !petDock) return;
     const p = await win.outerPosition();
     const s = await win.outerSize();
@@ -760,6 +841,8 @@ async function _petSnap() {
     petDock.cross = (petDock.edge === "left" || petDock.edge === "right")
       ? rect.y + rect.h / 2 - wa.y
       : rect.x + rect.w / 2 - wa.x;
+    if (wa.id) petDock.mon = wa.id;   // 拖到哪块屏就把锚迁到哪块屏(重启回这块屏)
+    petWaFallback = false;            // 用户主动落位 = 已在实屏上, 不再等 heal 归位
     petSaveDock();
     petDiag({ fn: "snap", collapsed, rect, dock: petDock, pos, wa });
   } catch (e) {
@@ -841,15 +924,28 @@ async function petPollPresence() {
   petPollBusy = true;
   try {
     const win = getCurrentWebviewWindow();
-    const [p, pos, size] = await Promise.all([
+    // 跨屏坐标空间换算(混 DPI 必须统一到全局逻辑点再比较):
+    // - cursorPosition raw = 全局逻辑点 × 主屏 sf(tao util::cursor_position 固定
+    //   乘 primary_monitor().scale_factor) —— 球在扩展屏(sf1)而主屏 sf2 时,
+    //   不换算则光标值翻倍, 悬停永远判不中(扩展屏上悬停失效的根因);
+    // - outerPosition raw = 逻辑点 × 窗口所在屏 sf, 除以 win.scaleFactor() 即逻辑点
+    const [p, pos, size, winSf, pri, mons] = await Promise.all([
       cursorPosition(), win.outerPosition(), win.outerSize(),
+      win.scaleFactor(), primaryMonitor().catch(() => null), availableMonitors().catch(() => []),
     ]);
+    // 主屏 sf: primaryMonitor 权限缺失/拿不到时退化为"原点 (0,0) 的屏"
+    // (macOS 主屏恒在全局原点), 再退化 1 —— 保证光标换算永远有基准
+    const priSf = (pri && pri.scaleFactor)
+      || ((mons.find((m) => m.position.x === 0 && m.position.y === 0) || {}).scaleFactor)
+      || 1;
+    const cx = p.x / priSf, cy = p.y / priSf;
+    const rx = pos.x / winSf, ry = pos.y / winSf;
+    const rw = size.width / winSf, rh = size.height / winSf;
     if (!petPollOkLogged) {
       petPollOkLogged = true;
-      petDiag({ fn: "poll-ok", cursor: { x: p.x, y: p.y }, rect: { x: pos.x, y: pos.y, w: size.width, h: size.height } });
+      petDiag({ fn: "poll-ok", cursor: { x: cx, y: cy }, rect: { x: rx, y: ry, w: rw, h: rh }, priSf, winSf });
     }
-    const over = p.x >= pos.x && p.x < pos.x + size.width
-              && p.y >= pos.y && p.y < pos.y + size.height;
+    const over = cx >= rx && cx < rx + rw && cy >= ry && cy < ry + rh;
     petSetOver(over);
   } catch (e) {
     if (!petPollOkLogged) { petPollOkLogged = true; petDiag({ fn: "poll-fail", why: String(e).slice(0, 90) }); }
@@ -921,19 +1017,35 @@ function openQr() {
 }
 
 /* ---------- 复制(降级兼容) ---------- */
+/* [临时诊断] 复制失败链路定位: 阶段/安全上下文/剪贴板API/执行结果 落盘 pref-dbg-copy */
+function copyDiag(stage, extra) {
+  try {
+    tauriInvoke("save_text_pref_cmd", {
+      key: "dbg-copy",
+      value: JSON.stringify({ t: Date.now(), stage, secure: window.isSecureContext, clip: !!navigator.clipboard, ...(extra || {}) }).slice(0, 480),
+    }).catch(() => {});
+  } catch (e) {}
+}
 function fallbackCopy(text, okMsg) {
   const ta = document.createElement("textarea");
   ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
   document.body.appendChild(ta); ta.select();
-  let ok = false;
-  try { ok = document.execCommand("copy"); } catch (e) {}
+  let ok = false, err = "";
+  try { ok = document.execCommand("copy"); } catch (e) { err = String(e && e.message || e); }
   ta.remove();
+  copyDiag("exec", { ok, err });
   showToast(ok ? okMsg : "复制失败，请手动复制", ok ? "success" : "error");
 }
 function copyText(text, okMsg) {
+  copyDiag("enter", {});
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(() => showToast(okMsg)).catch(() => fallbackCopy(text, okMsg));
-  } else fallbackCopy(text, okMsg);
+    navigator.clipboard.writeText(text)
+      .then(() => { copyDiag("clip-ok"); showToast(okMsg); })
+      .catch((e) => { copyDiag("clip-reject", { err: String((e && e.message) || e) }); fallbackCopy(text, okMsg); });
+  } else {
+    copyDiag("no-clip-api");
+    fallbackCopy(text, okMsg);
+  }
 }
 const shareUrl = computed(() => `http://${lanIp.value}:${port.value}`);
 // 地址(ip:端口)或运行状态一变就重生成二维码(覆盖 IP 变化/端口顺延/手动改端口/启停全场景);
@@ -1093,13 +1205,53 @@ async function shareFile(name) {
   const base = isDesktop
     ? `http://${lanIp.value}:${port.value}`
     : (lanIp.value === "--" ? location.origin : shareUrl.value);
-  const ticket = await createShareTicket(name);
-  if (!ticket) { showToast("生成分享链接失败", "error"); return; }
-  const url = `${base}${API.download(name)}?ticket=${encodeURIComponent(ticket)}`;
+  // 未开 pin → 票据无用, 完全同步复制(点击手势内, 激活不丢)。
+  // 开 pin → 优先吃 pointerover 预取的缓存(同样同步); 冷点才 await 兜底
+  // (激活可能过期导致复制失败, 但预取通常已在悬停期间完成, 实际很少走到)。
+  let ticket = null;
+  const pinOn = !!(accessPin.value || pinCode.value);
+  if (pinOn) {
+    const c = shareTicketCache.get(name);
+    if (c && Date.now() - c.at < SHARE_TICKET_UI_TTL_MS) {
+      ticket = c.ticket;
+    } else {
+      ticket = await createShareTicket(name);
+      if (ticket) shareTicketCache.set(name, { ticket, at: Date.now() });
+    }
+    if (!ticket) { showToast("生成分享链接失败", "error"); return; }
+    // 用掉缓存的同时后台换新票: 收件人下载会销票, 下次分享不能拿到死链
+    createShareTicket(name).then((t) => {
+      if (t) shareTicketCache.set(name, { ticket: t, at: Date.now() });
+    }).catch(() => {});
+  }
+  const url = ticket
+    ? `${base}${API.download(name)}?ticket=${encodeURIComponent(ticket)}`
+    : `${base}${API.download(name)}`;
   const pinNote = (accessPin.value || pinCode.value)
     ? "\n⚠️ 链接仅授权下载该文件，请仅发给可信对象"
     : "";
   copyText(url + TIP_SHARE + pinNote, "分享链接已复制：" + name);
+}
+
+/* 分享票据预取: 指针滑到「分享」按钮上就开票, 点击时命中缓存 → 复制在点击手势内
+   同步完成 —— 排到 await 之后会丢掉用户激活, WKWebView 里剪贴板/execCommand 双双被拒
+   (v1.1.9 分享"复制失败"的根因)。缓存 TTL 对齐服务端 10min(留 1min 余量);
+   每次分享后后台换新票, 防收件人下载销票后再次分享拿到死链。 */
+const shareTicketCache = new Map();   // name -> { ticket, at }
+const SHARE_TICKET_UI_TTL_MS = 9 * 60 * 1000;
+function prefetchShareTicket(name) {
+  if (!(accessPin.value || pinCode.value)) return;   // 未开 pin 不需要票据
+  if (shareTicketCache.has(name)) return;
+  createShareTicket(name).then((t) => {
+    if (t) shareTicketCache.set(name, { ticket: t, at: Date.now() });
+  }).catch(() => {});
+}
+function onDocShareHover(e) {
+  const btn = e.target && e.target.closest && e.target.closest(".fb-share");
+  if (!btn) return;
+  const row = btn.closest(".file-row");
+  const name = row && row.getAttribute("data-name");
+  if (name) prefetchShareTicket(name);
 }
 
 /* 浏览器旧页面/图片预览仍使用 PIN；壳内走回环豁免。 */
@@ -1631,7 +1783,7 @@ const introShow = ref(false);
 const introSec = ref("feat");   // scroll spy 当前所在区块
 const INTRO_FAQS = [
   { q: "手机需要安装 App 吗？", a: "不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户如果想要原生体验，也可以直接安装我们提供的 APK。" },
-  { q: "屏幕边缘的呼吸小球是什么？", a: "桌面端常驻的悬浮二维码：贴边只露一半，鼠标停留 1.5 秒展开「浏览器扫一扫」预览卡，移开自动收起；外圈呼吸=服务运行中、静止=已停止，环上绿点=有新文件或新消息。按住可拖到任意边缘（位置会记住），关闭入口在「CC设置 → 悬浮二维码」。" },
+  { q: "屏幕边缘的呼吸小球是什么？", a: "桌面端常驻的悬浮二维码：贴边只露一半，鼠标停留 1.5 秒展开「浏览器扫一扫」预览卡，移开自动收起；外圈呼吸=服务运行中、静止=已停止，环上绿点=有新文件或新消息。按住可拖到任意边缘，支持扩展屏——拖到哪块屏就吸哪块屏，位置连同屏幕一起记住、重启回原处，关闭入口在「CC设置 → 悬浮二维码」。" },
   { q: "文件会上传到外网或云服务器吗？", a: "不会。HTTP 服务只监听你的电脑，所有传输都发生在局域网内部，不经过任何第三方服务器。拔掉外网网线，功能一切照常。" },
   { q: "端口被占用了怎么办？", a: "默认端口 1688，被占用时自动向后顺延探测（最多 20 个），当前生效地址会实时显示在顶栏与二维码中；也可以在「服务中心」手动指定端口。" },
   { q: "关闭窗口后服务会停止吗？", a: "不会。关窗只是把窗口收进系统托盘，服务继续保持运行，手机端不受影响；开机自启默认关闭，可在「CC设置」中手动开启。真正退出请点托盘菜单中的「退出」。" },
@@ -1800,6 +1952,9 @@ async function syncPetVisibility() {
     try {
       if (!(await win.isVisible()) && qrPetExpanded.value) await setPetExpanded(false);
     } catch (e) {}
+    // 等首次落位完成再显: Rust 建窗时落在主屏默认位, 先 show 会从主屏闪一下
+    // 再跳到记忆屏(扩展屏场景尤其明显)。petPlaced 有 2.5s 兜底, 不会永远不显示。
+    if (petPlaced) await petPlaced;
     win.show();
   } else win.hide();
 }
@@ -1856,6 +2011,9 @@ onMounted(() => {
   };
   document.addEventListener("keydown", f5);
   onUnmounted(() => document.removeEventListener("keydown", f5));
+  // 分享票据预取: 悬停到分享按钮即开票(见 prefetchShareTicket)
+  document.addEventListener("pointerover", onDocShareHover, true);
+  onUnmounted(() => document.removeEventListener("pointerover", onDocShareHover, true));
   // Esc 关闭介绍页
   const escIntro = (e) => { if (e.key === "Escape" && introShow.value) closeIntro(); };
   document.addEventListener("keydown", escIntro);
@@ -1893,13 +2051,15 @@ onMounted(() => {
       petPollPresence();
       petPollTimer = setInterval(petPollPresence, 250);
       // 屏幕拓扑自愈: 启动落位重试只覆盖前 ~3 分钟; 睡眠/改分辨率/拔屏后窗口若整体
-      // 移出工作区(悬停够不到、onMoved 不触发), 30s 巡检发现即按停靠记忆重新落位
+      // 移出工作区(悬停够不到、onMoved 不触发), 30s 巡检发现即按停靠记忆重新落位。
+      // 另覆盖扩展屏"离线兜底 → 插回归位": 上次落位用了兜底屏(记忆屏不在)而这次
+      // 记忆屏找得到(monBack) → 主动搬回记忆屏, 不等窗口中心恰好越界
       petHealTimer = setInterval(() => {
         if (petResizing) return;
         (async () => {
           try {
             const win = getCurrentWebviewWindow();
-            const wa = await petWorkArea();
+            const wa = await petWorkArea(true);
             if (!wa) return;
             let fresh = false;
             if (!petDock) {
@@ -1907,12 +2067,14 @@ onMounted(() => {
               setPetDock(await petLoadDock() || { edge: "left", cross: wa.h / 2 });
               fresh = true;
             }
+            const monBack = petWaFallback && !wa.viaFallback;
             const p = await win.outerPosition();
             const s = await win.outerSize();
             const cx = p.x / wa.sf + (s.width / wa.sf) / 2;
             const cy = p.y / wa.sf + (s.height / wa.sf) / 2;
-            if (fresh || cx < wa.x - 16 || cx > wa.x + wa.w + 16 || cy < wa.y - 16 || cy > wa.y + wa.h + 16) {
-              petDiag({ fn: "heal", fresh, cx: Math.round(cx), cy: Math.round(cy) });
+            const outside = cx < wa.x - 16 || cx > wa.x + wa.w + 16 || cy < wa.y - 16 || cy > wa.y + wa.h + 16;
+            if (fresh || monBack || outside) {
+              petDiag({ fn: "heal", fresh, monBack, cx: Math.round(cx), cy: Math.round(cy) });
               await petApply();
             }
           } catch (e) { /* 瞬时异常, 下一巡再试 */ }
@@ -1935,19 +2097,29 @@ onMounted(() => {
         clearTimeout(petSnapTimer);
         petSnapTimer = setTimeout(() => { petSnapTimer = null; petSnap().catch(() => {}); }, 140);
       }).then((un) => { if (setupDisposed) un(); else unlistenPetMoved = un; });
+      // 首次落位信号: syncPetVisibility 等它再 show(防主屏默认位闪现); 2.5s 兜底
+      // 放行 —— 落位迟迟不成功时宁可在默认位显示, 也不能永远不显示悬浮球
+      petPlaced = new Promise((resolve) => { petPlacedResolve = resolve; });
+      setTimeout(() => { if (petPlacedResolve) petPlacedResolve(); }, 2500);
       (async () => {
-        // 记忆从 Rust 文件加载(同步落盘可靠); 没有则默认屏幕左侧中部收拢
-        const loaded = await petLoadDock();
-        // 落位带重试: 锁屏/显示器休眠期间 currentMonitor 可能拿不到 → petApply 失败,
-        // 窗口会停在错误坐标; 唤醒后自动重试落位自愈(最多 ~3 分钟, 成功即停)
-        for (let i = 0; i < 90; i++) {
-          const wa = await petWorkArea();
-          if (wa) {
-            if (!petDock) setPetDock(loaded || { edge: "left", cross: wa.h / 2 });
-            const ok = await petApply();   // 尺寸在执行时从状态推导, 排队不会与悬停展开交错
-            if (ok) break;
+        try {
+          // 记忆从 Rust 文件加载(同步落盘可靠); 没有则默认屏幕左侧中部收拢。
+          // 先挂记忆(含 mon 显示器锚)再解析工作区, petWorkArea(true) 才找得到目标屏
+          const loaded = await petLoadDock();
+          if (!petDock && loaded) setPetDock(loaded);
+          // 落位带重试: 锁屏/显示器休眠期间 currentMonitor 可能拿不到 → petApply 失败,
+          // 窗口会停在错误坐标; 唤醒后自动重试落位自愈(最多 ~3 分钟, 成功即停)
+          for (let i = 0; i < 90; i++) {
+            const wa = await petWorkArea(true);
+            if (wa) {
+              if (!petDock) setPetDock({ edge: "left", cross: wa.h / 2 });
+              const ok = await petApply();   // 尺寸在执行时从状态推导, 排队不会与悬停展开交错
+              if (ok) break;
+            }
+            await new Promise((r) => setTimeout(r, 2000));
           }
-          await new Promise((r) => setTimeout(r, 2000));
+        } finally {
+          if (petPlacedResolve) { petPlacedResolve(); petPlacedResolve = null; }
         }
       })();
     }
@@ -2117,7 +2289,7 @@ async function refreshStatus() {
     const d = isRealDesktop
       ? await tauriInvoke("control_status_cmd")
       : await (await apiFetch(apiBase.value + API.info)).json();
-    if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; }
+    if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; clearAccessPinIfOff(pinEnabled.value); }
     // 轮询成功(=电脑端已关闭访问码, 约束真实解除)才收起输入框, 且给提示让"自动消失"可理解;
     // 访问码仍开启时所有请求 401, 永远走不到这里 —— 弹框不会被静默清掉。
     // 刻意不设"取消"按钮: 码仍生效时, 底下页面每次请求都会 401 再度弹回
@@ -2378,7 +2550,7 @@ async function refreshStatus() {
             <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
           </div>
           <div v-else>
-            <div v-for="f in pageFiles" :key="f.name" class="file-row" @dblclick="rowDblClick($event, f)">
+            <div v-for="f in pageFiles" :key="f.name" class="file-row" :data-name="f.name" @dblclick="rowDblClick($event, f)">
               <label class="sel-box" @click.stop>
                 <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
               </label>
@@ -2674,7 +2846,7 @@ async function refreshStatus() {
               <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
             </div>
             <div v-else>
-              <div v-for="f in pageFiles" :key="f.name" class="file-row">
+              <div v-for="f in pageFiles" :key="f.name" class="file-row" :data-name="f.name">
                 <label class="sel-box" @click.stop>
                   <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
                 </label>
@@ -2964,7 +3136,7 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
           <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
         </div>
         <div class="card">

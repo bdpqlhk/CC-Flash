@@ -73,8 +73,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC-Flash · 后期规划</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-02（v1.1.6 后修订）</b></span>
-<span>基线：<b>v1.1.8 开发版</b>（上传回滚为整文件直传 / loguru 风格日志 / 侧边栏常驻扫码；继承 v1.1.6：壳内下载 / 同名自动改名 / 明暗主题×六配色 / e2e 自检）</span>
+<span>文档日期：<b>2026-11-06（v1.1.9 后修订）</b></span>
+<span>基线：<b>v1.1.9 已发布</b>（悬浮码贴边呼吸球与悬停预览 / 移动端客户端模式 / 服务端安全加固；继承 v1.1.8：整文件直传+并发闸 / loguru 风格日志 / 侧边栏常驻扫码；v1.1.6：壳内下载 / 同名自动改名 / 明暗主题×六配色 / e2e 自检）</span>
 <span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
 </div>
 </header>
@@ -85,7 +85,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <table>
 <tr><th>维度</th><th>状态</th></tr>
 <tr><td>平台</td><td>macOS / Windows / Android（4 ABI 分包 + release 签名）；Linux 可源码构建</td></tr>
-<tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、聊天室、服务控制/日志、5 皮肤、介绍页、开机自启、托盘唤窗、单实例</td></tr>
+<tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、聊天室、服务控制/日志、5 皮肤（<b>当时</b>；v1.1.6 起为明暗×六配色）、介绍页、开机自启、托盘唤窗、单实例</td></tr>
 <tr><td>工程</td><td>CI 三平台自动发版（8 产物）、Android 签名 Secrets 链路、8 轮深度审查清零</td></tr>
 <tr><td>已知遗留</td><td>iOS 无真机包（依赖开发者账号）、应用内自更新未做、mDNS 发现已评估未实施、前后端大小单位表未统一、<span class="tag t-done">Android 正式签名已完成</span></td></tr>
 </table>
@@ -208,17 +208,20 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <table>
 <tr><th style="width:100px">版本</th><th style="width:130px">时间窗</th><th>主菜</th><th>发布标志</th></tr>
 <tr><td>v1.1.2</td><td class="muted">已发布（2026-10）</td><td>介绍页 / 唤窗单实例 / 自启 / Android 签名链路</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.1.3</td><td class="muted">已发布（2026-10-29）</td><td>整目录/文件夹上传（保持目录结构）+ Windows 构建修复</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.4</td><td class="muted">已发布（2026-10-30）</td><td>配对码 + PIN 防爆破 + WS 推送 + 上传链路提速</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.5</td><td class="muted">已发布（2026-10-31）</td><td>并行分片上传（范围账本）+ 同名自动改名 + 浏览器下载重构 + 会话隔离</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.6</td><td class="muted">已发布（2026-11-02）</td><td>Android 壳内下载 + 主题精简（明暗×六配色）+ 聊天清空/未读/网页布局修复</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.1.7</td><td class="muted">已发布（2026-11-02）</td><td>iOS 上传稳定性：wakeLock 防锁屏冻结 + 失败自动复活按账本续传</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.8</td><td class="muted">已发布（2026-11-04）</td><td>上传回滚整文件直传（+并发闸）+ loguru 风格结构化日志 + 侧边栏常驻扫码 + Windows MAX_PATH 预检 + 磁盘周期查盘 + 布局收紧</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.1.9</td><td class="muted">已发布（2026-11-06）</td><td>悬浮码贴边呼吸球与悬停预览 + 移动端客户端模式 + 服务端安全加固</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.0</td><td class="muted">下一个</td><td>HTTPS 自签扫码信任 + 下载并行化 + 应用内自更新 + 传输历史</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
 <tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>传输历史 / 断网自愈 / 路径安全测试集 / 小尾巴清零</td><td>CI 含服务端测试与审计</td></tr>
 <tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>上传断点续传（回归，基于整文件直传架构重设计）+ 临时分享链接（+mDNS 视进度）</td><td>10GB 断点续传实测通过</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
 </table>
 <div class="callout c-info"><b>与推广方案的联动</b>v1.2.0 的「公共 Wi-Fi 安全感」是推广阶段三大量曝光前的必要前置——先修城墙，再开城门。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-10-28 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-06 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
 </section>
 
 </main>

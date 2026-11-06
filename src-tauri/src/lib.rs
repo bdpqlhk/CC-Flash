@@ -103,7 +103,7 @@ pub mod commands {
     /// 重启即丢(实测连 mount 时的默认位保存都没进磁盘), 位置记忆必须走 Rust 同步写文件。
     #[tauri::command]
     pub fn save_pet_dock_cmd(app: tauri::AppHandle, dock: String) -> serde_json::Value {
-        // 结构由前端控制({edge,cross}), 限长防呆
+        // 结构由前端控制({edge,cross,mon?}), 限长防呆
         if dock.len() > 512 {
             return serde_json::json!({ "ok": false, "error": "dock 数据异常" });
         }
@@ -266,6 +266,11 @@ pub fn run() {
         .inner_size(96.0, 96.0)
         .decorations(false)
         .transparent(true)
+        // 关闭系统窗口阴影: macOS 会按透明窗口的内容 alpha 投影 —— 收拢态内容是
+        // 圆环(粉环), 阴影就投成一个偏下的大灰环, 叠在下方窗口上像"多出一个透明
+        // 圆环"(screencapture -l 验证: 窗口自身像素无灰环, 屏幕合成才有)。
+        // 设计本意是零投影(见 .qr-pet-shell 注释), 展开卡的立体感由 CSS box-shadow 承担
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(true)
@@ -280,8 +285,9 @@ pub fn run() {
                 api.prevent_close();
             }
         });
-        // 默认停靠: 屏幕左侧、窗口中心压工作区边缘线 —— 圆点漏一半在屏内(贴边收拢态)。
-        // 前端 Pet 挂载后按 localStorage 记忆(wft-qr-pet-dock)覆盖此位置。
+        // 默认停靠: 主屏左侧、窗口中心压工作区边缘线 —— 圆点漏一半在屏内(贴边收拢态)。
+        // 仅作"窗口创建时的占位": 前端 Pet 首次落位前窗不 show(见 syncPetVisibility),
+        // 挂载后按 pet-dock.json 记忆(含扩展屏显示器锚)落位, 不会在此默认位闪现。
         if let Ok(Some(mon)) = qr.primary_monitor() {
             let sf = qr.scale_factor().unwrap_or(1.0);
             let orb = (96.0 * sf).round() as i32;

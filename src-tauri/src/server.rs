@@ -920,7 +920,11 @@ fn share_tickets() -> &'static Mutex<HashMap<String, ShareTicket>> {
 const SHARE_TICKET_TTL_SECS: u64 = 10 * 60;
 
 fn random_token() -> String {
-    let mut bytes = [0u8; 32];
+    // 6 位十六进制(24bit): 按需求精简到最短。风险边界可控 —— 凭证是承载式且
+    // 绑定单文件、10 分钟 TTL、下载成功即焚, 猜中也只是多下载这一个文件;
+    // 24bit 空间在 10min 窗口内全速喷码命中率约千分之几/活跃票据, 且票据只能
+    // 由分享方签发(攻击者不能自造)。同名冲突由 HashMap 覆盖 + TTL 剪枝兜底。
+    let mut bytes = [0u8; 3];
     getrandom::getrandom(&mut bytes).expect("CSPRNG 不可用");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
