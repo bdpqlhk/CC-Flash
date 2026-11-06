@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CC-Flash 是局域网 HTTP 工具: 服务就在同一 Wi-Fi 的电脑上(192.168.x.x 等),
+     必须放行明文 HTTP 才能让移动壳访问电脑地址; 本应用不涉及公网 https 资源加载 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

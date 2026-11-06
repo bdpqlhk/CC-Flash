@@ -1,6 +1,6 @@
 [package]
 name = "wlan-flash-transfer-tauri"
-version = "1.1.8"
+version = "1.1.9"
 description = "局域网高速文件互传工具"
 edition = "2021"
 
@@ -29,6 +29,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+getrandom = "0.2"
 # 裁掉默认特性(form/matched-path/original-uri/tracing 栈均未用到): 二进制瘦身,
 # 仅保留实际用到的 http1/json/query/tokio/ws
 axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }

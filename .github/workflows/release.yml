@@ -204,7 +204,7 @@ jobs:
     # job 级只要求"没被取消"就运行 —— 全绿条件放到 step 级: 若 job 级 if 要求双
     # success, 不全绿时整个 job 被 skip, "保持草稿"的警告 step 永远不执行,
     # 草稿卡住时操作者零提示
-    if: ${{ always() && needs.desktop.result != 'cancelled' && needs.android.result != 'cancelled' }}
+    if: ${{ always() && (needs.desktop.result != 'cancelled' || needs.android.result != 'cancelled') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

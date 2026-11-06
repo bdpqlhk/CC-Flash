@@ -100,7 +100,7 @@ body {
 .side-qr:hover { border-color: var(--accent); background: var(--accent-bg); }
 .side-qr-view { --qr-h: 136px; --qr-start: -36px; position: relative; display: block; width: 132px; margin: 0 auto; padding: 4px; overflow: hidden; border-radius: 6px; background: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
 .side-qr-img { display: block; width: 124px; height: 124px; border-radius: 3px; }
-.side-qr-scan { position: absolute; left: 3px; right: 3px; top: 0; height: 30px; border-radius: 4px; transform: translateY(var(--qr-start)); background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 28%, transparent) 35%, color-mix(in srgb, var(--accent) 66%, transparent) 52%, color-mix(in srgb, var(--accent) 28%, transparent) 70%, transparent); animation: qrSweep 2.8s cubic-bezier(0.5, 0.05, 0.5, 0.95) infinite; pointer-events: none; }
+.side-qr-scan { position: absolute; left: 3px; right: 3px; top: 0; height: 30px; border-radius: 4px; transform: translateY(var(--qr-start)); background: linear-gradient(180deg, transparent, rgba(127,176,255,.28) 35%, rgba(127,176,255,.66) 52%, rgba(127,176,255,.28) 70%, transparent); background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 28%, transparent) 35%, color-mix(in srgb, var(--accent) 66%, transparent) 52%, color-mix(in srgb, var(--accent) 28%, transparent) 70%, transparent); animation: qrSweep 2.8s cubic-bezier(0.5, 0.05, 0.5, 0.95) infinite; pointer-events: none; }
 @keyframes qrSweep {
   0% { transform: translateY(var(--qr-start)); opacity: 0; }
   8% { opacity: 1; }
@@ -109,6 +109,153 @@ body {
   100% { transform: translateY(var(--qr-start)); opacity: 0; }
 }
 .side-qr-cap { font-size: 11px; color: var(--text3); letter-spacing: 2px; }
+/* 上下往返流光: 2s 一周期(下 1s + 上 1s), 端点在 overflow 外自然隐去。
+   变量必须用 .qr-pet-view 上定义的 --qr-pet-* —— 原 --qr-float-* 从未定义,
+   transform 因 var 失效, 扫描线一直卡在顶部只闪透明度, 根本不扫。 */
+@keyframes qrFloatSweep {
+    0% { transform: translateY(var(--qr-pet-start)); opacity: 0; }
+    12% { opacity: 1; }
+    50% { transform: translateY(var(--qr-pet-h)); opacity: 1; }
+    88% { opacity: 1; }
+    100% { transform: translateY(var(--qr-pet-start)); opacity: 0; }
+}
+/* 外圈旋转流光(conic-gradient + qrRingSpin)与吊牌摇摆(qrHang)/头像脉冲(qrPulse)
+   均已按需求移除: 悬浮码改为"贴边收拢漏一半 + 靠近预览", 收拢态只保留粉环呼吸(qrBreath) */
+/* 独立桌面 Pet 窗: 贴边收拢的悬浮码(透明系统窗口, 跨应用常驻)。
+   窗口 96×96 = 64px 呼吸圆点 + 四周 16px 透明缓冲(「鼠标靠近」命中区), 尺寸由前端
+   setSize 同步; 收拢时窗口中心压屏幕边缘线 → 圆点漏一半在屏内, 悬停展开 136×190 扫码卡。 */
+.qr-pet {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    cursor: grab; user-select: none;
+}
+.qr-pet.dragging { cursor: grabbing; }
+/* 卡片外观只属于展开态; 收拢态根元素全透明, 仅作「靠近」命中缓冲 */
+.qr-pet.expanded {
+    border-radius: 14px;
+    border: 2px solid rgba(240,89,107,.88); background: rgba(13,16,23,.94);
+    box-shadow: 0 12px 36px rgba(0,0,0,.48), 0 0 18px rgba(240,89,107,.24), 0 0 0 3px rgba(240,89,107,.08);
+    padding: 9px 8px 8px;
+}
+/* 停止态卡片: 保留品牌粉但调暗(而非变成无生气的灰), 暗底虚线空态与之呼应 */
+.qr-pet.expanded.down {
+    border-color: rgba(240,89,107,.45);
+    box-shadow: 0 12px 32px rgba(0,0,0,.48), 0 0 16px rgba(240,89,107,.12);
+}
+/* 收拢 = 呼吸圆点(64px 居中): 深色玻璃球体 + 双 C 呼吸环 + 微信绿取景框 + 状态点。
+   设计原则: 球体稳定不晃, 呼吸只在环的辉光上 —— 吸引眼球但不打扰;
+   绿圆 44px(球径 69%)压住中间黑边, 图形用取景框而非字体字符, 精密感。 */
+.qr-pet-shell {
+    position: relative; width: 64px; height: 64px; border-radius: 50%;
+    display: grid; place-items: center;
+    /* 完全透明: 不画任何底盘 —— 浅色桌面上 38% 深色遮罩就是那圈"灰背影";
+       视觉全由 粉环 + 绿芯 + 状态点 承担, 零背景零投影 */
+    background: none;
+    box-shadow: none;
+    transition: transform .32s cubic-bezier(.2,.8,.2,1);
+}
+/* 单圈珊瑚表环: 硬边零滤镜(无毛刺); 呼吸 = 缩放 .92↔1.08 + 描边 2.6↔3.6 + 透明度 ——
+   缩放为主所以一眼可见; transform-box:fill-origin 让缩放绕圆心(默认 SVG 原点在左上) */
+.qr-pet-cc {
+    position: absolute; inset: 0; width: 64px; height: 64px; overflow: visible;
+    pointer-events: none; stroke-linecap: round;
+}
+.qr-pet-c-outer {
+    stroke: #ff6478;   /* stroke-width 移到 .pet-ring-breath 组上, 关键帧才能驱动圆 */
+}
+/* 绿点与环同组呼吸(见模板): 缩放/明暗/描边都作用于整组 —— 绿点天然随环一起缩放 */
+.pet-ring-rot {
+    transform-box: view-box;
+    transform-origin: 32px 32px;
+}
+/* 吸附边旋转让绿点始终落在屏幕可见的半侧(圆对称, 旋转本身不可见) */
+.qr-pet.edge-right .pet-ring-rot { transform: rotate(-90deg); }
+.qr-pet.edge-top .pet-ring-rot { transform: rotate(90deg); }
+.pet-ring-breath {
+    stroke-width: 3;
+    transform-box: view-box;
+    transform-origin: 32px 32px;
+    animation: qrBreath 2s ease-in-out infinite;
+}
+.pet-ring-dot {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: badgePop .34s cubic-bezier(.34,1.56,.64,1);
+}
+/* 2s 一呼吸: 缩放为主(一眼可见) + 描边加粗 + 明暗 —— 零 blur 硬边 */
+@keyframes qrBreath {
+    0%, 100% { opacity: .5; stroke-width: 2.6; transform: scale(.92); }
+    50% { opacity: 1; stroke-width: 3.6; transform: scale(1.08); }
+}
+.qr-pet.expanded .qr-pet-shell { display: none; }
+/* 靠近: 整球轻微浮起(球体无动画, transform 不与呼吸打架), 1.5s 等待期的即时反馈 */
+.qr-pet:not(.expanded):hover .qr-pet-shell { transform: scale(1.05); }
+/* 服务停止: 整组静止在温和常亮态(粉色不转灰) —— 有无呼吸即状态 */
+.qr-pet.down .pet-ring-breath {
+    animation: none; opacity: .75; stroke-width: 3;
+}
+/* 微信主题绿 #07C160 为球芯主体，只叠加局部玻璃高光与底部阴影。 */
+.qr-pet-avatar {
+    width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
+    background:
+        radial-gradient(58% 40% at 34% 14%, rgba(255,255,255,.46), rgba(255,255,255,0) 75%),
+        linear-gradient(180deg, transparent 42%, rgba(0,62,29,.30) 100%),
+        #07c160;
+    color: rgba(255,255,255,.96);
+    box-shadow:
+        inset 0 1px 1px rgba(255,255,255,.55),
+        inset 0 -5px 11px rgba(0,0,0,.26);
+}
+.qr-pet-avatar svg {
+    width: 30px; height: 30px; display: block;   /* 取景框放大到30(占绿芯约68%), 笔画粗细靠 stroke-width 反向补偿保持不变 */
+}
+/* 绿点已移入 SVG 环组(随环整体缩放); badgePop 弹入保留给 .pet-ring-dot */
+@keyframes badgePop { from { transform: scale(0); } to { transform: scale(1); } }
+/* 展开 = 纯预览扫码卡; 面板按吸附边方向滑入(「靠近滑出」的滑出感) */
+.qr-pet-panel { display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; }
+.qr-pet.expanded .qr-pet-panel { display: flex; animation: petSlideX .22s cubic-bezier(.2,.85,.25,1); }
+.qr-pet.edge-left .qr-pet-panel { --slide: -16px; }
+.qr-pet.edge-right .qr-pet-panel { --slide: 16px; }
+.qr-pet.edge-top .qr-pet-panel { animation-name: petSlideY; --slide: -16px; }
+.qr-pet.edge-bottom .qr-pet-panel { animation-name: petSlideY; --slide: 16px; }
+@keyframes petSlideX { from { opacity: 0; transform: translateX(var(--slide, -16px)); } to { opacity: 1; transform: none; } }
+@keyframes petSlideY { from { opacity: 0; transform: translateY(var(--slide, -16px)); } to { opacity: 1; transform: none; } }
+.qr-pet-head {
+    width: 100%; margin: 1px 0 7px; color: #fff; font-size: 12.5px; font-weight: 800;
+    text-shadow: 0 1px 5px rgba(0,0,0,.42); white-space: nowrap; text-align: center;
+}
+.qr-pet-panel-dot {
+    display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%;
+    vertical-align: 1px; background: #3ddc97; box-shadow: 0 0 7px rgba(61,220,151,.7);
+}
+.qr-pet-view {
+    --qr-pet-h: 112px; --qr-pet-start: -32px;
+    position: relative; width: 112px; padding: 4px; overflow: hidden;
+    border-radius: 9px; background: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+}
+.qr-pet-img { display: block; width: 100%; height: auto; border-radius: 5px; }
+/* 停止态面板: 白块 → 暗底虚线框 + 静默取景框, 与整体暗色一体(见 .down 覆盖) */
+.qr-pet.down .qr-pet-view {
+    background: rgba(255,255,255,.035);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    border: 1px dashed rgba(255,255,255,.14);
+}
+.qr-pet-empty { display: grid; place-items: center; height: 104px; color: rgba(255,255,255,.24); }
+.qr-pet-empty svg { width: 46px; height: 46px; display: block; }
+/* 上下流光扫描线: 2s 一周期; 低饱和蓝光(降饱和度、压峰值透明度), 简洁不刺眼 */
+.qr-pet-scan {
+    position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none;
+    transform: translateY(var(--qr-pet-start));
+    background: linear-gradient(180deg, transparent, rgba(140,162,196,.14) 35%, rgba(162,186,218,.46) 52%, rgba(140,162,196,.14) 70%, transparent);
+    animation: qrFloatSweep 2s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+.qr-pet-cap {
+    margin-top: 7px; max-width: 118px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    color: #fff; font-size: 10.5px; font-weight: 800; text-align: center; letter-spacing: -0.2px;
+    text-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+body:has(.qr-pet) { overflow: hidden; background: transparent; }
+/* :has() 的全内核兜底(类由 pet 挂载时添加, 老内核也能命中) */
+body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 收起态(64px 列): 40px 迷你码常驻(流光同步, 更细更快更抓眼); 悬停浮出 132px 可扫大图 ——
    绝对定位于列右侧, 仅悬停期间短暂盖住内容边缘, 移开即收; 点击仍走大图弹窗 */
 .sidebar.collapsed .side-qr { margin: 6px 6px 0; padding: 4px; position: relative; }
@@ -121,8 +268,12 @@ body {
   border-radius: 6px; box-shadow: var(--shadow-lg); z-index: 60; --qr-h: 136px; --qr-start: -36px;
 }
 .sidebar.collapsed .side-qr:hover .side-qr-img { width: 124px; height: 124px; }
+/* 系统开启「减弱动态效果」: 停流光扫描线、双 C 呼吸环与面板滑入。 */
 @media (prefers-reduced-motion: reduce) {
-  .side-qr-scan { display: none; }
+  .side-qr-scan, .qr-pet-scan { display: none; }
+  .pet-ring-breath, .pet-ring-dot, .qr-pet-shell, .qr-pet.expanded .qr-pet-panel { animation: none; }
+  .qr-pet-shell { transition: none; }
+  .qr-pet:not(.expanded):hover .qr-pet-shell { transform: none; }
 }
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-top: 1px solid var(--card-border); }
 .side-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text2); }
@@ -267,8 +418,10 @@ body {
 .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .page-btn:disabled { opacity: 0.35; cursor: default; }
 .page-ellipsis { color: var(--text3); font-size: 12px; }
-.file-row { display: flex; align-items: center; gap: 12px; padding: 9px 11px; border-radius: var(--radius-sm); transition: all var(--transition); border: 1px solid transparent; margin-bottom: 2px; }
-.file-row:hover { background: var(--card-hover); border-color: var(--card-border); transform: translateY(-1px); }
+/* 行/按钮 hover 不做位移(translateY): 按下与抬起之间目标移动会让 click 丢失
+   (表现为"点一次没反应要双击") —— 反馈只用颜色/背景, 位置永远稳定可点 */
+.file-row { display: flex; align-items: center; gap: 12px; padding: 9px 11px; border-radius: var(--radius-sm); transition: background var(--transition), border-color var(--transition); border: 1px solid transparent; margin-bottom: 2px; }
+.file-row:hover { background: var(--card-hover); border-color: var(--card-border); }
 .file-thumb { width: 42px; height: 42px; border-radius: var(--radius-xs); background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; overflow: hidden; position: relative; }
 .file-thumb img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
 .file-info { flex: 1; min-width: 0; }
@@ -278,9 +431,9 @@ body {
 .file-btns { display: flex; gap: 7px; flex-shrink: 0; align-items: center; }
 /* 五按钮统一几何:30×30 图标钮 / 下载为蓝色主实底,其余中性底+彩色悬停 */
 .file-btns .btn, .file-btns .btn-act { width: 30px; height: 30px; padding: 0; border-radius: 8px; align-items: center; justify-content: center; }
-.btn-act { border: 1px solid var(--card-border); background: rgba(255,255,255,0.04); color: var(--text2); display: inline-flex; align-items: center; justify-content: center; transition: all var(--transition); }
-.btn-act:hover { color: var(--accent-text); border-color: rgba(79,138,247,0.4); background: var(--accent-bg); transform: translateY(-1px); }
-.btn-act:active { transform: translateY(0) scale(0.94); }
+.btn-act { border: 1px solid var(--card-border); background: rgba(255,255,255,0.04); color: var(--text2); display: inline-flex; align-items: center; justify-content: center; transition: color var(--transition), background var(--transition), border-color var(--transition); }
+.btn-act:hover { color: var(--accent-text); border-color: rgba(79,138,247,0.4); background: var(--accent-bg); }
+/* 不用 :active 缩放: 过渡期内按钮缩离指针, 快速单击的 mouseup 落到行上 → click 不触发 */
 .btn-act.act-del:hover { color: var(--danger); border-color: rgba(242,89,107,0.45); background: var(--danger-bg); }
 /* 五色区分:打开蓝 / 下载紫 / 复制橙 / 删除灰→红 / 分享绿 */
 .fb-open { color: #6ea8ff; border-color: rgba(110,168,255,0.35); }
@@ -371,17 +524,17 @@ body {
 .svc-about .about-text { font-size: 13px; color: var(--text2); margin: 0; line-height: 1.7; }
 .svc-box { background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 12px 14px; }
 .svc-box .logs { height: 170px; overflow-y: auto; font-family: "SF Mono",Menlo,Consolas,monospace; font-size: 12px; line-height: 1.7; color: var(--text2); word-break: break-all; }
-/* 结构化日志行(loguru 形态): 全量时间戳 | 级别名(色) | 来源 文件:行 | - 正文 */
-.log-line { display: flex; align-items: baseline; gap: 7px; padding: 1px 0; }
-.log-ts { color: var(--text3); font-size: 11px; flex-shrink: 0; }
-.log-sep { color: var(--text3); opacity: 0.55; flex-shrink: 0; }
-.log-lvl { flex-shrink: 0; width: 58px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+/* 结构化日志行(loguru 形态): 行内流式排布 —— 换行自然折回行首, 不产生悬挂缩进 */
+.log-line { padding: 1px 0; font-size: 12px; line-height: 1.7; color: var(--text2); word-break: break-all; }
+.log-ts { color: var(--text3); }
+.log-sep { color: var(--text3); opacity: 0.55; }
+.log-lvl { display: inline-block; min-width: 52px; font-weight: 700; letter-spacing: 0.5px; }
 .lvl-info { color: var(--accent); }
 .lvl-ok { color: var(--success); }
 .lvl-warn { color: var(--warning); }
 .lvl-err { color: var(--danger); }
-.log-loc { color: var(--text3); font-size: 11px; flex-shrink: 0; }
-.log-msg { word-break: break-all; }
+.log-loc { color: var(--text3); }
+.log-msg { color: inherit; }
 .log-method { color: var(--accent); font-weight: 600; }
 .log-st.st-ok { color: var(--success); }
 .log-st.st-bad { color: var(--danger); font-weight: 600; }
@@ -413,6 +566,17 @@ body {
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 失联全屏: 电视"无信号"测试卡(网页端专用, 电脑/手机浏览器表现一致); 层级低于 toast, 高于其余全部 */
 .nosignal-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+/* 移动壳连接门: 未配置电脑地址时的全屏引导(压过一切页面内容, 高于 nosignal) */
+.connect-gate { position: fixed; inset: 0; z-index: 1005; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.connect-card { max-width: 420px; width: 100%; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 26px 24px; box-shadow: var(--shadow-lg); }
+.connect-card h3 { margin-bottom: 10px; font-size: 17px; }
+.connect-card p { color: var(--text2); font-size: 13px; line-height: 1.7; margin-bottom: 16px; }
+.connect-card code { background: rgba(127,176,255,.12); color: var(--accent-text); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
+.cg-row { display: flex; gap: 10px; }
+.cg-row input { flex: 1; min-width: 0; padding: 11px 14px; font-size: 15px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--bg2); color: var(--text); outline: none; font-family: inherit; }
+.cg-row input:focus { border-color: var(--accent); }
+.cg-row .btn { white-space: nowrap; height: auto; padding: 0 20px; }
+.cg-err { margin-top: 12px; color: var(--danger); font-size: 12.5px; }
 .nosignal-overlay .ns-img { width: min(68vmin, 420px); max-width: 86vw; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
 .nosignal-overlay h3 { margin: 14px 0 0; font-size: 20px; }
 .nosignal-overlay .ns-line { margin: 4px 0 0; color: var(--text2); font-size: 13.5px; }
@@ -572,7 +736,7 @@ body {
 .dir-pick:hover { text-decoration: underline; }
 
 /* 微信内打开提示条 */
-.wx-banner { position: sticky; top: 0; z-index: 960; background: rgba(7,193,96,0.15); color: var(--accent-text); border-bottom: 1px solid rgba(7,193,96,0.35); padding: 8px 14px; text-align: center; font-size: 12.5px; line-height: 1.5; }
+.wx-banner { position: sticky; top: 0; z-index: 940; background: rgba(7,193,96,0.15); color: var(--accent-text); border-bottom: 1px solid rgba(7,193,96,0.35); padding: 8px 14px; text-align: center; font-size: 12.5px; line-height: 1.5; }
 
 /* ===== 批量选择 ===== */
 .sel-box { flex-shrink: 0; display: flex; align-items: center; }
@@ -865,11 +1029,19 @@ body {
     --bg: #f4f6fa; --bg2: #edf0f5; --panel: #ffffff; --card: #ffffff;
     --card-border: rgba(15,23,42,0.10); --card-hover: rgba(15,23,42,0.05);
     --text: #232936; --text2: #5c6575; --text3: #99a2b1;
-    /* 强调色衍生随主题变色: color-mix 旧内核不支持时回退主题原值(深色淡彩/浅色文字, 可读性略降不破相) */
-    --accent-bg: color-mix(in srgb, var(--accent) 12%, transparent);
-    --accent-text: color-mix(in srgb, var(--accent) 68%, #101828);
+    /* 静态兜底(所有内核可用): color-mix 不支持时以下两条生效。
+       不能用"同名双声明"技巧 —— 自定义属性不做值校验, 永远是后一条赢 */
+    --accent-bg: rgba(79,138,247,0.12);
+    --accent-text: #3f6fd8;
     --shadow: 0 1px 2px rgba(15,23,42,0.06), 0 4px 16px rgba(15,23,42,0.08);
     --shadow-lg: 0 4px 32px rgba(15,23,42,0.16);
+}
+/* 支持 color-mix 的内核(Safari 16.2+/Chrome 111+)再升级为随主题强调色 */
+@supports (color: color-mix(in srgb, red 1%, blue)) {
+    [data-mode="light"] {
+        --accent-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+        --accent-text: color-mix(in srgb, var(--accent) 68%, #101828);
+    }
 }
 /* 暗色皮肤惯用的"白色微透表面"在亮底下不可见: 亮色下统一换黑基微透(仅亮色生效, 深色零改动) */
 [data-mode="light"] .nav-item:hover { background: rgba(15,23,42,0.05); }
@@ -917,3 +1089,15 @@ body {
     background: transparent; color: var(--text3); cursor: pointer; font-size: 12.5px; font-family: inherit; transition: all var(--transition); }
 .mode-btn:hover { color: var(--text2); }
 .mode-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+/* 浅色 accent 主题(琥珀/薄荷)的白字对比度 ≈2:1 不可读 → 统一改深色字。
+   必须位于全部主题块之后, 同特异性靠源顺序覆盖 */
+[data-theme="amber"] .btn-primary, [data-theme="mint"] .btn-primary,
+[data-theme="amber"] .btn-dl, [data-theme="mint"] .btn-dl,
+[data-theme="amber"] .mode-btn.active, [data-theme="mint"] .mode-btn.active,
+[data-theme="amber"] .sort-btn.active, [data-theme="mint"] .sort-btn.active,
+[data-theme="amber"] .page-btn.active, [data-theme="mint"] .page-btn.active,
+[data-theme="amber"] .intro-overlay .btn-primary, [data-theme="mint"] .intro-overlay .btn-primary,
+[data-theme="amber"] .chat-fab, [data-theme="mint"] .chat-fab {
+    color: #101828;
+}

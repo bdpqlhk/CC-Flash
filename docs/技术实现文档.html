@@ -69,7 +69,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 技术实现文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-10-26</b></span>
+<span>文档日期：<b>2026-11-05</b></span>
 <span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
 <span>平台：<b>macOS 已出包 · Windows 待验</b></span>
 </div>
@@ -215,8 +215,12 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <tr><td><code>control_clear_logs_cmd</code></td><td>清空日志</td></tr>
 <tr><td><code>set_share_dir_cmd(path)</code></td><td>校验目录存在后切换共享目录</td></tr>
 <tr><td><code>open_path_cmd(path)</code></td><td>系统程序打开文件/目录</td></tr>
-<tr><td><code>open_url_cmd(url)</code></td><td>系统浏览器打开 URL（顶栏"打开浏览器"按钮/分享兜底）</td></tr>
+<tr><td><code>open_url_cmd(url)</code></td><td>系统浏览器打开 URL（顶栏"打开浏览器"按钮/分享兜底/移动壳外链与下载的落地通道）：macOS <code>open</code> · Windows <code>rundll32 FileProtocolHandler</code>(不经 cmd shell 防注入) · Android <code>am start -a VIEW</code>(壳内 WebView 无下载通道，交系统浏览器) · Linux <code>xdg-open</code>；启动器子进程后台 wait 回收防僵尸</td></tr>
 <tr><td><code>copy_file_cmd(name)</code></td><td>复制文件本体到剪贴板：macOS osascript（ARGV 传参防注入）/ Windows PowerShell <code>SetFileDropList</code>（CF_HDROP，资源管理器直接粘贴出文件；注意 Set-Clipboard 无 -LiteralPath 参数且只会粘出路径文本）/ Linux 未支持</td></tr>
+<tr><td><code>show_qr_pet_cmd(show)</code></td><td>显隐悬浮码窗（开关切换 / 状态轮询兜底重显）</td></tr>
+<tr><td><code>save_pet_dock_cmd(dock)</code> / <code>load_pet_dock_cmd()</code></td><td>悬浮码停靠记忆读写：<code>app_config_dir/pet-dock.json</code>（同步落盘，文件不存在=首次运行返回 null 走默认左侧中部）</td></tr>
+<tr><td><code>save_text_pref_cmd(key, value)</code> / <code>load_text_pref_cmd(key)</code></td><td>通用文本偏好 <code>pref-&lt;key&gt;</code> 文件（key 白名单 [a-z0-9-]、value ≤512B）：承载开关状态 <code>qr-float-enabled</code> 与诊断探针 <code>pet-dbg-*</code></td></tr>
+<tr><td><code>main_visible_cmd()</code></td><td>主窗当前可见性（悬浮码绿点角标的初始抑制态；此后翻转走 <code>main-vis://changed</code> 广播）</td></tr>
 </table>
 <div class="callout c-warn"><b>踩坑记录</b>invoke 参数键必须与 Rust 端参数名完全一致——曾因缺 <code>url</code> 键报 "command open_url_cmd missing required key url" 导致按钮无响应（用户调试截图定位）。</div>
 </section>
@@ -234,13 +238,20 @@ HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐�
 → 越界预检(canonicalize 最近存在祖先, 先查后建防符号链接) + create_dir_all + 建后复验(TOCTOU, 越界回滚空目录)
 → create_new 原子占位(绝不覆盖): AlreadyExists → dedup_rel_name 从**原名**重算第一个空闲变体 (1)(2)… 重试
    └─ Windows: 变体名二次查 MAX_PATH(260) → 超限→400「改名后路径过长」
-→ body 流式落盘: body.into_data_stream() 逐帧 write_all(零内存膨胀); 每 64MB 复查磁盘剩余 → 不足→507+清理半截文件(防 size=0/谎报 size 灌盘)
-   ├─ 写失败→500 + 删半截文件 / 连接断开→500「上传中断」+ 删半截文件(无断点, 中断即弃)
-   └─ 正常结束 → sync_all → 日志(耗时/改名信息) → 200{ok, name, final, size}
+→ 写首字节前创建 .{名}.ccup **完整性标记**(空=在写; 启动 clean_incomplete_uploads 见标记删半截成品 ——
+   崩溃/停服 abort 不走错误清理路径, 没有标记的截断文件会以真实文件名永久残留) + active_uploads 计数+1
+→ body 流式落盘: body.into_data_stream() 逐帧 write_all(零内存膨胀); 每 64MB 复查磁盘剩余 → 不足→507+清理(防 size=0/谎报 size 灌盘)
+   ├─ 写失败/断开/超时/磁盘不足 → abort(删半截+删标记+在途计数-1)
+   └─ 正常结束 → sync_all → **written ≠ 声明 size → 按不完整清理+400**(分片提前"正常收尾"的截断体不算成功)
+        → 删标记(失败则写入 "ok", 启动见 ok 只删标记保成品) → 在途计数-1 → 日志 → 200{ok, name, final, size}
+   在途保护: DELETE 见 active_uploads 计数或 .ccup 标记存在 → 409「上传中」(消除"删在途→上传方200但字节没了"竞态)
 </pre>
 <p class="small">语义：<b>一个文件 = 一个请求 = 一条连接</b>，整文件即"最大的分片"，服务端不维护任何分片/账本/会话状态（v1.1.8 回归 1.1.2 直传语义，仅保留 1.1.5 起的同名自动改名）。锁屏防中断由前端 Wake Lock + 2px 视频通路保活承担（9.4）。<code>/api/upload_progress</code>、<code>/api/upload_cancel</code> 与启动 TTL 清理仅为 v1.1.5-1.1.7 旧版遗留 .ccpart 服务（按 now−mtime 真实年龄判定；<b>未来 mtime</b>（系统时钟被改）按未过期保留，宁多留不误删），新上传不再产生断点文件。</p>
 <h3>5.2 下载（流式 + Range 断点续传）</h3>
 <pre>
+准入(中间件): 有效分享票据<b>先于访问码</b>放行(否则开 pin 时分享链接先吃 401, 接收方被迫索要全站码);
+  票据 peek 不销, **完整成功 GET 后才焚票** —— Range 从 0 起(bytes=0-)视为全量同样销票(防一个链接无限拉全文),
+  N&gt;0 续传与 HEAD 不销票(断点续传在 TTL 10min 内可用); 文件名逐段 percent 解码后再校验(中文名票据可匹配, %2E%2E 仍被拦)
 safe_rel_path(读路径: 保留形态放行, 否则既有 aux.pdf 等取不回) → safe_join_existing
 → metadata.is_file() 校验(目录在 Unix 上 open 成功但读到 EISDIR 中途断流 → 400)
 → 解析 Range(单区间 "N-" / "N-M"; 多区间/畸形忽略按整体 200; start≥size → 416 + bytes */size)
@@ -279,7 +290,7 @@ safe_rel_path → safe_join_existing → remove_file
 <ul>
 <li><b>本机来源豁免</b>：<code>is_local_source</code> = 回环地址 ∪「源 IP 绑定 UDP socket 试探」（同机浏览器经局域网 IP 访问时源地址是网卡 IP 而非 127.0.0.1，只判回环会把电脑前的人锁在外面）；伪造源地址需完成 TCP 握手（收不到 SYN-ACK），不可冒充。双栈监听（<code>[::]</code>）下 IPv4 连接的源地址是 v4-mapped 形态（<code>::ffff:a.b.c.d</code>），而 is_loopback/UDP 探测只认纯 v4——统一经 <code>normalize_peer</code> 折回纯 IPv4 再判定（v1.1.4 修复：此前桌面壳经 127.0.0.1 的控制接口调用被误判远程 403，"服务日志"面板因此全瞎）；</li>
 <li><b>控制接口仅限本机</b>：<code>/api/control/*</code>（启停/日志）非回环来源一律 403；</li>
-<li><b>Host/Origin 守卫</b>：Host 必须是 IP / localhost / *.local（挡 DNS 重绑定）；带 Origin 的请求只放行自身与 tauri WebView 源（挡跨源 CSRF）；</li>
+<li><b>Host/Origin 守卫</b>：Host 必须是 IP / localhost（<b>已移除 *.local</b>——同 Wi-Fi 攻击者可自架 mDNS 应答做 DNS 重绑定，让受害者浏览器同源直连本机服务、源地址豁免 pin；二维码本就下发 IP，收紧无损正常路径）；带 Origin 的请求只放行自身与 tauri WebView 源（挡跨源 CSRF）；</li>
 <li><b>访问令牌（可选）</b>：开启后非本机的 API/WS 请求必须携带 <code>?pin=</code> 或 <code>X-Access-Pin</code>；6 位数字码（时间纳秒^进程id^自增序号经 splitmix64 扩散），状态落盘重启不静默失效；导航请求（Accept 含 text/html）回可输入配对码的 HTML 中转页而非裸 JSON；</li>
 <li><b>防爆破退避（v1.1.4，双层化于安全加固）</b>：只统计「实际提交了配对码」的尝试（无码的后台轮询不计额度）；<b>单 IP 层</b>：连续失败 8 次后指数退避（15s 起步每次翻倍、封顶 1h）；<b>IPv6 /64 聚合层</b>：隐私扩展轮换接口地址刷新不了聚合窗口（40 次/60s 起步，独立封顶）——任一层处于锁定窗内一律 429，<b>正确码也拒绝</b>（若放行，对/错码响应可区分，攻击者伪造 Accept 头即可全速逐个试码，退避形同虚设）；锁定中不记数不延长（轰炸无法续窗），配对成功两层立即清零；逐键计数使攻击者只能锁住自己的源地址/网段。导航请求在锁定窗内回可重试的 429 表单页；配对码比较为常量时间（无逐字符短路时序差）；</li>
 <li><b>日志卫生</b>：日志行剥 CR/LF 防伪造注入、单行硬截断 400 字符；查询串中的 pin 一律脱敏为 <code>pin=***</code>。</li>
@@ -326,7 +337,15 @@ safe_rel_path → safe_join_existing → remove_file
 <li>构建托盘与菜单/左键点击事件；</li>
 <li>主窗口绑定关闭事件；窗口在 tauri.conf 中<b>默认隐藏</b>（<code>visible:false</code> 防自启闪窗），启动参数<b>不含</b> <code>--hidden</code> 时在 setup 内显式 <code>show()</code>——手动启动正常弹窗，开机自启收进托盘不弹；</li>
 <li><code>server::autostart()</code> 自动拉起服务（端口被占自动顺延），结果打 stderr：<code>[wft] 服务已启动: http://ip:port</code>。</li>
+<li>端口绑定：开放局域网用双栈 <code>[::]</code> 并<b>自检 v4 连通</b>后采用，无 IPv6 / <code>bindv6only=1</code> 时回落 <code>0.0.0.0</code>（<code>bind_dualstack</code>，此前该回落只存在于未编译的测试代码，禁 IPv6 主机整机起不来、v4 设备全拒连）；<code>STOPPING</code> 标志让 start 等在途 stop 收尾（≤3.5s，stop 入口先置位再抢 START_GUARD），停启竞态不再把地址顺延漂移；启动清理顺序：<b>先</b> <code>clean_incomplete_uploads</code>（.ccup 标记→半截成品）<b>再</b> <code>clean_stale_parts</code>（过期断点）——反过来会先把老标记当过期断点删掉、半截成品从此无法识别。</li>
 </ol>
+<h3>8.3 桌面悬浮码窗口（qr-pet）</h3>
+<ul>
+<li><b>窗口</b>：setup 内代码创建（<code>WebviewWindowBuilder "qr-pet"</code>，URL <code>index.html?view=qr-pet</code>）——无边框 + <code>transparent</code> + <code>always_on_top</code> + <code>skip_taskbar</code> + <b><code>accept_first_mouse</code></b>（悬浮窗几乎总是非焦点态，macOS 首点默认只激活窗口不进 webview，不开穿透则拖动/点按/悬停全部失灵）；初始 <code>inner_size/min_inner_size = 96×96</code>（= 收拢态窗口，64 圆点 + 四周 16px 缓冲命中区），初始位置 = 主工作区左缘、窗口中心压边缘线（圆点漏一半）；</li>
+<li><b>主窗可见性广播</b>：<code>show_main_window()</code> 与关窗收纳（<code>main_window_event</code>）处 <code>emit("main-vis://changed", {visible})</code>——JS 侧没有 onShow/onHide API，可见性翻转全部汇聚在这两处；悬浮码启动时用 <code>main_visible_cmd</code> 查初值；</li>
+<li><b>能力</b>：<code>capabilities/default.json</code> 为 main/qr-pet 两窗授予窗口几何全集（set/outer-size/position、scale-factor、current-monitor、start-dragging）+ <b><code>core:window:allow-cursor-position</code></b>（悬停在场轮询用）+ 事件 listen/emit；自定义 command 不走能力清单；</li>
+<li><b>关闭语义</b>：CloseRequested 一律 <code>prevent_close</code>（悬浮码没有✕，唯一关闭入口是 CC设置开关 → <code>show_qr_pet_cmd(false)</code>）。</li>
+</ul>
 </section>
 
 <!-- ================= 9 ================= -->
@@ -355,6 +374,8 @@ safe_rel_path → safe_join_existing → remove_file
 <tr><td><code>theme / qrData / qrShow / toasts / copied</code></td><td>皮肤 / 二维码（本地 canvas 生成，由 <code>watch [shareUrl, running]</code> 单源驱动）/ 提示 / 复制成功态</td></tr>
 <tr><td><code>introShow / introSec / faqOpen</code></td><td>介绍页（开合 / 锚点高亮 scroll spy / FAQ 单开手风琴）</td></tr>
 <tr><td><code>autostartOn / showAutostartTip</code></td><td>开机自启开关状态与开启成功说明弹框（仅真实桌面）</td></tr>
+<tr><td><code>qrPetExpanded / qrPetShown</code></td><td>悬浮码<b>几何态</b>（决定窗口尺寸与半隐/贴边，petApply 执行瞬间读取）与<b>展示态</b>（模板 expanded class）——刻意解耦：展开先放大窗再切卡片、收拢先切球再缩窗，过渡零挤压帧；快路径要求双 ref 一致，半途卡死态可在下次悬停自愈</td></tr>
+<tr><td><code>petDock / petEdge / petNotify / petMainVis</code></td><td>停靠记忆 {edge, cross}（执行时同步到 petEdge 供状态点方位/面板滑入方向）/ 新文件新消息绿点 / 主窗可见性（可见即抑制并清零绿点）</td></tr>
 </table>
 <h3>9.3 WebSocket 推送 + 轮询兜底</h3>
 <p>聊天/文件列表/服务状态优先走 <code>/ws</code>（事件驱动即时刷新），轮询降级为兜底通道——两条通道任一可用页面即活：</p>
@@ -371,6 +392,9 @@ safe_rel_path → safe_join_existing → remove_file
 <tr><td>logTimer</td><td>2s（可下发）</td><td>refreshLogs（仅桌面）</td></tr>
 <tr><td>statusTimer</td><td>2.5s（可下发）</td><td>refreshStatus：桌面 invoke <code>control_status_cmd</code>；浏览器 fetch <code>/api/info</code>。刷新 running/port/share/freeSpace + <b>version/config 下发接入</b>；<b>IP 变化 → lanIp 更新 + toast「本机 IP 已变为 …，手机请改用新地址访问」；二维码由 <code>watch [shareUrl, running]</code> 统一驱动重生成；浏览器端连续 2 次失败 → <code>offline=true</code> 整页切换"无信号"画面 + 清空列表/聊天数据（成功自动恢复）</b>；端口输入框由 <code>syncPortInput</code> 同步（运行中回显实际端口；停止态仅 <code>portDirty=false</code> 且未聚焦时回写，防用户输入被轮询冲掉）</td></tr>
 <tr><td>chatTimer / filesTimer</td><td>3s / 5s（可下发）</td><td><b>仅 WS 断开时存在</b>（applyWsMode 管理）；在途竞争用 <code>reloadQueued</code> 补拉队列保证删除后必刷新</td></tr>
+<tr><td>petPollTimer</td><td>250ms（仅 qr-pet 窗）</td><td>悬停在场轮询：<code>cursorPosition()</code> 与窗口 outer 矩形求交 → <code>petSetOver()</code>（穿越边界才动作）。不依赖 mouseenter/leave——窗口被程序化移动/页面重载后 WebKit 边界事件丢配对，实测"点击正常、悬停永不触发"</td></tr>
+<tr><td>petHoverTimer / petCloseTimer</td><td>1500ms / 250ms</td><td>停满 1.5s 展开扫码卡；离开 250ms 宽限收拢（边界抖动不闪断）；按下即取消待展开（点击/拖拽意图优先）</td></tr>
+<tr><td>petSnapTimer</td><td>140ms 防抖</td><td><code>onMoved</code> 静默 140ms = 拖拽真正结束的信号（startDragging 是异步原生拖拽拿不到结束回调）→ 触发最近边吸附 + 解除 hover 屏蔽 + 清按压残留</td></tr>
 </table>
 <h3>9.4 上传实现（整文件直传 + 锁屏保活 + 整目录）</h3>
 <ul>
@@ -436,6 +460,16 @@ safe_rel_path → safe_join_existing → remove_file
 <li><b>CTA 分流</b>：Hero「立即开始传输」→ <code>goTransferFromIntro()</code> 关页进文件传输；顶栏「去启动服务」→ <code>goServiceFromIntro()</code> 关页进服务中心；「查看使用说明」→ 页内跳「如何使用」区块；</li>
 <li><b>外链统一</b>：<code>openExternal(url, silent)</code> 为唯一入口（桌面 <code>open_url_cmd</code>、失败回退 <code>window.open</code>），openBrowser / goDownload / 聊天链接 / 介绍页链接四处共用，避免多份拷贝漂移；</li>
 <li><b>分层</b>：z-index 970——高于聊天面板(950)、低于弹框(998)/Toast(1001)，保证启动后静默检查更新弹出的「发现新版本」不会被盖在介绍页下面。</li>
+</ul>
+<h3>9.12 悬浮码（qr-pet 窗）实现</h3>
+<ul>
+<li><b>几何模型</b>：<code>petDockPos(edge, cross, w, h, wa, collapsed)</code>——收拢 <code>inset=0.5</code>（窗口中心压边缘线，圆点漏一半），展开 <code>inset=0</code>（完整贴边）；跨轴夹紧在工作区内；展开顺序<b>先就位再放大</b>（原点固定向屏内生长）、收拢<b>先缩球再滑入半隐</b>，过渡期间永不露出屏外；macOS 会把顶边钳到菜单栏下沿（<code>constrainFrameRect</code>，横向/底部越界则放行）——顶吸附表现为完整贴边，属系统行为；</li>
+<li><b>单飞串行</b>：<code>petSerialize()</code> 把 展开/收拢/吸附/锁屏重试落位 全部排队执行——并发交错 <code>setSize/setPosition</code> 会产生"136 卡片配 96 收拢位姿"错配（诊断 <code>pref-pet-dbg-apply</code> 实锤过 y=-70 半出血）；执行瞬间从 ref 推导尺寸与位姿（同源），snap 则<b>按窗口实际尺寸推导</b>（96→半隐 / 136→贴边）自洽自纠；</li>
+<li><b>悬停判定</b>：权威通道是 <b>250ms 光标轮询</b>（<code>cursorPosition()</code> ∩ 窗口 outer 矩形 → <code>petSetOver</code> 穿越边界才动作）；mouseenter/leave 只作加速通道。原因：mouseenter 是边界过渡事件，窗口被程序化移动（贴边落位）或页面重载后 WebKit 会丢失进出配对（认为指针一直在窗内 → enter 永不再发），实测"点击正常、悬停永不触发"；</li>
+<li><b>持久化</b>：位置 <code>pet-dock.json</code>、开关 <code>pref-qr-float-enabled</code>、诊断 <code>pref-pet-dbg-*</code> 全部走 Rust <code>fs::write</code> 同步落盘——<b>WKWebView localStorage 写入实测长期只驻内存不落盘</b>（wal 停更、重启即丢），"重启后仍保持"类需求一律不走 localStorage（仅留作会话缓存与旧记忆迁移）；</li>
+<li><b>状态与角标</b>：服务状态=外圈呼吸有无（<code>.down</code> 仅停动画不改色）；绿点画在 SVG <code>pet-ring-breath</code> 组内——与呼吸环<b>同一坐标系同相位缩放</b>（不存在两个动画对表不同步），<code>pet-ring-rot</code> 按吸附边旋到可见半侧；数据源=文件名快照 diff + 消息条数基线 diff（<code>loadChat</code> 首拉内联记基线防空聊天首条被吞），主窗可见即抑制清零；</li>
+<li><b>调试</b>：<code>petDiag()</code> 按事件类型分文件写 <code>pref-pet-dbg-&lt;fn&gt;</code>（单文件 last-write-wins 会把 enter/fire 盖掉）——boot/hb/poll-ok/enter/expand-fire/apply/apply-fail/snap 一组文件即可还原完整时序；</li>
+<li><b>交互细节</b>：点按开主窗并收起面板（预览卡不提供任何点击功能）；按下取消待展开计时；几何态/展示态双 ref 快路径自愈；文件行/按钮 hover 无位移（防按下-抬起间目标移动吞 click）。</li>
 </ul>
 </section>
 
@@ -509,11 +543,17 @@ npm run tauri build
 <tr><td>日志时间</td><td>chrono 本地时间毫秒</td></tr>
 <tr><td>Linux 剪贴板</td><td>copy_file_cmd 暂不支持 Linux（返回明确错误）</td></tr>
 <tr><td>大文件传输</td><td>上传单请求整文件直传（body 流式落盘零内存膨胀）；浏览器端下载原生流式（无完成回调属浏览器限制）；应用内下载经 on_download 落盘系统下载目录</td></tr>
+<tr><td>分享票据语义</td><td>bearer 一次性 + 文件名绑定 + TTL 10min；<b>响应头就绪即焚</b>——完整 GET 中途断网则票据已消费、重试需重新索取（换正确性：404/406 不焚、Range N&gt;0 续传不焚、bytes=0- 视为全量焚）；并发同链请求在首个响应头返回前均可 peek 通过（窗口=首传时长，接受）</td></tr>
+<tr><td>.ccup 完整性标记</td><td>空=在写（启动即删半截成品），"ok"=已完整只是删除失败（启动只删标记保成品）；上传侧整体拒绝 .ccup 文件名（防伪造标记让启动清理误删同名真文件），读/删同样拒绝</td></tr>
+<tr><td>访问码退避代价</td><td>锁判定先行（锁内正确码也 429，消灭对/错 oracle）——被锁的就是攻击者自己的设备（自锁可接受）；同 /64 他人需等一个窗周期，任一正确码即清零恢复</td></tr>
+<tr><td>悬浮码持久化</td><td>位置/开关/诊断一律 Rust 侧文件（<code>pet-dock.json</code>、<code>pref-*</code>），localStorage 仅作缓存——webview 存储不落盘实测后弃用；诊断按事件分文件+时间戳（单文件互相覆盖会丢时序）</td></tr>
+<tr><td>悬停在场判定</td><td>用光标轮询替代 mouseenter/leave：边界过渡事件在窗口程序化移动/页面重载后会丢配对（"点击通、悬停死"的根因）；轮询为命中测试级可靠，代价是 250ms 检测粒度（叠加 1.5s 停留，实际出码 1.5~1.75s）</td></tr>
+<tr><td>macOS 顶边钳制</td><td><code>constrainFrameRect</code> 会把窗口顶边钳到菜单栏下沿——顶吸附的圆点/面板完整贴边而非半隐（横向 x&lt;0、底部越界均正常放行）；属系统行为，未做绕过</td></tr>
 <tr><td>后续演进项<br>（暂不实施）<br><span class="small">mDNS 域名发现</span></td><td>目标：IP 变化后旧地址失效，改用固定名 <code>http://wft.local:{port}</code> 自动跟随。实现要点：<code>mdns-sd = "0.13"</code>（纯 Rust 无系统依赖）在 <code>start()</code> 时注册 <code>_http._tcp</code> 服务实例（host=<code>wft.local.</code>，addr=当前 IP），后台任务比对 <code>lan_ip()</code> 变化后 unregister+re-register，<code>stop()</code> 时注销；断连横幅加提示语。<b>工作量：60–80 行 Rust，约半天。</b>已知边界：Android 浏览器不解析 .local（系统限制）；禁多播网络失效；同网段多实例需冲突改名（wft-xxxx.local）；端口变更仍需手写（浏览器不读 SRV）。优先级中低——iPhone/桌面用户收益明确，安卓场景现有断连横幅+二维码路径更可靠。</td></tr>
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-10-26 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-11-05 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

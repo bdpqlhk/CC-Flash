@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
   "description": "桌面端专属权限(开机自启插件仅桌面注册)",
-  "windows": ["main"],
+  "windows": ["main", "qr-pet"],
   "platforms": ["linux", "macOS", "windows"],
   "permissions": ["autostart:default"]
 }

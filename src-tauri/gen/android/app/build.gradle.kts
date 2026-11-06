@@ -18,9 +18,8 @@ android {
     compileSdk = 37
     namespace = "com.ccflash.app"
     defaultConfig {
-        // 应用全部流量是有意的局域网明文 HTTP(127.0.0.1 / 局域网 IP), debug/release 一律放开;
-        // 此处为兜底默认值(两个 buildType 也各自覆盖为 true)
-        manifestPlaceholders["usesCleartextTraffic"] = "true"
+        // Tauri 移动壳经 localhost proxy 访问电脑服务；不直接放行任意私网明文。
+        manifestPlaceholders["usesCleartextTraffic"] = "true"   // 局域网 HTTP 客户端: 访问电脑服务需明文
         applicationId = "com.ccflash.app"
         minSdk = 24
         targetSdk = 37
@@ -42,7 +41,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            manifestPlaceholders["usesCleartextTraffic"] = "true"
+            manifestPlaceholders["usesCleartextTraffic"] = "true"   // 局域网 HTTP 客户端: 访问电脑服务需明文
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
@@ -54,9 +53,8 @@ android {
             }
         }
         getByName("release") {
-            // 应用全部流量是有意的局域网明文 HTTP(127.0.0.1 / 局域网 IP, 见前端 apiBase),
-            // 不放开的话 release 包内所有 fetch 会被 ERR_CLEARTEXT_NOT_PERMITTED 拦死
-            manifestPlaceholders["usesCleartextTraffic"] = "true"
+            // 局域网 HTTP 仅允许本机回环代理（后续接入 Tauri proxy/native relay）。
+            manifestPlaceholders["usesCleartextTraffic"] = "true"   // 局域网 HTTP 客户端: 访问电脑服务需明文
             // 仅在 CC_KEYSTORE_PATH 有值时挂签名; 无证书时保持 null → 产出 unsigned 包,
             // 而不是 AGP "Keystore file not set" 直接失败
             val releaseSigning = signingConfigs.getByName("release")

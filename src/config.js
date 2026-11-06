@@ -15,7 +15,7 @@ export const CONTROL_RETRY_MS = 500;
 export const TOAST_MS = 2400;             // 提示停留时长
 export const COPIED_RESET_MS = 1500;      // "已复制"图标复位
 export const UPLOAD_DONE_KEEP_MS = 1000;  // 上传完成条目残留时长
-export const BLOB_REVOKE_MS = 10_000;     // 下载 blob: URL 回收延时
+export const BLOB_REVOKE_MS = 60_000;    // 下载 blob: URL 回收延时(10s 会截断慢网在途下载, iOS Safari 尤甚)
 export const REFRESH_SPIN_MS = 600;       // 手动刷新最短旋转时长(本地请求太快, 不兜底动画会一闪而过)
 
 /* ---------- 列表 / 传输 ---------- */
@@ -92,7 +92,7 @@ export const THEME_MIGRATE = { aurora: "default", mist: "graphite", eye: "mint" 
 export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
-export const APP_VERSION_FALLBACK = "1.1.8";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
+export const APP_VERSION_FALLBACK = "1.1.9";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次
 export const UPDATE_CHECK_TIMEOUT_MS = 8000;             // 请求超时; 任何失败一律静默

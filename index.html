@@ -5,9 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>CC-Flash</title>
     <link rel="icon" type="image/png" href="/logo.png" />
+    <!-- 老内核守门(无 eval, 兼容生产 CSP script-src 'self'):
+         modern.js 含 ?. 语法 —— 古董内核整文件 SyntaxError 跳过、标记不置位;
+         gate.js 纯 ES5 检查标记后渲染升级提示。不能用 new Function 探针 ——
+         CSP 无 unsafe-eval 时它抛 EvalError, 会把现代内核误判成古董并覆写已挂载的应用 -->
+    <script src="/modern.js"></script>
+    <script src="/gate.js"></script>
+    <script type="module" src="/src/main.js"></script>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -29,7 +29,21 @@ export function isNewer(latest, current) {
   if (ap === bp) return false;
   if (!ap) return true;    // latest 是正式版, current 带后缀 → 更新
   if (!bp) return false;   // latest 带后缀, current 是正式版 → 不更新
-  return ap > bp;          // 双方都带后缀: 字符序粗略比较(内测通道够用)
+  // 双方都带后缀: 按 semver 逐段比较 —— 纯数字段按数值(beta.10 > beta.2, 旧的整串
+  // 字序会判反), 数字段优先级低于字母段, 同类字母段按 ASCII
+  const pa = ap.split("."), pb = bp.split(".");
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const x = pa[i] || "", y = pb[i] || "";
+    if (x === y) continue;
+    if (x === "") return false;   // 短前缀更旧: 2.0.0-rc < 2.0.0-rc.1
+    if (y === "") return true;
+    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
+    if (nx && ny) return Number(x) > Number(y);
+    if (nx !== ny) return !nx;   // 数字段 < 字母段(semver 规则)
+    return x > y;
+  }
+  return false;
 }
 
 /* 拉取最新 Release: 成功返回 { latest, notes, url }; 失败/无 Release 返回 null */

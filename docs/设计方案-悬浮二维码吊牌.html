@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CC-Flash · 全局悬浮二维码效果方案</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --stage: #121722;
+      --card: #161d2b;
+      --line: rgba(255, 255, 255, 0.08);
+      --text: #e8ecf6;
+      --muted: #98a2b8;
+      --accent: #4f8af7;
+      --accent-2: #7c6ff7;
+      --success: #34c97c;
+      --danger: #f2596b;
+      --float-width: 136px;
+      --scan-height: 36px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 78% 12%, rgba(79, 138, 247, 0.13), transparent 30%), var(--bg);
+    }
+
+    .page { max-width: 1080px; margin: 0 auto; padding: 32px 24px 48px; }
+
+    header h1 { font-size: 23px; letter-spacing: -0.2px; }
+    header p { margin-top: 8px; color: var(--muted); font-size: 13.5px; }
+    .toolbar { display: flex; align-items: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .toolbar span { color: var(--muted); font-size: 12.5px; margin-right: 3px; }
+    button.control {
+      height: 30px; padding: 0 13px; border-radius: 8px; cursor: pointer;
+      color: var(--muted); border: 1px solid var(--line); background: rgba(255,255,255,.04);
+      font: inherit; font-size: 12.5px; transition: all .18s ease;
+    }
+    button.control:hover { color: var(--text); border-color: var(--accent); background: rgba(79,138,247,.12); }
+    button.control.active { color: #8db5ff; border-color: rgba(79,138,247,.65); background: rgba(79,138,247,.18); }
+
+    .stage {
+      position: relative; height: 600px; margin-top: 20px; overflow: hidden;
+      border: 1px solid var(--line); border-radius: 16px;
+      background:
+        linear-gradient(140deg, rgba(255,255,255,.015) 0 1px, transparent 1px 56px),
+        linear-gradient(90deg, rgba(255,255,255,.015) 0 1px, transparent 1px 56px),
+        linear-gradient(160deg, var(--stage), #101520);
+      background-size: 56px 56px, 56px 56px, auto;
+      box-shadow: inset 0 0 80px rgba(0,0,0,.35);
+    }
+
+    .sidebar { position: absolute; z-index: 1; inset: 0 auto 0 0; width: 172px; padding: 18px 12px; border-right: 1px solid var(--line); background: rgba(10,13,19,.72); backdrop-filter: blur(8px); }
+    .brand { display: flex; align-items: center; gap: 9px; margin: 0 6px 24px; font-size: 14px; font-weight: 700; }
+    .logo { width: 26px; height: 26px; border-radius: 8px; background: conic-gradient(from 150deg, var(--accent), var(--accent-2), var(--accent)); box-shadow: 0 0 12px rgba(79,138,247,.5); }
+    .nav-item { display: flex; align-items: center; gap: 9px; width: 100%; height: 35px; margin-bottom: 5px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+    .nav-item i { width: 6px; height: 16px; border-radius: 3px; background: currentColor; opacity: .45; }
+    .nav-item.active { color: #8db5ff; border-color: rgba(79,138,247,.5); background: rgba(79,138,247,.13); }
+    .nav-item.active i { opacity: 1; }
+    .status { position: absolute; left: 12px; right: 12px; bottom: 16px; display: flex; align-items: center; gap: 7px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--success); font-size: 11.5px; }
+    .status i { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse 1.9s ease infinite; }
+
+    .mock-title { position: absolute; z-index: 1; top: 32px; left: 202px; }
+    .mock-title h2 { font-size: 18px; }
+    .mock-title p { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .url-bar { position: absolute; z-index: 1; top: 82px; left: 202px; right: 180px; display: flex; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.03); }
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; color: #4ade8b; font-size: 10.5px; background: rgba(52,201,124,.15); border: 1px solid rgba(52,201,124,.35); }
+    .badge i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .url-text { color: #8db5ff; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+
+    .content { position: absolute; z-index: 1; top: 130px; left: 202px; right: 24px; display: grid; grid-template-columns: 1fr .8fr; gap: 14px; }
+    .panel { min-height: 165px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: rgba(18,23,34,.86); }
+    .panel h3 { margin-bottom: 12px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .file { display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 8px; border-radius: 8px; background: rgba(255,255,255,.025); }
+    .file i { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; font-size: 9px; font-weight: 800; color: white; font-style: normal; }
+    .file b { display: block; max-width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 600; }
+    .file small { color: var(--muted); font-size: 10.5px; }
+    .log { color: #75819a; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; line-height: 2; }
+
+    .qr-float {
+      position: absolute; z-index: 50; top: 105px; right: 30px; width: var(--float-width);
+      padding: 10px 8px 8px; border-radius: 14px; cursor: grab; user-select: none; touch-action: none;
+      border: 2px solid rgba(240,89,107,.88);
+      background: linear-gradient(165deg, rgba(24,30,42,.99), rgba(15,19,28,.99));
+      box-shadow: 0 13px 36px rgba(0,0,0,.48), 0 0 16px rgba(240,89,107,.22);
+      transform-origin: 50% -24px; animation: swing 4.2s ease-in-out infinite;
+    }
+    .qr-float.dragging { animation-play-state: paused; cursor: grabbing; }
+    .qr-float.dragging::before { content: ""; position: fixed; inset: 0; z-index: -1; cursor: grabbing; }
+    .qr-float:hover { border-color: #ff637a; box-shadow: 0 15px 40px rgba(0,0,0,.52), 0 0 22px rgba(240,89,107,.35); }
+    .qr-float-header { display: flex; align-items: center; justify-content: center; gap: 5px; margin-bottom: 7px; color: #fff; font-size: 12.5px; font-weight: 800; letter-spacing: .3px; text-shadow: 0 1px 5px rgba(0,0,0,.42); }
+    .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); box-shadow: 0 0 7px var(--success); animation: pulse 1.8s ease infinite; }
+    .qr-frame { position: relative; overflow: hidden; padding: 4px; border-radius: 9px; background: white; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
+    canvas { display: block; width: 100%; border-radius: 4px; }
+    .scan {
+      position: absolute; top: 0; left: 0; right: 0; height: var(--scan-height);
+      transform: translateY(-38px); pointer-events: none;
+      background: linear-gradient(180deg, transparent, rgba(79,138,247,.18) 34%, rgba(139,200,255,.78) 51%, rgba(79,138,247,.18) 68%, transparent);
+      animation: scan 2.2s cubic-bezier(.55,.06,.45,.94) infinite;
+    }
+    .scan::after { content: ""; position: absolute; left: 3px; right: 3px; top: 51%; height: 1px; background: #fff; box-shadow: 0 0 8px #8bc8ff; opacity: .9; }
+    .caption { margin-top: 6px; min-width: 0; overflow: hidden; color: #e9eef8; font-size: 10.5px; font-weight: 700; white-space: nowrap; text-align: center; text-overflow: ellipsis; letter-spacing: -0.2px; text-shadow: 0 1px 4px rgba(0,0,0,.4); }
+    .float-actions { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; gap: 4px; opacity: 0; transition: opacity .18s ease; }
+    .qr-float:hover .float-actions, .qr-float:focus-within .float-actions, .qr-float.dragging .float-actions { opacity: 1; }
+    .float-btn { flex: 1 1 0; height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding: 0 5px; border-radius: 7px; border: 1px solid rgba(255,255,255,.24); background: rgba(10,13,19,.82); color: #f4f7ff; font: inherit; font-size: 10.5px; font-weight: 800; line-height: 1; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4); backdrop-filter: blur(4px); }
+    .float-btn:hover { color: white; }
+    .float-btn.minimize:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.35); }
+    .float-btn.close:hover { background: var(--danger); border-color: rgba(255,255,255,.35); }
+
+    .qr-mini {
+      position: absolute; z-index: 50; right: 24px; bottom: 76px; width: 52px; height: 62px;
+      display: none; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+      border: 2px solid rgba(240,89,107,.85); border-radius: 12px; background: var(--card); cursor: pointer;
+      box-shadow: 0 10px 30px rgba(0,0,0,.44), 0 0 12px rgba(240,89,107,.22); color: #f4f7ff; font: inherit; font-size: 11px; font-weight: 800;
+    }
+    .qr-mini .mini-frame { width: 31px; height: 31px; padding: 3px; border-radius: 4px; background: white; }
+    .qr-mini .mini-frame canvas { width: 100%; height: 100%; }
+    .qr-mini.show { display: flex; }
+
+    .dialog { position: fixed; z-index: 120; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(2,4,8,.68); backdrop-filter: blur(3px); }
+    .dialog.show { display: flex; }
+    .dialog-box { width: 250px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: #121723; text-align: center; }
+    .dialog-box h4 { font-size: 14px; }
+    .dialog-box .big { width: 130px; height: 130px; margin: 12px auto; padding: 6px; border-radius: 9px; background: white; }
+    .dialog-box .big canvas { width: 100%; height: 100%; }
+    .dialog-box p { color: #8db5ff; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+
+    .spec { margin-top: 26px; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: rgba(18,23,34,.7); }
+    .spec h2 { font-size: 15px; margin-bottom: 13px; }
+    .spec ul { list-style: none; }
+    .spec li { display: flex; gap: 9px; margin-bottom: 8px; color: var(--muted); font-size: 12.5px; }
+    .spec li::before { content: "•"; color: var(--accent); }
+    .spec b { color: var(--text); }
+
+    @keyframes swing { 0%, 100% { transform: rotate(-1.15deg); } 50% { transform: rotate(1.15deg); } }
+    @keyframes scan { 0% { transform: translateY(-38px); opacity: 0; } 14% { opacity: 1; } 78% { transform: translateY(108px); opacity: 1; } 100% { transform: translateY(108px); opacity: 0; } }
+    @keyframes pulse { 0%, 100% { opacity: .6; transform: scale(.88); } 50% { opacity: 1; transform: scale(1.1); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .qr-float, .scan, .dot, .status i { animation: none; }
+      .scan { opacity: .18; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>全局悬浮二维码 · 效果方案</h1>
+      <p>桌面壳专属展示：手机浏览器不渲染。可拖拽、可最小化、可关闭；上下流光扫码动效与轻微摇摆同步演示。</p>
+      <div class="toolbar">
+        <span>主题：</span>
+        <button class="control active" data-color="#4f8af7" data-second="#7c6ff7">深空蓝</button>
+        <button class="control" data-color="#3ecfa3" data-second="#8ee0c4">森林薄荷</button>
+        <button class="control" data-color="#a78bfa" data-second="#8b7cf6">暗夜紫</button>
+        <button class="control" data-color="#f0a232" data-second="#ffce7a">墨色琥珀</button>
+        <button id="restore">恢复默认位置</button>
+      </div>
+    </header>
+
+    <section class="stage" id="stage">
+      <aside class="sidebar">
+        <div class="brand"><span class="logo"></span>CC-Flash</div>
+        <button class="nav-item"><i></i>文件传输</button>
+        <button class="nav-item"><i></i>文本消息</button>
+        <button class="nav-item active"><i></i>服务中心</button>
+        <button class="nav-item"><i></i>CC设置</button>
+        <div class="status"><i></i>运行中 · 17777</div>
+      </aside>
+      <div class="mock-title"><h2>服务中心</h2><p>同一 Wi-Fi 下的设备可访问下方地址</p></div>
+      <div class="url-bar"><span class="badge"><i></i>运行中</span><span class="url-text">http://10.161.118.132:17777</span></div>
+      <div class="content">
+        <div class="panel">
+          <h3>共享文件</h3>
+          <div class="file"><i style="background:#e74c3c">PDF</i><div><b>需求评审纪要.pdf</b><small>2.4 MB · 电脑 → 手机</small></div></div>
+          <div class="file"><i style="background:#2980b9">JPG</i><div><b>现场照片_01.jpg</b><small>5.1 MB · 手机 → 电脑</small></div></div>
+        </div>
+        <div class="panel">
+          <h3>服务日志</h3>
+          <div class="log">GET /api/files &nbsp;200<br>GET /api/download/photo.jpg &nbsp;200<br>GET /ws &nbsp;101</div>
+        </div>
+      </div>
+
+      <div class="qr-float" id="qrFloat" tabindex="0" role="button" aria-label="悬浮二维码：拖动调整位置，点击放大">
+        <div class="float-actions">
+          <button class="float-btn minimize" id="minimizeBtn" type="button" title="隐藏悬浮码" aria-label="隐藏悬浮码"><span aria-hidden="true">—</span>隐藏</button>
+          <button class="float-btn close" id="closeBtn" type="button" title="关闭悬浮码" aria-label="关闭悬浮码"><span aria-hidden="true">✕</span>关闭</button>
+        </div>
+        <div class="qr-float-header">点击放大</div>
+        <div class="qr-frame"><canvas id="qrCanvas" width="220" height="220"></canvas><span class="scan" aria-hidden="true"></span></div>
+        <div class="caption">同一 WI-FI 下 扫码打开</div>
+      </div>
+
+      <button class="qr-mini" id="qrMini" type="button" aria-label="显示悬浮码"><span class="mini-frame"><canvas id="miniCanvas" width="64" height="64"></canvas></span>扫码</button>
+    </section>
+
+    <div class="dialog" id="dialog">
+      <div class="dialog-box">
+        <h4>扫描二维码在手机上打开</h4>
+        <div class="big"><canvas id="largeCanvas" width="260" height="260"></canvas></div>
+        <p>http://10.161.118.132:17777</p>
+      </div>
+    </div>
+
+    <section class="spec">
+      <h2>交互与视觉说明</h2>
+      <ul>
+        <li><b>全局常驻：</b>所有桌面页面可见，无需切换到服务中心；仅服务运行且二维码生成后出现。</li>
+        <li><b>注意力平衡：</b>±1.15° 缓慢摇摆 + 2.2s 上下流光扫描；低饱和蓝光，简洁不刺眼。</li>
+        <li><b>拖拽交互：</b>Pointer Capture 跟手，5px 死区区分点击；位置夹紧到视口并持久记忆。</li>
+        <li><b>控制方式：</b>“—” 隐藏为右下迷你码，可恢复；“✕” 关闭；服务停止自动消失。</li>
+        <li><b>平台范围：</b>在电脑桌面界面展示，窄窗口同样支持；CC 设置可控制开关；手机浏览器不展示。</li>
+        <li><b>可访问性：</b>系统开启减弱动态效果时停用摇摆和流光；按钮带 ARIA 标签。</li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    function drawMockQR(canvas) {
+      const context = canvas.getContext("2d");
+      const size = canvas.width;
+      const cells = 29;
+      const cell = size / cells;
+      context.clearRect(0, 0, size, size);
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, size, size);
+      context.fillStyle = "#111";
+      let seed = 2026;
+      const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+      for (let y = 0; y < cells; y++) {
+        for (let x = 0; x < cells; x++) {
+          if (random() > 0.52) context.fillRect(x * cell, y * cell, cell, cell);
+        }
+      }
+      function finder(x, y) {
+        context.fillStyle = "#111";
+        context.fillRect(x * cell, y * cell, cell * 7, cell * 7);
+        context.fillStyle = "#fff";
+        context.fillRect((x + 1) * cell, (y + 1) * cell, cell * 5, cell * 5);
+        context.fillStyle = "#111";
+        context.fillRect((x + 2) * cell, (y + 2) * cell, cell * 3, cell * 3);
+      }
+      finder(0, 0);
+      finder(cells - 7, 0);
+      finder(0, cells - 7);
+    }
+
+    ["qrCanvas", "miniCanvas", "largeCanvas"].forEach(id => drawMockQR(document.getElementById(id)));
+
+    const stage = document.getElementById("stage");
+    const float = document.getElementById("qrFloat");
+    const mini = document.getElementById("qrMini");
+    const dialog = document.getElementById("dialog");
+    let dragging = false;
+    let moved = false;
+    let offset = { x: 0, y: 0 };
+    let pointerId = null;
+
+    function floatRect() {
+      const area = stage.getBoundingClientRect();
+      const rect = float.getBoundingClientRect();
+      return { area, rect };
+    }
+
+    function moveTo(x, y) {
+      const { area, rect } = floatRect();
+      float.style.right = "auto";
+      float.style.left = `${Math.max(8, Math.min(area.width - rect.width - 8, x))}px`;
+      float.style.top = `${Math.max(8, Math.min(area.height - rect.height - 8, y))}px`;
+    }
+
+    float.addEventListener("pointerdown", event => {
+      if (event.button !== 0 || event.target.closest(".float-btn")) return;
+      const areaRect = stage.getBoundingClientRect();
+      const rect = float.getBoundingClientRect();
+      offset = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      pointerId = event.pointerId;
+      moved = false;
+      dragging = true;
+      float.classList.add("dragging");
+      float.setPointerCapture(pointerId);
+      event.preventDefault();
+    });
+
+    float.addEventListener("pointermove", event => {
+      if (!dragging || event.pointerId !== pointerId) return;
+      const areaRect = stage.getBoundingClientRect();
+      const rect = float.getBoundingClientRect();
+      moveTo(event.clientX - areaRect.left - offset.x, event.clientY - areaRect.top - offset.y);
+      moved = true;
+    });
+
+    function stopDrag(event) {
+      if (event.pointerId !== pointerId) return;
+      dragging = false;
+      pointerId = null;
+      float.classList.remove("dragging");
+    }
+
+    float.addEventListener("pointerup", stopDrag);
+    float.addEventListener("pointercancel", stopDrag);
+    float.addEventListener("click", () => {
+      if (moved) { moved = false; return; }
+      dialog.classList.add("show");
+    });
+    float.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        dialog.classList.add("show");
+      }
+    });
+
+    document.getElementById("minimizeBtn").addEventListener("click", event => {
+      event.stopPropagation();
+      float.style.display = "none";
+      mini.classList.add("show");
+    });
+    document.getElementById("closeBtn").addEventListener("click", event => {
+      event.stopPropagation();
+      float.style.display = "none";
+    });
+    mini.addEventListener("click", () => {
+      float.style.display = "";
+      mini.classList.remove("show");
+    });
+    dialog.addEventListener("click", () => dialog.classList.remove("show"));
+    document.getElementById("restore").addEventListener("click", () => {
+      float.style.left = "";
+      float.style.top = "";
+      float.style.right = "30px";
+      float.style.top = "105px";
+    });
+
+    document.querySelectorAll("[data-color]").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-color]").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        const color = button.dataset.color;
+        const second = button.dataset.second;
+        document.documentElement.style.setProperty("--accent", color);
+        document.documentElement.style.setProperty("--accent-2", second);
+      });
+    });
+  </script>
+</body>
+</html>

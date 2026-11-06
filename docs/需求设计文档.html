@@ -79,7 +79,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-10-26</b></span>
+<span>文档日期：<b>2026-11-05</b></span>
 <span>状态：<b>已实现，macOS 包已出</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
@@ -154,6 +154,11 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-24</td><td>关窗收托盘、托盘菜单（显示窗口 / 启停服务 / 打开网页 / 退出）、首次收纳系统通知；<b>左键点托盘图标直接唤出主窗口</b>（macOS 程序坞点击同效）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-25</td><td>单实例守卫：应用运行中再次启动（桌面/开始菜单/程序坞图标）不再新建进程，改为唤起已有主窗口——杜绝 Windows 侧托盘图标越开越多</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-26</td><td>开机自启（手动开启）：仅在「CC设置」打开开关才注册登录项（<b>默认关闭</b>，杜绝首启静默注册绑定临时路径）；自启启动带 <code>--hidden</code>，登录后服务后台运行、窗口不弹出不闪屏；DMG/开发目录运行时文案警示路径失效风险；Android/iOS WebView 不展示该设置</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-75</td><td rowspan="5">桌面悬浮码</td><td>置顶呼吸圆点贴边收拢：窗口中心压屏幕边缘线（圆点<b>漏一半</b>在屏内），默认左侧垂直居中；指针<b>停留 1.5 秒</b>滑出「浏览器扫一扫」预览卡（纯预览、不提供点击功能），离开 250ms 收拢；点击圆点打开主窗口并收起面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-76</td><td>拖动换边：按住拖动松手自动吸附最近边缘（距离并列优先左侧）；位置写入 <code>pet-dock.json</code>（Rust 同步落盘），重启按原位置恢复；展开/收拢/吸附的窗口几何操作串行单飞，杜绝"卡片配收拢位姿"错配</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-77</td><td>服务状态<b>以外圈呼吸为唯一语言</b>：运行中粉环呼吸（高保底透明度 + 辉光），已停止则静止常亮；显隐只由 CC设置开关控制，开关写入 <code>pref-qr-float-enabled</code> 重启保持；<b>关闭入口仅 CC设置</b>（圆点上不放 ✕）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-78</td><td>新文件 / 新消息角标：外圈<b>绿点弹入</b>提示（绿点画在 SVG 呼吸组内<b>与呼吸环同组随环缩放</b>，并按吸附边旋到屏幕可见半侧；文件名快照 diff / 消息条数基线 diff，首拉只记基线不误报）；<b>主窗可见时抑制并清零</b>（Rust 广播 <code>main-vis://changed</code> + 启动查询 <code>main_visible_cmd</code>）；无通知完全隐藏</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-79</td><td>停止态面板：白块改<b>暗底虚线空态 + 静默取景框</b>，文案「服务已停止 / 打开主窗口启动服务」；预览卡<b>不挂 title 悬浮提示</b>，任何时候不遮挡二维码；圆点悬停判定用<b>光标在场轮询</b>（250ms），不依赖 mouseenter 边界事件（窗口程序化移动后边界事件会丢配对）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-30</td><td rowspan="3">服务日志</td><td>逐请求记录：方法/路径/状态/大小/耗时/来源 IP/设备与昵称；业务事件（上传开始/完成/中断/拒绝、下载、删除、聊天、启停）独立记录；本地时间带毫秒</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-31</td><td>高频轮询噪音豁免（聊天、状态、日志拉取、favicon）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-32</td><td>「清空日志」按钮，清空后保留一条标记线确认生效</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -201,6 +206,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>删除</td><td>✅</td><td>✅</td><td>弹确认框（防误删），支持批量</td></tr>
 <tr><td>分享</td><td>✅ 绿色，保持不改动</td><td>✅ 绿色</td><td>复制链接（见 4.2）</td></tr>
 </table>
+<div class="callout c-info"><b>单击即生效</b>行与按钮的 hover <b>不做任何位移</b>（translateY / scale）——按下与抬起之间目标移动会让 mouseup 落到行上，click 不触发（表现为"点一次没反应、要双击"）；反馈只用颜色/背景。桌面主窗口同时开启 <code>accept_first_mouse</code>（macOS 首点穿透），从其他应用切回后第一击即达内容。</div>
 </section>
 
 <!-- ================= 5 ================= -->
@@ -232,6 +238,17 @@ pre code{background:none;color:inherit;padding:0}
 <li>前端每 2.5 秒刷新一次状态；检测到 IP 变化 → 地址栏/二维码/统计立即换新，并弹醒目提示「本机 IP 已变为 x.x.x.x，手机请改用新地址访问」；</li>
 <li>已打开的旧页面无法自救（旧 IP 已失联），必须以桌面端提示的新地址重开——这是本需求的边界。</li>
 </ul>
+<h3>6.3 桌面悬浮码（贴边呼吸球，FR-75~79）</h3>
+<p>桌面壳专属的<b>常驻扫码入口</b>：独立置顶透明小窗（手机浏览器不渲染），任何页面都能扫。交互模型一句话——<b>贴边收拢、靠近预览、拖动换边</b>：</p>
+<ul>
+<li><b>形态</b>：收拢态为 64px 呼吸圆点——<b>透明无底盘</b>（不画球体背景与投影，直接悬浮在桌面上），珊瑚粉呼吸环（缩放 .92↔1.08 + 描边加粗 + 明暗，2s 一循环）+ 微信绿 44px 圆芯（30px 取景框内嵌小号 CC 字标）；窗口中心压屏幕边缘线、圆点<b>漏一半</b>在屏内；默认停靠屏幕左侧垂直居中；</li>
+<li><b>预览</b>：指针停留 <b>1.5 秒</b> → 滑出 136×190「浏览器扫一扫」扫码卡（按吸附边方向滑入）；离开 250ms 收拢。预览卡是纯展示——点击它与点击圆点等效（打开主窗口并收起面板），不提供放大/关闭等按钮；</li>
+<li><b>拖动</b>：按住拖动、松手自动吸附最近边缘（并列优先左）；拖动位置持久化，重启后回到原位；顶部吸附受 macOS 限制钳制在菜单栏下沿（该边完整贴边而非半隐，属系统行为）；</li>
+<li><b>服务状态</b>：外圈粉环<b>呼吸 = 运行中</b>，<b>静止常亮 = 已停止</b>——动效本身即状态，不再用灰环/去色重复表达；</li>
+<li><b>提醒</b>：有新文件或新消息时环上弹出<b>绿点</b>（与呼吸环同组、随环一起缩放，按吸附边落在屏幕可见的半侧）；主窗口打开期间不展示并在打开时清零（用户已在软件里，无需提醒）；</li>
+<li><b>开关</b>：唯一关闭入口是 CC设置「悬浮二维码」开关；关闭立即消失，状态本地持久化、重启保持；打开即恢复显示（含此前记忆的停靠位置）。</li>
+</ul>
+<div class="callout c-info"><b>持久化选型</b>：位置记忆（<code>pet-dock.json</code>）与开关状态（<code>pref-qr-float-enabled</code>）都走 <b>Rust 侧同步写文件</b>——WKWebView 的 localStorage 写入在实测中长期只驻内存不落盘，重启即丢，不能承担"重启后仍保持"类需求。</div>
 </section>
 
 <!-- ================= 7 ================= -->
@@ -318,6 +335,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>分享链接附言</td><td>「📎 {文件名} —— 来自 CC-Flash 的分享」+「🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。」</td></tr>
 <tr><td>服务页副提示</td><td>「同一 Wi-Fi 下的设备用浏览器打开即可使用」</td></tr>
 <tr><td>二维码卡</td><td>「手机扫码直达」/「手机 / 平板同一 Wi-Fi 下扫码打开」</td></tr>
+<tr><td>悬浮码预览卡</td><td>头「浏览器扫一扫」（停止态「服务已停止」）；caption「同一 WI-FI 下 扫码打开」（停止态「打开主窗口启动服务」）；收起态<b>不挂任何提示条/原生 title</b>（系统 tooltip 延迟与 1.5s 展开赛跑，实测展示不出来或一闪而过，已按需求移除）；原生 title 仅保留通知态「有新文件或消息 · 点按查看」，<b>展开态一律置空</b>（不遮挡二维码）</td></tr>
 <tr><td>清空类动作</td><td>「清空数据」「清空日志」+ 提示均注明「不影响其他设备与服务端记录 / 不影响服务运行」</td></tr>
 <tr><td>托盘通知</td><td>「CC-Flash 仍在运行。窗口已收到托盘，服务保持运行。点托盘图标，或再次从程序坞(macOS)/桌面与开始菜单(Windows)打开均可重新显示；退出请用托盘菜单中的『退出』。」</td></tr>
 </table>
@@ -332,7 +350,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>传输性能</td><td>流式分块（1MB），不整载入内存；大文件下载（浏览器）可显示进度</td><td>✅</td></tr>
 <tr><td>反馈完备</td><td>所有用户动作有可见结果（toast / 状态变化 / 日志）</td><td>✅</td></tr>
 <tr><td>容错</td><td>端口冲突自动顺延；上传中断清理；磁盘不足拒绝；窗口就绪竞态自动重试</td><td>✅</td></tr>
-<tr><td>浏览器兼容</td><td>兼容约 2017 年起的内核（Safari 10.1+ 及国产套壳），旧内核给出升级提示</td><td>✅</td></tr>
+<tr><td>浏览器兼容</td><td>面向现代内核（约 2020 年起：Chrome/Edge 90+、Safari 14+、Firefox 88+ 及等价国产套壳；构建产物为 es2021）。更旧内核在加载模块<b>之前</b>由外置双文件做语法探测（<code>public/modern.js</code> 含 <code>?.</code> 语法、古董内核整文件跳过；<code>public/gate.js</code> 纯 ES5 检查标记——不能用 <code>new Function</code> 探针，生产 CSP 无 unsafe-eval 时它抛 EvalError 会误伤现代内核），显示「浏览器内核过旧」升级提示页，<b>不整页空白</b></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>状态新鲜度</td><td>状态/IP 2.5s 刷新（失联判定 = 连续 2 次失败 ≈ 5s）；日志 2s；聊天 3s；文件列表 5s 自动同步；以上间隔支持服务端下发调整</td><td>✅</td></tr>
 </table>
 </section>
@@ -345,11 +363,11 @@ pre code{background:none;color:inherit;padding:0}
 <h3>13.1 内置防护</h3>
 <ul>
 <li><b>路径穿越双重防护</b>：URL 解码 → 相对路径逐段校验（拒绝空/./../首尾空格/非法字符，支持子目录）→ 与共享目录拼接后 canonicalize 校验前缀越界；上传建目录前对最近存在的祖先做越界预检（防符号链接把目录建到界外）；</li>
-<li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost / <code>*.local</code>（挡 DNS 重绑定）；带 Origin 的请求<b>精确匹配</b>放行自身与 WebView（<code>tauri://localhost</code>、<code>http(s)://tauri.localhost</code>；子串匹配可被 tauri.localhost.evil.com 绕过，禁止使用）；无 Origin 的 curl/局域网 App 不受影响；</li>
+<li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost（<b>不再放行 <code>*.local</code></b>——同 Wi-Fi 攻击者可自架 mDNS 应答做 DNS 重绑定绕过访问码，二维码本就下发 IP，收紧无损正常路径）；带 Origin 的请求<b>精确匹配</b>放行自身与 WebView（<code>tauri://localhost</code>、<code>http(s)://tauri.localhost</code>；子串匹配可被 tauri.localhost.evil.com 绕过，禁止使用）；无 Origin 的 curl/局域网 App 不受影响；</li>
 <li><b>控制接口仅限本机</b>：/api/control/*（启停/日志/清空）拒绝非回环来源——局域网任意设备可调用的话人人能关停服务、读走全部活动日志；网页端状态走 /api/info，不受影响；</li>
 <li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；Windows 路径长度（MAX_PATH 260，按 UTF-16 计）上传预检；</li>
 <li><b>隐私与垃圾过滤</b>：系统垃圾文件（.DS_Store/._*/Thumbs.db/desktop.ini）不进列表、上传拒绝——.DS_Store 内含目录内曾出现过的文件名元数据；</li>
-<li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（script-src 'self' 等），即便出现注入型 XSS 也限制其能力；</li>
+<li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（script-src 'self' 等），即便出现注入型 XSS 也限制其能力；<code>connect-src/img-src</code> 额外放行 <code>http:/ws:</code> 任意主机——移动壳是纯客户端，数据通道指向用户填写的局域网地址，只留回环会把发版包整端拦死（dev 模式无 CSP，必须用发版包验证）；</li>
 <li><b>系统命令注入防护（Windows）</b>：打开 URL 走 <code>rundll32 FileProtocolHandler</code>、文件走 <code>explorer</code>，不经 <code>cmd</code> shell（cmd 会解释 <code>&amp;|^</code> 等字符）；</li>
 <li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>
 <li><b>资源上限</b>：聊天 200 条 / 昵称 20 字 / 消息 2000 字 / 日志 1000 条；</li>
@@ -406,7 +424,7 @@ pre code{background:none;color:inherit;padding:0}
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-10-26 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-11-05 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>
