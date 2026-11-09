@@ -45,11 +45,12 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::config::{
     APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHUNK_HINT, DEFAULT_NICK, DEFAULT_PORT,
-    LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, PIN_PREF_FILE, POLL_CHAT_MS,
-    POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, PORT_PREF_FILE, PORT_PROBE_EXTRA, PORT_RANGE_END,
-    REQ_LOG_MAX,
-    SHARE_DIR_NAME, SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, UPLOAD_FREE_CHECK_BYTES,
-    UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH,
+    FILES_LIST_MAX, LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, PIN_PREF_FILE,
+    POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, PORT_PREF_FILE, PORT_PROBE_EXTRA,
+    PORT_RANGE_END, REQ_LOG_MAX,
+    SHARE_DIR_NAME, SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, TICKET_FAIL_FREE,
+    TICKET_FAIL_WINDOW_SECS, UPLOAD_FREE_CHECK_BYTES, UPLOAD_FREE_RESERVE_BYTES,
+    UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH, UPLOAD_MAX_DURATION_SECS,
     UPLOAD_PART_META_SUFFIX,
     UPLOAD_PART_SUFFIX, UPLOAD_PART_TTL_SECS,
 };
@@ -245,6 +246,13 @@ pub fn is_running() -> bool { running_slot().lock().unwrap_or_else(|e| e.into_in
 
 /// 调系统默认程序打开文件/目录/URL(macOS: open / Windows: start / Linux: xdg-open)
 pub fn open_with_system(target: &str) -> Result<(), String> {
+    // iOS 沙箱禁止 spawn 外部进程: 旧 cfg 会落到 xdg-open 分支必然失败。
+    // 明确报错, 前端据此走"复制链接, 请在浏览器中打开"的兜底路径
+    #[cfg(target_os = "ios")]
+    {
+        let _ = target;
+        return Err("iOS 壳不支持直接调起浏览器，请复制链接后在浏览器中打开".into());
+    }
     #[cfg(target_os = "macos")]
     let mut cmd = {
         let mut c = std::process::Command::new("open");
@@ -608,15 +616,36 @@ fn clean_incomplete_uploads(share: &Path) {
             // ".报告.pdf.ccup" → 成品名 "报告.pdf"
             let final_name = &fname[1..fname.len() - ".ccup".len()];
             let final_path = dir.join(final_name);
-            // 内容 "ok" = 上传已完整落盘只是标记删除失败 → 只删标记, 保形成品
-            let done = std::fs::read_to_string(&p)
-                .map(|s| s.trim() == "ok")
-                .unwrap_or(false);
+            // 标记格式: 首行会话令牌 / 第二行声明大小(可选); "ok" = 上传成功但标记删除失败。
+            // 不是这两种形态的一律视为用户自己的 .ccup 文件, 绝不触碰(旧实现见名就删同名成品)
+            let content = std::fs::read_to_string(&p).unwrap_or_default();
+            let mut lines = content.lines();
+            let token = lines.next().unwrap_or("").trim();
+            let declared = lines.next().and_then(|s| s.trim().parse::<u64>().ok());
+            let done = token == "ok";
+            if !done && !is_upload_token(token) {
+                continue;
+            }
             let mut removed = false;
             if done {
                 removed |= std::fs::remove_file(&p).is_ok();
                 if removed {
                     push_log_warn(format!("清理未删除的完成标记(成品完好) {final_name}"));
+                }
+                continue;
+            }
+            // 声明大小吻合 = 崩溃发生在"成品已完整落盘、标记尚未删除"的窗口:
+            // 保留成品, 只清标记(旧实现会把完整文件当半截删掉)
+            let complete = declared.map_or(false, |d| {
+                d > 0
+                    && std::fs::metadata(&final_path)
+                        .map(|m| m.is_file() && m.len() == d)
+                        .unwrap_or(false)
+            });
+            if complete {
+                removed |= std::fs::remove_file(&p).is_ok();
+                if removed {
+                    push_log_warn(format!("清理完成标记(成品大小吻合, 已保留) {final_name}"));
                 }
             } else {
                 if std::fs::metadata(&final_path).is_ok() {
@@ -674,6 +703,21 @@ pub fn stop() -> bool {
                 // abort 后短等任务真正退出: 否则紧接的 start() 可能因旧 listener
                 // 尚未释放而不必要地顺延端口(网页端表现为地址漂移失联)
                 let _ = tokio::time::timeout(std::time::Duration::from_millis(300), &mut task).await;
+            }
+            // 等全部在途上传响应停服信号并完成自清理: axum 的连接任务是独立 spawn 的,
+            // abort serve future 不会停掉它们; 不等待的话, 紧接着的 start() 会在
+            // clean_incomplete_uploads 里把旧 handler 仍在写的"在途文件"删掉,
+            // 而旧 handler 继续写完并回 200 —— "停止服务"的撤销语义失效。
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                let busy = !active_uploads()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_empty();
+                if !busy || tokio::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
         });
         STOPPING.store(false, Ordering::SeqCst);
@@ -897,10 +941,40 @@ fn drop_active(key: &str) {
     }
 }
 
-/// 上传失败统一清理: 半截成品 + 完整性标记(.{名}.ccup) + 在途计数
-async fn abort_upload(path: &std::path::Path, marker: &std::path::Path, key: &str) {
-    let _ = tokio::fs::remove_file(path).await;
-    let _ = tokio::fs::remove_file(marker).await;
+/// 上传/删除的"占位→标记→在途登记"临界区锁: 三段窗口内若 delete 恰好进来,
+/// 文件会被删掉而上传方仍继续写入并回 200(Unix 写已删除 inode = 假成功)。
+/// 该锁把上传的占位/标记/登记与删除的复查/删除串行化(锁内只做短文件操作)。
+fn file_op_lock() -> &'static tokio::sync::Mutex<()> {
+    static L: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    L.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// 上传会话令牌(16 位十六进制): 写入完整性标记首行, 用于区分"本会话的标记/成品"
+/// 与"同名新上传或用户自己的 .ccup 文件" —— abort 只清理仍属于本会话的产物。
+fn new_upload_token() -> String {
+    let mut bytes = [0u8; 8];
+    getrandom::getrandom(&mut bytes).expect("CSPRNG 不可用");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// 标记首行是否为系统生成的会话令牌(16 位小写十六进制)
+fn is_upload_token(s: &str) -> bool {
+    s.len() == 16 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
+/// 上传失败统一清理: 仅在完整性标记仍属于本会话时删除半截成品与标记。
+/// 若标记已被同名新上传替换/移除, 成品可能已属于别人 —— 绝不能按路径无条件删。
+async fn abort_upload(path: &std::path::Path, marker: &std::path::Path, token: &str, key: &str) {
+    // 与 DELETE 的复查/删除互斥, 避免"判定后删除"与清理互相踩踏
+    let _op = file_op_lock().lock().await;
+    let owned = tokio::fs::read(marker)
+        .await
+        .map(|b| String::from_utf8_lossy(&b).lines().next().unwrap_or("").trim() == token)
+        .unwrap_or(false);
+    if owned {
+        let _ = tokio::fs::remove_file(path).await;
+        let _ = tokio::fs::remove_file(marker).await;
+    }
     drop_active(key);
 }
 
@@ -1012,6 +1086,40 @@ fn consume_share_ticket(query: &str, raw_path: &str) -> bool {
         .is_some()
 }
 
+/// 当前所有票据(轮换/关闭访问码时统一作废, 兑现日志里"旧分享链接随之失效"的承诺)
+fn clear_share_tickets() {
+    share_tickets()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+/// 无效票据猜码限流(按来源 IP): 24bit 空间虽小, 但不限流时局域网可全速穷举。
+/// 返回 true = 允许本次尝试; 连续失败达到阈值后暂停受理。
+fn ticket_fails() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static FAILS: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    FAILS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn ticket_admit(peer: std::net::IpAddr) -> bool {
+    let now = std::time::Instant::now();
+    let mut m = ticket_fails().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 2048 {
+        m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < TICKET_FAIL_WINDOW_SECS);
+    }
+    let e = m.entry(peer).or_insert((0, now));
+    if now.duration_since(e.1).as_secs() >= TICKET_FAIL_WINDOW_SECS {
+        *e = (0, now);   // 窗口过期: 重新计数
+    }
+    if e.0 >= TICKET_FAIL_FREE {
+        return false;
+    }
+    e.0 = e.0.saturating_add(1);
+    e.1 = now;
+    true
+}
+
 
 
 
@@ -1102,11 +1210,14 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
     // depth 为当前目录相对层级(根=0), 其内文件路径段数 = depth+1;
     // 用 >= 而非 >: 否则 8 层目录里的文件(9 段)会进列表, 但 safe_rel_path 拒收 9 段,
     // 出现"列得出、下载/删除全 400"的自相矛盾
-    if depth >= UPLOAD_MAX_DEPTH {
+    if depth >= UPLOAD_MAX_DEPTH || out.len() >= FILES_LIST_MAX {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
+        if out.len() >= FILES_LIST_MAX {
+            return; // 超大目录不再无界遍历/序列化
+        }
         let p = e.path();
         let Ok(md) = e.metadata() else { continue };
         if md.is_dir() {
@@ -1149,7 +1260,8 @@ async fn files(State(share): State<PathBuf>) -> Response {
     })
     .await
     .unwrap_or_default();
-    Json(serde_json::json!({ "files": out })).into_response()
+    let truncated = out.len() >= FILES_LIST_MAX;
+    Json(serde_json::json!({ "files": out, "truncated": truncated })).into_response()
 }
 
 async fn download(
@@ -1328,15 +1440,18 @@ async fn upload(
         .unwrap_or(0);
     if size > 0 {
         if let Ok(free) = fs2::available_space(&share) {
-            if size > free {
+            // 额外保留 256MB 安全余量: 不让一次上传把系统盘写到几近枯竭
+            let need = size.saturating_add(UPLOAD_FREE_RESERVE_BYTES);
+            if need > free {
                 push_log_warn(format!(
-                    "上传拒绝 {name}: 磁盘空间不足(需要 {}，可用 {}) ← {peer}",
+                    "上传拒绝 {name}: 磁盘空间不足(需要 {} + 保留 {}，可用 {}) ← {peer}",
                     humans(size),
+                    humans(UPLOAD_FREE_RESERVE_BYTES),
                     humans(free)
                 ));
                 return err(
                     StatusCode::BAD_REQUEST,
-                    format!("磁盘空间不足，需要 {}，可用 {}", humans(size), humans(free)),
+                    format!("磁盘空间不足，需要 {}，可用 {}", humans(need), humans(free)),
                 );
             }
         }
@@ -1372,9 +1487,17 @@ async fn upload(
             _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "路径校验失败"),
         }
     }
+    // 停服进行中: 不再受理新上传(旧监听在优雅关闭窗口内仍可能收到请求)
+    if STOPPING.load(Ordering::SeqCst) {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "服务正在停止，请稍后重试");
+    }
     // 同名自动改名(1.1.5/1.1.6 策略恢复): 绝不覆盖已有文件 —— create_new 原子占位,
     // 并发同名被抢先则 dedup_rel_name 顺延 (1)(2)… 重试, 无 check-then-create 竞态
     let mut final_name = name.clone();
+    let token = new_upload_token();
+    // 占位 → 标记 → 在途登记 三段必须在同一临界区内完成(见 file_op_lock 注释):
+    // 否则并发 DELETE 可在窗口内删掉成品, 上传方仍写完并回 200(假成功)
+    let op_guard = file_op_lock().lock().await;
     let (path, mut file) = loop {
         // 首轮直接抢原名; 被占则每轮从**原名**重算第一个空闲变体 (1)(2)…
         let p = share.join(&final_name);
@@ -1414,29 +1537,43 @@ async fn upload(
     };
     // 完整性标记(#1 数据完整性): 写首个字节前先落标记, 成功后删 ——
     // 崩溃/停服 abort/进程被杀不会走下面的错误清理, 启动时 clean_incomplete_uploads
-    // 凭标记识别半截成品并连标记一并删除(否则截断文件以真实文件名永久残留、与完整文件无法区分)
+    // 凭标记识别半截成品并连标记一并删除(否则截断文件以真实文件名永久残留、与完整文件无法区分)。
+    // 首行 = 会话令牌(abort 只清理自己的产物), 第二行 = 声明大小(崩溃时据此保留已完整落盘的成品)
     let base = final_name.rsplit('/').next().unwrap_or(final_name.as_str());
     let Some(dir) = path.parent() else {
+        let _ = tokio::fs::remove_file(&path).await;
         return err(StatusCode::INTERNAL_SERVER_ERROR, "路径异常");
     };
     let marker = dir.join(format!(".{base}.ccup"));
-    match tokio::fs::OpenOptions::new().create_new(true).write(true).open(&marker).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            // 陈旧标记(正常应被启动清理移除): 清掉重建, 保证本次上传受保护
-            let _ = tokio::fs::remove_file(&marker).await;
-            if tokio::fs::OpenOptions::new().create_new(true).write(true).open(&marker).await.is_err() {
-                let _ = tokio::fs::remove_file(&path).await;
-                return err(StatusCode::INTERNAL_SERVER_ERROR, "写入标记创建失败");
+    let marker_body = if size > 0 { format!("{token}\n{size}") } else { token.clone() };
+    let marker_result = async {
+        match tokio::fs::OpenOptions::new().create_new(true).write(true).open(&marker).await {
+            Ok(mut mf) => {
+                use tokio::io::AsyncWriteExt;
+                mf.write_all(marker_body.as_bytes()).await
             }
-        }
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&path).await; // 回收占位, 不留无标记空文件
-            push_log_err(format!("上传 {final_name}: 标记创建失败({e}) ← {peer}"));
-            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // 陈旧标记(正常应被启动清理移除): 清掉重建, 保证本次上传受保护
+                let _ = tokio::fs::remove_file(&marker).await;
+                match tokio::fs::OpenOptions::new().create_new(true).write(true).open(&marker).await {
+                    Ok(mut mf) => {
+                        use tokio::io::AsyncWriteExt;
+                        mf.write_all(marker_body.as_bytes()).await
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            Err(e) => Err(e),
         }
     }
-    // 在途计数(#2 数据一致性): delete_file 见 key 即 409 —— 消除"删在途文件 →
+    .await;
+    if let Err(e) = marker_result {
+        let _ = tokio::fs::remove_file(&marker).await;
+        let _ = tokio::fs::remove_file(&path).await; // 回收占位, 不留无标记空文件
+        push_log_err(format!("上传 {final_name}: 标记创建失败({e}) ← {peer}"));
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
+    }
+    // 在途计数(#2 数据一致性): delete_file 见 key 或标记即 409 —— 消除"删在途文件 →
     // 上传方收 200 但字节已被移走"的假成功竞态
     let akey = active_key(&path);
     *active_uploads()
@@ -1444,6 +1581,7 @@ async fn upload(
         .unwrap_or_else(|e| e.into_inner())
         .entry(akey.clone())
         .or_insert(0) += 1;
+    drop(op_guard);
     push_log(format!(
         "上传开始 {name} (声明 {}) ← {peer}{}",
         if size > 0 { humans(size) } else { "未知大小".into() },
@@ -1454,42 +1592,71 @@ async fn upload(
         }
     ));
     let started = std::time::Instant::now();
+    let mut kick = ws_kick().subscribe();   // 停服信号: 立刻中止在途上传并清理
     let mut stream = body.into_data_stream();
     let mut written: u64 = 0;
     let mut last_check: u64 = 0;
     loop {
+        // 停服: 先于读循环判断, 保证 stop() 能在数秒内回收全部在途上传,
+        // 否则 start() 的启动清理会在旧 handler 仍在写盘时删掉"在途文件"
+        if STOPPING.load(Ordering::SeqCst) {
+            drop(file);
+            abort_upload(&path, &marker, &token, &akey).await;
+            push_log_warn(format!("上传中止 {name}: 服务停止，已清理半截文件 ← {peer}"));
+            return err(StatusCode::SERVICE_UNAVAILABLE, "服务正在停止，上传已中止");
+        }
+        // 总时长上限: 空闲超时挡不住"每 119s 滴一个字节"的慢速滴流
+        if started.elapsed().as_secs() > UPLOAD_MAX_DURATION_SECS {
+            drop(file);
+            abort_upload(&path, &marker, &token, &akey).await;
+            push_log_warn(format!(
+                "上传中止 {name}: 超过总时长上限({}s)，已清理半截文件 ← {peer}",
+                UPLOAD_MAX_DURATION_SECS
+            ));
+            return err(StatusCode::REQUEST_TIMEOUT, "上传超时，请重试");
+        }
         // 空闲超时(审查回归): 半开连接(信号黑洞/锁屏切换无 RST)会让读循环永久悬挂 ——
-        // 120s 无任何字节即中止并清理, 同时限定半截文件可见/可下载的窗口
-        let chunk = match tokio::time::timeout(
-            std::time::Duration::from_secs(UPLOAD_IDLE_TIMEOUT_SECS),
-            stream.next(),
-        )
-        .await
-        {
-            Ok(c) => c,
-            Err(_) => {
-                abort_upload(&path, &marker, &akey).await;
-                push_log_warn(format!(
-                    "上传中止 {name}: 空闲超时({}s 无数据)，已清理半截文件 ← {peer}",
-                    UPLOAD_IDLE_TIMEOUT_SECS
-                ));
-                return err(StatusCode::GATEWAY_TIMEOUT, "上传超时，请重试");
+        // 120s 无任何字节即中止并清理, 同时限定半截文件可见/可下载的窗口。
+        // 与停服信号 select: 客户端不再发数据时也能被 stop() 立即打断
+        let chunk = tokio::select! {
+            _ = kick.recv() => {
+                drop(file);
+                abort_upload(&path, &marker, &token, &akey).await;
+                push_log_warn(format!("上传中止 {name}: 服务停止，已清理半截文件 ← {peer}"));
+                return err(StatusCode::SERVICE_UNAVAILABLE, "服务正在停止，上传已中止");
             }
+            r = tokio::time::timeout(
+                std::time::Duration::from_secs(UPLOAD_IDLE_TIMEOUT_SECS),
+                stream.next(),
+            ) => match r {
+                Ok(c) => c,
+                Err(_) => {
+                    drop(file);
+                    abort_upload(&path, &marker, &token, &akey).await;
+                    push_log_warn(format!(
+                        "上传中止 {name}: 空闲超时({}s 无数据)，已清理半截文件 ← {peer}",
+                        UPLOAD_IDLE_TIMEOUT_SECS
+                    ));
+                    return err(StatusCode::GATEWAY_TIMEOUT, "上传超时，请重试");
+                }
+            },
         };
         let Some(c) = chunk else {
             break; // body 正常结束
         };
         let Ok(c) = c else {
-            abort_upload(&path, &marker, &akey).await;
+            drop(file);
+            abort_upload(&path, &marker, &token, &akey).await;
             push_log_err(format!("上传中断 {name}: 连接断开，已清理半截文件 ← {peer}"));
             return err(StatusCode::INTERNAL_SERVER_ERROR, "上传中断");
         };
         // 周期查盘(审查回归): size=0 与谎报 size 的请求体绕过了启动预检,
-        // 每 64MB 复查一次, 剩余不足即中止 —— 防灌满共享盘
+        // 每 64MB 复查一次, 低于安全余量即中止 —— 防灌满共享盘
         if written - last_check >= UPLOAD_FREE_CHECK_BYTES {
             if let Ok(free) = fs2::available_space(&share) {
-                if free < UPLOAD_FREE_CHECK_BYTES {
-                    abort_upload(&path, &marker, &akey).await;
+                if free < UPLOAD_FREE_RESERVE_BYTES {
+                    drop(file);
+                    abort_upload(&path, &marker, &token, &akey).await;
                     push_log_warn(format!(
                         "上传中止 {name}: 磁盘剩余不足，已写入 {}，已清理半截文件 ← {peer}",
                         humans(written)
@@ -1500,17 +1667,25 @@ async fn upload(
             last_check = written;
         }
         if let Err(e) = file.write_all(&c).await {
-            abort_upload(&path, &marker, &akey).await;
+            drop(file);
+            abort_upload(&path, &marker, &token, &akey).await;
             push_log_err(format!("上传失败 {name}: 写入失败({e})，已清理半截文件 ← {peer}"));
             return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
         }
         written += c.len() as u64;
     }
-    let _ = file.sync_all().await;
+    // 刷盘失败不能回 200: 原实现吞掉错误, 断电/坏盘时调用方会以为文件已安全落盘
+    if let Err(e) = file.sync_all().await {
+        drop(file);
+        abort_upload(&path, &marker, &token, &akey).await;
+        push_log_err(format!("上传失败 {name}: 落盘失败({e})，已清理半截文件 ← {peer}"));
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("落盘失败: {e}"));
+    }
+    drop(file);   // Windows 上先关句柄, 标记/成品才可能删除成功
     // 声明了大小就必须收满: 分片/提前"正常收尾"的截断体不能当成功 ——
     // 否则标记被当"已完成"移除, 落盘即静默损坏文件, 对端拿到 Content-Length 自洽的半截
     if size > 0 && written != size {
-        abort_upload(&path, &marker, &akey).await;
+        abort_upload(&path, &marker, &token, &akey).await;
         push_log_warn(format!(
             "上传中止 {final_name}: 声明 {size} 字节, 实际收到 {written} 字节, 已清理 ← {peer}"
         ));
@@ -1765,6 +1940,9 @@ async fn delete_file(
     let Some(path) = safe_join_existing(&share, &name) else {
         return err(StatusCode::NOT_FOUND, "文件不存在");
     };
+    // 复查与删除必须与上传的"占位→标记→登记"临界区互斥: 否则检查通过后上传刚完成登记,
+    // 删除仍会把在途文件删掉, 上传方收到 200 但字节已消失(TOCTOU 假成功)
+    let op_guard = file_op_lock().lock().await;
     // 在途上传保护(#2): 直写最终名期间文件已存在, 无防护的删除会让上传方
     // "收到 200 但字节已全部消失"; key 与 upload 的占位路径同构(share.join(名))
     {
@@ -1782,7 +1960,7 @@ async fn delete_file(
             }
         }
     }
-    match tokio::fs::remove_file(&path).await {
+    let res = match tokio::fs::remove_file(&path).await {
         Ok(()) => {
             push_log(format!("删除 {name} ← {}", peer));
             broadcast_event("files:changed");
@@ -1792,7 +1970,9 @@ async fn delete_file(
             push_log_err(format!("删除失败 {name}: {e} ← {}", peer));
             err(StatusCode::INTERNAL_SERVER_ERROR, format!("删除失败: {e}"))
         }
-    }
+    };
+    drop(op_guard);
+    res
 }
 
 async fn chat_get() -> Response {
@@ -1909,9 +2089,11 @@ async fn ws_handler(
                     _ => {}
                 },
             }
-            // 循环退出(停服踢出/发送失败/客户端主动关闭)统一记一条断开
-            push_log(format!("WS 连接断开 ← {peer}"));
         }
+        // 循环退出(停服踢出/发送失败/客户端主动关闭)只记一条断开。
+        // 该日志必须在循环体之外: 放在体内会让每 15s 心跳 / 每条广播 / 每个 Ping
+        // 都记一条"连接断开", 数小时即可刷爆 2000 条日志环并挤掉 pin 锁定等审计事件
+        push_log(format!("WS 连接断开 ← {peer}"));
     })
 }
 
@@ -1933,10 +2115,16 @@ fn frontend_config() -> serde_json::Value {
 
 async fn info() -> Response {
     let (running, port, ip) = status();
+    // pinEnabled 只暴露"是否开启", 不下发码值 —— 浏览器/移动壳据此清理本地陈旧配对码
+    let pin_enabled = access_pin()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
     Json(serde_json::json!({
         "ip": ip, "port": port, "running": running,
         "version": APP_VERSION,
         "config": frontend_config(),
+        "pinEnabled": pin_enabled,
     }))
     .into_response()
 }
@@ -2139,6 +2327,7 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     if !enable {
         *slot = None;
         let _ = std::fs::remove_file(pin_pref_file());   // 同步撤盘, 重启后不再回载
+        clear_share_tickets();                           // 关闭保护: 已签发的下载凭证一并作废
         push_log_warn("访问令牌已关闭 —— 局域网设备不再需要配对".into());
         return serde_json::json!({ "ok": true });
     }
@@ -2159,6 +2348,8 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     let pin = format!("{:06}", 100000 + x % 900000);
     *slot = Some(pin.clone());
     let _ = std::fs::write(pin_pref_file(), &pin);   // 落盘: 重启后保护自动恢复
+    // 轮换配对码 = 旧凭证作废: 必须真的清掉票据, 否则日志宣称的"旧分享链接失效"是假的
+    clear_share_tickets();
     push_log_ok("访问令牌已开启（已生成新配对码，旧分享链接随之失效）".into());
     // Unix 下收成 0600: 配对码不能对同机其他本地用户可读
     #[cfg(unix)]
@@ -2188,8 +2379,17 @@ pub fn control_status_cmd() -> serde_json::Value {
     })
 }
 
+/// 移动端(Android/iOS)是纯客户端: 服务只能托管在电脑上。命令层必须显式拒绝 ——
+/// 仅靠前端按钮门控时, 一旦页面被注入脚本即可在手机上拉起局域网服务、把本机目录暴露给整个 Wi-Fi
+fn mobile_client_only() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios"))
+}
+
 #[tauri::command]
 pub fn control_start_cmd(port: Option<u16>) -> serde_json::Value {
+    if mobile_client_only() {
+        return serde_json::json!({ "ok": false, "error": "移动端为客户端模式，不能托管局域网服务" });
+    }
     match start(port) {
         Ok(port) => serde_json::json!({ "ok": true, "port": port }),
         Err(e) => serde_json::json!({ "ok": false, "error": e }),
@@ -2198,6 +2398,9 @@ pub fn control_start_cmd(port: Option<u16>) -> serde_json::Value {
 
 #[tauri::command]
 pub fn control_stop_cmd() -> serde_json::Value {
+    if mobile_client_only() {
+        return serde_json::json!({ "ok": false, "error": "移动端为客户端模式" });
+    }
     serde_json::json!({ "ok": stop() })
 }
 
@@ -2209,6 +2412,9 @@ pub fn control_clear_logs_cmd() -> serde_json::Value {
 
 #[tauri::command]
 pub fn set_open_lan_cmd(open: bool) -> serde_json::Value {
+    if mobile_client_only() {
+        return serde_json::json!({ "ok": false, "error": "移动端为客户端模式" });
+    }
     set_open_lan(open);
     serde_json::json!({ "ok": true, "openLan": open })
 }
@@ -2233,6 +2439,9 @@ fn is_dangerous_share_dir(p: &Path) -> bool {
 
 #[tauri::command]
 pub fn set_share_dir_cmd(path: String, force: Option<bool>) -> serde_json::Value {
+    if mobile_client_only() {
+        return serde_json::json!({ "ok": false, "error": "移动端为客户端模式，不能托管共享目录" });
+    }
     // 运行中拒绝: 服务持的是启动时的目录快照, 热改只会造成"UI 显示与实际共享不一致";
     // 也堵住"注入脚本趁服务运行改目录、下次启动静默共享别处"的路径(纵深防御)
     if is_running() {
@@ -2524,21 +2733,40 @@ async fn log_middleware(
             // /api/download/api/download/x 会被剥成 x 造成票据绑定错位(#3)
             let raw_path = path.strip_prefix("/api/download").unwrap_or("");
             if valid_ticket(&query, raw_path).is_some() {
+                // 合法票据: 清掉该 IP 的猜码计数
+                ticket_fails()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&peer);
                 // peek 不销票; 完整成功 GET 才消费(#4) —— HEAD/Range 断点续传与
                 // 失败重试在 TTL(10min) 内仍可用, 一次性语义由"全量成功即焚"保证
-                // Range 从 0 起(bytes=0- / bytes=0-123)语义就是全量下载, 同样销票 ——
-                // 否则一个链接可用 Range 头无限次拉全文; 从 N>0 的续传不销票(TTL 内可断点)
+                // Range 从 0 起(bytes=0- / bytes=00- / bytes=0-123)语义就是全量下载,
+                // 同样销票 —— 否则一个链接可用 Range 头无限次拉全文; 从 N>0 的续传
+                // 不销票(TTL 内可断点)。必须解析起始数字而非前缀匹配: "bytes=00-"
+                // 字符串不以 "bytes=0-" 开头, 旧实现会把它当续传从而绕过一次性消费
                 let range = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok());
                 let full_get = method == "GET"
                     && match range {
                         None => true,
-                        Some(r) => r.trim().starts_with("bytes=0-"),
+                        Some(r) => r
+                            .trim()
+                            .strip_prefix("bytes=")
+                            .and_then(|rest| rest.split('-').next())
+                            .map(|a| a.trim().parse::<u64>().ok() == Some(0))
+                            .unwrap_or(false),
                     };
                 let res = next.run(req).await;
                 if full_get && res.status().is_success() {
                     consume_share_ticket(&query, raw_path);
                 }
                 return res;
+            }
+            // 无效票据 = 正在猜码: 按来源 IP 限流, 否则 24bit 空间在千兆局域网可全速穷举
+            if query.split('&').any(|kv| kv.starts_with("ticket="))
+                && access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_some()
+                && !ticket_admit(peer)
+            {
+                return err(StatusCode::TOO_MANY_REQUESTS, "分享链接尝试过于频繁，请稍后再试");
             }
         }
         let pin_enabled = access_pin().lock().unwrap_or_else(|e| e.into_inner()).clone();

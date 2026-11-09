@@ -1,7 +1,7 @@
 //! CC-Flash · Tauri 桌面壳
 //! 职责:托盘(关窗收到托盘,服务不停) + 启动时自动拉起局域网文件服务。
 
-use tauri::{Emitter, Manager, WebviewUrl};
+use tauri::{Emitter, Listener, Manager, WebviewUrl};
 // 托盘为桌面专属能力, 移动端构建不编译这部分
 #[cfg(desktop)]
 use tauri::{
@@ -15,9 +15,14 @@ mod server;
 
 #[cfg(desktop)]
 static TRAY_TIP_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[derive(Clone, serde::Serialize)]
-struct MobileMode(bool);
+/// 主窗是否已经"被要求显示/已显示"过: 托盘唤窗、单实例、main://ready 与 2s 兜底共用，
+/// 防止用户在前 2 秒内主动收进托盘后又被兜底重新弹出
+#[cfg(desktop)]
+static MAIN_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 悬浮码窗是否已完成首次落位(前端 pet_ready_cmd 上报)。主窗 2.5s 状态轮询里的
+/// "强制显示"必须等它置位，否则会在 Pet 落位前把窗口 show 到 Rust 默认位(主屏左缘)
+#[cfg(desktop)]
+static PET_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 唤出主窗口的统一实现(托盘菜单 / 单实例重复启动 / macOS 点程序坞图标 三条路径共用):
 /// 必须先 unminimize 再 show —— show() 只置可见, 不会把最小化的窗口还原。
@@ -28,7 +33,25 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        MAIN_SHOWN.store(true, std::sync::atomic::Ordering::SeqCst);
         emit_main_window_state(app);
+    } else {
+        // 单实例回调可能早于 setup 建窗(第二次启动在首进程初始化阶段到达):
+        // 旧实现直接静默 return, 用户看到的是"双击图标没反应"。短轮询补发唤窗。
+        let app = app.clone();
+        std::thread::spawn(move || {
+            for _ in 0..60 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                    MAIN_SHOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+                    emit_main_window_state(&app);
+                    break;
+                }
+            }
+        });
     }
 }
 
@@ -90,12 +113,26 @@ pub mod commands {
 
     #[tauri::command]
     pub fn show_qr_pet_cmd(app: tauri::AppHandle, show: bool) -> serde_json::Value {
+        // 显示请求必须等 Pet 完成首次落位: 主窗状态轮询每 2.5s 会强制 show,
+        // 若放行过早会把窗口显示在 Rust 默认位(主屏左缘), 破坏"先落位再显示"
+        #[cfg(desktop)]
+        if show && !PET_READY.load(std::sync::atomic::Ordering::SeqCst) {
+            return serde_json::json!({ "ok": false, "error": "悬浮码尚未完成落位" });
+        }
         if let Some(pet) = app.get_webview_window("qr-pet") {
             if show { let _ = pet.show(); } else { let _ = pet.hide(); }
             serde_json::json!({ "ok": true })
         } else {
             serde_json::json!({ "ok": false, "error": "Pet 窗口不存在" })
         }
+    }
+
+    /// Pet 窗完成首次落位(或 2.5s 兜底)后上报: 主窗的强制显示从此刻起才允许。
+    #[tauri::command]
+    pub fn pet_ready_cmd() -> serde_json::Value {
+        #[cfg(desktop)]
+        PET_READY.store(true, std::sync::atomic::Ordering::SeqCst);
+        serde_json::json!({ "ok": true })
     }
 
     /// 悬浮码吸附记忆持久化: 落盘到 app_config_dir/pet-dock.json。
@@ -159,10 +196,16 @@ pub mod commands {
             return serde_json::json!({ "ok": false, "error": "value 过长" });
         }
         match pref_path(&app, &key) {
-            Ok(p) => match std::fs::write(p, value) {
-                Ok(_) => serde_json::json!({ "ok": true }),
-                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
-            },
+            Ok(p) => {
+                // 目录不存在时写入会失败并静默丢偏好(移动壳 app_config_dir 首启可能尚未创建)
+                if let Some(dir) = p.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                match std::fs::write(p, value) {
+                    Ok(_) => serde_json::json!({ "ok": true }),
+                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                }
+            }
             Err(e) => e,
         }
     }
@@ -213,13 +256,13 @@ pub fn run() {
             server::copy_file_cmd,
             commands::show_main_window_cmd,
             commands::show_qr_pet_cmd,
+            commands::pet_ready_cmd,
             commands::save_pet_dock_cmd,
             commands::load_pet_dock_cmd,
             commands::save_text_pref_cmd,
             commands::load_text_pref_cmd,
             commands::main_visible_cmd
-        ])
-        .manage(MobileMode(std::env::consts::OS == "android" || std::env::consts::OS == "ios"));
+        ]);
     // 开机自启插件(桌面专属; Cargo.toml 中按目标平台条件引入, 移动端无此插件)
     // 自启启动带 --hidden 参数: 登录后收进托盘后台运行, 不弹主窗口(与设置页文案一致)
     #[cfg(desktop)]
@@ -305,7 +348,9 @@ pub fn run() {
                 .title(config::APP_NAME)
                 .inner_size(1180.0, 840.0)
                 .min_inner_size(560.0, 520.0)
-                .visible(false)
+                // 桌面端先隐藏, 由 main://ready / 2s 兜底显示(防自启闪窗);
+                // 移动端没有托盘与隐藏→显示路径, 必须初始可见(否则整个 App 是空白)
+                .visible(!cfg!(desktop))
                 .background_color(tauri::webview::Color(13, 16, 23, 255))
                 // macOS 首点默认只用于激活窗口、不传给 webview —— 从别的应用切回来后
                 // 第一击凭空消失(表现为"按钮要点两次"), 必须开启首点穿透
@@ -428,9 +473,28 @@ pub fn run() {
                 let w2 = w.clone();
                 w.on_window_event(move |event| main_window_event(&w2, event));
                 // 窗口在 tauri.conf 中默认隐藏(visible:false), 防止自启时先创建可见窗口再隐藏的闪屏;
-                // 手动启动(无 --hidden 参数)在这里显式展示, 自启则保持隐藏收进托盘
+                // 手动启动(无 --hidden)不再立即 show —— 等前端挂载完成发 main://ready 再显示:
+                // webview 加载不依赖 show(隐藏窗照常跑页, 见 pet 窗), 后置显示不拖慢内容,
+                // 只消灭「空壳先出、内容后蹦」的0.3~0.9s 断层(启动要快准狠)。
+                // 2s 兜底: 前端异常时仍然显示, 宁可空壳也不让窗口永远不可见。
+                // 自启(--hidden)不注册不兜底, 保持隐藏收进托盘(唤窗走 show_main_window, 与此无关)
                 if !std::env::args().any(|a| a == "--hidden") {
-                    let _ = w.show();
+                    use std::sync::atomic::Ordering;
+                    // shown 状态与托盘唤窗共用 MAIN_SHOWN: 用户若在 2s 内主动收进托盘,
+                    // 兜底定时器不会再把他弹回来(旧实现各自维护独立标志)
+                    let handle = app.handle().clone();
+                    let l_handle = handle.clone();
+                    app.listen("main://ready", move |_| {
+                        if !MAIN_SHOWN.swap(true, Ordering::SeqCst) {
+                            if let Some(w) = l_handle.get_webview_window("main") { let _ = w.show(); }
+                        }
+                    });
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        if !MAIN_SHOWN.swap(true, Ordering::SeqCst) {
+                            if let Some(w) = handle.get_webview_window("main") { let _ = w.show(); }
+                        }
+                    });
                 }
             }
 

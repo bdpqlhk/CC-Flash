@@ -87,7 +87,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><th>维度</th><th>状态</th></tr>
 <tr><td>平台</td><td>macOS / Windows / Android（4 ABI 分包 + release 签名）；Linux 可源码构建</td></tr>
 <tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、聊天室、服务控制/日志、5 皮肤（<b>当时</b>；v1.1.6 起为明暗×六配色）、介绍页、开机自启、托盘唤窗、单实例</td></tr>
-<tr><td>工程</td><td>CI 三平台自动发版（8 产物）、Android 签名 Secrets 链路、8 轮深度审查清零</td></tr>
+<tr><td>工程</td><td>CI 三平台自动发版（10 产物：macOS 双架构 dmg×2 + app.tar.gz×2、Windows exe/msi、4 ABI APK）、Android 签名 Secrets 链路、8 轮深度审查清零</td></tr>
 <tr><td>已知遗留</td><td>iOS 无真机包（依赖开发者账号）、应用内自更新未做、mDNS 发现已评估未实施、前后端大小单位表未统一、<span class="tag t-done">Android 正式签名已完成</span></td></tr>
 </table>
 </section>
@@ -108,7 +108,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <section id="s3">
 <h2><span class="no">三</span>v1.2.x · 质量与安全打磨（1 ~ 2 个月）</h2>
 <h3>3.1 主菜：不可信网络防护（P0）</h3>
-<p>现状：接口无密码，公共/半可信 Wi-Fi 下同网段任何人都能操作——这是文档里明说的边界，但推广后会成为最大差评来源。</p>
+<p>现状：默认无密码（可选访问令牌已落地：6 位配对码 + 指数退避 + 一次性分享票据），公共/半可信 Wi-Fi 下同网段任何人都能操作——这是文档里明说的边界，但推广后会成为最大差评来源。剩余缺口是 HTTPS 与默认策略提示。</p>
 <table>
 <tr><th style="width:180px">项</th><th>方案</th><th style="width:60px">优先级</th></tr>
 <tr><td>配对码模式</td><td><span class="tag t-done">✔ 已实现（v1.1.4，超出原方案）</span>服务端生成 6 位访问令牌，持久化防静默失效；<b>全部 /api/* 与 WS 均需配对</b>（比原方案只保护写接口更严）；配对尝试带指数退避防爆破（锁定窗内正确码也拒，防 Accept 伪造绕过）；桌面端设置页常驻显示/复制。剩余项：检测到公共 Wi-Fi 特征时提示开启</td><td><span class="tag t-done">✔</span></td></tr>
@@ -134,7 +134,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">四</span>v1.3 · 能力扩展（第 3 ~ 5 月）</h2>
 <table>
 <tr><th style="width:150px">项</th><th>说明</th><th>量级</th><th style="width:60px">优先级</th></tr>
-<tr><td><b>临时分享链接</b></td><td>「仅下载」只读链接：带 token + 过期时间（10 分钟/1 天/7 天），发给同事不用怕被删改——补齐协作场景</td><td>约 1~2 天</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td><b>临时分享链接</b></td><td><span class="tag t-done">基础版已于 v1.2.0 落地</span>当前为「仅下载」一次性票据：绑定单文件、10 分钟、完整下载即焚、对方免输配对码。后续增强：可选时长（1 天/7 天）、多文件打包链接、链接管理/手动作废、下载次数限制</td><td>约 1~2 天</td><td><span class="tag t-p0">P0</span></td></tr>
 <tr><td><b>在线预览增强</b></td><td>视频/音频用浏览器原生 <code>&lt;video&gt;/&lt;audio&gt;</code> 播放（服务端 Range 已就绪，只差标签）；TXT/Markdown/代码 fetch 后转义渲染在线看；PDF 走 iframe 内嵌——纯前端零新依赖</td><td>约 1 天</td><td><span class="tag t-p1">P1</span></td></tr>
 <tr><td><b>UDP 广播发现</b></td><td>手机页面点「发现」→ UDP 广播 → 电脑回 IP:port；<code>std::net</code> <b>零依赖</b>，绕开 mDNS 两个硬边界（Android 不解析 .local、企业网禁多播）。<b>mDNS（wft.local）方案降为备选</b>；失败自动退回扫码路径</td><td>约 0.3 天</td><td><span class="tag t-p1">P1</span></td></tr>
 <tr><td><b>WebSocket 推送</b></td><td>聊天/列表/状态由轮询改推送 —— <b>✅ 已于 v1.1.4 提前落地</b>（聊天/列表/状态事件推送 + 15s 心跳 + 看门狗强制重连，轮询保留为降级通道）</td><td>约 3~4 天</td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -230,13 +230,13 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td>v1.1.8</td><td class="muted">已发布（2026-11-04）</td><td>上传回滚整文件直传（+并发闸）+ loguru 风格结构化日志 + 侧边栏常驻扫码 + Windows MAX_PATH 预检 + 磁盘周期查盘 + 布局收紧</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.9</td><td class="muted">已发布（2026-11-06）</td><td>悬浮码贴边呼吸球与悬停预览 + 移动端客户端模式 + 服务端安全加固</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.0</td><td class="muted">已发布（2026-11-07）</td><td>悬浮码扩展屏与跨屏修复（选屏/坐标空间/系统阴影）+ 分享复制票据预取修复 + 票据 6 位 token + 文档与规划全量同步</td><td><span class="tag t-done">✔ 已发</span></td></tr>
-<tr><td>v1.2.1</td><td class="muted">下一个</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索 / 在线预览）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
-<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>小尾巴清零 / 诊断包导出 / 轻量增强包收尾（断网自愈、路径安全测试集已提前落地）</td><td>CI 含服务端测试与审计</td></tr>
-<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接 + UDP 广播发现 + 在线预览增强（上传断点续传已列入红线不做）</td><td>临时链接与发现能力上线</td></tr>
+<tr><td>v1.2.1</td><td class="muted">当前分支</td><td><b>安全与数据一致性收口</b>：WS 断线日志不再刷屏、上传占位/删除 TOCTOU、停服等待在途上传、配对码轮换自锁、票据猜码限流与轮换作废、移动端服务命令门控、Windows 混合 DPI 落位、发布链路加固（debug 包拒绝进入正式 Release / 重跑已发布 tag 不改线上资产 / 图标与 R8 规则）</td><td>审查清单高危项清零，文档与代码同步</td></tr>
+<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索 / 在线预览）；小尾巴清零 / 诊断包导出（断网自愈、路径安全测试集已提前落地）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
+<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接增强（可选时长/多文件/链接管理；基础一次性票据已在 v1.2.0 落地）+ UDP 广播发现 + 在线预览增强（上传断点续传已列入红线不做）</td><td>链接管理与发现能力上线</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
 </table>
 <div class="callout c-info"><b>与推广方案的联动</b>v1.2.1 的「公共 Wi-Fi 安全感」（HTTPS 自签扫码信任）是推广阶段三大量曝光前的必要前置——先修城墙，再开城门。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-07 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-09 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
 </section>
 
 </main>

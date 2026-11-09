@@ -1,6 +1,6 @@
 [package]
 name = "wlan-flash-transfer-tauri"
-version = "1.2.0"
+version = "1.2.1"
 description = "局域网高速文件互传工具"
 edition = "2021"
 
@@ -17,7 +17,7 @@ path = "src/main.rs"
 strip = true
 lto = true
 codegen-units = 1
-opt-level = "s"
+opt-level = "z"   # 尺寸极致(实测对比 "s" 后定夺, IO 型工具 CPU 占用低)
 panic = "abort"
 
 [build-dependencies]

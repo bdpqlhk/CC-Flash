@@ -6,6 +6,8 @@ export default defineConfig({
   clearScreen: false,
   server: {
     port: 5173,
+    // Tauri devUrl 固定 5173: 端口被占时不得静默换端口(换了 dev 窗口会白屏且难定位)
+    strictPort: true,
     // docs/*.md 是文档不是前端代码: 改文档不触发整页 reload —— 每次 reload 都会让
     // 桌面壳两个 WebView(主窗/悬浮球)白屏闪一下, 悬浮球窗尤其明显(透明窗瞬间变白)
     watch: {
@@ -20,6 +22,7 @@ export default defineConfig({
   },
   preview: {
     port: 4173,
+    strictPort: true,
     proxy: {
       "/api": "http://127.0.0.1:1688",
       "/ws": { target: "ws://127.0.0.1:1688", ws: true },

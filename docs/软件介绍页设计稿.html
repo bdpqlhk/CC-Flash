@@ -524,7 +524,7 @@ a { color: inherit; text-decoration: none; }
             <div class="card">
                 <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
                 <h3>文件传输</h3>
-                <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
+                <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。整文件直传、失败或停服即时回滚半截文件，悬挂连接自动超时释放；图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
                 <div class="tags"><span class="tag">多途径上传</span><span class="tag">批量管理</span><span class="tag">分享链接</span></div>
             </div>
             <div class="card">
@@ -536,7 +536,7 @@ a { color: inherit; text-decoration: none; }
             <div class="card">
                 <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                 <h3>服务中心</h3>
-                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
+                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、Windows 混合 DPI 正确落位、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
                 <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
             </div>
             <div class="card">
@@ -581,7 +581,7 @@ a { color: inherit; text-decoration: none; }
             <div class="pt">
                 <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
                 <h3>数据只在局域网</h3>
-                <p>HTTP 服务只监听你的电脑，文件与消息在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。</p>
+                <p>HTTP 服务只监听你的电脑，文件与消息在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。可选 6 位访问令牌（指数退避防爆破、本机免输），分享链接为一次性票据，轮换令牌即全部作废。</p>
             </div>
             <div class="pt">
                 <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
@@ -596,7 +596,7 @@ a { color: inherit; text-decoration: none; }
             <div class="pt">
                 <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
                 <h3>三平台覆盖</h3>
-                <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK。</p>
+                <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
             </div>
         </div>
         <div class="codes">
@@ -649,7 +649,15 @@ npm run tauri build</div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">支持哪些平台？<span class="pm">+</span></button>
-                <div class="faq-a"><p>桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
+                <div class="faq-a"><p>桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">电脑换了 IP 或换了另一台电脑怎么办？<span class="pm">+</span></button>
+                <div class="faq-a"><p>手机浏览器直接打开电脑端显示的新地址即可。Android 应用是纯客户端：若已保存的地址失效，在「无信号」页面点「重新设置电脑地址」，回到连接引导页填入新地址；也可以在「CC设置 → 连接电脑」里修改。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">访问令牌和分享链接安全吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，锁定期间正确码也会被拒，稍等即可。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。</p></div>
             </div>
         </div>
     </section>

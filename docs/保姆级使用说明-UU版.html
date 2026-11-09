@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CC-Flash 保姆级使用说明 - 同一 Wi-Fi 就能互传 - 零登录、零公网、开箱即用</title>
+<meta name="description" content="CC-Flash 局域网高速文件互传保姆级使用说明（网易UU远程官网布局版）：三步上手、桌面端/手机端教程、悬浮码、常见问题与安全须知。零登录、零公网，速度就是路由器的速度。" />
+<!--
+  布局与风格对位: https://uuyc.163.com/ (网易UU远程官网)
+  区块骨架: top-bar(logo+左簇导航·特色功能下拉·移动端汉堡)
+            → section-header(居中大标题+彩虹光晕按钮+平台卡·滚动淡出)
+            → section-kv(设备大图带+两侧渐变装饰+底部融出+漂浮贴纸)
+            → section-features(3 屏 sticky 换页: 左彩色大面板 / 右 39% 文案)
+            → section-function(深色圆角面板: 居中大标题+左侧竖向 tabs+右侧内容)
+            → section-comments(居中大标题+两行满幅跑马灯卡片)
+            → section-news(左大卡+右三横卡+查看更多)
+            → section-safe(四徽章卡) → 深色 footer → 回到顶部
+  根字号 75px、标题700、#09090a/#f8f8f8/#3a7bfc 色板、1px 发丝线、8px 圆角。
+  资源自包含, 不外链官网任何资源。
+-->
+<style>
+:root{
+  --color-1:hsl(0,100%,60%);--color-2:hsl(48,100%,67%);--color-3:hsl(116,100%,78%);
+  --color-4:hsl(176,100%,75%);--color-5:hsl(209,100%,75%);--color-6:hsl(261,100%,74%);
+  --ink:#09090a;--ink2:#2f2f30;--sec:rgba(47,47,48,.75);--sec2:rgba(47,47,48,.5);
+  --line:rgba(47,47,48,.1);--tint:rgba(0,0,0,.012);--blue:#3a7bfc;--blue-d:#0b66dd;--blue-l:#7ba7ff;
+  --dark:#242424;--page:#f8f8f8;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:75px;background:var(--page);min-height:100%;width:100%;scroll-behavior:smooth;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeSpeed;
+  -webkit-tap-highlight-color:transparent;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Helvetica Neue","STHeiti","Microsoft Yahei",Tahoma,sans-serif;
+  font-weight:400;line-height:1.5}
+body{font-size:.21333rem;overflow-x:hidden;color:var(--ink)}
+a{color:inherit;text-decoration:none}
+ul,ol,dl,dd{list-style:none}
+button{font:inherit;background:none;border:0;cursor:pointer;color:inherit}
+img,svg{display:block}
+.b-content-wrap{margin:0 auto;max-width:17.06667rem;padding:0 .21333rem;box-sizing:border-box}
+@media (min-width:768px){.b-content-wrap{padding:0 .42667rem}}
+@media (min-width:1024px){.b-content-wrap{padding:0 .53333rem}}
+.c-secondary{color:var(--sec)}
+.section{position:relative;background:#fff}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+
+/* ================= 顶栏 ================= */
+.top-bar{background:#fff;position:sticky;top:0;width:100%;z-index:40}
+.top-bar::after{content:"";position:absolute;left:0;top:.84rem;width:100%;height:.01333rem;background:rgba(47,47,48,.1)}
+.top-bar__bd{height:.85333rem;display:flex;align-items:center;position:relative}
+.top-bar__logo{display:flex;align-items:center;gap:.10667rem;margin-right:.4rem;font-size:.25333rem;font-weight:700;letter-spacing:-.01em;flex:none}
+.top-bar__logo .logo-mark{width:.42667rem;height:.42667rem;border-radius:.10667rem;background:conic-gradient(from 210deg,#3a7bfc,#7c6ff7,#3a7bfc);position:relative;flex:none}
+.top-bar__logo .logo-mark::after{content:"";position:absolute;inset:.09333rem;border:.04rem solid #fff;border-radius:.06667rem}
+.top-bar__main{display:none;align-items:center;position:relative}
+.top-bar__item{display:flex;align-items:center;gap:.04rem;font-size:.18667rem;font-weight:400;color:var(--ink);
+  padding:.08rem .13333rem;border-radius:.05333rem;transition:color .2s ease,background .2s ease;white-space:nowrap;cursor:pointer}
+.top-bar__item:hover{color:var(--sec)}
+.top-bar__item .chev{width:.16rem;height:.16rem;stroke:currentColor;stroke-width:2.4;fill:none;transition:transform .3s ease}
+.top-bar__item.expended .chev{transform:rotate(180deg)}
+.top-bar__toggle{margin-left:auto;width:.42667rem;height:.42667rem;display:flex;flex-direction:column;justify-content:center;gap:.06667rem;padding:.04rem}
+.top-bar__toggle i{display:block;height:.032rem;background:var(--ink);border-radius:2px;transition:.4s cubic-bezier(.16,1,.3,1)}
+.top-bar__toggle i:nth-child(1){width:84%}
+.top-bar__toggle i:nth-child(2){width:60%;margin-left:auto}
+.top-bar__toggle i:nth-child(3){width:84%}
+.top-bar__toggle.expended i:nth-child(1){transform:rotate(-45deg) translateY(.04rem)}
+.top-bar__toggle.expended i:nth-child(2){opacity:0;transform:scale(0)}
+.top-bar__toggle.expended i:nth-child(3){transform:rotate(45deg) translateY(-.04rem)}
+.top-bar__mask{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .3s;z-index:30}
+.top-bar__mask.show{opacity:1;pointer-events:auto}
+/* 桌面: 左簇导航 + 特色功能下拉 */
+@media (min-width:768px){
+  .top-bar__main{display:flex}
+  .top-bar__toggle,.top-bar__mask{display:none}
+}
+.top-bar__expend{position:absolute;left:0;right:0;top:.85333rem;background:#fff;border-bottom:1px solid var(--line);
+  box-shadow:0 .26667rem .53333rem rgba(9,9,10,.08);opacity:0;transform:translateY(-100%);pointer-events:none;
+  transition:transform .3s ease-in-out,opacity .3s ease-in-out;z-index:-1}
+.top-bar__expend.expended{transform:translateY(0);opacity:1;pointer-events:auto;z-index:5}
+.top-bar__ep-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:.13333rem .26667rem;padding:.42667rem .53333rem;max-width:17.06667rem;margin:0 auto}
+.scene-item{display:flex;gap:.13333rem;padding:.16rem;border-radius:.08rem;transition:background .2s ease}
+.scene-item:hover{background:rgba(47,47,48,.05)}
+.scene-item .s-ic{width:.37333rem;height:.37333rem;border-radius:.08rem;background:rgba(58,123,252,.1);display:flex;align-items:center;justify-content:center;font-size:.2rem;flex:none}
+.scene-item b{display:block;color:var(--ink);font-weight:700;font-size:.18667rem;margin-bottom:.02667rem}
+.scene-item span{font-size:.16rem;color:rgba(47,47,48,.5);line-height:.29333rem}
+/* 移动端抽屉 */
+.top-bar__drawer{position:fixed;top:.85333rem;left:0;right:0;background:#fff;flex-direction:column;max-height:0;overflow:hidden;
+  transition:max-height .35s cubic-bezier(.16,1,.3,1);box-shadow:0 .2rem .4rem rgba(9,9,10,.1);z-index:35}
+.top-bar__drawer.show{max-height:70vh;overflow:auto}
+.top-bar__drawer a{padding:.21333rem .42667rem;font-size:.24rem;font-weight:700;border-bottom:1px solid var(--line);display:block}
+.top-bar__drawer a:active{background:rgba(47,47,48,.05)}
+@media (min-width:768px){.top-bar__drawer{display:none}}
+
+/* ================= section-header(居中 Hero 文本, 滚动淡出) ================= */
+.section-header{position:sticky;top:.85333rem;padding:.53333rem .21333rem .8rem;text-align:center;z-index:10;
+  will-change:transform,opacity;transition:opacity .35s ease}
+.section-header.hide{opacity:0;pointer-events:none}
+.section-header__title{color:var(--ink);font-size:.58667rem;line-height:1.22;margin-bottom:.16rem;font-weight:700;letter-spacing:-.01em}
+.section-header__desc{font-size:.21333rem;color:var(--sec);margin-bottom:.53333rem}
+.section-header__button{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:.08rem;
+  font-size:.21333rem;min-width:2.66667rem;padding:0 .36rem;border-radius:.08rem;background:#000;color:#fff;
+  height:.61333rem;line-height:.61333rem;border:.02667rem solid transparent;background-clip:padding-box;
+  margin-bottom:.8rem;transition:background-color .3s ease;isolation:isolate}
+.section-header__button::before{content:"";position:absolute;left:50%;top:30%;transform:translateX(-50%);width:90%;height:80%;
+  z-index:-1;filter:blur(.18667rem);border-radius:.2rem;
+  background-image:linear-gradient(90deg,var(--color-1),var(--color-2),var(--color-3),var(--color-4),var(--color-5),var(--color-6));
+  animation:rainbow 2s infinite linear}
+.section-header__button:hover{background-color:#4c4c4c}
+.section-header__button:active{background-color:#0b66dd}
+.section-header__button svg{width:.32rem;height:.32rem;fill:#fff}
+@keyframes rainbow{0%{background-position:0 0}100%{background-position:200% 0}}
+.support-os{display:flex;justify-content:center;flex-wrap:wrap;padding:0 .10667rem}
+.support-os__item{flex:1;border-radius:.10667rem;margin:0 .05333rem;max-width:1.06667rem;flex-shrink:0;background:#fff;
+  border:1px solid var(--line);padding:.21333rem .06667rem;transition:transform .3s ease;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center}
+.support-os__item:hover{transform:translateY(-.08rem)}
+.support-os__item svg{width:.42667rem;height:.42667rem;margin:0 auto .16rem;fill:#4b4b4b}
+.support-os__item span{font-size:.16rem;text-align:center;color:var(--sec)}
+@media (min-width:768px){
+  .section-header{padding:.8rem .42667rem 1.33333rem}
+  .section-header__title{font-size:.8rem}
+  .section-header__desc{font-size:.32rem;margin-bottom:.8rem}
+  .section-header__button{height:.8rem;line-height:.8rem;font-size:.26667rem;padding:0 .45333rem;min-width:3.33333rem}
+  .section-header__button svg{width:.42667rem;height:.42667rem}
+  .support-os__item{max-width:1.44rem;padding:.24rem 0}
+  .support-os__item svg{width:.53333rem;height:.53333rem;margin-bottom:.21333rem}
+  .support-os__item span{font-size:.18667rem}
+}
+@media (min-width:1024px){.section-header{padding-bottom:1.49333rem}.section-header__title{font-size:.90667rem}.section-header__desc{font-size:.37333rem}}
+@media (min-width:1440px){.section-header{padding:1.06667rem .53333rem 1.6rem}.section-header__title{font-size:1.01333rem}}
+
+/* ================= section-kv(设备大图带) ================= */
+.section-kv{position:relative;background:var(--page);overflow:hidden}
+.section-kv::before,.section-kv::after{content:"";position:absolute;z-index:0;pointer-events:none;border-radius:50%;filter:blur(2px)}
+.section-kv::before{left:-1.6rem;top:1.2rem;width:3.2rem;height:3.2rem;
+  background:radial-gradient(closest-side,rgba(124,111,247,.16),transparent 70%)}
+.section-kv::after{right:-2rem;top:.4rem;width:4.2rem;height:4.2rem;
+  background:radial-gradient(closest-side,rgba(58,123,252,.14),transparent 70%)}
+.kv-stage{position:relative;z-index:2;width:100%;max-width:18.66667rem;margin:0 auto;padding-top:54.285%}
+.kv-stage>inner{position:absolute}
+.kv-devices{position:absolute;inset:6% 4% 0;display:flex;align-items:flex-end;justify-content:center;gap:2.6%}
+.section-kv__bg{height:1.06667rem;width:100%;background:var(--page);pointer-events:none;position:relative;z-index:3}
+/* 漂浮贴纸 */
+.sticker{position:absolute;z-index:4;display:flex;align-items:center;justify-content:center;
+  font-weight:800;letter-spacing:.02em;box-shadow:0 .13333rem .33333rem rgba(9,9,10,.14);
+  animation:bob 4.2s ease-in-out infinite;will-change:transform}
+.sticker.s-star{left:8%;top:22%;width:.72rem;height:.72rem;background:#8421f6;color:#fff;border-radius:16%;
+  transform:rotate(14deg);font-size:.32rem;animation-delay:.2s}
+.sticker.s-bolt{right:9%;top:14%;width:.6rem;height:.92rem;background:#f6d427;color:#3b3200;border-radius:.14rem;
+  clip-path:polygon(28% 0,100% 0,58% 42%,100% 42%,12% 100%,44% 52%,0 52%);box-shadow:none;font-size:0;animation-delay:1s}
+.sticker.s-free{right:14%;bottom:24%;background:#17b647;color:#fff;border-radius:.16rem;padding:.1rem .24rem;font-size:.37333rem;transform:rotate(-8deg);animation-delay:.7s}
+.sticker.s-tag{left:24%;bottom:18%;background:#f49624;color:#fff;border-radius:.16rem;padding:.1rem .2rem;font-size:.32rem;transform:rotate(9deg);animation-delay:1.5s}
+.sticker.s-like{left:46%;bottom:26%;width:.8rem;height:.8rem;background:transparent;box-shadow:none;animation-delay:.5s}
+.sticker.s-like svg{width:.72rem;height:.72rem;fill:#0d65ea}
+@keyframes bob{0%,100%{translate:0 0}50%{translate:0 -.16rem}}
+@media (max-width:767px){.sticker{display:none}.kv-stage{padding-top:70%}}
+/* 设备 mock: 桌面窗口 + 手机 */
+.dev-win{width:74%;background:#fff;border:.02667rem solid rgba(9,9,10,.12);border-radius:.2rem .2rem 0 0;
+  box-shadow:0 .4rem 1rem rgba(9,9,10,.14);overflow:hidden}
+.dev-win .bar{height:.56rem;display:flex;align-items:center;gap:.12rem;padding:0 .24rem;background:#f3f4f6;border-bottom:1px solid var(--line)}
+.dev-win .bar i{width:.16rem;height:.16rem;border-radius:50%;background:#dcdfe6}
+.dev-win .bar .url{flex:1;height:.32rem;border-radius:.999rem;background:#fff;border:1px solid var(--line);display:flex;align-items:center;padding:0 .16rem;font-size:.14667rem;color:var(--sec);font-family:ui-monospace,Menlo,monospace;gap:.08rem}
+.dev-win .bar .url em{font-style:normal;color:#16a34a;font-weight:700;font-size:.13333rem;font-family:inherit}
+.dev-win .body{display:flex;min-height:2.9rem}
+.dev-win .side{width:22%;border-right:1px solid var(--line);background:#fafbfc;padding:.16rem .12rem;font-size:.13333rem;color:var(--sec)}
+.dev-win .side b{display:block;color:var(--ink);background:rgba(58,123,252,.1);border-radius:.05333rem;padding:.08rem .1rem;margin-bottom:.08rem;font-weight:600}
+.dev-win .side span{display:block;padding:.06rem .1rem}
+.dev-win .list{flex:1;padding:.12rem .16rem}
+.dev-win .row{display:flex;align-items:center;gap:.12rem;padding:.1rem .04rem;border-bottom:1px solid var(--line);font-size:.14667rem}
+.dev-win .row .bdg{width:.52rem;height:.32rem;border-radius:.05333rem;color:#fff;font-size:.10667rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.dev-win .row .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dev-win .row .nm i{font-style:normal;color:var(--sec2);font-size:.13333rem;margin-left:.08rem}
+.dev-win .row .btn{font-size:.13333rem;color:var(--blue);border:1px solid rgba(58,123,252,.4);border-radius:.05333rem;padding:.02rem .12rem}
+.dev-phone{width:15%;min-width:1.6rem;background:#111;border-radius:.3rem .3rem 0 0;padding:.14rem .1rem 0;box-shadow:0 .4rem 1rem rgba(9,9,10,.18)}
+.dev-phone .scr{background:#fff;border-radius:.16rem .16rem 0 0;padding:.14rem .1rem;min-height:3.2rem;font-size:.13333rem;color:var(--sec)}
+.dev-phone .scr b{display:block;color:var(--ink);font-size:.14667rem;margin-bottom:.1rem}
+.dev-phone .scr .pill{display:flex;align-items:center;gap:.06rem;border:1px solid var(--line);border-radius:.06667rem;padding:.08rem;margin-bottom:.08rem}
+.dev-phone .scr .pill i{width:.16rem;height:.16rem;border-radius:.04rem;background:#3498db;flex:none}
+.dev-phone .orb{width:.64rem;height:.64rem;margin:.16rem auto .06rem;border-radius:50%;border:.04rem solid #ff6478;
+  display:flex;align-items:center;justify-content:center;background:#07c160;color:#fff;font-size:.24rem;font-weight:800}
+
+/* ================= section-features(3 屏 sticky 换页) ================= */
+.section-features{position:relative;background:#fff}
+.features-track{position:relative;height:300vh}
+.features-stage{position:sticky;top:0;width:100%;height:100vh;overflow:hidden;display:flex;flex-direction:row;align-items:center;
+  max-width:20.26667rem;margin:0 auto}
+.f-visual{position:relative;flex:1;height:64vh;min-height:4rem;border-radius:.32rem;overflow:hidden;
+  transition:background .5s ease;box-shadow:0 .3rem .8rem rgba(9,9,10,.16)}
+.f-visual .fpanel{position:absolute;inset:0;opacity:0;transform:scale(1.03);transition:opacity .5s ease,transform .6s cubic-bezier(.16,1,.3,1);
+  display:flex;align-items:center;justify-content:center;padding:.5rem}
+.f-visual .fpanel.active{opacity:1;transform:none}
+.f-text{flex:0 0 39%;padding:0 .85333rem 0 .42667rem;position:relative;height:64vh;min-height:4rem}
+.f-item{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;opacity:0;transform:translateY(.4rem);
+  transition:opacity .45s ease,transform .5s cubic-bezier(.16,1,.3,1);pointer-events:none}
+.f-item.active{opacity:1;transform:none;pointer-events:auto}
+.f-item__title{display:flex;align-items:center;gap:.10667rem;font-size:.24rem;font-weight:700;margin-bottom:.10667rem}
+.f-item__title svg{width:.37333rem;height:.37333rem}
+.f-item__title.t1{color:#0d65ea}.f-item__title.t2{color:#ffb200}.f-item__title.t3{color:#8632e7}
+.f-item h2{font-size:.48rem;line-height:1.24;font-weight:700;letter-spacing:-.01em;margin-bottom:.32rem}
+@media (min-width:768px){
+  .f-item__title{font-size:.32rem}
+  .f-item__title svg{width:.48rem;height:.48rem}
+  .f-item h2{font-size:.64rem}
+  .f-item__list li{font-size:.24rem}
+}
+@media (min-width:1024px){
+  .f-item__title{font-size:.37333rem}
+  .f-item__title svg{width:.53333rem;height:.53333rem}
+  .f-item h2{font-size:.8rem;margin-bottom:.42667rem}
+  .f-item__list li{font-size:.26667rem}
+}
+.f-item__list li{display:flex;align-items:flex-start;font-size:.24rem;color:var(--sec);margin-bottom:.13333rem;line-height:1.6}
+.f-item__list li svg{width:.26667rem;height:.26667rem;margin:.05333rem .16rem 0 0;stroke:rgba(47,47,48,.8);stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.f-item__more{display:inline-flex;align-items:center;margin-top:.13333rem;font-size:.24rem;color:var(--ink)}
+.f-item__more svg{width:.24rem;height:.24rem;margin-left:.05333rem;fill:var(--ink);transform:rotate(45deg);transition:transform .2s cubic-bezier(.25,.46,.45,.94)}
+.f-item__more:hover svg{transform:translate(.05333rem) rotate(45deg)}
+@media (max-width:1023px){
+  .features-track{height:auto}
+  .features-stage{position:static;height:auto;flex-direction:column;padding:.4rem .42667rem .8rem;gap:.4rem}
+  .f-visual{width:100%;height:4.6rem}
+  .f-text{flex:none;width:100%;height:auto;padding:0}
+  .f-item{position:static;opacity:1;transform:none;pointer-events:auto;display:none}
+  .f-item.active{display:flex}
+}
+/* 面板内 mock 主题 */
+.fp-mock{width:100%;height:100%;border-radius:.24rem;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);
+  display:flex;align-items:center;justify-content:center;padding:.3rem}
+.fp-card{background:#fff;border-radius:.16rem;box-shadow:0 .24rem .6rem rgba(9,9,10,.2);width:100%;max-width:6.6rem;overflow:hidden}
+.fp-card .hd{height:.44rem;background:#f3f4f6;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:.08rem;padding:0 .16rem}
+.fp-card .hd i{width:.13333rem;height:.13333rem;border-radius:50%;background:#dcdfe6}
+.fp-card .bd{padding:.2rem .24rem;font-size:.16rem;color:var(--sec);line-height:1.8}
+.fp-card .bd b{color:var(--ink)}
+.fp-card .bd .ln{display:flex;gap:.12rem;align-items:center;padding:.08rem 0;border-bottom:1px dashed var(--line)}
+.fp-card .bd .ln:last-child{border-bottom:0}
+.fp-orb{width:2.2rem;height:2.2rem;border-radius:50%;border:.05333rem solid #ff6478;background:rgba(255,255,255,.16);
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 .6rem rgba(255,100,120,.4)}
+.fp-orb span{width:1.4rem;height:1.4rem;border-radius:50%;background:#07c160;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.5rem;font-weight:800}
+
+/* ================= section-function(深色圆角面板 + 竖向 tabs) ================= */
+.section-function{background:#fff;position:relative}
+.fn-wrap{position:relative;margin:.4rem .21333rem 0;border-radius:.32rem;background:var(--dark);color:#fff;
+  padding:.9rem .4rem .7rem;overflow:hidden}
+.fn-title{text-align:center;font-size:.64rem;font-weight:700;margin-bottom:.64rem;letter-spacing:-.01em}
+.fn-content{display:flex;align-items:stretch;gap:.4rem;max-width:16rem;margin:0 auto}
+.fn-tab{position:relative;flex:0 0 4rem;display:flex;flex-direction:column;justify-content:flex-start;padding-left:.32rem}
+.fn-tab::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:rgba(255,255,255,.1)}
+.fn-tab .ind{position:absolute;left:-1.5px;top:0;width:3px;height:.90667rem;border-radius:3px;background:var(--blue);
+  transition:transform .3s ease-in-out;transform:translateY(0)}
+.fn-tab li{padding:.13333rem 0;cursor:pointer;color:rgba(242,242,247,.3);transition:color .25s ease}
+.fn-tab li strong{display:block;font-size:.29333rem;font-weight:700;white-space:nowrap}
+.fn-tab li span{display:none;font-size:.21333rem;margin-top:.04rem;white-space:nowrap;color:rgba(242,242,247,.6)}
+.fn-tab li:hover{color:rgba(242,242,247,.75)}
+.fn-tab li.active{color:#fff}
+.fn-tab li.active strong{font-size:.42667rem}
+.fn-tab li.active span{display:block}
+.fn-stage{flex:1;min-width:0;position:relative;min-height:5.2rem}
+.fn-panel{position:absolute;inset:0;opacity:0;transform:translateY(.24rem);pointer-events:none;
+  transition:opacity .35s ease,transform .4s cubic-bezier(.16,1,.3,1);display:flex;flex-direction:column;gap:.2rem}
+.fn-panel.active{opacity:1;transform:none;pointer-events:auto}
+.fn-mock{border-radius:.2rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);padding:.32rem;flex:1;
+  display:flex;flex-direction:column;justify-content:center;gap:.14rem;min-height:3.4rem}
+.fn-mock .mrow{display:flex;align-items:center;gap:.14rem;font-size:.18667rem;color:rgba(242,242,247,.75);
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:.10667rem;padding:.14rem .2rem}
+.fn-mock .mrow b{color:#fff;font-weight:600}
+.fn-mock .mrow .tag{margin-left:auto;font-size:.14667rem;color:#9cc3ff;background:rgba(58,123,252,.22);border-radius:.999rem;padding:.02rem .14rem}
+.fn-mock .mrow .tag.ok{color:#7be3a8;background:rgba(22,163,74,.2)}
+.fn-mock .mrow .tag.warn{color:#ffd426;background:rgba(255,214,38,.14)}
+.fn-mock .swatches{display:flex;gap:.14rem}
+.fn-mock .swatches i{width:.72rem;height:.72rem;border-radius:.16rem;border:2px solid rgba(255,255,255,.25)}
+.fn-mock .digits{display:flex;gap:.12rem;justify-content:center;padding:.1rem 0}
+.fn-mock .digits i{width:.5rem;height:.64rem;border-radius:.06667rem;background:#fff;color:#161b1d;font-style:normal;
+  font-weight:800;font-size:.37333rem;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,Menlo,monospace}
+.fn-cap{font-size:.18667rem;color:rgba(242,242,247,.7);line-height:1.7}
+.fn-cap b{color:#fff;font-weight:600}
+@media (max-width:1023px){
+  .fn-content{flex-direction:column;gap:.24rem}
+  .fn-tab{flex:none;flex-direction:row;overflow-x:auto;padding-left:0;gap:.1rem;border-bottom:1px solid rgba(255,255,255,.12);scrollbar-width:none}
+  .fn-tab::-webkit-scrollbar{display:none}
+  .fn-tab::before,.fn-tab .ind{display:none}
+  .fn-tab li{padding:.12rem .16rem;white-space:nowrap}
+  .fn-tab li.active strong{font-size:.24rem}
+  .fn-tab li.active span{display:none}
+  .fn-stage{min-height:4.4rem}
+}
+
+/* ================= section-comments(两行跑马灯) ================= */
+.section-comments{padding:1.06667rem 0;background:#fff;overflow:hidden}
+.big-title{text-align:center;font-size:.64rem;font-weight:700;letter-spacing:-.01em;margin-bottom:.53333rem;padding:0 .42667rem}
+@media (min-width:1024px){.big-title{font-size:.90667rem}}
+.mq-wrap{display:flex;flex-direction:column;gap:.26667rem;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}
+.mq-row{overflow:hidden}
+.mq-track{display:flex;gap:.26667rem;width:max-content;animation:mq 72s linear infinite}
+.mq-row.rev .mq-track{animation-direction:reverse;animation-duration:84s}
+.mq-row:hover .mq-track{animation-play-state:paused}
+@keyframes mq{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.qa-card{width:5.6rem;flex:none;background:var(--tint);border:1px solid var(--line);border-radius:.10667rem;padding:.36rem .32rem}
+.qa-card .qh{display:flex;align-items:center;gap:.16rem;margin-bottom:.14667rem}
+.qa-card .av{width:.58667rem;height:.58667rem;border-radius:50%;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:.32rem;flex:none}
+.qa-card .qn{font-size:.21333rem;font-weight:700;color:var(--ink);line-height:1.35}
+.qa-card .hot{font-size:.14667rem;font-weight:700;color:#9a7b00;background:rgba(255,204,0,.18);border:1px solid rgba(255,204,0,.5);
+  border-radius:.999rem;padding:.01333rem .13333rem;margin-left:.08rem;white-space:nowrap}
+.qa-card p{font-size:.18667rem;color:var(--sec);line-height:1.75}
+.qa-card p b{color:var(--ink)}
+
+/* ================= section-news ================= */
+.section-news{padding:0 0 1.06667rem;background:#fff}
+.news-wrap{display:flex;align-items:stretch;gap:.26667rem;padding:0 .42667rem}
+.news-big{width:6.82667rem;flex:none;background:var(--tint);border:1px solid var(--line);border-radius:.10667rem;overflow:hidden;
+  display:flex;flex-direction:column;transition:box-shadow .25s ease,transform .25s ease}
+.news-big:hover{box-shadow:0 .13333rem .4rem rgba(9,9,10,.14);transform:translateY(-.04rem)}
+.news-cover{aspect-ratio:320/180;display:flex;align-items:center;justify-content:center;position:relative;color:#fff;flex:none}
+.news-cover .ver{font-size:.72rem;font-weight:800;letter-spacing:-.02em;text-shadow:0 .04rem .16rem rgba(0,0,0,.28)}
+.news-cover .dt{position:absolute;right:.18667rem;bottom:.13333rem;font-size:.14667rem;background:rgba(0,0,0,.3);border-radius:.999rem;padding:.02rem .14rem}
+.news-big .nb{padding:.24rem .26667rem .3rem}
+.news-big h3{font-size:.24rem;font-weight:700;margin-bottom:.04rem;transition:color .2s ease}
+.news-big:hover h3{color:rgba(47,47,48,.5)}
+.news-big .dt{display:block;font-size:.16rem;color:rgba(47,47,48,.5);margin-bottom:.10667rem}
+.news-big p{font-size:.18667rem;color:var(--sec);line-height:1.75;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.news-part{flex:1;min-width:0;display:flex;flex-direction:column;gap:.26667rem}
+.news-row{display:flex;background:var(--tint);border:1px solid var(--line);border-radius:.10667rem;overflow:hidden;
+  transition:box-shadow .25s ease,transform .25s ease;flex:1}
+.news-row:hover{box-shadow:0 .13333rem .4rem rgba(9,9,10,.14);transform:translateY(-.04rem)}
+.news-row .news-cover{width:2.98667rem;aspect-ratio:auto;align-self:stretch}
+.news-row .news-cover .ver{font-size:.4rem}
+.news-row .nr{padding:.2rem .24rem;min-width:0;display:flex;flex-direction:column;justify-content:center}
+.news-row h3{font-size:.24rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .2s ease}
+.news-row:hover h3{color:rgba(47,47,48,.5)}
+.news-row .dt{display:block;font-size:.16rem;color:rgba(47,47,48,.5);margin:.02667rem 0 .08rem}
+.news-row p{font-size:.18667rem;color:var(--sec);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.65}
+.news-more{display:flex;justify-content:center;padding-top:.4rem}
+.news-more a{display:inline-flex;align-items:center;font-size:.21333rem;color:var(--ink)}
+.news-more svg{width:.24rem;height:.24rem;margin-left:.05333rem;fill:var(--ink);transform:rotate(45deg);transition:transform .2s ease}
+.news-more a:hover svg{transform:translate(.05333rem) rotate(45deg)}
+@media (max-width:1023px){
+  .news-wrap{flex-direction:column;padding:0 .42667rem}
+  .news-big{width:100%}
+  .news-row .news-cover{width:2.4rem}
+}
+@media (max-width:767px){.news-row .news-cover{width:2.13333rem}.news-big h3{font-size:.24rem}}
+
+/* ================= section-safe ================= */
+.section-safe{background:#fff;padding-bottom:.85333rem}
+.safe-wrap{display:flex;flex-wrap:wrap;padding:0 .42667rem;gap:.16rem}
+.safe-item{width:calc((100% - .16rem)/2);text-align:center;padding:.26667rem .10667rem;border:1px solid var(--line);
+  background:var(--tint);border-radius:.10667rem;transition:border-color .25s ease,box-shadow .25s ease}
+.safe-item:hover{border-color:rgba(58,123,252,.45)}
+.safe-item .ic{width:.93333rem;height:.93333rem;margin:0 auto .16rem;border-radius:50%;background:#fff;border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center}
+.safe-item .ic svg{width:.48rem;height:.48rem;stroke:var(--blue);stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.safe-item h3{font-size:.18667rem;font-weight:400;color:var(--sec);line-height:1.6}
+.safe-item h3 b{display:block;color:var(--ink);font-weight:700;font-size:.21333rem;margin-bottom:.02667rem}
+@media (min-width:1024px){
+  .section-safe{padding-bottom:1.38667rem}
+  .safe-item .ic{width:1.06667rem;height:1.06667rem}
+  .safe-item h3{font-size:.21333rem}
+}
+@media (min-width:1280px){.safe-wrap{flex-wrap:nowrap;padding-bottom:1.6rem}.safe-item{width:calc((100% - .8rem)/4)}}
+
+/* ================= footer ================= */
+.footer-box{position:relative;background:var(--dark);border-top:.01333rem solid rgba(242,242,247,.08);color:rgba(242,242,247,.7)}
+.footer-box a{transition:color .3s ease}
+.footer-box a:hover{color:rgba(242,242,247,.98)}
+.footer-bd{padding:1.06667rem .42667rem .8rem;display:flex;flex-direction:column;gap:.4rem}
+.footer-brand{display:flex;align-items:center;gap:.10667rem;color:#fff;font-size:.22667rem;font-weight:700}
+.footer-brand .logo-mark{width:.4rem;height:.4rem;border-radius:.10667rem;background:conic-gradient(from 210deg,#3a7bfc,#7c6ff7,#3a7bfc);position:relative;flex:none}
+.footer-brand .logo-mark::after{content:"";position:absolute;inset:.08667rem;border:.04rem solid #fff;border-radius:.06667rem}
+.footer-desc{font-size:.16rem;color:rgba(242,242,247,.45);margin-top:.08rem;line-height:1.7;max-width:6.4rem}
+.footer-share{display:flex;gap:.26667rem;margin-top:.21333rem}
+.footer-share a{font-size:.16rem;color:rgba(242,242,247,.7);border:1px solid rgba(242,242,247,.18);border-radius:.06667rem;padding:.05333rem .18667rem}
+.footer-cols{display:flex;flex-wrap:wrap;gap:.4rem}
+.footer-col{min-width:2.6rem}
+.footer-tit{color:#fff;font-size:.18667rem;font-weight:700;line-height:.25333rem;margin-bottom:.18667rem}
+.footer-col a{display:block;font-size:.18667rem;line-height:.53333rem;color:rgba(242,242,247,.7)}
+.footer-ft{border-top:.01333rem solid rgba(242,242,247,.15);font-size:.16rem;padding:.53333rem .42667rem .7rem;
+  display:flex;flex-wrap:wrap;align-items:center;gap:.13333rem .4rem;color:rgba(242,242,247,.45)}
+@media (min-width:768px){
+  .footer-bd{flex-direction:row;justify-content:space-between;align-items:flex-start}
+  .footer-cols{gap:.93333rem}
+  .footer-ft{justify-content:space-between}
+}
+
+/* ================= 分隔条 / 回到顶部 ================= */
+.section-divider{display:flex;justify-content:center;align-items:center;height:.85333rem;background:#fff}
+.section-divider span{width:.64rem;height:1px;background:rgba(47,47,48,.22);position:relative}
+.section-divider span::after{content:"";position:absolute;left:50%;top:50%;width:.08rem;height:.08rem;transform:translate(-50%,-50%) rotate(45deg);background:#fff;border:1px solid rgba(47,47,48,.35)}
+.btn-totop{position:fixed;width:.66667rem;height:.66667rem;bottom:.26667rem;border-radius:100%;right:.53333rem;z-index:30;
+  display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;pointer-events:none;
+  background:var(--blue);transition:background .3s ease,opacity .3s ease;box-shadow:0 .05333rem .13333rem rgba(92,97,143,.2);cursor:pointer}
+.btn-totop svg{width:.32rem;height:.32rem;fill:#fff}
+.btn-totop.show{opacity:1;visibility:visible;pointer-events:auto}
+.btn-totop:hover{background:var(--blue-l)}
+.btn-totop:active{background:var(--blue-d)}
+[id]{scroll-margin-top:1rem}
+</style>
+<noscript><style>.f-item{position:static !important;opacity:1 !important;transform:none !important;display:flex !important}.features-track{height:auto !important}.features-stage{position:static !important;height:auto !important;flex-direction:column !important}.fn-panel{position:static !important;opacity:1 !important;transform:none !important;display:block !important;margin-bottom:.4rem}</style></noscript>
+</head>
+<body>
+
+<!-- 图标 sprite -->
+<svg class="sprite" aria-hidden="true">
+  <symbol id="ic-check" viewBox="0 0 24 24"><path d="M5 13l4 4 10-10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="ic-arrow" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="ic-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<!-- ================= 顶栏 ================= -->
+<nav class="top-bar" id="top">
+  <div class="top-bar__bd b-content-wrap">
+    <a class="top-bar__logo" href="#top"><span class="logo-mark"></span>CC-Flash</a>
+    <div class="top-bar__main" id="navMain">
+      <a class="top-bar__item" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载</a>
+      <a class="top-bar__item" id="featBtn" href="#features">特色功能<svg class="chev"><use href="#ic-chev"/></svg></a>
+      <a class="top-bar__item" href="#function">使用教程</a>
+      <a class="top-bar__item" href="#comments">常见问题</a>
+      <a class="top-bar__item" href="#safe">安全须知</a>
+      <div class="top-bar__expend" id="featMenu">
+        <div class="top-bar__ep-wrap">
+          <a class="scene-item" href="#features"><span class="s-ic">📁</span><span><b>文件传输</b><span>点击/拖拽/粘贴，整个文件夹也能传</span></span></a>
+          <a class="scene-item" href="#features"><span class="s-ic">📱</span><span><b>手机免装</b><span>同一 Wi-Fi 扫码即用，单列自适应</span></span></a>
+          <a class="scene-item" href="#features"><span class="s-ic">💠</span><span><b>桌面悬浮码</b><span>贴边呼吸球，悬停 1.5 秒出码</span></span></a>
+          <a class="scene-item" href="#function"><span class="s-ic">💬</span><span><b>实时聊天</b><span>WebSocket 秒级推送，边传边聊</span></span></a>
+          <a class="scene-item" href="#function"><span class="s-ic">📜</span><span><b>服务日志</b><span>loguru 风格，级别着色 来源:行号</span></span></a>
+          <a class="scene-item" href="#safe"><span class="s-ic">🔒</span><span><b>访问令牌</b><span>6 位配对码 + 防爆破退避</span></span></a>
+        </div>
+      </div>
+    </div>
+    <button class="top-bar__toggle" id="navToggle" aria-label="菜单"><i></i><i></i><i></i></button>
+  </div>
+  <div class="top-bar__drawer" id="navDrawer">
+    <a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载</a>
+    <a href="#features">特色功能</a>
+    <a href="#function">使用教程</a>
+    <a href="#comments">常见问题</a>
+    <a href="#safe">安全须知</a>
+  </div>
+</nav>
+<div class="top-bar__mask" id="navMask"></div>
+
+<!-- ================= Hero 文本(居中·滚动淡出) ================= -->
+<header class="section-header" id="heroHeader">
+  <h1 class="section-header__title">同一个 Wi-Fi，<br class="m">就能把文件传过去。</h1>
+  <p class="section-header__desc">电脑开机当服务器，手机扫码就能传 —— 零登录 · 零公网 · 开箱即用</p>
+  <a class="section-header__button" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
+    <svg viewBox="0 0 24 24"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4L12 13.6V3zM5 19h14v2H5z"/></svg>
+    免费下载
+  </a>
+  <div class="support-os">
+    <a class="support-os__item" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24"><path d="M3 5.6l7.3-1v7.1H3V5.6zM11.5 4.4L21 3v8.7h-9.5V4.4zM3 12.9h7.3v7.1L3 18.9v-6zM11.5 12.9H21V21l-9.5-1.3v-6.8z"/></svg><span>Windows</span>
+    </a>
+    <a class="support-os__item" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24"><path d="M16.7 12.6c0-2 1.6-3 1.7-3.1-1-1.4-2.4-1.6-2.9-1.6-1.3-.1-2.5.7-3.1.7-.6 0-1.6-.7-2.7-.7-1.4 0-2.7.8-3.4 2.1-1.5 2.5-.4 6.3 1 8.4.7 1 1.5 2.2 2.6 2.1 1 0 1.4-.7 2.7-.7s1.6.7 2.7.7c1.1 0 1.8-1 2.5-2.1.8-1.2 1.1-2.3 1.2-2.4-.1 0-2.3-.9-2.3-3.5zM14.5 6.2c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.6.6-1 1.6-.9 2.6 1 .1 2-.5 2.5-1.2z"/></svg><span>macOS</span>
+    </a>
+    <a class="support-os__item" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24"><path d="M7.2 5.1l1-1.7.9.5-1 1.7c1.4-.6 3-.9 4.9-.9s3.5.3 4.9.9l-1-1.7.9-.5 1 1.7C20.7 6.4 22 8.6 22 11v.5h-1.5V20a1.5 1.5 0 01-3 0v-1.2H6.5V20a1.5 1.5 0 01-3 0v-8.5H2V11c0-2.4 1.3-4.6 3.3-5.9h1.9zM8 8.5a1.2 1.2 0 100 2.4 1.2 1.2 0 000-2.4zm8 0a1.2 1.2 0 100 2.4 1.2 1.2 0 000-2.4zM7.5 14.5c.8 1 2 1.6 4.5 1.6s3.7-.6 4.5-1.6h-9z"/></svg><span>Android</span>
+    </a>
+    <a class="support-os__item" href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2c1.7 0 3.3.5 4.6 1.4L5.4 16.6A8 8 0 0112 4zm0 16a8 8 0 01-4.6-1.4L18.6 7.4A8 8 0 0112 20z"/></svg><span>浏览器</span>
+    </a>
+  </div>
+</header>
+
+<!-- ================= section-kv: 设备大图带 ================= -->
+<section class="section-kv" id="kv">
+  <span class="sticker s-star">✦</span>
+  <span class="sticker s-bolt"></span>
+  <span class="sticker s-free">Free</span>
+  <span class="sticker s-tag">秒传</span>
+  <span class="sticker s-like"><svg viewBox="0 0 24 24"><path d="M2 10.5h4.2V21H2zM8.2 21h8.1a2 2 0 002-1.6l1.55-7.8a2 2 0 00-2-2.4H14.2l.75-3.85A2.15 2.15 0 0012.85 3L8.2 10.4z"/></svg></span>
+  <div class="kv-stage">
+    <div class="kv-devices">
+      <div class="dev-win">
+        <div class="bar"><i></i><i></i><i></i><span class="url"><em>● 运行中</em>http://192.168.1.8:1688</span></div>
+        <div class="body">
+          <div class="side"><b>📁 文件传输</b><span>💬 文本消息</span><span>⚙️ 服务中心</span><span>🧩 CC设置</span></div>
+          <div class="list">
+            <div class="row"><span class="bdg" style="background:linear-gradient(135deg,#e74c3c,#c0392b)">PDF</span><span class="nm">需求评审纪要.pdf<i>2.4 MB · 电脑→手机</i></span><span class="btn">分享</span></div>
+            <div class="row"><span class="bdg" style="background:linear-gradient(135deg,#2980b9,#3498db)">JPG</span><span class="nm">现场照片_01.jpg<i>5.1 MB · 手机→电脑</i></span><span class="btn">分享</span></div>
+            <div class="row"><span class="bdg" style="background:linear-gradient(135deg,#f39c12,#e67e22)">ZIP</span><span class="nm">release-build.zip<i>128 MB · 传输中 76%</i></span><span class="btn">分享</span></div>
+            <div class="row"><span class="bdg" style="background:linear-gradient(135deg,#27ae60,#2ecc71)">MP4</span><span class="nm">演示录屏.mp4<i>312 MB</i></span><span class="btn">分享</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dev-phone">
+        <div class="scr">
+          <b>CC-Flash</b>
+          <div class="pill"><i></i>照片_001.jpg 上传中</div>
+          <div class="pill"><i style="background:#2ecc71"></i>文档.pdf 已同步</div>
+          <div class="orb">CC</div>
+          <div style="text-align:center;font-size:.12rem;color:#8a8f99">悬浮码 · 悬停出码</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="section-kv__bg"></div>
+</section>
+
+<div class="section-divider" aria-hidden="true"><span></span></div>
+
+<!-- ================= section-features: 3 屏 sticky 换页 ================= -->
+<section class="section section-features" id="features">
+  <div class="features-track" id="fTrack">
+    <div class="features-stage">
+      <div class="f-visual" id="fVisual" style="background:#0a70ec">
+        <div class="fpanel active" data-i="0">
+          <div class="fp-mock">
+            <div class="fp-card">
+              <div class="hd"><i></i><i></i><i></i></div>
+              <div class="bd">
+                <div class="ln"><b>拖拽上传</b>　文件/整个文件夹进虚线框，目录结构原样保留</div>
+                <div class="ln"><b>粘贴截图</b>　Cmd/Ctrl + V 直接传</div>
+                <div class="ln"><b>同名改名</b>　报告(1).zip 依次顺延，永不覆盖</div>
+                <div class="ln"><b>分享链接</b>　带温馨提示，开令牌仅授权单文件</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fpanel" data-i="1">
+          <div class="fp-mock">
+            <div class="fp-card" style="max-width:2.6rem">
+              <div class="hd" style="justify-content:center;font-size:.14rem;color:#8a8f99">http://10.161.1.8:1688</div>
+              <div class="bd">
+                <div class="ln"><b>⬆ 上传</b>　选照片即传，电脑即时出现</div>
+                <div class="ln"><b>⬇ 下载</b>　大文件走浏览器原生下载</div>
+                <div class="ln"><b>💬 悬浮球</b>　右下角直达聊天，未读红点</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fpanel" data-i="2">
+          <div class="fp-mock">
+            <div class="fp-orb"><span>CC</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="f-text">
+        <div class="f-item active" data-i="0">
+          <span class="f-item__title t1"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9l-6-6zm-1 8v2H9v-2h4zm4 4v2H9v-2h8v-2h-2v-2h-2v2h-2v2h2v2h2v-2zm-2-6V5.4L18.6 9H15z"/></svg>桌面端 · 文件共享</span>
+          <h2>传得快，<br />管得全</h2>
+          <ul class="f-item__list">
+            <li><svg><use href="#ic-check"/></svg>点击 / 拖拽 / 粘贴截图，整个文件夹也能传</li>
+            <li><svg><use href="#ic-check"/></svg>打开 · 复制 · 删除 · 分享，四个按钮管一切</li>
+            <li><svg><use href="#ic-check"/></svg>同名永不覆盖，流式下载支持断点续传</li>
+          </ul>
+          <a class="f-item__more" href="#function">查看更多<svg><use href="#ic-arrow"/></svg></a>
+        </div>
+        <div class="f-item" data-i="1">
+          <span class="f-item__title t2"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 2h10a2 2 0 012 2v16a2 2 0 01-2 2H7a2 2 0 01-2-2V4a2 2 0 012-2zm0 2v12h10V4H7zm1 15h8v2H8v-2z"/></svg>手机端 · 免安装</span>
+          <h2>扫码即用，<br />页面自适应</h2>
+          <ul class="f-item__list">
+            <li><svg><use href="#ic-check"/></svg>同一 Wi-Fi 浏览器扫码打开，零登录零公网</li>
+            <li><svg><use href="#ic-check"/></svg>单列布局，右下悬浮球直达聊天</li>
+            <li><svg><use href="#ic-check"/></svg>列表各端实时同步，Android 另有 APK</li>
+          </ul>
+          <a class="f-item__more" href="#function">查看更多<svg><use href="#ic-arrow"/></svg></a>
+        </div>
+        <div class="f-item" data-i="2">
+          <span class="f-item__title t3"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3.5a6.5 6.5 0 110 13 6.5 6.5 0 010-13zm0 4.5a2 2 0 100 4 2 2 0 000-4z"/></svg>桌面悬浮码</span>
+          <h2>贴边呼吸球，<br />悬停即出码</h2>
+          <ul class="f-item__list">
+            <li><svg><use href="#ic-check"/></svg>常驻屏幕边缘半隐，停留 1.5 秒滑出预览卡</li>
+            <li><svg><use href="#ic-check"/></svg>拖动吸附最近边，支持扩展屏（含 Windows 混合 DPI）、位置记住</li>
+            <li><svg><use href="#ic-check"/></svg>外圈呼吸=运行中，绿点=新文件/新消息</li>
+          </ul>
+          <a class="f-item__more" href="#comments">查看更多<svg><use href="#ic-arrow"/></svg></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= section-function: 深色圆角面板 + 竖向 tabs ================= -->
+<section class="section section-function" id="function">
+  <div class="fn-wrap">
+    <h2 class="fn-title">功能强大，真的免费</h2>
+    <div class="fn-content">
+      <ul class="fn-tab" id="fnTabs">
+        <span class="ind" id="fnInd"></span>
+        <li class="active" data-i="0"><strong>三步上手</strong><span>启动 → 扫码 → 互传</span></li>
+        <li data-i="1"><strong>上传 5 种方式</strong><span>点击/拖拽/选夹/粘贴/手机</span></li>
+        <li data-i="2"><strong>文件列表四按钮</strong><span>打开 · 复制 · 删除 · 分享</span></li>
+        <li data-i="3"><strong>聊天与服务</strong><span>实时消息 · 启停日志</span></li>
+        <li data-i="4"><strong>手机端全攻略</strong><span>打开 → 界面 → 传文件 → 聊天</span></li>
+      </ul>
+      <div class="fn-stage" id="fnStage">
+        <div class="fn-panel active" data-i="0">
+          <div class="fn-mock">
+            <div class="mrow"><b>01 电脑启动服务</b>进「服务中心」点启动，默认端口 1688 被占自动顺延<span class="tag ok">运行中</span></div>
+            <div class="mrow"><b>02 手机扫码</b>点顶栏二维码 ▦ 扫码，或输入 http://电脑IP:1688<span class="tag">同 Wi-Fi</span></div>
+            <div class="mrow"><b>03 直接互传</b>拖文件上传、点按钮下载、随时发消息<span class="tag">免安装</span></div>
+          </div>
+          <p class="fn-cap"><b>关窗不等于退出</b>——右上角 × 只是收进托盘，服务照常运行；彻底退出走托盘菜单「退出」。</p>
+        </div>
+        <div class="fn-panel" data-i="1">
+          <div class="fn-mock">
+            <div class="mrow"><b>点击上传区</b>弹窗选文件，可多选<span class="tag">多选</span></div>
+            <div class="mrow"><b>拖拽</b>文件或整个文件夹进虚线框，目录结构保留<span class="tag">整夹</span></div>
+            <div class="mrow"><b>选择文件夹 / 粘贴</b>蓝色链接整夹传；截图 Cmd/Ctrl+V 即传<span class="tag ok">4 种</span></div>
+            <div class="mrow"><b>手机上传</b>手机页面点上传，电脑列表实时出现<span class="tag warn">第 5 种</span></div>
+          </div>
+          <p class="fn-cap"><b>上传即校验</b>——磁盘空间不足提前拦截；同名自动改名 <b>报告(1).zip</b> 顺延，绝不覆盖。</p>
+        </div>
+        <div class="fn-panel" data-i="2">
+          <div class="fn-mock">
+            <div class="mrow"><b>📂 打开</b>系统默认程序打开，单击即生效<span class="tag">open</span></div>
+            <div class="mrow"><b>📋 复制</b>复制文件本体，访达/资源管理器直接粘贴<span class="tag">file</span></div>
+            <div class="mrow"><b>🗑 删除</b>弹确认框，确认后不可撤销<span class="tag warn">confirm</span></div>
+            <div class="mrow"><b>🔗 分享</b>复制带话术链接；开令牌时仅授权该文件 10 分钟<span class="tag ok">ticket</span></div>
+          </div>
+          <p class="fn-cap"><b>单击即生效</b>——按钮悬停无位移防误触；双击行空白才会「打开文件」。</p>
+        </div>
+        <div class="fn-panel" data-i="3">
+          <div class="fn-mock">
+            <div class="mrow"><b>💬 聊天室</b>WebSocket 秒级推送，断线自动降级轮询<span class="tag ok">实时</span></div>
+            <div class="mrow"><b>🧹 清空数据</b>只清本窗口显示，不影响他人<span class="tag">local</span></div>
+            <div class="mrow"><b>⚙️ 服务控制</b>启停 / 改端口 / 换共享目录一屏搞定<span class="tag">control</span></div>
+            <div class="mrow"><b>📜 结构化日志</b>时间戳 + 级别着色 + 来源 文件:行号<span class="tag warn">loguru</span></div>
+          </div>
+          <p class="fn-cap"><b>皮肤与更新</b>——CC设置 里 亮/暗/跟随系统 × <b>6 套配色</b>，版本检查一键前往下载。</p>
+        </div>
+        <div class="fn-panel" data-i="4">
+          <div class="fn-mock">
+            <div class="mrow"><b>① 打开页面</b>相机扫码或输入 IP:端口，须同一 Wi-Fi<span class="tag">no-app</span></div>
+            <div class="mrow"><b>② 认识界面</b>顶栏地址状态 · 中间列表 · 右下悬浮球<span class="tag">single-col</span></div>
+            <div class="mrow"><b>③ 传文件</b>点上传选照片，进度条实时走<span class="tag ok">sync</span></div>
+            <div class="mrow"><b>④ 聊天面板</b>点悬浮球滑出，未读红点打开即清<span class="tag warn">badge</span></div>
+          </div>
+          <p class="fn-cap"><b>Android 用户</b>——Releases 里按 CPU 选 <b>arm64-v8a</b> 装 APK，壳内直接传；IP 变了用桌面端提示的新地址重开。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= section-comments: 两行跑马灯 ================= -->
+<section class="section section-comments" id="comments">
+  <h2 class="big-title">高频问题，一眼解决</h2>
+  <div class="mq-wrap">
+    <div class="mq-row"><div class="mq-track" id="mqA"></div></div>
+    <div class="mq-row rev"><div class="mq-track" id="mqB"></div></div>
+  </div>
+</section>
+
+<!-- ================= section-news: 左大右三 ================= -->
+<section class="section section-news" id="news">
+  <h2 class="big-title" style="padding-top:1.06667rem">最近更新要点</h2>
+  <div class="news-wrap">
+    <a class="news-big" href="https://github.com/bdpqlhk/CC-Flash/releases/tag/v1.2.0" target="_blank" rel="noopener">
+      <div class="news-cover" style="background:linear-gradient(135deg,#3a7bfc,#8632e7)"><span class="ver">v1.2.0</span><span class="dt">2026-11-07</span></div>
+      <div class="nb">
+        <h3>悬浮码支持扩展屏，跨屏问题一次修净</h3>
+        <span class="dt">2026-11-07</span>
+        <p>拖到哪块屏就吸哪块屏，重启回原屏；修复拖过去被吸回主屏、扩展屏悬停不出码、球下"透明圆环"三个问题；Windows 主屏/扩展屏缩放不同时按目标屏换算物理坐标，落位与悬停同样正确；分享链接改为悬停预取票据、点击即复制；分享票据精简为 6 位；关闭/轮换令牌时旧票据作废。</p>
+      </div>
+    </a>
+    <div class="news-part">
+      <a class="news-row" href="https://github.com/bdpqlhk/CC-Flash/releases/tag/v1.1.9" target="_blank" rel="noopener">
+        <div class="news-cover" style="background:#0d65ea"><span class="ver">1.1.9</span></div>
+        <div class="nr"><h3>桌面悬浮码诞生</h3><span class="dt">2026-11-06</span><p>贴边呼吸球 + 悬停 1.5 秒出码；移动端切换为客户端模式；服务端安全加固（一次性分享票据、上传完整性标记）。</p></div>
+      </a>
+      <a class="news-row" href="https://github.com/bdpqlhk/CC-Flash/releases/tag/v1.1.8" target="_blank" rel="noopener">
+        <div class="news-cover" style="background:#ffb200;color:#242424"><span class="ver">1.1.8</span></div>
+        <div class="nr"><h3>上传回归整文件直传</h3><span class="dt">2026-11-04</span><p>单请求流式落盘 + 并发闸排队；loguru 风格结构化日志；侧边栏常驻二维码。</p></div>
+      </a>
+      <a class="news-row" href="https://github.com/bdpqlhk/CC-Flash/releases/tag/v1.1.6" target="_blank" rel="noopener">
+        <div class="news-cover" style="background:#4c4c4c"><span class="ver">1.1.6</span></div>
+        <div class="nr"><h3>壳内下载与主题精简</h3><span class="dt">2026-11-02</span><p>Android 应用内下载；明暗 × 六配色主题；同名文件自动改名永不覆盖。</p></div>
+      </a>
+      <div class="news-more"><a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">查看更多<svg><use href="#ic-arrow"/></svg></a></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= section-safe: 四徽章 ================= -->
+<section class="section section-safe" id="safe">
+  <h2 class="big-title" style="padding-top:1.06667rem">安全须知，尽可放心</h2>
+  <div class="safe-wrap">
+    <div class="safe-item">
+      <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 7.8-7 10-4-2.2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></div>
+      <h3><b>可信局域网定位</b>数据不出局域网，默认仅同网络可见，请勿把地址发给外网</h3>
+    </div>
+    <div class="safe-item">
+      <div class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/><circle cx="12" cy="15" r="1.6"/></svg></div>
+      <h3><b>访问令牌（可选）</b>6 位配对码 + 防爆破指数退避，输一次全端透明</h3>
+    </div>
+    <div class="safe-item">
+      <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></svg></div>
+      <h3><b>勿暴露到公网</b>连着公司 VPN 时同网段主机也能访问，用完及时停止服务</h3>
+    </div>
+    <div class="safe-item">
+      <div class="ic"><svg viewBox="0 0 24 24"><path d="M10 13a4 4 0 005.7 0l2.8-2.8a4 4 0 10-5.7-5.7L11.5 6"/><path d="M14 11a4 4 0 00-5.7 0L5.5 13.8a4 4 0 105.7 5.7L12.5 18"/></svg></div>
+      <h3><b>分享链接有边界</b>开令牌后链接仅授权单文件、10 分钟有效、下载即焚</h3>
+    </div>
+  </div>
+</section>
+
+<!-- ================= footer ================= -->
+<footer class="footer-box">
+  <div class="footer-bd b-content-wrap" style="max-width:17.06667rem">
+    <div class="footer-brand-col">
+      <div class="footer-brand"><span class="logo-mark"></span>CC-Flash</div>
+      <p class="footer-desc">局域网高速文件互传 · 电脑开机当服务器，手机扫码就能传。零登录、零公网、开箱即用。</p>
+      <div class="footer-share">
+        <a href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">反馈 Issues</a>
+        <a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">Releases</a>
+      </div>
+    </div>
+    <div class="footer-cols">
+      <dl class="footer-col">
+        <dt class="footer-tit">下载</dt>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">macOS / Windows 安装包</a></dd>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">Android APK</a></dd>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">全部版本</a></dd>
+      </dl>
+      <dl class="footer-col">
+        <dt class="footer-tit">文档</dt>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">项目主页 README</a></dd>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/blob/main/docs/%E4%BF%9D%E5%A7%96%E7%BA%A7%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.html" target="_blank" rel="noopener">保姆级使用说明</a></dd>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/blob/main/docs/%E6%8A%80%E6%9C%AF%E5%AE%9E%E7%8E%B0%E6%96%87%E6%A1%A3.html" target="_blank" rel="noopener">技术实现文档</a></dd>
+      </dl>
+      <dl class="footer-col">
+        <dt class="footer-tit">更多</dt>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/blob/main/docs/%E9%9C%80%E6%B1%82%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3.html" target="_blank" rel="noopener">需求设计文档</a></dd>
+        <dd><a href="https://github.com/bdpqlhk/CC-Flash/blob/main/LICENSE" target="_blank" rel="noopener">开源许可</a></dd>
+      </dl>
+    </div>
+  </div>
+  <div class="footer-ft b-content-wrap" style="max-width:17.06667rem">
+    <span>© 2026-现在 by hangkun.li · CC-Flash（曹操是快😂）</span>
+    <span>布局与风格参考 网易UU远程官网</span>
+  </div>
+</footer>
+
+<span class="btn-totop" id="toTop" role="button" aria-label="回到顶部">
+  <svg viewBox="0 0 24 24"><path d="M12 6l6 6h-4v6h-4v-6H6z"/></svg>
+</span>
+
+<script>
+/* ---------- 常见问题卡片(两行跑马灯, 内容取自保姆级文档 FAQ) ---------- */
+var QA=[
+ ["📶","手机打开地址一直转圈？","高频","同一 Wi-Fi、改用桌面端提示的新地址、电脑浏览器自检；公司网 AP 隔离换热点试。"],
+ ["🛡","别人能看到我的聊天？","必读","同 Wi-Fi 打开页面的人都能操作——半可信网络请开<b>访问令牌</b>（6 位配对码）。"],
+ ["📡","开着 VPN 二维码扫不开？","","服务自动避开 VPN 虚拟网卡；二维码弹窗里点选与手机同网段的候选地址。"],
+ ["🔮","呼吸小球不见了？","","开关在「CC设置 → 悬浮二维码」，重启保持；停 1.5 秒出码，可拖到扩展屏。"],
+ ["🚀","怎么开机自动运行？","","CC设置 打开开关（默认关闭）；先正式安装到「应用程序」再开，避免临时路径失效。"],
+ ["🔢","端口被占用怎么办？","","自动换到下一个可用端口，地址栏端口号跟着变，无需处理。"],
+ ["🟢","小球外圈绿点是什么？","","有新文件或新消息时出现；打开主窗口后自动消失，平时完全隐藏。"],
+ ["🗂","同名文件会覆盖吗？","","绝不覆盖——自动改名 报告(1).zip、(2) 依次顺延。"],
+ ["⏳","上传到一半断了会坏吗？","","中断即整份重传，半截文件服务端即时清理，目录不残留残缺文件。"],
+ ["📱","安卓手机怎么装？",""," Releases 按 CPU 选 arm64-v8a 的 APK 直接安装。"]
+];
+function qaHTML(q){return '<div class="qa-card"><div class="qh"><span class="av">'+q[0]+'</span><span class="qn">'+q[1]+(q[2]?'<span class="hot">'+q[2]+'</span>':'')+'</span></div><p>'+q[3]+'</p></div>';}
+(function(){
+  var a=QA, b=QA.slice(5).concat(QA.slice(0,5));
+  document.getElementById('mqA').innerHTML=a.map(qaHTML).join('')+a.map(qaHTML).join('');
+  document.getElementById('mqB').innerHTML=b.map(qaHTML).join('')+b.map(qaHTML).join('');
+})();
+
+/* ---------- 顶栏: 特色功能下拉 / 移动端抽屉 ---------- */
+(function(){
+  var btn=document.getElementById('featBtn'), menu=document.getElementById('featMenu');
+  var open=false;
+  function set(v){open=v;btn.classList.toggle('expended',v);menu.classList.toggle('expended',v);}
+  btn.addEventListener('click',function(e){e.preventDefault();set(!open);});
+  document.addEventListener('click',function(e){ if(open&&!menu.contains(e)&&!btn.contains(e)) set(false); });
+  var tg=document.getElementById('navToggle'), dr=document.getElementById('navDrawer'), mask=document.getElementById('navMask');
+  function mset(v){tg.classList.toggle('expended',v);dr.classList.toggle('show',v);mask.classList.toggle('show',v);}
+  tg.addEventListener('click',function(){mset(!dr.classList.contains('show'));});
+  mask.addEventListener('click',function(){mset(false);});
+  dr.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){mset(false);});});
+})();
+
+/* ---------- Hero header 滚动淡出(kv 结束后) ---------- */
+(function(){
+  var hd=document.getElementById('heroHeader'), kv=document.getElementById('kv');
+  function on(){
+    var end=kv.offsetTop+kv.offsetHeight*.6;
+    hd.classList.toggle('hide',(window.scrollY||0)>end-260);
+  }
+  window.addEventListener('scroll',on,{passive:true});on();
+})();
+
+/* ---------- features: 3 屏 sticky 换页 ---------- */
+(function(){
+  var track=document.getElementById('fTrack');
+  var items=track.querySelectorAll('.f-item'), panels=track.querySelectorAll('.fpanel');
+    var visual=document.getElementById('fVisual');
+  var grads=['#0a70ec','#ffb200','#8632e7'];
+  var cur=-1;
+  function set(i){
+    if(i===cur)return; cur=i;
+    items.forEach(function(el){el.classList.toggle('active',+el.dataset.i===i);});
+    panels.forEach(function(el){el.classList.toggle('active',+el.dataset.i===i);});
+    visual.style.background=grads[i];
+  }
+  function on(){
+    if(window.innerWidth<1024){set(0);items.forEach(function(el){el.classList.add('active')});return;}
+    var r=track.getBoundingClientRect();
+    var total=r.height-window.innerHeight;
+    if(total<=0)return;
+    var p=Math.min(Math.max(-r.top/total,0),1);
+    set(Math.min(items.length-1,Math.floor(p*items.length*0.999)));
+  }
+  window.addEventListener('scroll',on,{passive:true});on();
+  window.addEventListener('resize',on);
+})();
+
+/* ---------- function: tabs 切换 ---------- */
+(function(){
+  var tabs=document.querySelectorAll('#fnTabs li'), ind=document.getElementById('fnInd');
+  var panels=document.querySelectorAll('#fnStage .fn-panel');
+  function set(i){
+    tabs.forEach(function(t){t.classList.toggle('active',+t.dataset.i===i);});
+    panels.forEach(function(p){p.classList.toggle('active',+p.dataset.i===i);});
+    var a=tabs[i];
+    ind.style.transform='translateY('+(a.offsetTop)+'px)';
+    ind.style.height=a.offsetHeight+'px';
+  }
+  tabs.forEach(function(t){t.addEventListener('click',function(){set(+t.dataset.i);});});
+  set(0);
+  window.addEventListener('resize',function(){
+    var a=document.querySelector('#fnTabs li.active'); if(a){ind.style.transform='translateY('+a.offsetTop+'px)';ind.style.height=a.offsetHeight+'px';}
+  });
+})();
+
+/* ---------- 回到顶部 ---------- */
+(function(){
+  var b=document.getElementById('toTop');
+  function on(){b.classList.toggle('show',(window.scrollY||0)>640);}
+  window.addEventListener('scroll',on,{passive:true});on();
+  b.addEventListener('click',function(){window.scrollTo({top:0,behavior:'smooth'});});
+})();
+</script>
+</body>
+</html>

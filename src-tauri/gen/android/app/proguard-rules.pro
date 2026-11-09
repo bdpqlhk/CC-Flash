@@ -1,21 +1,15 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# CC-Flash Android release 混淆规则。
+# release 已开启 R8: 没有生效规则时, Tauri 由 Rust 侧按类名反射调用的
+# MainActivity/WryActivity 会被重命名或裁掉 → 启动即崩; 且崩溃栈没有行号。
+# 保留行号信息, 便于线上问题定位(同时隐藏原始源文件名)。
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# 应用入口/WebView 宿主类: Rust 通过 JNI 按名称查找, 不得混淆或裁剪
+-keep class com.ccflash.app.** { *; }
+-keeppackagenames com.ccflash.app.**
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# WebView 注入的 JS 接口(@JavascriptInterface)按方法名反射调用
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

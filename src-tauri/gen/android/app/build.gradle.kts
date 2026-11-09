@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -16,10 +17,16 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 37
+    // 与 Rust 侧(NDK_HOME)使用同一份 NDK: 未指定时 AGP 会自行挑选另一版本,
+    // 两边 NDK 不一致可能产出 ABI/符号异常的包(CI 镜像升级时尤易漂移)
+    System.getenv("NDK_HOME")?.takeIf { it.isNotBlank() }?.let {
+        ndkVersion = File(it).name
+    }
     namespace = "com.ccflash.app"
     defaultConfig {
-        // Tauri 移动壳经 localhost proxy 访问电脑服务；不直接放行任意私网明文。
-        manifestPlaceholders["usesCleartextTraffic"] = "true"   // 局域网 HTTP 客户端: 访问电脑服务需明文
+        // 移动壳是局域网 HTTP 客户端: 必须允许明文访问电脑端服务(局域网内无 TLS),
+        // 与 res/xml/network_security_config.xml 的 cleartextTrafficPermitted=true 一致
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "com.ccflash.app"
         minSdk = 24
         targetSdk = 37
@@ -41,7 +48,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            manifestPlaceholders["usesCleartextTraffic"] = "true"   // 局域网 HTTP 客户端: 访问电脑服务需明文
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
@@ -53,8 +60,7 @@ android {
             }
         }
         getByName("release") {
-            // 局域网 HTTP 仅允许本机回环代理（后续接入 Tauri proxy/native relay）。
-            manifestPlaceholders["usesCleartextTraffic"] = "true"   // 局域网 HTTP 客户端: 访问电脑服务需明文
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
             // 仅在 CC_KEYSTORE_PATH 有值时挂签名; 无证书时保持 null → 产出 unsigned 包,
             // 而不是 AGP "Keystore file not set" 直接失败
             val releaseSigning = signingConfigs.getByName("release")

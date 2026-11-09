@@ -1,12 +1,21 @@
 # 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
-# 覆盖: macOS(.app/.dmg) · Windows(.msi/.exe) · Android(--split-per-abi 按 4 个 ABI 分包出 .apk,
-#       flavor 名映射为标准 ABI 名; Secrets 配置 ANDROID_KEYSTORE_* 后走 release 签名, 未配置退回 debug)
-# iOS: 真机 ipa 必须 Apple 开发者账号签名(证书配成 Secrets), 有账号后取消注释 ios job 即可
+# 覆盖: macOS 分架构双包(aarch64 + x64 的 .app/.dmg) · Windows(.msi/.exe)
+#       · Android(--split-per-abi 按 4 个 ABI 分包出 .apk,
+#       flavor 名映射为标准 ABI 名; 必须配置 ANDROID_KEYSTORE_* 走 release 签名,
+#       缺 Secrets 直接失败 —— 正式 Release 绝不允许 debug 包混入)
+# iOS: 当前未交付 —— 除 Apple 开发者账号签名外, 还需先生成 gen/apple 工程、补充本地网络权限
+# (NSLocalNetworkUsageDescription/Bonjour)并适配 open_url 等壳能力; 下方 job 仅为模板
 name: Release 构建
 
 on:
   push:
     tags: ["v*"]
+
+# 同一 tag 只允许一个运行组(不取消进行中的): scripts 推送失败会"删远端 tag 重推",
+# 没有该约束时会触发第二个 run, 两条流水线互删同名资产、抢着 publish
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 # GITHUB_TOKEN 默认只读, 声明 contents:write 才能创建 Release 并上传产物
 permissions:
@@ -19,12 +28,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # universal-apple-darwin: 单包同时含 arm64 与 x86_64 —— 只构 aarch64 时
-          # Intel Mac 用户没有任何可用安装包(v1.1.2 实际发生)
+          # 分架构双包(取代 universal 单包): universal 把 arm64+x86_64 两份代码 lipo 在
+          # 一起, 体积近乎双倍 —— 拆分后 Apple Silicon 用户 dmg 约减半(命名沿用 v1.1.2 先例:
+          # CC-Flash_x.y.z_aarch64.dmg / CC-Flash_x.y.z_x64.dmg)。代价仅是 Release 多一个
+          # 文件, 与 Android 按 ABI 分包同款逻辑; 两腿 fail-fast:false 互不连坐
           - os: macos-latest
-            args: --target universal-apple-darwin
+            args: --target aarch64-apple-darwin
+            arch: aarch64
+          - os: macos-latest
+            args: --target x86_64-apple-darwin
+            arch: x64
           - os: windows-latest
             args: ""
+            arch: x64-win
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -36,13 +52,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: 安装 universal 所需的第二架构目标(macOS)
+      - name: 安装 macOS 目标三元组(macOS)
+        # 两个 mac 腿各自只构一个架构, 但把两个目标都装上保持幂等:
+        # aarch64 是 runner 宿主(默认已有), x86_64 必须显式安装
         if: runner.os == 'macOS'
         run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.os }}
+          # 两腿 macos 目标不同(target 目录不同), 缓存键必须带上 arch 避免互相覆盖
+          key: ${{ matrix.os }}-${{ matrix.arch }}
 
       - name: 安装前端依赖
         run: npm install
@@ -60,9 +79,12 @@ jobs:
           releaseBody: "对应标签 ${{ github.ref_name }} 的自动构建产物。更新说明见 Release 描述。"
           releaseDraft: true
           prerelease: false
+          # 三腿并发 getOrCreateRelease 竞态兜底: 两个 mac 腿几乎同时完成时可能都"没查到
+          # draft 就去创建" → 422 或拆成两个 draft; 重试会重新 list 找到已建好的 draft
+          retryAttempts: 3
           args: ${{ matrix.args }}
 
-  # ---- Android: 全架构 APK(有发布证书 Secrets 走 release 签名, 否则退回 debug 可直接安装) ----
+  # ---- Android: 全架构 APK(必须用发布证书 Secrets 走 release 签名; 缺失则 job 失败) ----
   android:
     needs: desktop          # 等 desktop job 先建好 Release, 再追加 APK 资产
     # desktop 任一平台失败不连坐 APK 发布(softprops 上传时 Release 不存在会自动创建);
@@ -88,13 +110,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: 定位 Android NDK
-        # sort -V 取最新版本: head -1 按字母序会固定拿到最旧版(如 25 而非 27),
-        # runner 镜像漂移时构建会无征兆挂掉且版本不可预期
-        run: echo "NDK_HOME=$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)" >> "$GITHUB_ENV"
-
       - name: 接受 Android SDK 许可
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+
+      - name: 安装/定位固定版本 Android NDK
+        # 不取 runner 上的"最新"版本(head-1 会拿最旧, sort|tail 又随镜像漂移):
+        # 显式固定 NDK, 与 Gradle ndkVersion(跟随 NDK_HOME)和 Rust 侧编译保持一致
+        run: |
+          set -e
+          NDK_VERSION=27.2.12479018
+          if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" >/dev/null
+          fi
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
       - name: 安装前端依赖
         run: npm install
@@ -112,7 +140,7 @@ jobs:
       #     -keyalg RSA -keysize 2048 -validity 10950
       #   base64 -i cc-flash.keystore | pbcopy   # → ANDROID_KEYSTORE_BASE64
       #   密码/别名分别填入 ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
-      - name: 构建 Android APK(有发布证书走 release, 否则 debug)
+      - name: 构建 Android APK(必须使用发布证书)
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -121,16 +149,13 @@ jobs:
         run: |
           set -e
           # --split-per-abi: 不带该 flag 时 tauri 只构建 universal flavor(单包),
-          # 重命名步骤的 flavor→ABI 映射与"按机型分架构下载"的契约会落空
-          # 四个 Secrets 任一缺失即退回 debug(只查 BASE64 时, 配漏密码/别名会让
-          # release 构建在 Gradle 签名一步直接挂, 连 debug 兜底都没有)
+          # 重命名步骤的 flavor→ABI 映射与"按机型分架构下载"的契约会落空。
+          # 正式 Release 一律拒绝 debug 兜底: debug 包 debuggable、每次签名不同无法覆盖升级,
+          # 一旦以 --debug 混进公开 Release 就是用户装不上的"正式版"。缺 Secrets 直接失败。
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KS_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::warning::未配置完整的 Android 发布证书 Secrets(ANDROID_KEYSTORE_*), 退回 debug 构建 —— 产物名带 -debug 后缀, 各版本证书不同, 覆盖安装需先卸载"
-            echo "ANDROID_DEBUG=1" >> "$GITHUB_ENV"
-            npx tauri android build --apk --debug --split-per-abi
-            exit 0
+            echo "::error::Android 发布证书 Secrets(ANDROID_KEYSTORE_BASE64/PASSWORD/KEY_ALIAS/KEY_PASSWORD)不完整，正式 Release 拒绝以 debug 包发布"
+            exit 1
           fi
-          echo "ANDROID_DEBUG=0" >> "$GITHUB_ENV"
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           export CC_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
           export CC_KEYSTORE_PASSWORD="$KS_PASSWORD"
@@ -146,19 +171,15 @@ jobs:
           set -e
           OUT_DIR=src-tauri/gen/android/app/build/outputs/apk
           found=0
-          # debug 产物名必须带 -debug 后缀: 与 release 签名包同名会让用户
-          # 无法从文件名区分, v1.1.2 曾把 debug 包以正式命名混入公开 Release
-          debug_suffix=""
-          if [ "${ANDROID_DEBUG:-0}" = "1" ]; then debug_suffix="-debug"; fi
-          for apk in $(find "$OUT_DIR" -name "*.apk" ! -name "*unsigned*" -type f | sort); do
-            base=$(basename "$apk" .apk)          # app-arm64-release / app-arm64-debug
+          for apk in $(find "$OUT_DIR" -name "*.apk" ! -name "*unsigned*" ! -name "*-debug*" -type f | sort); do
+            base=$(basename "$apk" .apk)          # app-arm64-release
             abi="${base#app-}"
             abi="${abi%-unsigned}"; abi="${abi%-debug}"; abi="${abi%-release}"
             case "$abi" in                        # flavor → 标准 ABI 名
               arm64) abi="arm64-v8a" ;;
               arm)   abi="armeabi-v7a" ;;
             esac
-            dest="CC-Flash-${{ github.ref_name }}-android-${abi}${debug_suffix}.apk"
+            dest="CC-Flash-${{ github.ref_name }}-android-${abi}.apk"
             echo "打包: $apk → $dest"
             cp "$apk" "$dest"
             found=1
@@ -169,6 +190,21 @@ jobs:
             exit 1
           fi
 
+      # 重跑已发布 tag 时 desktop 腿必失败, 但 android 腿仍会跑(always()) ——
+      # 若不加门禁, 新 APK 会直接写进线上正式 Release, 绕过"desktop+android 全绿才发布"。
+      # 草稿可写; 已公开则拒绝; 不存在(desktop 挂得早)允许软上传, 由 publish job 兜底决定公开。
+      - name: 确认 Release 尚未公开(防止重跑已发布 tag 篡改线上资产)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          state=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json isDraft -q .isDraft 2>/dev/null || echo "missing")
+          if [ "$state" = "false" ]; then
+            echo "::error::Release ${{ github.ref_name }} 已公开，拒绝追加/替换线上资产(重跑已发布 tag 会绕过全绿门禁)"
+            exit 1
+          fi
+          echo "Release 状态: $state（草稿或不存在，允许上传草稿资产）"
+
       # 一律追加到草稿 Release; 是否公开由末尾 publish job 统一决定(desktop+android 全绿)
       - name: 上传 APK 到 Release
         uses: softprops/action-gh-release@v2
@@ -176,10 +212,12 @@ jobs:
           files: CC-Flash-${{ github.ref_name }}-android-*.apk
           draft: true
 
-  # ---- iOS(模板): 真机 ipa 需要 Apple 开发者账号 ----
+  # ---- iOS(仅模板, 当前未交付) ----
   # 前置: ① 付费开发者账号($99/年) ② 证书.p12 与描述文件.mobileprovision 上传为仓库 Secrets
   #       (APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_PROVISIONING_PROFILE)
-  # 有账号后取消本 job 注释, 并在 tauri.conf.json / gen/apple 配置签名
+  # ③ 生成 gen/apple 工程并补本地网络权限(Info.plist: NSLocalNetworkUsageDescription /
+  #    NSBonjourServices) ④ 适配 open_url_cmd 等壳能力(当前 iOS 明确返回不支持)
+  # 全部完成后再取消注释, 并在 tauri.conf.json / gen/apple 配置签名
   # ios:
   #   runs-on: macos-latest
   #   steps:

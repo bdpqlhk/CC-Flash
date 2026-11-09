@@ -70,6 +70,21 @@ if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision)$' >/dev
   echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision)$'
   exit 1
 fi
+# 私钥内容守卫: 改扩展名(如把 keystore 命名成 .txt)可绕过上面的文件名检查。
+# 在暂存区内容里直接扫 PEM 私钥头(仓库为 Public, 一旦推上去即泄露)
+if git grep --cached -IlE 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' >/dev/null 2>&1; then
+  echo "✘ 暂存文件内容含私钥(PEM PRIVATE KEY), 已中止:"
+  git grep --cached -IlE 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' || true
+  exit 1
+fi
+# 发版提交会带走全部改动(git add -A): 明示数量并列出未跟踪文件, 避免"一锅端"夹带
+echo "暂存文件: $(echo "$staged_files" | grep -c . || true) 个"
+untracked=$(git ls-files --others --exclude-standard)
+if [ -n "$untracked" ]; then
+  echo "⚠ 以下未跟踪文件将一并提交:"
+  echo "$untracked" | sed 's/^/    /'
+fi
+# 注意: workflow 改动必须经由本脚本提交进 tag —— 手打 tag 会用旧版工作流构建
 if git diff --cached --quiet; then
   echo "⚠ 暂无改动可提交(检查版本号是否真的变了)"
   exit 1

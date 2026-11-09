@@ -79,7 +79,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-06</b></span>
+<span>文档日期：<b>2026-11-09</b></span>
 <span>状态：<b>已实现，macOS 包已出</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
@@ -141,13 +141,13 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（每页 8 条，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-04</td><td>按平台差异化操作按钮：<b>真实桌面</b>（mac/win/linux 壳）=打开/复制/删除/分享；<b>Android/iOS 壳与浏览器</b>=下载/删除/分享（移动端无系统程序打开/剪贴板复制能力，原按钮是死路）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-05</td><td>上传前磁盘空间预检（按声明大小），空间不足明确拒绝；<b>流式落盘每 64MB 复查剩余</b>，不足即中止——size=0/谎报大小的请求体也无法灌满磁盘；<b>下载断点续传</b>：Range 206/416 语义完整，浏览器断下自动续传。<b>上传断点续传</b>随 v1.1.8 整文件直传决策移入后期规划（中断的半截文件立即清理，目录不残留残缺文件）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）；开启访问令牌时链接携带<b>一次性票据</b>——仅授权下载该文件、10 分钟有效，接收方免输配对码（关闭令牌时链接为直连地址）；点「分享」立即完成复制</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-05</td><td>上传前磁盘空间预检（按声明大小 + 256MB 安全余量），空间不足明确拒绝；<b>流式落盘每 64MB 复查剩余</b>，低于余量即中止——size=0/谎报大小的请求体也无法灌满磁盘；单次上传总时长上限 6 小时，慢速滴流不能长期占用连接；<b>下载断点续传</b>：Range 206/416 语义完整，浏览器断下自动续传。<b>上传断点续传</b>随 v1.1.8 整文件直传决策移入后期规划（中断的半截文件立即清理，目录不残留残缺文件）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）；开启访问令牌时链接携带<b>一次性票据</b>——仅授权下载该文件、10 分钟有效，接收方免输配对码（关闭令牌时链接为直连地址）；关闭令牌或轮换配对码时未使用票据全部作废，无效票据按来源 IP 限流；点「分享」立即完成复制</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），消息保留最近 200 条</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息内 URL 自动识别为可点击链接（先转义防 XSS，桌面端点击走系统浏览器）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止（仅真实桌面；Android/iOS 为纯客户端，Rust 命令层直接拒绝托管服务）；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）；停止服务会先中止并回滚在途上传，不会出现"停服后文件被启动清理误删"</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-21</td><td>共享目录可查看与更换：手动输入或点「选择」弹原生目录框直接选取（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-22</td><td>运行状态徽标常驻（三圆点波浪动效），出现在桌面顶栏、网页顶栏与服务控制卡</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡：地址（IP:端口）或运行状态任一变化自动重生成，停服即清空防残留，生成失败由状态轮询兜底重试</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -155,7 +155,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-25</td><td>单实例守卫：应用运行中再次启动（桌面/开始菜单/程序坞图标）不再新建进程，改为唤起已有主窗口——杜绝 Windows 侧托盘图标越开越多</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-26</td><td>开机自启（手动开启）：仅在「CC设置」打开开关才注册登录项（<b>默认关闭</b>，杜绝首启静默注册绑定临时路径）；自启启动带 <code>--hidden</code>，登录后服务后台运行、窗口不弹出不闪屏；DMG/开发目录运行时文案警示路径失效风险；Android/iOS WebView 不展示该设置</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-75</td><td rowspan="5">桌面悬浮码</td><td>置顶呼吸圆点贴边收拢：窗口中心压屏幕边缘线（圆点<b>漏一半</b>在屏内），默认左侧垂直居中；指针<b>停留 1.5 秒</b>滑出「浏览器扫一扫」预览卡（纯预览、不提供点击功能），离开 250ms 收拢；点击圆点打开主窗口并收起面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-76</td><td>拖动换边：按住拖动松手自动吸附最近边缘（距离并列优先左侧），<b>支持扩展屏</b>——拖到哪块屏吸哪块屏；位置与<b>所在显示器</b>写入 <code>pet-dock.json</code>（Rust 同步落盘），重启按原屏原位置恢复（记忆屏离线先落当前屏、插回自动归位）；展开/收拢/吸附的窗口几何操作串行单飞，杜绝"卡片配收拢位姿"错配</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-76</td><td>拖动换边：按住拖动松手自动吸附最近边缘（距离并列优先左侧），<b>支持扩展屏</b>——拖到哪块屏吸哪块屏；位置与<b>所在显示器</b>写入 <code>pet-dock.json</code>（Rust 同步落盘），重启按原屏原位置恢复（记忆屏离线先落当前屏、插回自动归位）；展开/收拢/吸附的窗口几何操作串行单飞，杜绝"卡片配收拢位姿"错配；Windows 混合 DPI（主屏/扩展屏缩放不同）下按目标屏缩放换算物理坐标，落位与悬停均正确</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-77</td><td>服务状态<b>以外圈呼吸为唯一语言</b>：运行中粉环呼吸（高保底透明度 + 辉光），已停止则静止常亮；显隐只由 CC设置开关控制，开关写入 <code>pref-qr-float-enabled</code> 重启保持；<b>关闭入口仅 CC设置</b>（圆点上不放 ✕）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-78</td><td>新文件 / 新消息角标：外圈<b>绿点弹入</b>提示（绿点画在 SVG 呼吸组内<b>与呼吸环同组随环缩放</b>，并按吸附边旋到屏幕可见半侧；文件名快照 diff / 消息条数基线 diff，首拉只记基线不误报）；<b>主窗可见时抑制并清零</b>（Rust 广播 <code>main-vis://changed</code> + 启动查询 <code>main_visible_cmd</code>）；无通知完全隐藏</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-79</td><td>停止态面板：白块改<b>暗底虚线空态 + 静默取景框</b>，文案「服务已停止 / 打开主窗口启动服务」；预览卡<b>不挂 title 悬浮提示</b>，任何时候不遮挡二维码；圆点悬停判定用<b>光标在场轮询</b>（250ms），不依赖 mouseenter 边界事件（窗口程序化移动后边界事件会丢配对）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -165,13 +165,13 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-40</td><td rowspan="4">网页端</td><td>电脑浏览器：经典工具风格单页——标题头部、状态徽标+地址栏+四格统计同卡、左文件右聊天 1:1 双栏</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-41</td><td>手机浏览器：单列堆叠 + 右下角悬浮球（未读数）+ 底部聊天面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-42</td><td>面板打开时锁定背景滚动，面板内滑动不穿透；每 5s 刷新状态/IP；窄屏统计为 2×2 独立描边小卡</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据，删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据（恢复首拉的历史不计未读），删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）；<b>Android/iOS 壳</b>在遮罩上提供「重新设置电脑地址」按钮，避免设置页被遮罩盖住后只能清应用数据</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × 6 套配色（深空蓝/石墨灰/森林薄荷/暗夜紫/墨色琥珀/石墨玫瑰），即时生效并记忆，三级文字色随主题色相联动</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-51</td><td>页脚版权：桌面与网页端页面底部统一展示「© 2026-现在 by hangkun.li」，内容短时贴底、长时顺延</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：对接 GitHub Releases，启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-71</td><td>运行参数服务端统一下发：昵称/消息长度上限、轮询间隔等由服务接口携带，网页端自动跟随（改服务端配置重启即全端生效，无需重新构建前端）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-72</td><td rowspan="3">维护</td><td>多平台自动发版：推送 v* 标签自动构建 macOS（.app/.dmg）、Windows（.msi/.exe）、Android 并挂载到 Release；Android 经 <code>--split-per-abi</code> 按 4 个 ABI 分包（arm64-v8a / armeabi-v7a / x86 / x86_64，文件名映射标准 ABI 名），配置 <code>ANDROID_KEYSTORE_*</code> Secrets 后 release 签名（证书固定、版本可覆盖升级），未配置退回 debug 签名并告警；desktop 构建失败时 APK 照常上传但 Release 保持草稿</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-72</td><td rowspan="3">维护</td><td>多平台自动发版：推送 v* 标签自动构建 macOS（.app/.dmg）、Windows（.msi/.exe）、Android 并挂载到 Release；Android 经 <code>--split-per-abi</code> 按 4 个 ABI 分包（arm64-v8a / armeabi-v7a / x86 / x86_64，文件名映射标准 ABI 名），必须配置 <code>ANDROID_KEYSTORE_*</code> Secrets 走 release 签名（证书固定、版本可覆盖升级），任一缺失 CI 直接失败（正式 Release 不允许 debug 包）；Android 上传前校验 Release 仍为草稿，重跑已发布 tag 不会改写线上资产；desktop 构建失败时 APK 仍可写入草稿但 Release 不公开</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-74</td><td>软件介绍页：侧边栏「介绍」入口打开全屏介绍（Hero / 功能四卡 / 三步上手 / 技术实现 / FAQ 手风琴），粘性顶栏锚点导航 + 滚动定位高亮、Esc 关闭、<code>v-if</code> 延迟挂载不增加启动成本；Hero「立即开始传输」进文件传输页、「去启动服务」进服务中心、「查看使用说明」页内跳转如何使用</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-73</td><td>一键发版脚本：<code>scripts/release.sh X.Y.Z</code> 自动完成升版本/提交/打标签/推送（含网络兜底）并验证构建触发</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 </table>
@@ -426,7 +426,7 @@ pre code{background:none;color:inherit;padding:0}
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-11-06 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-11-09 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

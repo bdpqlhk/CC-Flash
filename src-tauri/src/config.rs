@@ -70,6 +70,18 @@ pub const UPLOAD_FREE_CHECK_BYTES: u64 = 64 * 1024 * 1024;
 /// 同时限定半截文件以最终名可见/可下载的窗口(v1.1.8 整文件直传的固有暴露面,
 /// v1.1.7 的该兜底曾随回滚丢失, 此处恢复)
 pub const UPLOAD_IDLE_TIMEOUT_SECS: u64 = 120;
+/// 单次上传总时长上限(秒): 空闲超时只挡"卡住", 挡不住"每 119s 滴一个字节"的慢速
+/// 滴流(一条连接可占满数天还持续写盘)。
+pub const UPLOAD_MAX_DURATION_SECS: u64 = 6 * 3600;
+/// 磁盘安全余量: 上传预检与周期复查都要求"可用空间 ≥ 文件大小 + 余量",
+/// 避免一次合法上传把系统盘写到只剩几十 MB 导致整机异常
+pub const UPLOAD_FREE_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
+/// /api/files 单次最多返回的文件条目数(超大目录不再无界遍历/序列化)
+pub const FILES_LIST_MAX: usize = 5000;
+/// 分享票据猜码防护: 同一来源连续无效票据达到该次数后暂停受理
+pub const TICKET_FAIL_FREE: u32 = 20;
+/// 票据猜码暂停时长(秒)
+pub const TICKET_FAIL_WINDOW_SECS: u64 = 600;
 /// 断点保留期(秒): 启动清理只删超过该期限的残留 .ccpart。
 /// 立即全清会毁掉"进程/系统重启后续传"(Android 退后台被杀、电脑重启后
 /// 重选同一文件本可靠会话指纹命中服务端断点继续)

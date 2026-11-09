@@ -20,7 +20,7 @@ import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog"
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { availableMonitors, cursorPosition, currentMonitor, primaryMonitor } from "@tauri-apps/api/window";
-import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+import { LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 
 /* ---------- 运行参数: 下面是启动兜底值, 服务端(/api/info、control_status_cmd)下发后以其为准 ---------- */
@@ -81,15 +81,15 @@ const addrErr = ref("");
 /* 移动壳连接电脑: 探活(/api/info)通过即持久化地址并全量拉取; 401=服务在但开了访问码, 也算连上 */
 async function saveServerAddr() {
   const host = normalizeServerAddr(addrInput.value);
-  // 与服务端 browser_origin_guard 白名单对齐: 仅 IP / localhost / xxx.local / [ipv6] ——
-  // 放行任意 FQDN 会"格式合法但服务端400", 错误文案还误导成 Wi-Fi/服务问题
-  const hostOk = /^(\d{1,3}(\.\d{1,3}){3}|localhost|[A-Za-z0-9-]+\.local|\[[0-9a-fA-F:]+\])(:\d{1,5})?$/.test(host);
+  // 与服务端 browser_origin_guard 白名单严格对齐: 仅 IP / localhost / [ipv6]。
+  // .local 已被服务端拒绝(同 Wi-Fi 攻击者可自架 mDNS 应答做 DNS 重绑定), 前端不得再放行
+  const hostOk = /^(\d{1,3}(\.\d{1,3}){3}|localhost|\[[0-9a-fA-F:]+\])(:\d{1,5})?$/.test(host);
   if (!host) {
     addrErr.value = "格式如 192.168.1.8:1688";
     return;
   }
   if (!hostOk) {
-    addrErr.value = "仅支持 IP / localhost / xxx.local（与电脑同网段的 IP 最稳妥）";
+    addrErr.value = "仅支持 IP / localhost（请填电脑局域网 IP）";
     return;
   }
   try {
@@ -100,12 +100,14 @@ async function saveServerAddr() {
     if (!r.ok && r.status !== 401) throw new Error(`HTTP ${r.status}`);
     serverAddr.value = host;
     try { localStorage.setItem("wft-server-addr", host); } catch (e) {}
+    saveTextPref("server-addr", host);
     addrInput.value = host;
     addrErr.value = "";
     needPin.value = false;
     statusFail = 0;
     offline.value = false;
     showToast("已连接电脑服务");
+    startPolling();   // resetServerAddr 会停掉轮询, 重新连接后必须恢复
     refreshStatus();
     loadFiles();
     loadChat();
@@ -114,9 +116,24 @@ async function saveServerAddr() {
     addrErr.value = e && e.name === "AbortError"
       ? "连接超时：检查地址与 Wi-Fi"
       : /HTTP 400/.test(String(e && e.message))
-        ? "服务端拒绝该 Host（只认 IP / localhost / xxx.local）"
+        ? "服务端拒绝该 Host（只认 IP / localhost）"
         : "连不上：确认电脑服务已运行、地址正确、同一 Wi-Fi";
   }
+}
+/* 失联全屏遮罩下的唯一出路: 清空已保存地址 → 回到"连接电脑"引导门。
+   否则换 IP / 换电脑后, 遮罩(z-index 1000)盖住设置页, 连接门又因地址非空不出现,
+   用户只能清应用数据脱困 */
+function resetServerAddr() {
+  serverAddr.value = "";
+  try { localStorage.removeItem("wft-server-addr"); } catch (e) {}
+  saveTextPref("server-addr", "");
+  addrInput.value = "";
+  addrErr.value = "";
+  offline.value = false;
+  statusFail = 0;
+  closeWs();
+  stopPolling();
+  showToast("请输入新的电脑地址");
 }
 function tauriInvoke(cmd, args) { return invoke(cmd, args || {}); }
 
@@ -126,14 +143,35 @@ const needPin = ref(false);      // 401 → 弹出输入框; 验证通过后全�
 const pinInput = ref("");
 const pinEnabled = ref(false);   // 桌面设置页展示用(仅 Tauri 命令下发, HTTP /api/info 不携带码值)
 const pinCode = ref("");
+/* 移动壳的 WKWebView localStorage 有"只驻内存不落盘"的历史问题: 地址/配对码
+   双写 Rust pref 文件, 启动时 localStorage 为空则回读 —— 否则重启后连接门重来 */
+function saveTextPref(key, value) {
+  if (!isDesktop) return;
+  tauriInvoke("save_text_pref_cmd", { key, value: value || "" }).catch(() => {});
+}
 function withPin(url, pin = accessPin.value) {
   return pin ? url + (url.includes("?") ? "&" : "?") + "pin=" + encodeURIComponent(pin) : url;
 }
-/* 统一请求入口: 自动附带令牌; 401/429 时置 needPin 配对弹框(网页端输入一次后全流程透明)。
+/* 服务端已轮换/关闭配对码: 清掉本机缓存, 否则每个自动请求/排队上传都继续
+   带着错码计数, 会把本机 IP 推进退避锁定(用户"越输越锁") */
+function dropAccessPin() {
+  if (!accessPin.value) return;
+  accessPin.value = "";
+  try { localStorage.removeItem(LS.pin); } catch (e) {}
+  saveTextPref("access-pin", "");
+}
+/* 统一请求入口: 令牌走 X-Access-Pin 头(不再拼进 URL, 减少查询串泄露面);
+   401/429 时置 needPin 配对弹框(网页端输入一次后全流程透明), 并清掉本机缓存的旧码 ——
+   服务端轮换/关闭配对码后, 旧码会让每个自动请求都计入失败, 越输越锁(自锁死循环)。
    429 = 配对码连续错进退避锁定 —— 若不当配对信号处理, 页面会静默退化成"已停止/无文件" */
 async function apiFetch(url, opts) {
-  const r = await fetch(withPin(url), opts);
+  const o = opts ? { ...opts } : {};
+  const headers = new Headers(o.headers || {});
+  if (accessPin.value) headers.set("X-Access-Pin", accessPin.value);
+  o.headers = headers;
+  const r = await fetch(url, o);
   if (r.status === 401 || r.status === 429) {
+    dropAccessPin();
     needPin.value = true;
     const err = new Error(r.status === 429 ? "配对尝试过于频繁" : "需要配对码");
     err.status = r.status;   // 供 refreshStatus 区分"服务在但要配对"与"真断网"
@@ -151,6 +189,7 @@ async function submitPin() {
     if (r.ok) {
       accessPin.value = p;
       try { localStorage.setItem(LS.pin, p); } catch (e) {}
+      saveTextPref("access-pin", p);
       needPin.value = false;
       statusFail = 0;
       offline.value = false;
@@ -181,6 +220,7 @@ function clearAccessPinIfOff(enabled) {
   if (enabled || !accessPin.value) return;
   accessPin.value = "";
   try { localStorage.removeItem(LS.pin); } catch (e) {}
+  saveTextPref("access-pin", "");
 }
 async function toggleAccessPin() {
   try {
@@ -565,6 +605,22 @@ let petHealTimer = null;    // 显示器拓扑变化(睡眠/改分辨率/拔屏)
 let petHoverTimer = null;   // 靠近后须停留 1.5s 才展开(路过不弹, 意图明确才出码)
 let petCloseTimer = null;   // 离开后 250ms 宽限再收起(指针在边界抖动不闪断)
 const petClamp = (v, a, b) => Math.min(Math.max(v, a), b);
+/* Windows 混合 DPI: tao 把 LogicalPosition/LogicalSize 按**窗口当前所在屏**的缩放
+   换算成物理像素。Pet 的目标屏(记忆屏/扩展屏)与窗口当前屏缩放不同时, 落位会算错并
+   永久出屏(heal 每 30s 用同一错误公式重算 → 死循环)。Windows 下直接给物理坐标/
+   物理尺寸, 由目标屏的 scaleFactor 自行换算, 绕开 tao 的"当前屏"假设。
+   macOS/Linux 的全局坐标系是逻辑点, 保持 Logical 才不会跨屏漂移。 */
+const isWindows = /Windows/i.test(navigator.userAgent);
+function petPosArg(x, y, sf) {
+  return isWindows
+    ? new PhysicalPosition(Math.round(x * sf), Math.round(y * sf))
+    : new LogicalPosition(x, y);
+}
+function petSizeArg(w, h, sf) {
+  return isWindows
+    ? new PhysicalSize(Math.round(w * sf), Math.round(h * sf))
+    : new LogicalSize(w, h);
+}
 
 /* 显示器身份: {name, x, y}(物理原点) —— dock 记忆靠它跨重启定位到同一块屏。
    同名多屏(双联同款)用原点就近; 系统改名但位置没动 → 退化按原点匹配。 */
@@ -617,13 +673,17 @@ async function petWorkArea(preferDock) {
         const [lp, ls, winSf] = await Promise.all([
           win.outerPosition(), win.outerSize(), win.scaleFactor(),
         ]);
-        const cx = lp.x / winSf + ls.width / winSf / 2;
-        const cy = lp.y / winSf + ls.height / winSf / 2;
+        // Windows 全物理空间比较; 其他平台统一到全局逻辑点(混合 DPI 安全)
+        const cx = isWindows ? lp.x + ls.width / 2 : lp.x / winSf + ls.width / winSf / 2;
+        const cy = isWindows ? lp.y + ls.height / 2 : lp.y / winSf + ls.height / winSf / 2;
         const list = await availableMonitors();
         mon = list.find((m) => {
           const sf = m.scaleFactor || 1;
-          const x = m.position.x / sf, y = m.position.y / sf;
-          return cx >= x && cx < x + m.size.width / sf && cy >= y && cy < y + m.size.height / sf;
+          const x = isWindows ? m.position.x : m.position.x / sf;
+          const y = isWindows ? m.position.y : m.position.y / sf;
+          const w = isWindows ? m.size.width : m.size.width / sf;
+          const h = isWindows ? m.size.height : m.size.height / sf;
+          return cx >= x && cx < x + w && cy >= y && cy < y + h;
         }) || list[0] || null;
       } catch (e) {}
     }
@@ -790,11 +850,11 @@ async function _petApply() {
     // 顺序按状态走, 过渡期间永不露出屏幕外:
     // 展开 = 先就位(完整贴边)再放大(原点固定向屏内生长); 收拢 = 先缩小再滑入半隐
     if (expanded) {
-      await win.setPosition(new LogicalPosition(pos.x, pos.y));
-      await win.setSize(new LogicalSize(w, h));
+      await win.setPosition(petPosArg(pos.x, pos.y, wa.sf));
+      await win.setSize(petSizeArg(w, h, wa.sf));
     } else {
-      await win.setSize(new LogicalSize(w, h));
-      await win.setPosition(new LogicalPosition(pos.x, pos.y));
+      await win.setSize(petSizeArg(w, h, wa.sf));
+      await win.setPosition(petPosArg(pos.x, pos.y, wa.sf));
     }
     if (!wa.viaFallback) {
       // 跨轴被夹紧时锚点会偏移 → 回写实际锚点; 收拢态锚点=球心(A布局纵向偏移48)
@@ -831,13 +891,21 @@ async function _petSnap() {
     if (!wa || !petDock) return;
     const p = await win.outerPosition();
     const s = await win.outerSize();
-    const rect = { x: p.x / wa.sf, y: p.y / wa.sf, w: s.width / wa.sf, h: s.height / wa.sf };
+    // Windows: 物理矩形先对齐目标屏物理原点, 再换算成与 wa 同一逻辑空间的矩形
+    const rect = isWindows
+      ? {
+          x: wa.x + (p.x - wa.x * wa.sf) / wa.sf,
+          y: wa.y + (p.y - wa.y * wa.sf) / wa.sf,
+          w: s.width / wa.sf,
+          h: s.height / wa.sf,
+        }
+      : { x: p.x / wa.sf, y: p.y / wa.sf, w: s.width / wa.sf, h: s.height / wa.sf };
     // 位姿按"窗口当前实际尺寸"推导(96→收拢半隐 / 136→展开贴边), 不信 ref ——
     // 过渡期 ref 与窗口尺寸会短暂错配, 信 ref 会把卡片按半隐算出去(出血一半)
     const collapsed = rect.w < (PET_ORB_W + PET_CARD_W) / 2;
     setPetDock(petNearestDock(rect, wa));
     const pos = petDockPos(petDock.edge, petDock.cross, rect.w, rect.h, wa, collapsed);
-    await win.setPosition(new LogicalPosition(pos.x, pos.y));
+    await win.setPosition(petPosArg(pos.x, pos.y, wa.sf));
     petDock.cross = (petDock.edge === "left" || petDock.edge === "right")
       ? rect.y + rect.h / 2 - wa.y
       : rect.x + rect.w / 2 - wa.x;
@@ -903,11 +971,13 @@ function petSetOver(over) {
     }, 1500);
   } else {
     clearTimeout(petHoverTimer); petHoverTimer = null;   // 没满 1.5s 就走 = 路过, 不弹
-    if (qrPetShown.value) {
-      petDiag({ fn: "leave" });
+    // 必须在"几何态或展示态任一为展开"时排收起: 展开落位尚未完成时 qrPetShown 还是
+    // false, 只看它会让离开事件被吞掉 —— 窗口随后展开却永远不再收到 leave(卡展开)
+    if (qrPetShown.value || qrPetExpanded.value) {
+      petDiag({ fn: "leave", geo: qrPetExpanded.value, shown: qrPetShown.value });
       petCloseTimer = setTimeout(() => {
         petCloseTimer = null;
-        setPetExpanded(false);
+        if (!petOverOrb) setPetExpanded(false);   // 250ms 内又回到球上则取消收起
       }, 250);
     }
   }
@@ -938,9 +1008,13 @@ async function petPollPresence() {
     const priSf = (pri && pri.scaleFactor)
       || ((mons.find((m) => m.position.x === 0 && m.position.y === 0) || {}).scaleFactor)
       || 1;
-    const cx = p.x / priSf, cy = p.y / priSf;
-    const rx = pos.x / winSf, ry = pos.y / winSf;
-    const rw = size.width / winSf, rh = size.height / winSf;
+    // Windows: cursorPosition / outerPosition / outerSize 都是真实物理像素,
+    // 同空间直接比较;"÷主屏 sf"只在 macOS 成立(主屏 sf≠扩展屏 sf 时在 Windows 必挂)。
+    const cx = isWindows ? p.x : p.x / priSf, cy = isWindows ? p.y : p.y / priSf;
+    const rx = isWindows ? pos.x : pos.x / winSf;
+    const ry = isWindows ? pos.y : pos.y / winSf;
+    const rw = isWindows ? size.width : size.width / winSf;
+    const rh = isWindows ? size.height : size.height / winSf;
     if (!petPollOkLogged) {
       petPollOkLogged = true;
       petDiag({ fn: "poll-ok", cursor: { x: cx, y: cy }, rect: { x: rx, y: ry, w: rw, h: rh }, priSf, winSf });
@@ -1005,7 +1079,10 @@ function toggleQrFloatEnabled() {
   setQrFloatEnabled(!qrFloatEnabled.value);
   if (isRealDesktop) {
     tauriInvoke("show_qr_pet_cmd", { show: qrFloatEnabled.value })
-      .then((d) => { if (!d?.ok) showToast(d?.error || "悬浮二维码状态同步失败", "error"); })
+      .then((d) => {
+        // 启动 2.5s 内 Pet 尚未完成落位时的拒绝属预期(它会自己按门控显示), 不弹错误
+        if (!d?.ok && !/尚未/.test(d?.error || "")) showToast(d?.error || "悬浮二维码状态同步失败", "error");
+      })
       .catch((e) => showToast(`悬浮二维码状态同步失败：${e?.message || e}`, "error"));
   }
 }
@@ -1026,6 +1103,10 @@ function copyDiag(stage, extra) {
     }).catch(() => {});
   } catch (e) {}
 }
+/* 复制彻底失败(无剪贴板权限/激活已过期)时的兜底: 把内容放进可选中的弹框,
+   而不是只弹一句"请手动复制"却无处可复制(移动壳冷路径尤甚) */
+const copyFallbackShow = ref(false);
+const copyFallbackText = ref("");
 function fallbackCopy(text, okMsg) {
   const ta = document.createElement("textarea");
   ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
@@ -1034,7 +1115,16 @@ function fallbackCopy(text, okMsg) {
   try { ok = document.execCommand("copy"); } catch (e) { err = String(e && e.message || e); }
   ta.remove();
   copyDiag("exec", { ok, err });
-  showToast(ok ? okMsg : "复制失败，请手动复制", ok ? "success" : "error");
+  if (ok) {
+    showToast(okMsg);
+  } else {
+    copyFallbackText.value = text;
+    copyFallbackShow.value = true;
+  }
+}
+function selectCopyFallback(e) {
+  const ta = e.target.closest(".dialog-box")?.querySelector("textarea");
+  if (ta) { ta.focus(); ta.select(); }
 }
 function copyText(text, okMsg) {
   copyDiag("enter", {});
@@ -1214,6 +1304,9 @@ async function shareFile(name) {
     const c = shareTicketCache.get(name);
     if (c && Date.now() - c.at < SHARE_TICKET_UI_TTL_MS) {
       ticket = c.ticket;
+      // 票据一次性: 取用即从缓存移除。连点两次时第二次必须走冷路径重新开票,
+      // 否则两次分享拿到同一张票, 第一个收件人下载后第二个就是死链
+      shareTicketCache.delete(name);
     } else {
       ticket = await createShareTicket(name);
       if (ticket) shareTicketCache.set(name, { ticket, at: Date.now() });
@@ -1247,7 +1340,8 @@ function prefetchShareTicket(name) {
   }).catch(() => {});
 }
 function onDocShareHover(e) {
-  const btn = e.target && e.target.closest && e.target.closest(".fb-share");
+  // 点文件名同样会触发分享: 一并预取, 避免冷路径 await 后丢失点击激活导致复制失败
+  const btn = e.target && e.target.closest && e.target.closest(".fb-share, .fname");
   if (!btn) return;
   const row = btn.closest(".file-row");
   const name = row && row.getAttribute("data-name");
@@ -1560,12 +1654,34 @@ function startUpload(file, id, name, stat) {
     if (!stat()) return resolve();   // 排队期间条目被用户移除: 直接让出槽位
     try {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", withPin(apiBase.value + API.upload), true);
+      // 移动壳/浏览器端 XHR 不能带自定义鉴权头跨源时会触发预检, 但同源(网页端)与
+      // 桌面壳回环均允许; 令牌走请求头, 不再拼进 URL
+      xhr.open("POST", apiBase.value + API.upload, true);
+      if (accessPin.value) { try { xhr.setRequestHeader("X-Access-Pin", accessPin.value); } catch (e) {} }
       xhr.setRequestHeader("X-Filename", encodeURIComponent(name));
       xhr.setRequestHeader("X-File-Size", String(file.size));
       xhr.setRequestHeader("Content-Type", "application/octet-stream");
       const t0 = Date.now();
+      let lastTick = Date.now();
+      // 无进展看门狗: 服务端 120s 空闲超时之前, 客户端先放弃(125s)。半开连接会让
+      // XHR 既不 error 也不 load —— 没有它, 3 个悬挂连接会永久占满并发闸, 队列全部堵死
+      let stallTimer = null;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (stallTimer) clearInterval(stallTimer);
+        resolve();
+      };
+      stallTimer = setInterval(() => {
+        if (Date.now() - lastTick <= 125000) return;
+        const it = stat();
+        if (it) { it.status = "error"; showToast("上传超时：" + name, "error"); }
+        try { xhr.abort(); } catch (e) {}
+        finish();
+      }, 5000);
       xhr.upload.onprogress = (e) => {
+        lastTick = Date.now();
         const it = stat(); if (!it) return;
         it.status = "uploading";
         if (e.lengthComputable) {
@@ -1574,7 +1690,6 @@ function startUpload(file, id, name, stat) {
           it.speed = fmtSize(sp) + "/s";
         }
       };
-      const finish = () => resolve();
       xhr.onload = () => {
         const it = stat(); if (!it) return finish();
         if (xhr.status === 200) {
@@ -1592,8 +1707,9 @@ function startUpload(file, id, name, stat) {
           loadFiles();
           setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
         } else {
-          // 配对码是独立保留功能: 401/429 唤起弹框; 失败文案与 1.1.2 逐字一致
-          if (xhr.status === 401 || xhr.status === 429) needPin.value = true;
+          // 配对码是独立保留功能: 401/429 唤起弹框并清掉旧码(否则队列里每个文件
+          // 都会继续带错码计数, 把本机 IP 越锁越死); 失败文案与 1.1.2 逐字一致
+          if (xhr.status === 401 || xhr.status === 429) { dropAccessPin(); needPin.value = true; }
           it.status = "error";
           updateWakeLock();
           showToast("上传失败: " + name, "error");
@@ -1714,6 +1830,7 @@ function clearChatDisplay() {
 }
 let loadingChat = false;
 let reloadChatQueued = false;
+let chatRecoveredOffline = false;   // 断网恢复后首拉: 历史消息不应全部计为未读
 async function loadChat() {
   // 在途互斥 + 补拉(与 loadFiles 对齐): 刷屏时每个 chat:new 都触发全量拉取,
   // 后发先至的旧响应会覆盖新数据 → 消息回闪
@@ -1729,16 +1846,26 @@ async function loadChat() {
     if (!r.ok) throw new Error(`消息加载失败 (${r.status})`);
     const d = await r.json();
     const msgs = d.messages || [];
-    const old = chatCount.value;
     // 水位过滤是"已清空历史不再复现"的唯一保证: 旧实现用 chatCleared 布尔开关, 新消息一到
     // 开关即解除, 全量 msgs 覆盖显示 → 之前清掉的历史整段回来。过滤后新消息正常出现,
     // 水位之下(已清空)的永远不再进入本窗口; clearedTs 初始为 0, 未清空时全员放行
     chatMsgs.value = msgs.filter((m) => m.timestamp > clearedTs.value);
     chatCount.value = msgs.length;
     if (isQrPetWindow && petActivity.observeMessages(msgs)) markPetNotify();
-    if (view.value === "chat" || chatOpen.value || (!isDesktop && !isNarrow)) seenChat.value = chatCount.value;
-    if (msgs.length !== old || !loadChat._init) {
+    // 断网恢复: 失联期间离线清空了本地计数, 恢复首拉若按全量算未读会瞬间冲到 99+ ——
+    // 把恢复瞬间的历史视为已读, 之后的新消息照常计数
+    if (chatRecoveredOffline) {
+      chatRecoveredOffline = false;
+      seenChat.value = chatCount.value;
+    } else if (view.value === "chat" || chatOpen.value || (!isDesktop && !isNarrow)) {
+      seenChat.value = chatCount.value;
+    }
+    // 滚动判据用"最后一条消息 id"而非条数: 服务端封顶 200 条后条数恒定,
+    // 旧判据 (msgs.length !== old) 永假 —— 聊天满 200 条后新消息不再自动滚到底
+    const lastSig = msgs.length ? msgs[msgs.length - 1].id : 0;
+    if (lastSig !== loadChat._lastSig || !loadChat._init) {
       loadChat._init = true;
+      loadChat._lastSig = lastSig;
       nextTick(scrollChats);
     }
   } catch (e) { console.error(e); }
@@ -1787,7 +1914,9 @@ const INTRO_FAQS = [
   { q: "文件会上传到外网或云服务器吗？", a: "不会。HTTP 服务只监听你的电脑，所有传输都发生在局域网内部，不经过任何第三方服务器。拔掉外网网线，功能一切照常。" },
   { q: "端口被占用了怎么办？", a: "默认端口 1688，被占用时自动向后顺延探测（最多 20 个），当前生效地址会实时显示在顶栏与二维码中；也可以在「服务中心」手动指定端口。" },
   { q: "关闭窗口后服务会停止吗？", a: "不会。关窗只是把窗口收进系统托盘，服务继续保持运行，手机端不受影响；开机自启默认关闭，可在「CC设置」中手动开启。真正退出请点托盘菜单中的「退出」。" },
-  { q: "支持哪些平台？", a: "桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。所有设备需处于同一局域网（同一 Wi-Fi）。" },
+  { q: "支持哪些平台？", a: "桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。" },
+  { q: "电脑换了 IP 或换了另一台电脑怎么办？", a: "手机浏览器直接打开电脑端显示的新地址即可。Android 应用是纯客户端：若已保存的地址失效，在「无信号」页面点「重新设置电脑地址」，回到连接引导页填入新地址；也可以在「CC设置 → 连接电脑」里修改。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。" },
+  { q: "访问令牌和分享链接安全吗？", a: "访问令牌是 6 位配对码，配对码通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，锁定期间正确码也会被拒，稍等即可。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。" },
 ];
 const faqOpen = ref(-1);
 function toggleFaq(i) { faqOpen.value = faqOpen.value === i ? -1 : i; }
@@ -1946,6 +2075,10 @@ watch([running, port], () => {
 let petPrefsReady = !isQrPetWindow;   // 主窗不负责 Pet 显隐, 无需等待
 async function syncPetVisibility() {
   if (!isQrPetWindow || !petPrefsReady) return;
+  // 首次落位 Promise 只在 onMounted 的 Pet 初始化块里创建: setup 阶段的 immediate
+  // watch 若先跑, petPlaced 还是 null, 旧逻辑会直接 show() 到 Rust 默认位。等挂载后
+  // 的同步调用(预制加载完成处)再显示
+  if (qrFloatEnabled.value && !petPlaced) return;
   const win = getCurrentWebviewWindow();
   if (qrFloatEnabled.value) {
     // 隐藏→显示且上次停在展开态: 先收回圆点 —— 指针并不在窗内, 不会自己触发 leave 收起
@@ -1959,6 +2092,15 @@ async function syncPetVisibility() {
   } else win.hide();
 }
 watch([running, qrData, qrFloatEnabled], () => { syncPetVisibility(); }, { immediate: true });
+// 悬浮码关闭 = Pet 窗隐藏: 停止 WS/聊天/文件轮询, 否则一个看不见的小窗仍持续耗电耗连接。
+// 重新开启时恢复(地址/配对态不变, 直接重连即可)
+if (isQrPetWindow) {
+  watch(qrFloatEnabled, (v) => {
+    if (!petPrefsReady) return;
+    if (v) { startPolling(); refreshStatus(); connectWs(); }
+    else { stopPolling(); closeWs(); }
+  });
+}
 
 watch(running, (value) => {
   if (!isQrPetWindow) return;
@@ -1973,6 +2115,10 @@ let statusTimer = null;
 let unlistenDl = null;   // 壳内下载完成事件的反注册
 let unlistenQrFloat = null;   // 悬浮码开关跨窗同步的反注册
 let setupDisposed = false;   // 卸载后落地的 .then(unlisten) 立即反注册, 防热重载监听累积
+/* 在 onMounted 内注册的清理函数: onUnmounted 只能在 setup 同步阶段注册,
+   在 onMounted 回调里调用会被 Vue 丢弃(无活动实例), HMR 后监听叠加 */
+const mountedCleanups = [];
+function onMountedCleanup(fn) { mountedCleanups.push(fn); }
 /* 轮询定时器统一启停: 服务端下发间隔变化时重排; 聊天/列表由 applyWsMode 按 WS 状态增减 */
 function startPolling() {
   stopPolling();
@@ -1987,6 +2133,12 @@ function stopPolling() {
   clearInterval(filesTimer);
 }
 onMounted(() => {
+  // 主窗首帧就绪信号: Rust 收到 main://ready 才 show —— 消灭「空壳先出、内容后蹦」
+  // (mounted 时 DOM 已插入, show 后下一帧即绘制; webview 加载本不依赖 show)。
+  // pet 窗有自己的 petPlaced 门控; 自启动 --hidden 模式 Rust 侧不监听, 收到也无害。
+  if (isDesktop && !isQrPetWindow) {
+    try { emit("main://ready").catch(() => {}); } catch (e) {}
+  }
   document.addEventListener("paste", onPaste);
   document.addEventListener("click", onDocChatClick);
   // 壳内下载完成通知(Rust on_download 落盘后 emit): 提示保存位置
@@ -2010,15 +2162,46 @@ onMounted(() => {
     }
   };
   document.addEventListener("keydown", f5);
-  onUnmounted(() => document.removeEventListener("keydown", f5));
+  onMountedCleanup(() => document.removeEventListener("keydown", f5));
   // 分享票据预取: 悬停到分享按钮即开票(见 prefetchShareTicket)
   document.addEventListener("pointerover", onDocShareHover, true);
-  onUnmounted(() => document.removeEventListener("pointerover", onDocShareHover, true));
+  onMountedCleanup(() => document.removeEventListener("pointerover", onDocShareHover, true));
   // Esc 关闭介绍页
   const escIntro = (e) => { if (e.key === "Escape" && introShow.value) closeIntro(); };
   document.addEventListener("keydown", escIntro);
-  onUnmounted(() => document.removeEventListener("keydown", escIntro));
+  onMountedCleanup(() => document.removeEventListener("keydown", escIntro));
+  // 拖拽兜底: 文件拖到 dropzone 之外(页面边缘/侧栏)松手时, 浏览器默认会导航到该文件,
+  // 整个页面被替换且无法后退。只在携带 Files 时拦默认行为, 不影响页面内文本拖选
+  const preventFileDragNav = (e) => {
+    if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) e.preventDefault();
+  };
+  window.addEventListener("dragover", preventFileDragNav);
+  window.addEventListener("drop", preventFileDragNav);
+  onMountedCleanup(() => {
+    window.removeEventListener("dragover", preventFileDragNav);
+    window.removeEventListener("drop", preventFileDragNav);
+  });
   if (isDesktop) {
+    // 移动壳: localStorage 在 WKWebView 可能不落盘 → 启动回读 Rust pref 里的地址/配对码,
+    // 避免"每次重启都要重新连接电脑"。localStorage 有值时优先它(更近的会话状态)
+    if (mobileShell) {
+      (async () => {
+        try {
+          if (!serverAddr.value) {
+            const r = await tauriInvoke("load_text_pref_cmd", { key: "server-addr" });
+            if (r?.ok && typeof r.value === "string" && r.value) {
+              serverAddr.value = normalizeServerAddr(r.value);
+              addrInput.value = serverAddr.value;
+            }
+          }
+          if (!accessPin.value) {
+            const r = await tauriInvoke("load_text_pref_cmd", { key: "access-pin" });
+            if (r?.ok && typeof r.value === "string" && r.value) accessPin.value = r.value;
+          }
+          if (serverAddr.value) { refreshStatus(); loadFiles(); loadChat(); connectWs(); }
+        } catch (e) {}
+      })();
+    }
     // 悬浮码开关跨窗同步: Pet ✕ 关闭 / 主窗 CC设置切换 / 恢复入口, 三处改同一状态
     // 经 qr-float://changed 广播(emit 含自发自收, 同值回写幂等无副作用)
     listen("qr-float://changed", (e) => {
@@ -2070,9 +2253,15 @@ onMounted(() => {
             const monBack = petWaFallback && !wa.viaFallback;
             const p = await win.outerPosition();
             const s = await win.outerSize();
-            const cx = p.x / wa.sf + (s.width / wa.sf) / 2;
-            const cy = p.y / wa.sf + (s.height / wa.sf) / 2;
-            const outside = cx < wa.x - 16 || cx > wa.x + wa.w + 16 || cy < wa.y - 16 || cy > wa.y + wa.h + 16;
+            // Windows 统一在物理像素空间比较(混合 DPI 下逻辑换算会跨屏失真)
+            const cx = isWindows ? p.x + s.width / 2 : p.x / wa.sf + (s.width / wa.sf) / 2;
+            const cy = isWindows ? p.y + s.height / 2 : p.y / wa.sf + (s.height / wa.sf) / 2;
+            const pad = isWindows ? 16 * wa.sf : 16;
+            const mx = isWindows ? wa.x * wa.sf : wa.x;
+            const my = isWindows ? wa.y * wa.sf : wa.y;
+            const mw = isWindows ? wa.w * wa.sf : wa.w;
+            const mh = isWindows ? wa.h * wa.sf : wa.h;
+            const outside = cx < mx - pad || cx > mx + mw + pad || cy < my - pad || cy > my + mh + pad;
             if (fresh || monBack || outside) {
               petDiag({ fn: "heal", fresh, monBack, cx: Math.round(cx), cy: Math.round(cy) });
               await petApply();
@@ -2100,6 +2289,8 @@ onMounted(() => {
       // 首次落位信号: syncPetVisibility 等它再 show(防主屏默认位闪现); 2.5s 兜底
       // 放行 —— 落位迟迟不成功时宁可在默认位显示, 也不能永远不显示悬浮球
       petPlaced = new Promise((resolve) => { petPlacedResolve = resolve; });
+      // 后台落位完成/2.5s 兜底后告知 Rust: 主窗 2.5s 状态轮询里的强制显示从此才放行
+      petPlaced.then(() => tauriInvoke("pet_ready_cmd").catch(() => {}));
       setTimeout(() => { if (petPlacedResolve) petPlacedResolve(); }, 2500);
       (async () => {
         try {
@@ -2138,6 +2329,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   setupDisposed = true;
+  for (const fn of mountedCleanups.splice(0)) { try { fn(); } catch (e) {} }
   document.removeEventListener("paste", onPaste);
   document.removeEventListener("click", onDocChatClick);
   if (unlistenDl) unlistenDl();
@@ -2307,6 +2499,7 @@ async function refreshStatus() {
     if (wasOffline) {
       // 断网自愈: 恢复的第一时间提示 + 立即全量重载, 不等下一轮轮询/WS 事件
       showToast("已恢复与服务的连接");
+      chatRecoveredOffline = true;   // 恢复首拉的历史不计未读(见 loadChat)
       loadFiles();
       loadChat();
       connectWs();
@@ -2385,7 +2578,7 @@ async function refreshStatus() {
       <div class="brand">
         <div class="logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
         <div class="t">CC-Flash</div>
-        <button class="intro-entry" title="软件介绍" aria-label="软件介绍" @click="openIntro">
+        <button v-if="isRealDesktop" class="intro-entry" title="软件介绍" aria-label="软件介绍" @click="openIntro">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           介绍
         </button>
@@ -3124,7 +3317,7 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
           <h3>文件传输</h3>
-          <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
+          <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。整文件直传、失败或停服即时回滚半截文件，悬挂连接自动超时释放；图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
           <div class="tags"><span class="tag">多途径上传</span><span class="tag">批量管理</span><span class="tag">分享链接</span></div>
         </div>
         <div class="card">
@@ -3136,7 +3329,7 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏与 Windows 混合 DPI、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
           <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
         </div>
         <div class="card">
@@ -3181,7 +3374,7 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
           <h3>数据只在局域网</h3>
-          <p>HTTP 服务只监听你的电脑，文件与消息在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。</p>
+          <p>HTTP 服务只监听你的电脑，文件与消息在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。可选 6 位访问令牌（指数退避防爆破、本机免输），分享链接为一次性票据，轮换令牌即全部作废。</p>
         </div>
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
@@ -3196,7 +3389,7 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
           <h3>三平台覆盖</h3>
-          <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK。</p>
+          <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
         </div>
       </div>
       <div class="codes">
@@ -3227,7 +3420,7 @@ async function refreshStatus() {
       <div class="faq">
         <div v-for="(f, i) in INTRO_FAQS" :key="i" class="faq-item" :class="{ open: faqOpen === i }">
           <button class="faq-q" @click="toggleFaq(i)">{{ f.q }}<span class="pm">+</span></button>
-          <div class="faq-a" :style="{ maxHeight: faqOpen === i ? '260px' : '0' }"><p>{{ f.a }}</p></div>
+          <div class="faq-a" :style="{ maxHeight: faqOpen === i ? '420px' : '0' }"><p>{{ f.a }}</p></div>
         </div>
       </div>
     </section>
@@ -3293,6 +3486,10 @@ async function refreshStatus() {
     <h3>📡 无信号</h3>
     <p class="ns-line">与服务的连接已断开 —— 服务可能已停止，或电脑地址已变更</p>
     <p class="ns-sub">请在电脑上查看最新地址后重新打开本页</p>
+    <!-- 移动壳: 遮罩会盖住设置页, 地址失效后必须给一条回到"连接电脑"引导的出路 -->
+    <button v-if="mobileShell" class="btn btn-primary" style="margin-top:18px" @click="resetServerAddr">
+      重新设置电脑地址
+    </button>
   </div>
 
   <!-- 版本更新弹框(桌面端) -->
@@ -3318,6 +3515,20 @@ async function refreshStatus() {
       <p>登录电脑后，CC-Flash 将在后台自动启动（不弹出主窗口）。请从「应用程序」目录中的正式安装版开启 —— 若当前从 DMG 或开发目录运行，登录自启会指向该临时路径而失效。可随时在「CC设置」中关闭。</p>
       <div class="dialog-actions">
         <button class="btn btn-primary" @click="showAutostartTip = false">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 复制失败兜底: 内容可选中, 用户手动复制(分享链接冷路径不再"无路可走") -->
+  <div v-if="copyFallbackShow" class="dialog-overlay" @click.self="copyFallbackShow = false">
+    <div class="dialog-box">
+      <h4>复制失败</h4>
+      <p style="font-size:12.5px;color:var(--text2)">请手动选择下面的内容复制（点「全选」后按 Ctrl/Cmd+C）：</p>
+      <textarea class="svc-input" readonly :value="copyFallbackText"
+                style="width:100%;box-sizing:border-box;height:120px;resize:none;margin-top:6px;font-size:12px"></textarea>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" @click="selectCopyFallback">全选</button>
+        <button class="btn btn-primary" @click="copyFallbackShow = false">关闭</button>
       </div>
     </div>
   </div>

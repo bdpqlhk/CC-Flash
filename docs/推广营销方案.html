@@ -102,9 +102,9 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">二</span>现状盘点：可复用资产</h2>
 <table>
 <tr><th>资产</th><th>状态</th><th>推广用途</th></tr>
-<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；v1.1.8 起为整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码，v1.1.9 增悬浮码贴边呼吸球、移动端客户端模式、服务端安全加固；明暗主题×六配色、同名文件自动改名、Android 应用内下载与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
+<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、移动端纯客户端模式、访问令牌 + 一次性分享票据、服务端安全加固；明暗主题×六配色、同名文件自动改名、Android 应用内下载与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
 <tr><td>文档体系</td><td class="muted">需求/技术/使用说明/历史记录/设计稿 五件套 + README</td><td>技术社区传播的「信任状」</td></tr>
-<tr><td>发布流水线</td><td class="muted">打 tag 自动出 8 个产物（4 ABI APK + dmg/msi/exe）</td><td>快速响应热点，随发随推</td></tr>
+<tr><td>发布流水线</td><td class="muted">打 tag 自动出多平台产物（macOS 双架构 dmg/app.tar.gz、Windows exe/msi、4 ABI APK）；Android 必须 release 签名，debug 包禁止进入正式 Release</td><td>快速响应热点，随发随推</td></tr>
 <tr><td>介绍页</td><td class="muted">应用内全屏介绍页（Hero/三步上手/FAQ）</td><td>新用户 30 秒看懂，降低传播流失</td></tr>
 <tr><td><span class="tag t-now">缺口</span> LICENSE 文件</td><td class="muted"><b>缺失</b>——开源项目没有许可证 = 默认保留所有权利，别人不敢用不敢转发</td><td>阶段一必补（建议 MIT 或 Apache-2.0）</td></tr>
 <tr><td><span class="tag t-ok">已补</span> README 英文版</td><td class="muted"><code>README.en.md</code> 已完成（完整对译 + 双语互链），国际渠道（GitHub 首屏 / HN / Reddit）入场券就绪</td><td>已完成（2026-10-28）</td></tr>
@@ -230,7 +230,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <!-- ============ 11 ============ -->
 <section id="s11">
 <h2><span class="no">十一</span>风险与合规口径</h2>
-<div class="callout c-danger"><b>安全口径（所有渠道统一，一字不改）</b>本工具面向<b>可信局域网</b>（家庭/办公室）：同一网络的人都能查看、下载、删除共享文件。请勿在公共 Wi-Fi 使用，勿把地址发给外网人员。接口无密码是定位选择，不是疏漏——这句话先说清楚，避免被安全社区反噬。</div>
+<div class="callout c-danger"><b>安全口径（所有渠道统一，一字不改）</b>本工具面向<b>可信局域网</b>（家庭/办公室）：默认同一网络的人都能查看、下载、删除共享文件。半可信网络请在电脑端开启<b>访问令牌</b>（6 位配对码、按 IP 指数退避、本机免输）；分享链接为单文件一次性票据（10 分钟、下载一次即焚、轮换令牌全部作废、无效票据按 IP 限流）。请勿在公共 Wi-Fi 使用，勿把地址发给外网人员。默认无密码是定位选择，不是疏漏——这句话先说清楚，避免被安全社区反噬。</div>
 <ul>
 <li><b>不黑竞品</b>：对比 AirDrop/微信/LocalSend 只讲差异，不说「替代/吊打」；被反问时用「场景不同」回应；</li>
 <li><b>不夸大</b>：「0 流量」类表述要严谨（配对/检查更新走互联网，传文件不走）；</li>

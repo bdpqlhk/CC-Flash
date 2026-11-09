@@ -24,6 +24,8 @@
 #   ios:    Xcode 15+(完整版, 含 iOS SDK)
 #           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 #           真机包需 Apple 开发者账号签名; 免签名可用 debug 包/模拟器
+#           ⚠ 当前 iOS 尚未交付: gen/apple 工程/本地网络权限(NSLocalNetworkUsageDescription、
+#             Bonjour)/open_url 等壳能力均未适配, 本入口仅用于后续适配
 # =====================================================================
 set -uo pipefail
 
@@ -33,6 +35,7 @@ cd "$ROOT"
 TARGET="${1:-all}"
 VARIANT="${2:-release}"          # release | debug (仅 android/ios 有效)
 FAIL=0
+WIN_SKIPPED=0                    # all 目标下 Windows 无法本机构建: 结束时不得再报"全部完成"
 
 log()  { echo -e "\n\033[1;34m==== $* ====\033[0m"; }
 ok()   { echo -e "\033[1;32m✔ $*\033[0m"; }
@@ -67,6 +70,7 @@ build_win() {
     powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 || die "Windows 打包失败"
     return
   fi
+  WIN_SKIPPED=1
   warn "Windows 包无法在 macOS/Linux 上交叉编译(需 MSVC + WebView2 SDK)。两种方式:"
   echo "  1) 把项目拷到 Windows 机器, 执行: powershell -File scripts/build-windows.ps1"
   echo "     前置: Node 18+ / rustup(MSVC 工具链) / Visual Studio Build Tools(C++ 工作负载) / Windows 10+ (自带 WebView2)"
@@ -118,6 +122,8 @@ build_ios() {
     npm run tauri ios init || die "ios init 失败"
     warn "已生成 src-tauri/gen/apple —— 真机签名需在 Xcode 中为两个 target 选择 Developer Team"
   fi
+  warn "iOS 尚未交付: 还需补 Info.plist 本地网络权限(NSLocalNetworkUsageDescription/NSBonjourServices)、"
+  warn "适配 open_url_cmd 等壳能力; 当前构建产物仅供适配调试, 不作为正式发布包"
 
   ensure_dist_frontend
   if [[ "$VARIANT" == "debug" || "$VARIANT" == "sim" ]]; then
@@ -143,4 +149,13 @@ case "$TARGET" in
 esac
 
 echo
-if [[ $FAIL -eq 0 ]]; then ok "全部完成 🎉"; else die "存在失败项, 请回看上方日志"; exit 1; fi
+if [[ $FAIL -ne 0 ]]; then
+  die "存在失败项, 请回看上方日志"
+  exit 1
+elif [[ $WIN_SKIPPED -eq 1 && "$TARGET" == "all" ]]; then
+  # all 声称覆盖四端: Windows 未构建就不能打印"全部完成"(曾因此误报成功)
+  warn "已完成当前平台目标; Windows 包未构建(需 Windows 或 CI, 见上方指引)"
+  exit 1
+else
+  ok "全部完成 🎉"
+fi
