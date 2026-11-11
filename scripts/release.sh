@@ -6,6 +6,7 @@
 #   ./scripts/release.sh <版本号> [提交信息]
 #   例: ./scripts/release.sh 1.2.0
 #       ./scripts/release.sh 1.2.0 "feat: 新增xxx"
+#       ./scripts/release.sh 1.2.1.1 "fix: xxx"   # 四段: 完整四段作 tag, 应用版本取前三段
 #
 # 流程:
 #   升版本(Cargo.toml 唯一来源, 自动刷新 Cargo.lock)
@@ -23,9 +24,18 @@ cd "$ROOT"
 VERSION="${1:-}"
 MSG="${2:-}"
 
+# 四段版本 X.Y.Z.W 的第四段是同一应用版本内的迭代构建号:
+# git tag 用完整四段(v1.2.1.1), 应用版本取前三段(1.2.1) ——
+# Cargo 只接受 semver, Cargo.toml 里写 1.2.1.1 会直接构建失败, 故必须拆分。
+TAG_VERSION="$VERSION"
+APP_VERSION="$VERSION"
+if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  APP_VERSION="${VERSION%.*}"
+fi
+
 # ---------- 前置检查 ----------
-[ -z "$VERSION" ] && { echo "用法: $0 <版本号 X.Y.Z> [提交信息]"; exit 1; }
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "✘ 版本号需为 X.Y.Z 格式: $VERSION"; exit 1; }
+[ -z "$VERSION" ] && { echo "用法: $0 <版本号 X.Y.Z 或 X.Y.Z.W> [提交信息]"; exit 1; }
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "✘ 版本号需为 X.Y.Z 或 X.Y.Z.W 格式: $VERSION"; exit 1; }
 command -v gh >/dev/null 2>&1 || { echo "✘ 缺少 gh CLI (https://cli.github.com)"; exit 1; }
 
 BRANCH="$(git branch --show-current)"
@@ -37,19 +47,21 @@ echo "仓库: $REPO"
 
 CUR=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/[^0-9.]//g' || true)
 [ -n "$CUR" ] || { echo "✘ 无法从 Cargo.toml 读取版本号"; exit 1; }
-if [ "$VERSION" = "$CUR" ]; then echo "✘ 版本号未变化(仍是 $CUR), 请传新版本号"; exit 1; fi
-echo "版本: $CUR → $VERSION"
+# 只拦"连 tag 都没变"的三段写法; 四段 tag(如 1.2.1.1)可以复用当前应用版本,
+# 但此时必须有代码改动可供提交(下面 staged 为空会中止), 避免打空标签。
+if [ "$TAG_VERSION" = "$CUR" ]; then echo "✘ 版本号未变化(仍是 $CUR), 请传新版本号"; exit 1; fi
+echo "应用版本: $CUR → ${APP_VERSION}, tag: v$TAG_VERSION"
 
 # ---------- 1) 升版本 ----------
 # -i.bak 双平台兼容(macOS BSD sed 需后缀参数, GNU sed 同样接受)
-sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+sed -i.bak "s/^version = \".*\"/version = \"$APP_VERSION\"/" src-tauri/Cargo.toml
 rm -f src-tauri/Cargo.toml.bak
 # 同步前端兜底版本与 package.json —— APP_VERSION_FALLBACK 与 Cargo.toml 脱同步会
 # 让更新检查在 invoke 未返回时拿 1.0.0 参与比较, 误弹"发现新版本"
-sed -i.bak "s/APP_VERSION_FALLBACK = \".*\"/APP_VERSION_FALLBACK = \"$VERSION\"/" src/config.js
+sed -i.bak "s/APP_VERSION_FALLBACK = \".*\"/APP_VERSION_FALLBACK = \"$APP_VERSION\"/" src/config.js
 rm -f src/config.js.bak
 # package.json 仅一处 "version"(无 dependencies 内嵌同名字段), 全局替换安全且 BSD/GNU sed 通用
-sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
+sed -i.bak "s/\"version\": \".*\"/\"version\": \"$APP_VERSION\"/" package.json
 rm -f package.json.bak
 # 同步 package-lock 根 version(两处): 勿用全局 sed(lock 里有几千行依赖 version 字段)
 npm install --package-lock-only >/dev/null 2>&1 || echo "⚠ package-lock 同步失败(不阻断发版, CI 用 npm install)"
@@ -58,7 +70,7 @@ echo "Cargo.toml → $(grep -m1 '^version' src-tauri/Cargo.toml)"
 echo "config.js  → $(grep -m1 'APP_VERSION_FALLBACK' src/config.js)"
 
 # ---------- 2) 提交 ----------
-[ -z "$MSG" ] && MSG="release: v$VERSION"
+[ -z "$MSG" ] && MSG="release: v$TAG_VERSION"
 git add -A
 # 私钥守卫: 仓库为 Public, keystore 入库即泄露(任何人可签冒名更新包)。
 # 先把清单落到变量再 grep(不带 -q): grep -q 命中大列表开头即关管道,
@@ -96,8 +108,8 @@ if ! git commit -m "$MSG"; then
 fi
 
 # ---------- 3) 打标签 ----------
-git tag -d "v$VERSION" >/dev/null 2>&1 || true   # 清理同名本地标签(重发场景; 不存在属正常)
-git tag -a "v$VERSION" -m "v$VERSION"
+git tag -d "v$TAG_VERSION" >/dev/null 2>&1 || true   # 清理同名本地标签(重发场景; 不存在属正常)
+git tag -a "v$TAG_VERSION" -m "v$TAG_VERSION"
 
 # ---------- 4) 推送(带重试) ----------
 push_retry() {
@@ -119,18 +131,18 @@ push_retry() {
 # 推当前分支(而非硬编码 main): 在特性分支发版时不会把 main 误推到远端
 push_retry "$BRANCH" || { echo "✘ $BRANCH 推送失败, 网络恢复后手动执行: git push origin $BRANCH"; exit 1; }
 
-if push_retry "v$VERSION"; then
+if push_retry "v$TAG_VERSION"; then
   echo "✔ 标签已推送, 应已触发构建"
 else
   echo "git 通道失败 → 清理远程旧标签后重推 / 再不行走 API 建引用(等效触发)..."
-  gh api -X DELETE "repos/$REPO/git/refs/tags/v$VERSION" >/dev/null 2>&1 || true  # 远端无同名 tag 属正常
-  if git push origin "v$VERSION" 2>&1; then
+  gh api -X DELETE "repos/$REPO/git/refs/tags/v$TAG_VERSION" >/dev/null 2>&1 || true  # 远端无同名 tag 属正常
+  if git push origin "v$TAG_VERSION" 2>&1; then
     echo "✔ 清理后重推成功"
   else
-    SHA=$(git rev-parse "v$VERSION")
-    gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/v$VERSION" -f sha="$SHA" >/dev/null \
+    SHA=$(git rev-parse "v$TAG_VERSION")
+    gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/v$TAG_VERSION" -f sha="$SHA" >/dev/null \
       && echo "✔ 已通过 API 创建远程标签引用" \
-      || { echo "✘ 全部通道失败, 网络恢复后手动: git push origin v$VERSION"; exit 1; }
+      || { echo "✘ 全部通道失败, 网络恢复后手动: git push origin v$TAG_VERSION"; exit 1; }
   fi
 fi
 
@@ -148,7 +160,7 @@ done
 echo
 if [ -n "$RUN_URL" ]; then
   echo "🚀 构建已触发: $RUN_URL"
-  echo "   预计 15~25 分钟后, v$VERSION Release 自动挂上 macOS/Windows/Android 产物"
+  echo "   预计 15~25 分钟后, v$TAG_VERSION Release 自动挂上 macOS/Windows/Android 产物"
 else
   echo "⚠ 未检测到构建触发, 请到 Actions 页确认: https://github.com/$REPO/actions"
   echo "  (若没有运行记录: 检查 Settings → Actions → General 是否 Allow all actions)"

@@ -9,7 +9,7 @@ import {
   CONTROL_RETRY_TIMES, DEFAULT_NICK, DEFAULT_PORT, FOOTER_TEXT, ICON_MAP, IMG_EXTS, LS, MSG_MAX,
   GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
-  REL_TIME_MS, THEME_MIGRATE, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
+  THEME_MIGRATE, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
   UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
@@ -1179,12 +1179,13 @@ function fmtSize(b) {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return v.toFixed(i === 0 ? 0 : 1) + " " + u[i];
 }
+/* 具体时间(月-日 时:分, 跨年补年份), 聊天与文件共用同一格式 —— 各端展示统一;
+   不再用"刚刚/几分钟前": 相对时间在多端同时查看时容易误读, 也无法直接定位消息 */
 function fmtTime(ts) {
-  const d = new Date(ts * 1000), now = new Date(), diff = now - d;
-  if (diff < REL_TIME_MS.justNow) return "刚刚";
-  if (diff < REL_TIME_MS.minutes) return Math.floor(diff / REL_TIME_MS.justNow) + " 分钟前";
-  if (diff < REL_TIME_MS.hours) return Math.floor(diff / REL_TIME_MS.minutes) + " 小时前";
-  return d.toLocaleDateString("zh-CN") + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  const md = `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}-${md}`;
 }
 
 const sortedFiles = computed(() => {
@@ -1807,7 +1808,40 @@ function mdChat(raw) {
   s = s.replace(/\n/g, "<br>");
   return s.replace(/\u0000(\d+)\u0000/g, (m0, i) => stash[Number(i)]);
 }
-const displayMsgs = computed(() => chatMsgs.value.map(m => ({ ...m, html: mdChat(m.message) })));
+/* 单条消息"删除"= 仅本机隐藏(与「清空数据」语义一致: 不影响其他设备与服务端记录);
+   签名用 "时间戳:id" —— 服务端重启后 id 从 1 重新分配, 只存 id 会把同号的新消息误删。
+   持久化到 localStorage: 刷新/重进页面后不再复现, 上限 CHAT_DEL_MAX 条防止无限增长 */
+const CHAT_DEL_MAX = 500;
+function loadDeletedChat() {
+  try {
+    const a = JSON.parse(localStorage.getItem(LS.chatDel) || "[]");
+    return Array.isArray(a) ? a.filter(x => typeof x === "string").slice(-CHAT_DEL_MAX) : [];
+  } catch (e) { return []; }
+}
+const deletedChat = ref(loadDeletedChat());
+function chatMsgSig(m) { return m.timestamp + ":" + m.id; }
+function persistDeletedChat() {
+  try { localStorage.setItem(LS.chatDel, JSON.stringify(deletedChat.value)); } catch (e) {}
+}
+function deleteChatMsg(m) {
+  const sig = chatMsgSig(m);
+  if (!deletedChat.value.includes(sig)) {
+    deletedChat.value = [...deletedChat.value, sig].slice(-CHAT_DEL_MAX);
+    persistDeletedChat();
+  }
+  // 误点可撤回: 提示停留 4s, 撤销即从隐藏集合移除
+  showToast("已删除（仅本机隐藏）", "success", {
+    label: "撤销",
+    fn: () => {
+      deletedChat.value = deletedChat.value.filter(s => s !== sig);
+      persistDeletedChat();
+    },
+  });
+}
+function copyChatMsg(m) { copyText(String(m.message || ""), "消息已复制"); }
+const displayMsgs = computed(() => chatMsgs.value
+  .filter(m => !deletedChat.value.includes(chatMsgSig(m)))
+  .map(m => ({ ...m, html: mdChat(m.message) })));
 /* 聊天内链接点击: 注册在组件生命周期内(挂载/卸载成对), 避免热重载时重复监听 */
 function onDocChatClick(e) {
   const link = e.target.closest(".chat-link");
@@ -1899,10 +1933,15 @@ async function sendChat() {
 /* ---------- 提示 ---------- */
 const toasts = ref([]);
 let toastSeq = 0;
-function showToast(msg, type = "success") {
+function showToast(msg, type = "success", action = null) {
   const id = ++toastSeq;
-  toasts.value.push({ id, msg, type });
-  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, TOAST_MS);
+  toasts.value.push({ id, msg, type, action });
+  // 带操作(如"撤销")的提示停留更久, 给用户反应时间
+  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, action ? 4000 : TOAST_MS);
+}
+function runToastAction(t) {
+  try { t.action && t.action.fn(); } catch (e) {}
+  toasts.value = toasts.value.filter(x => x.id !== t.id);
 }
 
 /* ---------- 软件介绍页(桌面端全屏 overlay, 设计稿见 docs/软件介绍页设计稿.html) ---------- */
@@ -2642,40 +2681,29 @@ async function refreshStatus() {
         </div>
       </div>
 
-      <!-- 网页端头部(PyQt 风格): 标题 + 地址栏 + 状态统计 -->
+      <!-- 网页端头部: 品牌 + 服务状态/复制/二维码。地址与统计网格已移除 ——
+           浏览器地址栏本身就有地址, 统计信息在各功能卡内已有, 避免首屏占高、信息重复 -->
       <template v-else>
         <header class="web-head">
           <div class="web-logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
-          <div>
+          <div class="web-head-title">
             <h2>CC-Flash</h2>
             <div class="sub">局域网高速文件共享</div>
           </div>
-        </header>
-        <div class="card web-top">
-          <div class="web-urlrow">
-          <span class="chip" :class="running ? 'run' : 'stop'">
-            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
-          </span>
-          <div class="url-box">
-            <span class="protocol">HTTP</span>
-            <input class="url-text" :value="running ? shareUrl : '服务未启动'" readonly @click="$event.target.select()" />
+          <div class="web-head-act">
+            <span class="chip" :class="running ? 'run' : 'stop'">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
+            </span>
+            <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
+                    aria-label="复制链接" @click="copied || copyUrl()">
+              <svg v-if="!copied" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <button class="icon-btn" title="显示二维码" aria-label="显示二维码" @click="openQr">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="14" y1="17" x2="14" y2="21"/><line x1="17" y1="21" x2="21" y2="21"/><line x1="21" y1="17" x2="21" y2="21"/></svg>
+            </button>
           </div>
-          <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
-                  aria-label="复制链接" @click="copied || copyUrl()">
-            <svg v-if="!copied" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-            <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </button>
-          <button class="icon-btn" title="显示二维码" aria-label="显示二维码" @click="openQr">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="14" y1="17" x2="14" y2="21"/><line x1="17" y1="21" x2="21" y2="21"/><line x1="21" y1="17" x2="21" y2="21"/></svg>
-          </button>
-        </div>
-        <div class="web-stats">
-          <div class="stat-cell"><div class="s-label">本机 IP</div><div class="s-val ip">{{ lanIp }}</div></div>
-          <div class="stat-cell"><div class="s-label">端口</div><div class="s-val">{{ port || "--" }}</div></div>
-          <div class="stat-cell"><div class="s-label">文件数</div><div class="s-val">{{ stats.count }}</div></div>
-          <div class="stat-cell"><div class="s-label">总大小</div><div class="s-val">{{ stats.size }}</div></div>
-        </div>
-        </div>
+        </header>
       </template>
 
       <!-- 文件共享 -->
@@ -2805,7 +2833,17 @@ async function refreshStatus() {
               <div class="msg-body">
                 <div class="chat-nick">{{ m.nickname }}</div>
                 <div class="chat-text" v-html="m.html"></div>
-                <div class="chat-time">{{ fmtTime(m.timestamp) }}</div>
+                <div class="chat-meta">
+                  <span class="chat-time">{{ fmtTime(m.timestamp) }}</span>
+                  <div class="msg-acts">
+                    <button type="button" class="msg-act" title="复制消息" aria-label="复制消息" @click="copyChatMsg(m)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    </button>
+                    <button type="button" class="msg-act del" title="删除消息（仅本机隐藏）" aria-label="删除消息" @click="deleteChatMsg(m)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2820,20 +2858,6 @@ async function refreshStatus() {
       <!-- 服务中心: 控制卡通栏 + 日志卡吃满剩余高度; 扫码走顶栏「显示二维码」弹窗(信息更全), 页面不再放冗余扫码卡 -->
       <template v-if="isRealDesktop && view === 'service'">
         <div class="card svc-ctrl">
-            <div class="svc-head">
-              <div class="svc-status-row">
-                <span class="chip" :class="running ? 'run' : 'stop'">
-                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
-                </span>
-                <span v-if="running" class="svc-url">{{ shareUrl }}</span>
-                <button v-if="running" class="icon-btn svc-copy-btn" :class="{ 'icon-ok': copied }"
-                        :title="copied ? '已复制' : '复制地址'" aria-label="复制地址" @click="copied || copyUrl()">
-                  <svg v-if="!copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </button>
-              </div>
-              <div class="svc-hint">同一 Wi-Fi 下的设备用浏览器打开即可使用</div>
-            </div>
             <div class="svc-fields">
               <div class="svc-field">
                 <label>端口</label>
@@ -3095,7 +3119,17 @@ async function refreshStatus() {
                 <div class="msg-body">
                   <div class="chat-nick">{{ m.nickname }}</div>
                   <div class="chat-text" v-html="m.html"></div>
-                  <div class="chat-time">{{ fmtTime(m.timestamp) }}</div>
+                  <div class="chat-meta">
+                    <span class="chat-time">{{ fmtTime(m.timestamp) }}</span>
+                    <div class="msg-acts">
+                      <button type="button" class="msg-act" title="复制消息" aria-label="复制消息" @click="copyChatMsg(m)">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      </button>
+                      <button type="button" class="msg-act del" title="删除消息（仅本机隐藏）" aria-label="删除消息" @click="deleteChatMsg(m)">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3207,7 +3241,17 @@ async function refreshStatus() {
               <div class="msg-body">
                 <div class="chat-nick">{{ m.nickname }}</div>
                 <div class="chat-text" v-html="m.html"></div>
-                <div class="chat-time">{{ fmtTime(m.timestamp) }}</div>
+                <div class="chat-meta">
+                  <span class="chat-time">{{ fmtTime(m.timestamp) }}</span>
+                  <div class="msg-acts">
+                    <button type="button" class="msg-act" title="复制消息" aria-label="复制消息" @click="copyChatMsg(m)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    </button>
+                    <button type="button" class="msg-act del" title="删除消息（仅本机隐藏）" aria-label="删除消息" @click="deleteChatMsg(m)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3535,6 +3579,9 @@ async function refreshStatus() {
 
   <!-- Toast -->
   <div class="toast-container">
-    <div v-for="t in toasts" :key="t.id" class="toast-msg" :class="'toast-' + t.type">{{ t.msg }}</div>
+    <div v-for="t in toasts" :key="t.id" class="toast-msg" :class="'toast-' + t.type">
+      <span>{{ t.msg }}</span>
+      <button v-if="t.action" type="button" class="toast-act" @click="runToastAction(t)">{{ t.action.label }}</button>
+    </div>
   </div>
 </template>

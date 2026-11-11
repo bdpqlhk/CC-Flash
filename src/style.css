@@ -331,7 +331,7 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .topbar h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.2px; }
 .topbar .sub { font-size: 12.5px; color: var(--text2); margin-top: 2px; }
 .topbar-url { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
-.topbar-url .chip, .web-urlrow .chip { flex-shrink: 0; }
+.topbar-url .chip { flex-shrink: 0; }
 .url-box { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 8px 14px; transition: border-color var(--transition); }
 .url-box:focus-within { border-color: var(--accent); }
 .url-box .protocol { color: var(--text3); font-size: 12px; font-family: monospace; }
@@ -428,6 +428,8 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .file-info .fname { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .file-info .fname:hover { color: var(--accent); }
 .file-info .fmeta { font-size: 11.5px; color: var(--text3); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+/* 时间整体换行, 不在 "月-日" 与 "时:分" 之间拆开 */
+.file-info .fmeta > span { white-space: nowrap; }
 .file-btns { display: flex; gap: 7px; flex-shrink: 0; align-items: center; }
 /* 五按钮统一几何:30×30 图标钮 / 下载为蓝色主实底,其余中性底+彩色悬停 */
 .file-btns .btn, .file-btns .btn-act { width: 30px; height: 30px; padding: 0; border-radius: 8px; align-items: center; justify-content: center; }
@@ -466,8 +468,10 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .chat-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .chat-header h3 { margin-bottom: 0; }
 .chat-head-right { display: flex; align-items: center; gap: 8px; }
-.chat-nickname { display: flex; align-items: center; gap: 6px; }
-.chat-nickname input { padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--card-border); border-radius: 6px; background: rgba(255,255,255,0.04); color: var(--text); outline: none; }
+.chat-nickname { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 极窄屏下「昵称:」不能被拆成两行; 输入框允许收缩, 不顶出容器 */
+.chat-nickname > span { white-space: nowrap; flex-shrink: 0; }
+.chat-nickname input { min-width: 0; padding: 6px 10px; font-size: 12.5px; border: 1px solid var(--card-border); border-radius: 6px; background: rgba(255,255,255,0.04); color: var(--text); outline: none; }
 .chat-nickname input:focus { border-color: var(--accent); }
 .chat-messages { flex: 1; overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); margin-bottom: 12px; min-height: 240px; }
 .chat-empty { text-align: center; padding: 36px 16px; color: var(--text3); font-size: 13px; }
@@ -484,7 +488,19 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .chat-inline { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 6px; font-family: "SF Mono",Menlo,Consolas,monospace; font-size: 12px; color: #c9d6e8; }
 .chat-text strong { color: #fff; }
 .chat-text em { color: var(--text2); }
-.chat-time { font-size: 11px; color: var(--text3); margin-top: 3px; }
+.chat-meta { display: flex; align-items: center; gap: 10px; margin-top: 3px; min-height: 18px; }
+.chat-time { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+/* 单条消息操作: 桌面悬停/键盘聚焦显现, 触屏常驻半透明 —— 不挤压正文, 也不抢视觉 */
+.msg-acts { display: flex; align-items: center; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.15s ease; }
+.chat-message:hover .msg-acts, .chat-message:focus-within .msg-acts { opacity: 1; }
+.msg-act { width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; background: transparent; color: var(--text3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: color 0.15s ease, background 0.15s ease; }
+.msg-act:hover { color: var(--accent-text); background: rgba(255,255,255,0.08); }
+.msg-act.del:hover { color: var(--danger); background: var(--danger-bg); }
+.msg-act:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: none) {
+    .msg-acts { opacity: 0.55; }
+    .msg-act { width: 28px; height: 28px; }
+}
 .chat-input-area { display: flex; gap: 10px; }
 .chat-input { flex: 1; min-width: 0; padding: 13px 18px; font-size: 16px; border: 1px solid var(--card-border); border-radius: 16px; background: rgba(255,255,255,0.04); color: var(--text); outline: none; }
 .chat-input:focus { border-color: var(--accent); background: rgba(255,255,255,0.06); }
@@ -498,13 +514,8 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .chat-input { padding: 15px 20px; font-size: 16.5px; border-radius: 18px; }
 .send-btn { padding: 15px 40px; font-size: 16.5px; border-radius: 18px; }
 
-/* 服务与日志页: 控制卡通栏, 底部日志拉伸吃满剩余高度(扫码卡已删 —— 与顶栏二维码弹窗冗余) */
+/* 服务与日志页: 控制卡通栏, 底部日志拉伸吃满剩余高度(扫码卡/顶部地址重复区已删 —— 与顶栏冗余) */
 .svc-ctrl { display: flex; flex-direction: column; }
-.svc-head { padding-bottom: 12px; border-bottom: 1px solid var(--card-border); }
-.svc-status-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.svc-hint { margin-top: 9px; font-size: 12.5px; color: var(--text2); }
-.svc-url { font-family: "SF Mono","Cascadia Code",Consolas,monospace; color: var(--accent); font-size: 14px; word-break: break-all; }
-.svc-copy-btn { width: 30px; height: 30px; flex-shrink: 0; }
 .svc-fields { display: grid; grid-template-columns: minmax(110px, 150px) minmax(0, 1fr); gap: 16px; padding: 14px 0; }
 .svc-field label { display: block; font-size: 11.5px; color: var(--text3); letter-spacing: 0.5px; margin-bottom: 7px; }
 .svc-field .field-hint { font-size: 11.5px; color: var(--text3); margin-top: 7px; }
@@ -540,7 +551,7 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .log-st.st-bad { color: var(--danger); font-weight: 600; }
 .log-empty { color: var(--text3); text-align: center; padding: 24px 0; }
 
-/* ===== 网页端(PyQt 风格单页布局): 顶部标题 + 地址栏 + 统计, 左文件右聊天 ===== */
+/* ===== 网页端(PyQt 风格单页布局): 顶部品牌+状态, 左文件右聊天 ===== */
 .web-logo { width: 46px; height: 46px; border-radius: 12px; overflow: hidden; flex-shrink: 0; }
 /* 断连横幅: 服务停止/地址变更时提示已打开的旧页面 */
 /* 页脚: 版权信息(内容不满一屏时贴底, 超出时顺延在末尾) */
@@ -581,18 +592,14 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .nosignal-overlay h3 { margin: 14px 0 0; font-size: 20px; }
 .nosignal-overlay .ns-line { margin: 4px 0 0; color: var(--text2); font-size: 13.5px; }
 .nosignal-overlay .ns-sub { margin: 0; color: var(--text3); font-size: 12.5px; }
+/* 网页端页头: 品牌左 + 状态/复制/二维码右, 单行排布; 窄屏标题区自动压缩 */
 .web-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.web-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.2px; }
-.web-head .sub { font-size: 12.5px; color: var(--text2); margin-top: 2px; }
-.web-top { padding: 14px 16px; margin-bottom: 16px; }
-.web-urlrow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.web-urlrow .url-box { flex: 1; min-width: 0; padding: 11px 16px; }
-.web-urlrow .url-text { font-size: 14px; }
-.web-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 6px 8px 2px; }
-.stat-cell { padding: 4px 22px; min-width: 0; }
-.stat-cell .s-label { font-size: 11.5px; color: var(--text3); margin-bottom: 5px; }
-.stat-cell .s-val { font-size: 16.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stat-cell .s-val.ip { color: var(--accent); }
+.web-head-title { flex: 1; min-width: 0; }
+.web-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.web-head .sub { font-size: 12.5px; color: var(--text2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.web-head-act { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.web-head-act .chip { padding: 4px 12px; font-size: 12px; }
+.web-head-act .icon-btn { width: 34px; height: 34px; }
 .web-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
 .web-lcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .web-lcol > .card { margin-bottom: 0; }
@@ -614,23 +621,49 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 @media (max-width: 980px) {
     .web-cols { grid-template-columns: 1fr; }
     .web-rcol { display: none; }   /* 手机: 聊天走悬浮球 + 底部面板, 与 PyQt 版一致 */
-    .web-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 2px; }
-    .stat-cell { border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 10px 16px; }
+    /* 窄屏页头: 收紧间距与控件尺寸, 标题区可压缩, 保证一行放得下 */
+    .web-head { gap: 10px; margin-bottom: 14px; }
+    .web-logo { width: 42px; height: 42px; }
+    .web-head h2 { font-size: 18px; }
+    .web-head .sub { font-size: 12px; }
+    .web-head-act { gap: 6px; }
+    .web-head-act .chip { padding: 3px 10px; font-size: 11.5px; }
+    .web-head-act .icon-btn { width: 32px; height: 32px; }
     .lh-right { flex-wrap: wrap; row-gap: 6px; }
-    /* 窄屏地址行: 状态徽标+按钮一行, 地址栏独占下一行, 保证 IP 完整展示 */
-    .web-urlrow, .topbar-url { flex-wrap: wrap; row-gap: 8px; }
-    .web-urlrow .chip, .topbar-url .chip { order: 1; }
-    .web-urlrow .icon-btn, .topbar-url .icon-btn { order: 2; }
-    .web-urlrow .icon-btn:first-of-type, .topbar-url .icon-btn:first-of-type { margin-left: auto; }
-    .web-urlrow .url-box, .topbar-url .url-box { order: 3; flex: 1 1 100%; }
-    .web-urlrow .url-text, .topbar-url .url-text { font-size: 13px; }
+    /* 窄屏地址行(仅桌面壳顶栏): 状态徽标+按钮一行, 地址栏独占下一行, 保证 IP 完整展示 */
+    .topbar-url { flex-wrap: wrap; row-gap: 8px; }
+    .topbar-url .chip { order: 1; }
+    .topbar-url .icon-btn { order: 2; }
+    .topbar-url .icon-btn:first-of-type { margin-left: auto; }
+    .topbar-url .url-box { order: 3; flex: 1 1 100%; }
+    .topbar-url .url-text { font-size: 13px; }
     /* 窄屏聊天面板: 清空数据放右侧第二行, 关闭钮独占右上角 */
     .chat-card.in-sheet .chat-head-right .btn { grid-column: 3; grid-row: 1; align-self: center; justify-self: end; height: 30px; padding: 0 10px; font-size: 12px; }
 }
+/* 超窄屏(320px 级): 页头控件收紧, 保证品牌名与状态/图标同行不折行 */
+@media (max-width: 360px) {
+    .web-logo { width: 36px; height: 36px; border-radius: 10px; }
+    .web-head { gap: 8px; }
+    .web-head h2 { font-size: 17px; }
+    .web-head-act { gap: 5px; }
+    .web-head-act .chip { padding: 3px 8px; gap: 5px; }
+    .web-head-act .icon-btn { width: 30px; height: 30px; }
+}
+/* 再窄就舍弃副标题(纯装饰), 优先保证品牌与状态可读 */
+@media (max-width: 340px) {
+    .web-head .sub { display: none; }
+}
 /* Toast / 弹窗 */
 .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column-reverse; gap: 8px; z-index: 1001; max-width: 360px; }
-.toast-msg { padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease; border: 1px solid var(--card-border); border-left-width: 3px; }
+.toast-msg { padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease; border: 1px solid var(--card-border); border-left-width: 3px; display: flex; align-items: center; gap: 12px; }
+/* Toast 内操作(撤销): 文本色按钮, 不抢提示本身 */
+.toast-act { flex-shrink: 0; padding: 2px 6px; border: none; border-radius: 5px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 700; cursor: pointer; }
+.toast-act:hover { background: rgba(255,255,255,0.08); text-decoration: underline; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+/* 窄屏: 提示条抬高到悬浮球/聊天输入栏之上并右对齐, 避免遮挡发送按钮 */
+@media (max-width: 980px) {
+    .toast-container { left: 16px; right: 16px; max-width: none; align-items: flex-end; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
+}
 .toast-success { background: rgba(52,201,124,0.2); color: #5de8a0; }
 .toast-error { background: rgba(242,89,107,0.2); color: #f57483; }
 .dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 998; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(3px); }

@@ -55,10 +55,9 @@ export const API = {
 };
 
 /* ---------- localStorage 键 ---------- */
-export const LS = { theme: "wft-theme", mode: "wft-mode", nick: "lft-nick", nickAuto: "lft-nick-auto", updateCheck: "wft-update-check", pin: "wft-access-pin" };
+export const LS = { theme: "wft-theme", mode: "wft-mode", nick: "lft-nick", nickAuto: "lft-nick-auto", updateCheck: "wft-update-check", pin: "wft-access-pin", chatDel: "wft-chat-del" };
 
 /* ---------- 展示 ---------- */
-export const REL_TIME_MS = { justNow: 60_000, minutes: 3_600_000, hours: 86_400_000 }; // 相对时间阈值
 export const IMG_EXTS = ["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico"];
 export const ICON_MAP = {
   pdf: "PDF", doc: "DOC", docx: "DOC", xls: "XLS", xlsx: "XLS", ppt: "PPT", pptx: "PPT",
