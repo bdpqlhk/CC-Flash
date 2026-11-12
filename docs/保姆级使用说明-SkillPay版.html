@@ -333,7 +333,7 @@ svg{display:block}
     <a class="brand" href="#top"><span class="mark"></span>CC-Flash</a>
     <nav class="site-nav">
       <a href="#function">使用教程</a>
-      <a href="#news">更新日志</a>
+      <a href="#safe">安全须知</a>
       <a href="#faq">常见问题</a>
       <a class="btn-dark" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载</a>
     </nav>
@@ -341,7 +341,7 @@ svg{display:block}
   </div>
   <div class="nav-drawer" id="navDrawer">
     <a href="#function">使用教程</a>
-    <a href="#news">更新日志</a>
+    <a href="#safe">安全须知</a>
     <a href="#faq">常见问题</a>
     <a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载 CC-Flash</a>
   </div>
@@ -371,10 +371,10 @@ svg{display:block}
   <div class="demo-window reveal">
     <div class="demo-dots"><i style="background:#ff8889"></i><i style="background:#f5c26b"></i><i style="background:#5fd08a"></i></div>
     <div class="demo-body">
-      <div class="demo-hint">扫左上角二维码，或在手机浏览器输入地址，即刻开传</div>
+      <div class="demo-hint">扫电脑端二维码，或在手机浏览器输入地址，即刻开传</div>
       <div class="demo-msg">
         <b>http://192.168.1.8:1688</b><br />
-        同一 Wi-Fi 下打开即可上传 / 下载 / 聊天 —— 手机无需安装任何 App；想把文件发给同事？点右下角一键复制地址，粘给对方就行。
+        同一 Wi-Fi 下打开即可上传 / 下载 / 聊天 —— 手机无需安装任何 App；想把文件发给同事？点顶栏的复制按钮，把地址粘给对方就行。
         <span class="send" id="copyAddr" role="button" aria-label="复制地址" title="复制地址">
           <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
         </span>
@@ -408,7 +408,7 @@ svg{display:block}
   <div class="prod-grid">
     <div class="prod-cell">
       <h3>上传的 5 种方式</h3>
-      <div class="kind">桌面 · 文件页</div>
+      <div class="kind">桌面 · 消息发送</div>
       <ul>
         <li><b>点击上传区</b>弹窗选文件，可多选</li>
         <li><b>拖拽</b>文件或整个文件夹进虚线框</li>
@@ -419,24 +419,25 @@ svg{display:block}
       <div class="foot">🖥 桌面</div>
     </div>
     <div class="prod-cell">
-      <h3>文件列表四按钮</h3>
-      <div class="kind">桌面 · 文件页</div>
+      <h3>文件列表按钮</h3>
+      <div class="kind">桌面 · 手机</div>
       <ul>
         <li><b>📂 打开</b>系统默认程序，单击生效</li>
         <li><b>📋 复制</b>复制文件本体随处粘贴</li>
         <li><b>🗑 删除</b>确认后删除不可撤销</li>
         <li><b>🔗 分享</b>带话术链接；开令牌仅授权该文件</li>
+        <li><b>👁 预览</b>手机/浏览器端可直接全屏预览</li>
       </ul>
       <div class="foot">🖥 桌面</div>
     </div>
     <div class="prod-cell">
-      <h3>聊天室</h3>
+      <h3>消息发送</h3>
       <div class="kind">桌面 · 手机</div>
       <ul>
-        <li>左栏「聊天室」进入，手机点<b>悬浮球</b></li>
-        <li>昵称点一下就改，头像随昵称生成</li>
-        <li>消息链接可点，桌面点击走系统浏览器</li>
-        <li>清空数据只清本窗口显示</li>
+        <li>侧栏入口：<b>消息发送</b> / 服务中心 / CC设置</li>
+        <li>昵称点头像就改，头像随昵称生成</li>
+        <li>消息支持 Markdown，链接可点</li>
+        <li>清空消息只清本窗口显示</li>
       </ul>
       <div class="foot">🌐 全端</div>
     </div>
@@ -446,8 +447,8 @@ svg{display:block}
       <ul>
         <li><b>启停 / 改端口 / 换共享目录</b>一屏搞定</li>
         <li><b>服务日志</b>级别着色 + 文件:行号</li>
-        <li><b>皮肤</b>亮/暗/跟随系统 × 6 配色</li>
-        <li><b>版本更新</b>手动检查一键前往下载</li>
+        <li><b>皮肤</b>亮/暗/跟随系统 × 5 套配色</li>
+        <li><b>版本更新</b>手动 / 每日自动检查，一键前往下载</li>
       </ul>
       <div class="foot">🖥 桌面</div>
     </div>
@@ -458,7 +459,7 @@ svg{display:block}
         <li>相机扫码或输入 <b>IP:端口</b></li>
         <li>须与电脑在<b>同一个 Wi-Fi</b></li>
         <li>电脑换网络 IP 变了，用新地址重开</li>
-        <li>Android 可直接安装 APK</li>
+        <li>Android 可直接安装 APK；iOS 用 Safari 开网页</li>
       </ul>
       <div class="foot">📱 手机</div>
     </div>
@@ -466,10 +467,10 @@ svg{display:block}
       <h3>手机认识界面</h3>
       <div class="kind">手机 · 第 2 步</div>
       <ul>
-        <li>顶栏：地址与运行状态</li>
-        <li>中间：文件列表实时跟随</li>
-        <li>右下角<b>悬浮球</b>是聊天入口</li>
-        <li>未读红点打开即清零</li>
+        <li>顶部：房间名「消息发送」+ 运行状态</li>
+        <li>中间：文字气泡与文件卡片同线排列</li>
+        <li>底部：输入栏 + ＋ 面板（文件 / 共享文件）</li>
+        <li>新文件到达时文件夹按钮点绿点</li>
       </ul>
       <div class="foot">📱 手机</div>
     </div>
@@ -479,6 +480,7 @@ svg{display:block}
       <ul>
         <li>点「上传」选照片，进度条实时走</li>
         <li>电脑端列表<b>立刻出现</b></li>
+        <li>图片 / PDF / 文本 / 音视频可先预览</li>
         <li>下载大文件走浏览器原生下载</li>
         <li>分享按钮复制链接发给同 Wi-Fi 的人</li>
       </ul>
@@ -488,10 +490,10 @@ svg{display:block}
       <h3>手机聊起来</h3>
       <div class="kind">手机 · 第 4 步</div>
       <ul>
-        <li>点悬浮球从底部滑出面板</li>
-        <li>面板滑动不穿透背景</li>
-        <li>顶部可改昵称、清空本窗显示</li>
-        <li>收起后未读红点继续提醒</li>
+        <li>打开页面即是单列对话，无二级入口</li>
+        <li>点房间头头像改昵称，消息支持 Markdown</li>
+        <li>「⋯」可复制地址、显示二维码、进 CC设置</li>
+        <li>Enter 换行，点「发送」提交</li>
       </ul>
       <div class="foot">📱 手机</div>
     </div>
@@ -532,7 +534,7 @@ svg{display:block}
     <div class="agent-list">
       <div class="agent-cell"><span class="ic">🖥</span><div><h3>桌面壳（macOS / Windows / Linux）</h3><p>托盘常驻 · 悬浮码 · 开机自启</p></div></div>
       <div class="agent-cell"><span class="ic">🌐</span><div><h3>电脑浏览器</h3><p>输入地址即用 · 双栏布局</p></div></div>
-      <div class="agent-cell"><span class="ic">📱</span><div><h3>手机浏览器（免安装）</h3><p>扫码即开 · 单列布局 · 悬浮球聊天</p></div></div>
+      <div class="agent-cell"><span class="ic">📱</span><div><h3>手机浏览器（免安装）</h3><p>扫码即开 · 单列对话 · 底部文件面板</p></div></div>
       <div class="agent-cell"><span class="ic">🤖</span><div><h3>Android APK</h3><p>壳内直接传 · 按 CPU 选 arm64-v8a</p></div></div>
     </div>
     <div class="agent-title reveal"><h2>一套代码，<br />四端形态</h2></div>
@@ -553,15 +555,15 @@ svg{display:block}
       </div>
       <div class="sec-item reveal">
         <h3>访问令牌（可选）</h3>
-        <p>CC设置 一键开启：6 位配对码 + 防爆破指数退避，输一次全端透明，电脑本机不受影响；连错多次会临时锁定，稍等再输。</p>
+        <p>CC设置 一键开启：6 位配对码 + 按来源 IP 指数退避（IPv6 按 /64 聚合，单窗上限 10 分钟），输一次全端透明，电脑本机不受影响；锁定期间正确码也会被拒，稍等再输。</p>
       </div>
       <div class="sec-item reveal">
         <h3>勿暴露到公网</h3>
-        <p>服务监听所有网卡：连着公司 VPN 时同网段主机也能访问你的共享目录，用完请及时停止服务；地址会自动避开 VPN 虚拟网卡。</p>
+        <p>服务监听所有网卡：连着公司 VPN 时同网段主机也能访问你的共享目录，用完请及时停止服务；地址会自动避开 VPN 虚拟网卡。服务端另有上传 / 下载 / WebSocket 并发闸，CSP 只放行局域网媒体与 PDF 内嵌。</p>
       </div>
       <div class="sec-item reveal">
         <h3>分享链接有边界</h3>
-        <p>开启令牌后链接自带一次性授权：只能下载那一个文件、10 分钟有效、下载成功即焚——转发给可信的人即可，对方免输配对码。关闭令牌或换新配对码时旧链接全部作废；对无效链接的反复猜测会按来源 IP 限流。</p>
+        <p>开启令牌后链接自带一次性授权：只能下载那一个文件、10 分钟有效、下载成功即焚——转发给可信的人即可，对方免输配对码。关闭令牌或换新配对码时旧链接全部作废；对无效链接的反复猜测会按来源 IP 限流，CSP 也只放行局域网媒体与 PDF 内嵌。</p>
       </div>
     </div>
   </div>
@@ -580,6 +582,18 @@ svg{display:block}
       <div class="faq-item">
         <button class="faq-q" type="button">别人能看到我的聊天、删我的文件吗？<span class="pm"></span></button>
         <div class="faq-a"><p>同一 Wi-Fi 下打开页面的人都能操作——这是「可信局域网」工具的定位。半可信网络（公司/公共 Wi-Fi）请在 CC设置 开启<b>访问令牌</b>；<b>开启后分享链接自带一次性授权</b>，对方免输码、仅能下载那一个文件。</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" type="button">能直接预览文件吗？<span class="pm"></span></button>
+        <div class="faq-a"><p>图片、PDF、纯文本（txt/md/log/csv）和音视频都可以：点缩略图或「预览」打开全屏预览层，右上角「关闭」或按 <b>Esc</b> 回到聊天。PDF 在浏览器网页里内嵌查看，桌面壳 / 手机 App 交系统浏览器打开；Office 文档、压缩包等需下载；html/svg/xml 不会以网页形式内联。</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" type="button">聊天支持 Markdown 吗？<span class="pm"></span></button>
+        <div class="faq-a"><p>支持标题、无序/有序列表、引用、分割线、代码块，以及行内代码、粗体、斜体、删除线和链接。输入框可多行：桌面 <b>Enter 发送、Shift+Enter 换行</b>；手机 <b>Enter 换行</b>，点「发送」提交。</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" type="button">微信里打开，下载被拦截？<span class="pm"></span></button>
+        <div class="faq-a"><p>页面顶部会常驻引导条：点右上角「⋯」选择「<b>在浏览器打开</b>」即可正常上传下载。iOS 没有安装包，直接用 Safari 打开电脑地址使用网页版。</p></div>
       </div>
       <div class="faq-item">
         <button class="faq-q" type="button">开着公司 VPN / 代理时二维码扫不开？<span class="pm"></span></button>
@@ -633,7 +647,7 @@ svg{display:block}
       <span class="brand"><span class="mark"></span>CC-Flash</span>
       <span class="foot-tag">同一个 Wi-Fi，就能把文件传过去</span>
     </div>
-    <div class="foot-line">Copyright © 2026-现在 by hangkun.li ｜ CC-Flash（曹操是快😂）｜ 开源许可：<a href="https://github.com/bdpqlhk/CC-Flash/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></div>
+    <div class="foot-line">Copyright © 2026-现在 by hangkun.li ｜ CC-Flash（曹操是快😂）｜ 适用于 v1.2.1（四段 tag v1.2.1.1） ｜ 开源许可：<a href="https://github.com/bdpqlhk/CC-Flash/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></div>
     <div class="foot-line">反馈与建议：如遇问题或想要新功能，请发送至 <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">github.com/bdpqlhk/CC-Flash/issues</a>，我们将在看到后尽快跟进处理。</div>
   </div>
 </footer>
@@ -664,7 +678,7 @@ var CELLS=[
  ["桌面悬浮码","免费","贴边呼吸 · 悬停出码"],
  ["扩展屏吸附","免费","拖到哪块屏吸哪块屏"],
  ["结构化日志","免费","级别着色 · 文件:行号"],
- ["六配色主题","免费","亮/暗/跟随系统"],
+ ["五套配色","免费","亮/暗/跟随系统"],
  ["访问令牌","免费","6 位配对码防爆破"],
  ["托盘与自启","免费","关窗不停 · 可选开机启动"],
  ["四端同源","免费","桌面/浏览器/手机/Android"],
@@ -681,12 +695,12 @@ function cellHTML(c){return '<div class="stream-cell"><b>'+c[0]+'<i>'+c[1]+'</i>
 
 /* ---------- developer 案例卡跑马灯 ---------- */
 var DEVS=[
- ["文件传输","点击 / 拖拽 / 粘贴截图，整个文件夹也能传；同名永不覆盖，流式下载支持断点续传，中文名完美支持。"],
- ["手机免装","同一 Wi-Fi 浏览器扫码打开，零登录零公网；单列布局，右下悬浮球直达聊天；Android 另有 APK 壳内直接传。"],
+ ["文件传输","点击 / 拖拽 / 粘贴截图，整个文件夹也能传；同名永不覆盖；图片/PDF/文本/音视频可应用内预览，共享文件抽屉加宽、每页 10 条。"],
+ ["手机免装","同一 Wi-Fi 浏览器扫码打开，零登录零公网；单列对话 + 底部输入栏与文件面板；Android 另有 APK 壳内直接传。"],
  ["桌面悬浮码","常驻屏幕边缘半隐，停留 1.5 秒滑出扫码预览卡；拖动吸附最近边，支持扩展屏（含 Windows 混合 DPI）、位置重启记住。"],
- ["实时聊天","WebSocket 秒级推送、断线自动降级轮询；昵称 + emoji 头像，链接可点，清空只清本窗口。"],
+ ["实时聊天","WebSocket 秒级推送、断线自动降级轮询；昵称 + emoji 头像，支持 Markdown 与多行输入，清空只清本窗口。"],
  ["服务与日志","启停 / 端口顺延 / 换共享目录一屏搞定；loguru 风格结构化日志，级别着色、来源 文件:行号。"],
- ["CC设置","可选访问令牌（6 位配对码防爆破）、亮/暗/跟随系统 × 6 套配色、开机自启与版本检查。"]
+ ["CC设置","可选访问令牌（6 位配对码防爆破）、亮/暗/跟随系统 × 5 套配色（深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀）、开机自启与版本检查。"]
 ];
 function devHTML(d){return '<div class="dev-card"><div class="meta"><span>/ 功能一览</span><span>CC-Flash</span></div><h3>'+d[0]+'</h3><p>'+d[1]+'</p></div>';}
 (function(){

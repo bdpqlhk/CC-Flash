@@ -8,24 +8,25 @@ Turn your computer into a server with one click — phones on the same Wi-Fi sca
 [![CC-Flash demo](assets/demo.gif)](assets/demo.gif)
 -->
 
-Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite**. Desktop installers are per-arch dmg (~4.1–4.3 MB).
+Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite** (current app version **1.2.1**). Desktop installers are per-arch dmg (~4.1–4.3 MB).
 
 ## Features
 
-- 📁 **File transfer** — drag & drop / click / paste upload (live progress + speed), large files uploaded as a **single whole-file streaming request** (server-side streaming to disk, zero memory bloat; failed / timed-out / stopped uploads roll back the partial file immediately), **screen keep-alive during upload** (prevents lock-screen interruptions, smart concurrency queue with idle-connection watchdog), **whole-folder upload** (structure preserved); **always-on QR code in the desktop sidebar** — scan from any page; same-name files are **never overwritten** — auto-renamed to `file(1).zip`, `(2)`, `(3)`…; streaming download with Range resume support, full Unicode filename support
+- 💬 **Conversational transfer (one entry: "Transfer")** — files and messages share one timeline: uploads appear as **file cards** (waiting / uploading / done / failed, live progress + speed, cancel / retry), and batch uploads collapse into a **file group**. Text stays as bubbles with nicknames, avatars, **Markdown** (headings / lists / quotes / dividers / code blocks / inline code / bold / italic / strikethrough / links), **multi-line input** (desktop: Enter sends, Shift+Enter adds a line; mobile: Enter adds a line, tap Send), and unread. The full shared-file list lives in a **right drawer (340–400px, larger type, full-width pager footer) / mobile bottom sheet** with sort, pagination, select-all, bulk delete, open / copy / download / share; thumbnails and the "Preview" button open the in-app preview directly
+- 📁 **File capabilities** — drag & drop / click / `Ctrl+V` / whole-folder upload (structure preserved), large files as a **single whole-file streaming request** (streaming to disk, zero memory bloat; failed / timed-out / stopped uploads roll back the partial file), **screen keep-alive during upload** (3-slot client queue + stalled-connection watchdog; server-side upload / download / WebSocket gates of 16 / 32 / 64), same-name files **never overwritten** (auto `file(1).zip`), Range-resume downloads, full Unicode filenames
+- 🔍 **In-app file preview** — images / PDF / text (txt/md/log/csv) / audio and video open full-screen from a thumbnail or the "Preview" button; the top-right "Close" button or Esc returns to the chat. Office documents and archives still need to be downloaded; html/svg/xml are never opened inline as web pages
 - 💠 **Floating scan orb** — an always-on-top transparent breathing dot docked half-hidden at the screen edge (default: left middle, **position persisted across restarts**), coral breathing ring + viewfinder CC badge; dwell the pointer on it for 1.5s to preview the "Scan with browser" card, leave to collapse; **a breathing ring means the service is running, a still ring means stopped**; a green dot (grouped with the ring, scaling together) flags new files / messages (hidden & cleared while the main window is open); drag it and it snaps to the nearest edge — **multi-monitor ready**: it docks to whichever display you drop it on, remembers that display too, places correctly under Windows mixed DPI, and comes back there after restart — the only off switch lives in Settings
 - 🖥 **Service center** — start/stop, port, disk space at a glance; **loguru-style structured logs** (color-coded levels / source file:line / auto-follow), issues spotted at a glance
-- 💬 **Chat** — real-time LAN messaging (WebSocket push) with nicknames, emoji avatars, clickable links, and lightweight Markdown
-- 📱 **Three form factors** — desktop window (tray-resident) / two-pane desktop browser / single-column mobile browser with floating chat ball; one codebase adapts everywhere. The Android/iOS shells are **client-only** (they connect to the desktop service; the command layer refuses to host the LAN service on a phone), and a "reset computer address" escape hatch is available on the no-signal screen
+- 📱 **Four surfaces, one conversation** — desktop shell (sidebar + file drawer + tray/pet; the title sits on the left while running status + address + copy / QR / browser buttons form one group on the top right, the address field sizes to its content, and the group wraps on narrow screens) / desktop browser (top bar + drawer) / mobile browser (single column + bottom file sheet) / mobile app (client-only + first-run computer connection); the same timeline and components everywhere. Desktop runs on macOS / Windows / Linux (Linux builds from source); mobile ships an Android APK, while iOS has no installer — open the desktop address in Safari. WeChat's built-in browser shows an "open in browser" hint. The Android/iOS shells are **client-only** (the command layer refuses to host the LAN service on a phone), and a "reset computer address" escape hatch is available on the no-signal screen
 - 🗂 **Native folder picker** — click "Choose" next to the share directory and pick with the OS dialog
-- 🎨 **Theme system** — Light / Dark / Follow-system modes (auto-switches with OS appearance) × **6 color schemes** (Deep Space Blue, Graphite, Forest Mint, Dark Purple, Ink Amber, Graphite Rose); switch instantly, synced everywhere
-- 🛡 **Security hardening** — double path-traversal protection, browser cross-origin guard (DNS rebinding / CSRF; Host limited to IP/localhost), XSS escaping in chat, disk-space pre-check with a 256 MB reserve, optional **access token** (6-digit pairing code with brute-force backoff; enter once per device; the desktop itself is exempt; the code is sent via a request header, and a stale code is cleared automatically so a rotated token cannot lock the device out); shared links carry a **one-time ticket** (authorizes that single file only, 10-minute expiry — recipients never need the code; invalid ticket attempts are rate-limited per IP)
-- 🔄 **Update checker** — watches GitHub Releases, prompts with release notes, one click to download
+- 🎨 **Theme system** — Light / Dark / Follow-system modes (auto-switches with OS appearance) × **5 color schemes** (**Deep Space Blue**, Graphite Rose, Forest Mint, Dark Purple, Ink Amber); Deep Space Blue light is the default; switches apply instantly, and desktop chat bubbles follow the theme
+- 🛡 **Security hardening** — double path-traversal protection, browser cross-origin guard (DNS rebinding / CSRF; Host limited to IP/localhost), XSS escaping in chat, disk-space pre-check with a 256 MB reserve, optional **access token** (6-digit pairing code with per-IP exponential backoff; enter once per device; the desktop itself is exempt; the code is sent via a request header, and a stale code is cleared automatically so a rotated token cannot lock the device out); shared links carry a **one-time ticket** (12-hex-char token, authorizes that single file only, 10-minute expiry, burned on first download — recipients never need the code; invalid ticket attempts are rate-limited per IP); upload / download / WebSocket concurrency gates (16 / 32 / 64); CSP permits LAN media and iframes without opening up scripts or objects; deletes never follow symlinks
+- 🔄 **Update checker** — reads the GitHub Releases list (including prereleases published when builds are unsigned, rather than relying only on `/latest`), prompts with release notes, one click to download
 - 📘 **In-app tour** — sidebar "ⓘ Intro" opens a full-screen walkthrough (features / 3-step guide / tech / FAQ)
 - 🖥 **Tray & single-instance** — closing the window keeps the service running; dock icon, tray click, or relaunching all re-focus the same window
 - ⏱ **Optional autostart** — off by default; enable in Settings to start silently in the background at login
 - ⚙️ **Centralized config** — backend is the single source of truth; runtime params are pushed to all clients
-- 🚀 **CI releases** — push a `v*` tag; macOS / Windows / Android (4 ABI splits) builds are published automatically
+- 🚀 **CI releases** — push a `v*` tag (four-part `vX.Y.Z.W` tags are supported; the fourth part is a build number and CI validates the first three against the app version); macOS / Windows / Android (4 ABI splits) builds are published automatically
 
 ## Quick Start
 
@@ -36,8 +37,9 @@ Grab your installer from the [Releases page](https://github.com/bdpqlhk/CC-Flash
 - **macOS**: pick the `.dmg` for your chip — `_aarch64.dmg` (Apple Silicon) or `_x64.dmg` (Intel) — drag into Applications
 - **Windows**: `.msi` / `.exe`
 - **Android**: pick the `.apk` for your CPU — `arm64-v8a` (almost all phones) / `armeabi-v7a` / `x86` / `x86_64`
+- **Linux**: build from source (`npm run tauri build`); CI does not publish Linux installers yet
 
-Launch the app — the service starts automatically (default port `1688`, auto-increments if taken). Scan the QR code or type the address on your phone. Done.
+Launch the app — the service starts automatically (default port `1688`, auto-increments if taken). Scan the QR code or type the address on your phone. There is one "Transfer" entry: uploaded files appear as cards in the conversation, and the full shared-file list lives in the right drawer (340–400px, bottom sheet on mobile); thumbnails and the "Preview" button open the in-app preview.
 
 ### Developers
 
@@ -56,8 +58,9 @@ npm run tauri build    # release build: produces .app / .dmg / .msi
 ├── src/
 │   ├── App.vue                     # all UI + interaction logic
 │   ├── config.js                   # frontend config center (polling, thresholds, copy…)
-│   ├── update.js                   # release checker (GitHub Releases + semver compare)
-│   ├── style.css                   # theme tokens + all styles (6 color schemes × light/dark)
+│   ├── update.js                   # release checker (GitHub Releases list + semver compare, prerelease-aware)
+│   ├── style.css                   # theme tokens + all styles (5 color schemes × light/dark)
+│   ├── pet-activity.js             # floating-orb activity state
 │   ├── main.js
 │   └── assets/                     # embedded static assets
 ├── docs/                           # design / tech / user guides (Chinese)
@@ -80,23 +83,25 @@ npm run tauri build    # release build: produces .app / .dmg / .msi
 - **Backend** (`src-tauri/src/config.rs`) — port + fallback range, chat retention, length limits, log capacity, share directory: the single source of truth;
 - **Push mechanism** — `GET /api/info` and the desktop status command both carry `version` and `config`; web clients follow automatically — tweak Rust config, restart the service, no frontend rebuild;
 - **Frontend** (`src/config.js`) — pure UI behavior only (polling fallbacks, page size, copy templates, storage keys);
-- **Version** — edit only `src-tauri/Cargo.toml`; desktop display, update check, and API all read the same value.
+- **Version** — edit only `src-tauri/Cargo.toml` by hand; `release.sh` automatically syncs the `src/config.js` fallback, `package.json`, and the Android `versionCode`; desktop display, update check, and API all read the same value.
 
 ## Releasing (maintainers)
 
 ```bash
-./scripts/release.sh 1.2.0 "feat: release notes"
+./scripts/release.sh 1.2.1.1 "feat: release notes"
 ```
 
-Bumps the version, commits, tags, pushes — CI builds all three platforms and attaches artifacts to the Release.
+Versions may be `X.Y.Z` or four-part `X.Y.Z.W`: **the git tag uses all four parts (e.g. `v1.2.1.1`)**, where the fourth part is a build number within the same app version; the app version (Cargo.toml / installers) uses the first three (`1.2.1`), and CI validates that the first three tag parts match `Cargo.toml`. `release.sh` also computes the Android `versionCode` as `major×10^7 + minor×10^5 + patch×10^2 + build` (capped at 2.1e9), so rebuilds of the same version can upgrade in place.
 
-Android signing: all four `ANDROID_KEYSTORE_*` secrets are required for **release signing** (stable cert → in-place upgrades, `--split-per-abi` per-CPU APKs). If any is missing, CI **fails** — a debug-signed APK must never reach a public release (debuggable, different cert every build, cannot upgrade in place). Releases use an **all-green publish policy**: artifacts upload as a draft first, and the Release goes live only after both desktop and Android jobs succeed; the Android job also verifies the Release is still a draft, so re-running an already-published tag cannot replace live assets. R8 keeps `SourceFile,LineNumberTable` and the app package, and Gradle's NDK version follows `NDK_HOME` to match the Rust build.
+The script bumps the version (Cargo.toml is the source of truth), syncs the fallback version / `package.json` / Android `versionCode`, commits, tags, pushes — CI builds all three platforms and attaches artifacts to the Release.
+
+Android signing: all four `ANDROID_KEYSTORE_*` secrets are required for **release signing** (stable cert → in-place upgrades, `--split-per-abi` per-CPU APKs). If any is missing, CI **fails** — a debug-signed APK must never reach a public release (debuggable, different cert every build, cannot upgrade in place). Releases use an **all-green publish policy**: artifacts upload as a draft first, and the Release goes live only after both desktop and Android jobs succeed; the Android job also verifies the Release is still a draft, so re-running an already-published tag cannot replace live assets. R8 keeps `SourceFile,LineNumberTable` and the app package, and Gradle's NDK version follows `NDK_HOME` to match the Rust build. Optional signing/notarization is wired through `APPLE_*` and `WINDOWS_CERTIFICATE*` secrets. Without them, a fully green build is still published, but marked as a **prerelease** rather than a stable release; the update checker reads the releases list, so these builds are still offered. Local `./scripts/build-all.sh android` fails unless `CC_KEYSTORE_*` is set and verifies no unsigned APK remains.
 
 macOS builds ship as **per-arch packages** (`_aarch64.dmg` / `_x64.dmg`, roughly half the former universal bundle). **iOS**: no iOS build is currently provided (requires an Apple Developer account; the `gen/apple` project and local-network permission declarations do not exist yet, and shell capabilities such as open_url are not adapted). Use Safari against the desktop address instead; `./scripts/build-all.sh ios` remains the entry point for future work.
 
 ## Security Notice
 
-This tool is built for **trusted LANs** (home / trusted office): by default anyone on the same network can view, download, delete shared files, and post messages. On semi-trusted networks, enable the **access token** in "CC Settings" on the desktop — phones enter the 6-digit pairing code on first open (once per device; too many wrong attempts trigger a temporary lockout as brute-force protection; the desktop itself is exempt). Once enabled, shared links carry a **one-time authorization** — they can only download that single file, expire in 10 minutes, and require no code from the recipient; disabling or rotating the token invalidates outstanding tickets, and invalid ticket attempts are rate-limited per IP. Use an IP address (the Host guard intentionally rejects `*.local` to prevent DNS rebinding). In any case, do not use it on public Wi-Fi, and never expose the service address to the internet.
+This tool is built for **trusted LANs** (home / trusted office): by default anyone on the same network can view, download, delete shared files, and post messages. On semi-trusted networks, enable the **access token** in "CC Settings" on the desktop — phones enter the 6-digit pairing code on first open (once per device; repeated wrong attempts trigger per-IP exponential backoff; the desktop itself is exempt). Once enabled, shared links carry a **one-time authorization** — they can only download that single file, expire in 10 minutes, and are burned on first download; recipients need no code. Disabling/rotating the token or changing the share directory invalidates outstanding tickets, and invalid ticket attempts are rate-limited per IP. The server caps upload / download / WebSocket concurrency at 16 / 32 / 64, its CSP permits LAN media and iframes without opening up scripts or objects, and deletes never follow symlinks. **Public peers (including global IPv6) are rejected unless the access token is enabled.** Use an IP address (the Host guard intentionally rejects `*.local` to prevent DNS rebinding). In any case, do not use it on public Wi-Fi, and never expose the service address to the internet.
 
 ⚠️ The service listens on all network interfaces: while connected to a **corporate VPN**, other hosts on the VPN segment can reach your shared directory — keep the service stopped on untrusted networks. The address/QR code automatically prefers the real LAN IP over VPN virtual interfaces (multiple candidates are selectable in the QR dialog).
 

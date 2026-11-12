@@ -7,7 +7,7 @@
 #   ./build-all.sh win       # Windows 包 (需在 Windows 上跑, 本脚本会给出指引)
 #   ./build-all.sh android   # Android APK [debug]
 #   ./build-all.sh ios       # iOS (真机包需签名, 详见提示)
-#   ./build-all.sh all       # mac + android + ios 依次打包
+#   ./build-all.sh all       # mac + android(+Windows 指引) 依次打包; iOS 需显式 ios 目标
 #
 # 可选: 第二参数 debug  → android/ios 构建调试包(免签名, 可直接安装)
 #   例: ./build-all.sh android debug
@@ -101,9 +101,21 @@ build_android() {
     npm run tauri android build --apk --debug || die "Android debug 构建失败"
     ok "产物(debug apk, 可直接安装): src-tauri/gen/android/app/build/outputs/apk/"
   else
+    # 本地 release 也必须用发布证书: 缺证书时 AGP 会产出 *-unsigned.apk,
+    # 不可安装/不可覆盖升级; 旧脚本仍打印"release 产物"并成功退出
+    for v in CC_KEYSTORE_PATH CC_KEYSTORE_PASSWORD CC_KEY_ALIAS CC_KEY_PASSWORD; do
+      eval "val=\${$v:-}"
+      [[ -n "$val" ]] || { die "release 构建缺少 $v —— 会产出 unsigned APK; 请配置 CC_KEYSTORE_*，或改用 ./build-all.sh android debug"; return 1; }
+    done
     npm run tauri android build --apk || die "Android release 构建失败"
-    ok "产物(release apk): src-tauri/gen/android/app/build/outputs/apk/universal/release/"
-    warn "上架应用市场需正式签名: 在 gen/android/app/build.gradle.kts 配置 signingConfigs, 或用 Google Play 应用签名"
+    unsigned=$(find src-tauri/gen/android/app/build/outputs/apk -name "*unsigned*.apk" -type f)
+    if [ -n "$unsigned" ]; then
+      echo "$unsigned"
+      die "产出的是 unsigned APK —— 发布证书未生效，拒绝报告成功"
+      return 1
+    fi
+    ok "产物(release apk): src-tauri/gen/android/app/build/outputs/apk/"
+    warn "上架应用市场需正式签名: gen/android/app/build.gradle.kts 读取 CC_KEYSTORE_*；或使用 Google Play 应用签名"
   fi
 }
 
@@ -122,8 +134,17 @@ build_ios() {
     npm run tauri ios init || die "ios init 失败"
     warn "已生成 src-tauri/gen/apple —— 真机签名需在 Xcode 中为两个 target 选择 Developer Team"
   fi
-  warn "iOS 尚未交付: 还需补 Info.plist 本地网络权限(NSLocalNetworkUsageDescription/NSBonjourServices)、"
-  warn "适配 open_url_cmd 等壳能力; 当前构建产物仅供适配调试, 不作为正式发布包"
+  # 局域网 HTTP 客户端所需 Info.plist 权限: 本地网络用途说明 + ATS 放行明文。
+  # 没有这两项时 iOS 14+ 会拦掉对电脑地址的请求, 表现为"连不上"。
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    while IFS= read -r plist; do
+      /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 'CC-Flash 需要访问局域网以连接电脑端文件服务'" "$plist" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$plist" 2>/dev/null || true
+    done < <(find src-tauri/gen/apple -name Info.plist -type f 2>/dev/null)
+  fi
+  warn "iOS 尚未交付: Info.plist 本地网络权限已自动补, 但仍需 Apple 开发者账号签名、"
+  warn "NSBonjourServices/壳能力(open_url 等)适配; 当前构建产物仅供适配调试, 不作为正式发布包"
 
   ensure_dist_frontend
   if [[ "$VARIANT" == "debug" || "$VARIANT" == "sim" ]]; then
@@ -144,7 +165,9 @@ case "$TARGET" in
   win)     build_win ;;
   android) build_android ;;
   ios)     build_ios ;;
-  all)     build_mac; build_android; build_ios; build_win ;;
+  all)     build_mac; build_android; build_win ;;
+           # iOS 尚未交付(无 gen/apple / Info.plist 本地网络权限 / 签名), 需显式 ios 目标
+
   *) echo "用法: $0 [mac|win|android|ios|all] [debug]"; exit 1 ;;
 esac
 

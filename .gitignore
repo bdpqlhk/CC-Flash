@@ -11,3 +11,7 @@ src-tauri/gen/*
 *.jks
 *.p12
 *.mobileprovision
+# 环境密钥与 base64 证书/keystore(CI 的 ANDROID_KEYSTORE_BASE64 常见落盘形态)
+.env
+.env.*
+*.b64

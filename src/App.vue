@@ -15,6 +15,7 @@ import {
 import { fetchLatestRelease, isNewer } from "./update";
 import { createPetActivityTracker } from "./pet-activity";
 import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog";
+import { readText as readClipboardText, readImage as readClipboardImage } from "@tauri-apps/plugin-clipboard-manager";
 // 模块化 API 取代 window.__TAURI__ 全局暴露(withGlobalTauri=false): XSS 即便发生也拿不到
 // 覆盖全部自定义命令的 invoke 面 —— isDesktop 判定走 __TAURI_INTERNALS__(IPC 内部注入, 不受此开关影响)
 import { invoke } from "@tauri-apps/api/core";
@@ -35,8 +36,7 @@ const _posNum = (v, fb) => (Number.isFinite(v) && v > 0 ? v : fb);
 function applyServerConfig(c) {
   if (!c || typeof c !== "object") return;
   const p = c.poll && typeof c.poll === "object" ? c.poll : {};
-  const oldPoll = JSON.stringify(cfg.value.poll);
-  cfg.value = {
+  const next = {
     nickMax: _posNum(c.nickMax, cfg.value.nickMax),
     msgMax: _posNum(c.msgMax, cfg.value.msgMax),
     defaultNick: (typeof c.defaultNick === "string" && c.defaultNick) || cfg.value.defaultNick,
@@ -47,7 +47,13 @@ function applyServerConfig(c) {
       logs: _posNum(p.logs, cfg.value.poll.logs),
     },
   };
-  if (JSON.stringify(cfg.value.poll) !== oldPoll) startPolling();   // 间隔有变 → 重排定时器
+  // 状态轮询每 2.5s 调一次: 值没变就不替换 cfg 引用。
+  // 旧实现无条件赋新对象 → 依赖 cfg 的整棵 App 模板每 2.5s 重渲染,
+  // 在 WKWebView 里表现为输入时卡顿、光标/输入法状态被反复打断。
+  if (JSON.stringify(next) === JSON.stringify(cfg.value)) return;
+  const oldPoll = JSON.stringify(cfg.value.poll);
+  cfg.value = next;
+  if (JSON.stringify(next.poll) !== oldPoll) startPolling();   // 间隔有变 → 重排定时器
 }
 
 /* ---------- 环境 ---------- */
@@ -98,7 +104,11 @@ async function saveServerAddr() {
     const r = await fetch(`http://${host}` + API.info, { signal: ctl.signal });
     clearTimeout(timer);
     if (!r.ok && r.status !== 401) throw new Error(`HTTP ${r.status}`);
+    const prevHost = serverAddr.value;
     serverAddr.value = host;
+    // 换电脑/换地址: 旧机的上传卡、聊天、已读、文件基线、票据与配对码全部作废,
+    // 否则新机已有文件会被判成"新增"刷屏, 旧 PIN 还会发给新主机
+    if (prevHost !== host) resetSessionState();
     try { localStorage.setItem("wft-server-addr", host); } catch (e) {}
     saveTextPref("server-addr", host);
     addrInput.value = host;
@@ -123,7 +133,34 @@ async function saveServerAddr() {
 /* 失联全屏遮罩下的唯一出路: 清空已保存地址 → 回到"连接电脑"引导门。
    否则换 IP / 换电脑后, 遮罩(z-index 1000)盖住设置页, 连接门又因地址非空不出现,
    用户只能清应用数据脱困 */
+/* 会话级缓存全部重置: 切换电脑地址/断线重连后不得把旧机的数据带进新连接 */
+function resetSessionState() {
+  // 切换电脑地址前中止在途上传并释放 Blob/句柄, 否则旧连接的上传会继续跑、
+  // 屏幕常亮/保活也不会释放
+  for (const u of uploads.value) {
+    try { u.xhr?.abort?.(); } catch (e) {}
+    u.file = null; u.xhr = null;
+  }
+  closePreview();
+  uploads.value = [];
+  updateWakeLock().catch(() => {});   // 清空上传后释放屏幕常亮/静音保活
+  remoteFiles.value = [];
+  knownFileNames = null;
+  chatMsgs.value = [];
+  chatCount.value = 0;
+  seenChat.value = 0;
+  seenChatId.value = 0;
+  jumpCount.value = 0;
+  loadFiles._sig = null;
+  loadChat._sig = null;
+  loadChat._lastSig = null;
+  loadChat._init = false;
+  clearShareTicketCache();
+  accessPin.value = "";
+  try { localStorage.removeItem(LS.pin); } catch (e) {}
+}
 function resetServerAddr() {
+  resetSessionState();
   serverAddr.value = "";
   try { localStorage.removeItem("wft-server-addr"); } catch (e) {}
   saveTextPref("server-addr", "");
@@ -159,33 +196,68 @@ function dropAccessPin() {
   accessPin.value = "";
   try { localStorage.removeItem(LS.pin); } catch (e) {}
   saveTextPref("access-pin", "");
+  clearShareTicketCache();
+}
+/* 状态接口带回配对码开关/码值: 变化(轮换、关闭、重新开启)时旧分享票据全部失效 */
+function syncPinState(d) {
+  if (typeof d.pinEnabled !== "boolean") return;
+  const changed = pinEnabled.value !== d.pinEnabled
+    || (typeof d.pin === "string" && pinCode.value !== d.pin);
+  pinEnabled.value = d.pinEnabled;
+  pinCode.value = d.pin || "";
+  if (changed) clearShareTicketCache();
+  clearAccessPinIfOff(pinEnabled.value);
 }
 /* 统一请求入口: 令牌走 X-Access-Pin 头(不再拼进 URL, 减少查询串泄露面);
    401/429 时置 needPin 配对弹框(网页端输入一次后全流程透明), 并清掉本机缓存的旧码 ——
    服务端轮换/关闭配对码后, 旧码会让每个自动请求都计入失败, 越输越锁(自锁死循环)。
    429 = 配对码连续错进退避锁定 —— 若不当配对信号处理, 页面会静默退化成"已停止/无文件" */
-async function apiFetch(url, opts) {
+async function apiFetch(url, opts, timeoutMs = 12000) {
   const o = opts ? { ...opts } : {};
   const headers = new Headers(o.headers || {});
+  const usedPin = accessPin.value;   // 本次请求实际使用的码: 401 时据此判断是否该清除
   if (accessPin.value) headers.set("X-Access-Pin", accessPin.value);
   o.headers = headers;
-  const r = await fetch(url, o);
-  if (r.status === 401 || r.status === 429) {
-    dropAccessPin();
-    needPin.value = true;
-    const err = new Error(r.status === 429 ? "配对尝试过于频繁" : "需要配对码");
-    err.status = r.status;   // 供 refreshStatus 区分"服务在但要配对"与"真断网"
-    throw err;
+  // 统一超时: 分享/删除/发消息不走 loadFiles/loadChat 的专用计时器, 半开 Wi-Fi
+  // 会让 fetch 永久挂起。调用方已有的 signal 通过监听合并, 谁先触发都中止。
+  const ctl = new AbortController();
+  const outer = o.signal;
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const onAbort = () => ctl.abort();
+  if (outer) {
+    if (outer.aborted) ctl.abort();
+    else outer.addEventListener("abort", onAbort, { once: true });
   }
-  return r;
+  o.signal = ctl.signal;
+  try {
+    const r = await fetch(url, o);
+    if (r.status === 401 || r.status === 429) {
+      // 只清除"这次请求所用的码"仍是当前码的情况: submitPin 成功后, 旧的在途请求
+      // 迟到 401 不能把刚保存的新码清掉, 否则配对成功后立刻又弹配对框
+      if (accessPin.value === usedPin) {
+        dropAccessPin();
+        needPin.value = true;
+      }
+      const err = new Error(r.status === 429 ? "配对尝试过于频繁" : "需要配对码");
+      err.status = r.status;   // 供 refreshStatus 区分"服务在但要配对"与"真断网"
+      throw err;
+    }
+    return r;
+  } finally {
+    clearTimeout(timer);
+    if (outer) outer.removeEventListener("abort", onAbort);
+  }
 }
 /* 下载/图片/分享链接统一经此: 分享链接带上令牌, 接收方打开即验证 */
 function downloadUrl(name) { return withPin(apiBase.value + API.download(name)); }
 async function submitPin() {
   const p = pinInput.value.trim();
   if (!p) return;
+  // 弱网/半开连接下裸 fetch 会永久挂起: 15s 超时并如实提示, 不留下无法关闭的弹框
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
   try {
-    const r = await fetch(apiBase.value + API.info + "?pin=" + encodeURIComponent(p));
+    const r = await fetch(apiBase.value + API.info + "?pin=" + encodeURIComponent(p), { signal: ctl.signal });
     if (r.ok) {
       accessPin.value = p;
       try { localStorage.setItem(LS.pin, p); } catch (e) {}
@@ -197,7 +269,11 @@ async function submitPin() {
       refreshStatus(); loadFiles(); loadChat(); connectWs();
     } else if (r.status === 429) showToast("尝试过于频繁，请稍后再试", "error");
     else showToast("配对码不正确", "error");
-  } catch (e) { showToast("验证失败，请检查网络", "error"); }
+  } catch (e) {
+    showToast(e?.name === "AbortError" ? "配对超时，请重试" : "验证失败，请检查网络", "error");
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* 分享链接只携带短期一次性票据，绝不携带全站 PIN。 */
@@ -221,6 +297,7 @@ function clearAccessPinIfOff(enabled) {
   accessPin.value = "";
   try { localStorage.removeItem(LS.pin); } catch (e) {}
   saveTextPref("access-pin", "");
+  clearShareTicketCache();
 }
 async function toggleAccessPin() {
   try {
@@ -228,6 +305,7 @@ async function toggleAccessPin() {
     if (d.ok) {
       pinEnabled.value = !pinEnabled.value;
       pinCode.value = d.pin || "";
+      clearShareTicketCache();   // 服务端已轮换/清空票据
       clearAccessPinIfOff(pinEnabled.value);
       showToast(pinEnabled.value ? `访问令牌已开启：${d.pin}` : "访问令牌已关闭");
     } else showToast(d.error || "设置失败", "error");
@@ -238,18 +316,105 @@ async function toggleAccessPin() {
 function deviceNick() { return nickInput.value.trim() || autoNick; }
 
 /* ---------- 视图切换 ---------- */
-const view = ref(isQrPetWindow ? "pet" : "files");   // files | chat | service | settings | pet
-const VIEW_TITLES = { files: "文件传输", chat: "文本消息", service: "服务中心", settings: "CC设置" };
+const view = ref(isQrPetWindow ? "pet" : "transfer");   // transfer | service | settings | pet
+const VIEW_TITLES = { transfer: "消息发送", service: "服务中心", settings: "CC设置" };
 function setView(v) {
+  // 兼容旧入口：files/chat 都归到合并后的「传输」
+  if (v === "files" || v === "chat") v = "transfer";
   view.value = v;
-  // 切进聊天页立即追平已读: WS 在线时 loadChat 只由新消息事件触发,
-  // 不追平的话未读徽标会一直挂到下一条消息到达才消失
-  if (v === "chat") {
-    seenChat.value = chatCount.value;
-    // 桌面聊天视图是 v-if 惰性挂载: 全新容器从顶部(最旧一条)开始, 切入即定位到最新一条;
-    // loadChat 的滚动有"条数变化"门槛, 消息没更新时不会滚 —— 必须在此处主动滚
+  moreOpen.value = false;
+  plusOpen.value = false;
+  if (v === "transfer") {
+    markChatSeen();
     nextTick(scrollChats);
+  } else if (isNarrow) {
+    fileSheetOpen.value = false;
   }
+}
+
+/* ---------- 合并传输页(微信式)面板状态 ---------- */
+const drawerCollapsed = ref(true);    // 桌面右侧共享文件抽屉: 默认收起, 由头部按钮/引导打开
+const fileSheetOpen = ref(false);     // 窄屏共享文件全屏面板
+const plusOpen = ref(false);          // 输入栏 ＋ 面板
+const moreOpen = ref(false);          // 房间头更多菜单
+const nickOpen = ref(false);          // 昵称设置弹框
+const nickDraft = ref("");            // 弹框草稿: 取消时丢弃, 不污染全局昵称
+const fileMenuName = ref("");         // 移动端文件行动作面板
+const locatedName = ref("");          // “定位”高亮的文件
+const fileDot = ref(false);           // 文件抽屉关闭时收到新文件: 文件夹按钮绿点
+const expandedGroups = ref({});       // 文件组展开状态
+const atBottom = ref(true);           // 时间线是否贴底
+const jumpCount = ref(0);             // 上翻期间的新消息数
+function filePanelVisible() {
+  // 注意: 脚本里 isNarrow 是 ref, 必须 .value —— 漏写会恒为 truthy,
+  // 宽屏下永远走窄屏分支, 表现为「抽屉收起后再也打不开」
+  return isNarrow.value ? fileSheetOpen.value : !drawerCollapsed.value;
+}
+/* 手机上打开面板前先收键盘: 否则软键盘会把底部面板顶掉一半 */
+function blurMobileKeyboard() {
+  if (isNarrow.value && document.activeElement && typeof document.activeElement.blur === "function") {
+    document.activeElement.blur();
+  }
+}
+/* ---------- 桌面端首次使用: 共享文件入口气泡引导 ---------- */
+const FILE_HINT_KEY = "wft-file-hint-seen";
+const fileHintShow = ref(false);
+function markFileHintSeen() {
+  fileHintShow.value = false;
+  try { localStorage.setItem(FILE_HINT_KEY, "1"); } catch (e) {}
+}
+function maybeShowFileHint() {
+  if (!isRealDesktop) return;   // 气泡引导只在桌面端出现, 浏览器/移动壳不打扰
+  try { if (localStorage.getItem(FILE_HINT_KEY) === "1") return; } catch (e) {}
+  if (isQrPetWindow || view.value !== "transfer" || filePanelVisible()) return;
+  // 不自动收起: 一直提示到用户真正点开共享文件入口为止
+  fileHintShow.value = true;
+}
+function toggleFilePanel() {
+  markFileHintSeen();
+  moreOpen.value = false;
+  plusOpen.value = false;
+  if (isNarrow.value) fileSheetOpen.value = !fileSheetOpen.value;
+  else drawerCollapsed.value = !drawerCollapsed.value;
+  if (filePanelVisible()) { fileDot.value = false; blurMobileKeyboard(); }
+}
+function openFilePanel() {
+  markFileHintSeen();
+  moreOpen.value = false;
+  plusOpen.value = false;
+  if (isNarrow.value) fileSheetOpen.value = true;
+  else drawerCollapsed.value = false;
+  fileDot.value = false;
+  blurMobileKeyboard();
+}
+/* 聚焦输入框(尤其手机弹键盘)时收起浮层: 否则加号面板+键盘把聊天区挤没 */
+function onInputFocus() {
+  plusOpen.value = false;
+  moreOpen.value = false;
+}
+function togglePlus() {
+  plusOpen.value = !plusOpen.value;
+  moreOpen.value = false;
+  if (plusOpen.value) blurMobileKeyboard();
+}
+function toggleMore() {
+  moreOpen.value = !moreOpen.value;
+  plusOpen.value = false;
+  if (moreOpen.value) blurMobileKeyboard();
+}
+function openNick() {
+  nickDraft.value = nickInput.value;
+  nickOpen.value = true;
+  moreOpen.value = false;
+}
+function saveNickAndClose() {
+  nickInput.value = nickDraft.value;
+  saveNick();
+  nickOpen.value = false;
+}
+function closeFileMenu() { fileMenuName.value = ""; }
+function toggleGroup(batch) {
+  expandedGroups.value = { ...expandedGroups.value, [batch]: !expandedGroups.value[batch] };
 }
 
 /* ---------- 侧边栏展开/收起(仅桌面壳; 状态记忆, 窄屏顶栏布局不受影响) ---------- */
@@ -262,17 +427,16 @@ function toggleSidebar() {
 }
 
 /* ---------- 外观主题 ---------- */
-/* 6 套 = 每色相一个(蓝/灰/绿/紫/金/红粉); v1.1.6 从 9 套精简,
-   被移除的选择在 main.js 启动时迁移(aurora→default, mist→graphite, eye→mint) */
+/* 5 套低饱和配色(蓝/灰/绿/紫/琥珀): 去掉微信绿与相近的石墨玫瑰,
+   长时间阅读不刺眼; 被移除的选择在 main.js 启动时迁移(见 THEME_MIGRATE) */
 const THEMES = [
     { id: "default",  name: "深空蓝",   preview: "linear-gradient(135deg,#0d1017,#1a2233)" },
-    { id: "graphite", name: "石墨灰",   preview: "linear-gradient(135deg,#15171b,#2a2f38)" },
+    { id: "rose",     name: "石墨玫瑰", preview: "linear-gradient(135deg,#16151a,#4a2531)" },
     { id: "mint",     name: "森林薄荷", preview: "linear-gradient(135deg,#0f1712,#1d4634)" },
     { id: "purple",   name: "暗夜紫",   preview: "linear-gradient(135deg,#15121d,#33265a)" },
     { id: "amber",    name: "墨色琥珀", preview: "linear-gradient(135deg,#141109,#4a3512)" },
-    { id: "rose",     name: "石墨玫瑰", preview: "linear-gradient(135deg,#16151a,#4a2531)" },
 ];
-const theme = ref("default");
+const theme = ref(isRealDesktop ? "mint" : "default");   // 桌面端默认森林薄荷
 function applyTheme(t) {
     if (t && t !== "default") document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
@@ -281,16 +445,28 @@ function setTheme(id) {
     theme.value = id;
     applyTheme(id);
     try { localStorage.setItem(LS.theme, id); } catch (e) {}
+    saveTextPref("ui-theme", id);   // 桌面端选择: /api/info 下发给浏览器/移动壳跟随
 }
 try {
   // 读取时同样应用迁移: 本模块先于 main.js 本体求值, 不迁移的话升级后
   // 首次启动选择器高亮会停留在已被移除的旧 id 上(网格无高亮)
-  let t = localStorage.getItem(LS.theme) || "default";
+  let t = localStorage.getItem(LS.theme);
+  if (!isRealDesktop) {
+    // 浏览器/移动壳首帧先用上次服务端下发的配色缓存, 避免默认蓝闪一下再变
+    const sv = localStorage.getItem("wft-ui-theme");
+    if (sv) t = sv;
+  }
+  if (!t) {
+    // 桌面端首次启动默认森林薄荷; 浏览器/移动端保持深空蓝
+    t = isRealDesktop ? "mint" : "default";
+    try { localStorage.setItem(LS.theme, t); } catch (e) {}
+  }
   if (THEME_MIGRATE[t]) {
     t = THEME_MIGRATE[t];
     try { localStorage.setItem(LS.theme, t); } catch (e) {}
   }
   theme.value = t;
+  applyTheme(t);   // 模块自身先应用一次, 不依赖 main.js 的读取顺序
 } catch (e) {}
 /* 配色行的"当前"标注: 色板芯片不显示名字(走 tooltip), 选中名在此回显 */
 const currentThemeName = computed(() => THEMES.find(t => t.id === theme.value)?.name || "");
@@ -301,7 +477,15 @@ const THEME_MODES = [
     { id: "system", name: "跟随系统", icon: "🖥️" },
 ];
 const systemDarkMq = window.matchMedia("(prefers-color-scheme: dark)");
-const themeMode = ref((() => { try { return localStorage.getItem(LS.mode) || "dark"; } catch (e) { return "dark"; } })());
+const themeMode = ref((() => {
+    try {
+      if (!isRealDesktop) {
+        const sv = localStorage.getItem("wft-ui-mode");
+        if (sv) return sv;
+      }
+      return localStorage.getItem(LS.mode) || "light";
+    } catch (e) { return "light"; }
+})());
 function applyThemeMode() {
     // 显式写 data-mode("dark" 无对应 CSS 规则 = 默认深色), system 按当前系统外观解析
     document.documentElement.dataset.mode =
@@ -311,6 +495,23 @@ function setThemeMode(m) {
     themeMode.value = m;
     applyThemeMode();
     try { localStorage.setItem(LS.mode, m); } catch (e) {}
+    saveTextPref("ui-mode", m);   // 同步给浏览器/移动壳
+}
+/* 浏览器/移动壳跟随桌面端配色: 服务端 /api/info 下发 pref */
+function applyServerUiTheme(d) {
+    if (isRealDesktop || !d) return;
+    const t = typeof d.uiTheme === "string" ? d.uiTheme : "";
+    const m = typeof d.uiMode === "string" ? d.uiMode : "";
+    if (t && THEMES.some((x) => x.id === t) && t !== theme.value) {
+      theme.value = t;
+      applyTheme(t);
+      try { localStorage.setItem("wft-ui-theme", t); } catch (e) {}
+    }
+    if (m && ["light", "dark", "system"].includes(m) && m !== themeMode.value) {
+      themeMode.value = m;
+      applyThemeMode();
+      try { localStorage.setItem("wft-ui-mode", m); } catch (e) {}
+    }
 }
 if (typeof systemDarkMq.addEventListener === "function") systemDarkMq.addEventListener("change", applyThemeMode);
 else if (typeof systemDarkMq.addListener === "function") systemDarkMq.addListener(applyThemeMode);
@@ -323,12 +524,19 @@ applyThemeMode();   // 初始落地(与 main.js 挂载前兜底双保险, 并覆
 /* ---------- 手机端(窄屏): 悬浮球 + 底部聊天面板 ---------- */
 const mq = window.matchMedia(`(max-width: ${NARROW_MAX_PX}px)`);
 const isNarrow = ref(mq.matches);
+// 纯触屏设备: 回车换行、点发送按钮提交(与手机微信一致); 桌面键盘回车发送
+const touchOnly = window.matchMedia("(hover: none)").matches;
 const chatOpen = ref(false);
 // 手机聊天面板打开时锁定背后页面, 防止滑动穿透带动共享文件页滚动
 watch(chatOpen, v => { document.body.style.overflow = v ? "hidden" : ""; });
 function onMqChange(e) {
   isNarrow.value = e.matches;
-  if (!e.matches) closeChat();   // 回到宽屏时自动收起手机聊天面板
+  if (!e.matches) {
+    closeChat();                 // 回到宽屏时自动收起旧手机聊天面板(兼容残留)
+    fileSheetOpen.value = false;
+    plusOpen.value = false;
+    moreOpen.value = false;
+  }
 }
 if (typeof mq.addEventListener === "function") mq.addEventListener("change", onMqChange);
 else if (typeof mq.addListener === "function") mq.addListener(onMqChange);
@@ -342,13 +550,12 @@ function openChat() {
 }
 function closeChat() { chatOpen.value = false; }
 function scrollChats() {
-  // 桌面聊天视图容器只有 ref(chatBox); #chatMessagesSheet 是常驻 DOM 的手机面板
-  // (桌面端 display:none)—— 滚它等于没滚, 必须把 chatBox 一并滚到底
-  for (const id of ["chatMessages", "chatMessagesSheet"]) {
-    const c = document.getElementById(id);
-    if (c) c.scrollTop = c.scrollHeight;
-  }
-  if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight;
+  const el = chatBox.value;
+  if (!el) return;
+  // 已在底部就不要每轮都赋一次 scrollTop: 无谓的滚动/重绘会打断
+  // WKWebView 里输入框的光标绘制(表现为光标闪几秒后消失)
+  const top = el.scrollHeight - el.clientHeight;
+  if (Math.abs(el.scrollTop - top) > 1) el.scrollTop = top;
 }
 
 /* ---------- 服务控制(桌面) ---------- */
@@ -373,8 +580,9 @@ async function refreshControl() {
       port.value = d.port;
       lanIp.value = d.ip;
       if (typeof d.version === "string") appVersion.value = d.version;
-      if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; clearAccessPinIfOff(pinEnabled.value); }
+      syncPinState(d);
       applyServerConfig(d.config);
+      applyServerUiTheme(d);
       if (d.share) shareInput.value = d.share;
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
       syncPortInput(running.value, d.port);
@@ -455,6 +663,7 @@ async function applyShareDir(path) {
   const d = await tauriInvoke("set_share_dir_cmd", { path });
   if (!d.dangerous) {
     if (!d.ok) return finish(d);
+    clearShareTicketCache();   // 服务端已清空旧目录票据
     if (wasRunning) {
       const restarted = await _restartForDirSwitch();
       if (restarted) showToast("共享目录已切换，服务已重启");
@@ -469,6 +678,7 @@ async function applyShareDir(path) {
   if (!yes) return finish({ ok: false, cancelled: true });
   const d2 = await tauriInvoke("set_share_dir_cmd", { path, force: true });
   if (!d2.ok) return finish(d2);
+  clearShareTicketCache();
   if (wasRunning) {
     const restarted = await _restartForDirSwitch();
     if (restarted) showToast("共享目录已切换，服务已重启");
@@ -554,7 +764,7 @@ async function stopServer() {
 /* 行双击打开文件; 但按钮/勾选框上的双击必须忽略 —— 否则"复制"按钮连点两下
    第一下复制、第二下冒泡到行触发打开文件 */
 function rowDblClick(e, f) {
-  if (e.target.closest("button, label")) return;
+  if (e.target.closest("button, label, .tx-thumb")) return;
   if (isRealDesktop) openFile(f.name);
 }
 function openBrowser() {
@@ -1027,6 +1237,51 @@ async function petPollPresence() {
     petPollBusy = false;
   }
 }
+/* 屏幕拓扑自愈: 启动落位重试只覆盖前 ~3 分钟; 睡眠/改分辨率/拔屏后窗口若整体
+   移出工作区(悬停够不到、onMoved 不触发), 30s 巡检发现即按停靠记忆重新落位。
+   另覆盖扩展屏"离线兜底 → 插回归位": 上次落位用了兜底屏而这次记忆屏找得到 → 搬回。 */
+function petHealTick() {
+  if (petResizing) return;
+  (async () => {
+    try {
+      const win = getCurrentWebviewWindow();
+      const wa = await petWorkArea(true);
+      if (!wa) return;
+      let fresh = false;
+      if (!petDock) {
+        setPetDock(await petLoadDock() || { edge: "left", cross: wa.h / 2 });
+        fresh = true;
+      }
+      const monBack = petWaFallback && !wa.viaFallback;
+      const p = await win.outerPosition();
+      const s = await win.outerSize();
+      // Windows 统一在物理像素空间比较(混合 DPI 下逻辑换算会跨屏失真)
+      const cx = isWindows ? p.x + s.width / 2 : p.x / wa.sf + (s.width / wa.sf) / 2;
+      const cy = isWindows ? p.y + s.height / 2 : p.y / wa.sf + (s.height / wa.sf) / 2;
+      const pad = isWindows ? 16 * wa.sf : 16;
+      const mx = isWindows ? wa.x * wa.sf : wa.x;
+      const my = isWindows ? wa.y * wa.sf : wa.y;
+      const mw = isWindows ? wa.w * wa.sf : wa.w;
+      const mh = isWindows ? wa.h * wa.sf : wa.h;
+      const outside = cx < mx - pad || cx > mx + mw + pad || cy < my - pad || cy > my + mh + pad;
+      if (fresh || monBack || outside) {
+        petDiag({ fn: "heal", fresh, monBack, cx: Math.round(cx), cy: Math.round(cy) });
+        await petApply();
+      }
+    } catch (e) { /* 瞬时异常, 下一巡再试 */ }
+  })();
+}
+function petStartTimers() {
+  if (petPollTimer) return;
+  petPollPresence();
+  petPollTimer = setInterval(petPollPresence, 250);
+  petHealTimer = setInterval(petHealTick, 30000);
+}
+function petStopTimers() {
+  clearInterval(petPollTimer); petPollTimer = null;
+  clearInterval(petHealTimer); petHealTimer = null;
+}
+
 /* Pet 交互: 按下仅记录原点, 移动超阈值才 startDragging —— pointerdown 里立刻调会提前进入
    macOS 原生拖拽循环(吞掉后续 click, 且拿不到真实拖拽事件导致窗口不动)。未拖动松手即点按:
    打开主窗口; 拖动过则拦掉残余 click 防误触 */
@@ -1138,6 +1393,9 @@ function copyText(text, okMsg) {
   }
 }
 const shareUrl = computed(() => `http://${lanIp.value}:${port.value}`);
+/* 地址栏宽度贴合内容: 宽屏不留大片空白; 窄屏(换行后)由 CSS 改为撑满整行 */
+const urlText = computed(() => running.value ? shareUrl.value : "服务未启动");
+const urlWidth = computed(() => (running.value ? shareUrl.value.length + 1 : 11) + "ch");
 // 地址(ip:端口)或运行状态一变就重生成二维码(覆盖 IP 变化/端口顺延/手动改端口/启停全场景);
 // 停服清空避免残留旧码; await 结果落地前校验地址未再变, 丢弃乱序的过期结果
 async function syncQr() {
@@ -1156,7 +1414,7 @@ function copyUrl() {
   // 浏览器首刷前 lanIp 还是占位 "--": 此刻复制出来的是 http://--:port 无效地址
   // (shareFile 对此有回落保护, copyUrl 之前漏了)
   if (!isDesktop && lanIp.value === "--") { showToast("地址还没同步好，稍等两秒再复制", "error"); return; }
-  const text = shareUrl.value + TIP_COPY_URL;
+  const text = `📡 局域网访问地址\n${shareUrl.value}${TIP_COPY_URL}`;
   copyText(text, "链接和提示已复制，发给同一局域网的小伙伴即可打开");
   copied.value = true;
   setTimeout(() => { copied.value = false; }, COPIED_RESET_MS);
@@ -1170,6 +1428,9 @@ const refreshing = ref(false);
 
 function extFor(n) { const p = n.lastIndexOf("."); return p >= 0 ? n.slice(p + 1).toLowerCase() : ""; }
 function isImage(n) { return IMG_EXTS.includes(extFor(n)); }
+/* 浏览器可内联预览的类型(与服务端 is_inline_safe 对齐; 不含 svg/html/xml 防同源脚本) */
+const PREVIEW_EXTS = ["jpg","jpeg","png","gif","webp","bmp","avif","pdf","txt","md","log","csv","mp3","mp4","webm","mov","m4a","ogg","wav"];
+function isPreviewable(n) { return PREVIEW_EXTS.includes(extFor(n)); }
 function iconFor(n) { return ICON_MAP[extFor(n)] || "FILE"; }
 /* 大小格式化 [同步: server.rs humans] —— B 不带小数, 其余一位小数, 单位表两端一致 */
 function fmtSize(b) {
@@ -1255,6 +1516,7 @@ async function loadFiles(manual = false) {
   }
   loadingFiles = true;
   lastFilesLoadAt = Date.now();
+  const reqAt = Date.now();   // 列表请求发起时刻: 判定"删除"时排除请求后才完成的上传
   const spinStart = Date.now();
   if (manual) refreshing.value = true;
   // 超时保护: 与 loadChat 同款 —— 无 AbortController 时单个挂死请求会让 loadingFiles
@@ -1266,7 +1528,60 @@ async function loadFiles(manual = false) {
     const r = await apiFetch(apiBase.value + API.files + "?nick=" + encodeURIComponent(deviceNick()), { signal: ctl.signal });
     if (!r.ok) throw new Error(`文件列表加载失败 (${r.status})`);
     const d = await r.json();
-    allFiles.value = d.files || [];
+    // 内容没变就不替换 files: 每 5s 轮询都换新数组会让抽屉(乃至整页模板)重渲染,
+    // 打断输入框光标的绘制 —— 静默期应零重绘
+    const nextFiles = d.files || [];
+    const truncated = !!d.truncated;   // 服务端只返回前 FILES_LIST_MAX 条: 不能据此判定"已删除"
+    const filesSig = nextFiles.map(f => `${f.name}:${f.size}:${f.modified}`).join("|");
+    if (filesSig !== loadFiles._sig) {
+      loadFiles._sig = filesSig;
+      allFiles.value = nextFiles;
+      // 当前页票据预取(仅开 PIN 时有意义): 解决触屏/冷路径 await 丢点击激活
+      nextTick(prefetchPageTickets);
+    }
+    // 远端文件 → 时间线(文件即消息): 只认上一次快照里没有、且不是本机上传的新文件;
+    // 首次拉取只建基线, 否则打开页面时全部历史文件会刷成一串"新消息"
+    const names = new Set(nextFiles.map(f => f.name));
+    if (knownFileNames) {
+      const selfNames = new Set(uploads.value.map(u => uploadName(u)).filter(Boolean));
+      const added = nextFiles.filter(f => !knownFileNames.has(f.name) && !selfNames.has(f.name));
+      if (added.length) {
+        // 上传响应可能晚于 WS 广播: 同名自动改名的 final 名这时还没回写本机队列,
+        // 1.5s 后按最新队列复核, 避免自己的文件在时间线里再出现一张"远端"卡片
+        setTimeout(() => {
+          const self = new Set(uploads.value.map(u => uploadName(u)).filter(Boolean));
+          // 复核时以"当前列表"为准: 1.5s 内文件可能已被删除, 不能再补一张 404 卡片
+          const current = new Set(allFiles.value.map(f => f.name));
+          const fresh = added.filter(f => !self.has(f.name) && current.has(f.name));
+          if (!fresh.length) return;
+          const ts = Date.now() / 1000;
+          remoteFiles.value = remoteFiles.value
+            .concat(fresh.map(f => ({ key: "rf-" + f.name, name: f.name, size: f.size, modified: f.modified, uploader: f.uploader || "", ts })))
+            .slice(-REMOTE_CARDS_MAX);
+          // 文件消息也进"新消息"胶囊: 用户上翻时新文件不该被静默塞进列表
+          if (!atBottom.value) jumpCount.value += fresh.length;
+          else nextTick(scrollChats);
+        }, 1500);
+      }
+      // 文件被删除: 对应卡片一并消失。列表被截断(>5000 个文件)时不能做
+      // "上一轮有、这一轮没有"的判定 —— 未返回的既有文件会被误当成已删除。
+      if (!truncated) {
+        remoteFiles.value = remoteFiles.value.filter(c => names.has(c.name));
+        // 其他设备删除本机上传的文件: 时间线里的上传卡片同样清掉。
+        // 只认"上一轮列表里有、这一轮消失"的名字 —— 刚上传完成的文件上一轮还没进
+        // 列表, 不能用"不在 names 就删"去判定, 否则会把在途完成的上传卡片误清。
+        const vanished = new Set();
+        for (const n of knownFileNames) if (!names.has(n)) vanished.add(n);
+        if (vanished.size) {
+          const keepUploads = uploads.value.filter(u => {
+            if (u.status !== "done" || !vanished.has(uploadName(u))) return true;
+            return u.doneAt && u.doneAt >= reqAt;   // 本次拉取发起后才落盘: 列表可能还没看到
+          });
+          if (keepUploads.length !== uploads.value.length) uploads.value = keepUploads;
+        }
+      }
+    }
+    knownFileNames = names;
     // 断线补拉/轮询兜底：新增或同名更新提醒，纯删除不提醒；首拉仅建立基线。
     if (isQrPetWindow && petActivity.observeFiles(allFiles.value)) markPetNotify();
     // 列表缩水(删除本页等)后回收越界页码: 否则页码条无高亮、‹ 可点到更越界的页
@@ -1300,7 +1615,8 @@ async function shareFile(name) {
   // 开 pin → 优先吃 pointerover 预取的缓存(同样同步); 冷点才 await 兜底
   // (激活可能过期导致复制失败, 但预取通常已在悬停期间完成, 实际很少走到)。
   let ticket = null;
-  const pinOn = !!(accessPin.value || pinCode.value);
+  const epoch = shareTicketEpoch;   // 本次分享代际: 期间清过缓存就不再把旧票写回
+  const pinOn = !!(accessPin.value || pinCode.value || pinEnabled.value);
   if (pinOn) {
     const c = shareTicketCache.get(name);
     if (c && Date.now() - c.at < SHARE_TICKET_UI_TTL_MS) {
@@ -1309,22 +1625,24 @@ async function shareFile(name) {
       // 否则两次分享拿到同一张票, 第一个收件人下载后第二个就是死链
       shareTicketCache.delete(name);
     } else {
-      ticket = await createShareTicket(name);
-      if (ticket) shareTicketCache.set(name, { ticket, at: Date.now() });
+      const t = await createShareTicket(name);
+      if (t) {
+        ticket = t;
+        if (epoch === shareTicketEpoch) shareTicketCache.set(name, { ticket: t, at: Date.now() });
+      }
     }
     if (!ticket) { showToast("生成分享链接失败", "error"); return; }
     // 用掉缓存的同时后台换新票: 收件人下载会销票, 下次分享不能拿到死链
     createShareTicket(name).then((t) => {
-      if (t) shareTicketCache.set(name, { ticket: t, at: Date.now() });
+      if (t && epoch === shareTicketEpoch) shareTicketCache.set(name, { ticket: t, at: Date.now() });
     }).catch(() => {});
   }
   const url = ticket
     ? `${base}${API.download(name)}?ticket=${encodeURIComponent(ticket)}`
     : `${base}${API.download(name)}`;
-  const pinNote = (accessPin.value || pinCode.value)
-    ? "\n⚠️ 链接仅授权下载该文件，请仅发给可信对象"
-    : "";
-  copyText(url + TIP_SHARE + pinNote, "分享链接已复制：" + name);
+  const displayName = name.split("/").pop() || name;
+  const pinNote = pinOn ? "\n· 链接仅授权下载该文件，请仅发给可信对象" : "";
+  copyText(`📄 文件分享\n${displayName}\n${url}${TIP_SHARE}${pinNote}`, "分享链接已复制：" + name);
 }
 
 /* 分享票据预取: 指针滑到「分享」按钮上就开票, 点击时命中缓存 → 复制在点击手势内
@@ -1333,20 +1651,29 @@ async function shareFile(name) {
    每次分享后后台换新票, 防收件人下载销票后再次分享拿到死链。 */
 const shareTicketCache = new Map();   // name -> { ticket, at }
 const SHARE_TICKET_UI_TTL_MS = 9 * 60 * 1000;
+let shareTicketEpoch = 0;   // 清缓存代际: 在途开票的迟到响应不得写回已作废的缓存
+function clearShareTicketCache() { shareTicketEpoch++; shareTicketCache.clear(); }
 function prefetchShareTicket(name) {
-  if (!(accessPin.value || pinCode.value)) return;   // 未开 pin 不需要票据
+  if (!(accessPin.value || pinCode.value || pinEnabled.value)) return;   // 未开 pin 不需要票据
   if (shareTicketCache.has(name)) return;
+  const epoch = shareTicketEpoch;
   createShareTicket(name).then((t) => {
-    if (t) shareTicketCache.set(name, { ticket: t, at: Date.now() });
+    if (t && epoch === shareTicketEpoch) shareTicketCache.set(name, { ticket: t, at: Date.now() });
   }).catch(() => {});
 }
 function onDocShareHover(e) {
-  // 点文件名同样会触发分享: 一并预取, 避免冷路径 await 后丢失点击激活导致复制失败
-  const btn = e.target && e.target.closest && e.target.closest(".fb-share, .fname");
+  // 合并页 DOM: 分享按钮/文件名在 .tx-frow[data-file] 内; 旧 .fb-share/.file-row 已不存在
+  const btn = e.target && e.target.closest && e.target.closest(".tx-share, .tx-fname2");
   if (!btn) return;
-  const row = btn.closest(".file-row");
-  const name = row && row.getAttribute("data-name");
+  const row = btn.closest(".tx-frow");
+  const name = row && row.getAttribute("data-file");
   if (name) prefetchShareTicket(name);
+}
+/* 当前页票据批量预取: 触屏没有 hover, 冷路径 await 会丢点击激活; 面板/列表加载时
+   预先开好前 8 张票, 分享点击才能同步复制 */
+function prefetchPageTickets() {
+  if (!(accessPin.value || pinCode.value || pinEnabled.value)) return;
+  for (const f of pageFiles.value) prefetchShareTicket(f.name);
 }
 
 /* 浏览器旧页面/图片预览仍使用 PIN；壳内走回环豁免。 */
@@ -1364,8 +1691,105 @@ function nativeDownload(url, filename) {
   a.click();
   a.remove();
 }
+/* 下载优先用一次性 ticket, 不让长期配对码出现在浏览器历史/系统浏览器。
+   开票失败必须返回 null 让调用方提示重试 —— 回退到带 ?pin= 的 URL 会把全站
+   凭据写进系统浏览器历史和下载记录, 与分享路径的安全承诺矛盾。 */
+async function authedDownloadUrl(name) {
+  if (!(accessPin.value || pinCode.value || pinEnabled.value)) return downloadUrl(name);
+  const t = await createShareTicket(name);
+  return t
+    ? `${apiBase.value}${API.download(name)}?ticket=${encodeURIComponent(t)}`
+    : null;
+}
+/* 浏览器预览: inline=1 让服务端用 Content-Disposition: inline; 开访问码时同样走
+   一次性 ticket, 不把长期 PIN 写进浏览器历史。开票失败返回 null, 不回退裸 PIN。 */
+async function authedPreviewUrl(name) {
+  const base = `${apiBase.value}${API.download(name)}?inline=1`;
+  if (!(accessPin.value || pinCode.value || pinEnabled.value)) return base;
+  const t = await createShareTicket(name);
+  return t ? `${base}&ticket=${encodeURIComponent(t)}` : null;
+}
+/* ---------- 应用内预览 ----------
+   旧实现 window.open 新标签: 浏览器原生查看器没有"关闭回到聊天"的入口, 手机
+   Safari 还会离开当前会话。改为应用内全屏层, 右上角「关闭」直接回到聊天页。
+   预览地址用长期 PIN 直连而非一次性 ticket: 视频/音频会发多次 Range 请求,
+   首个 206 就把票据烧掉, 后续分段全部 401。应用内不导航, PIN 不会进浏览器历史。 */
+const previewName = ref("");
+const previewKind = ref("");
+const previewUrl = ref("");
+const previewText = ref("");
+const previewErr = ref("");
+const previewLoading = ref(false);
+let previewSeq = 0;              // 预览代际: 迟到的旧文件文本响应不得覆盖新预览
+let previewAbort = null;
+function previewKindOf(n) {
+  const e = extFor(n);
+  if (["jpg","jpeg","png","gif","webp","bmp","avif"].includes(e)) return "image";
+  if (["mp4","webm","mov"].includes(e)) return "video";
+  if (["mp3","m4a","ogg","wav"].includes(e)) return "audio";
+  if (e === "pdf") return "pdf";
+  return "text";
+}
+function closePreview() {
+  previewSeq++;
+  previewAbort?.abort();
+  previewAbort = null;
+  previewName.value = "";
+  previewUrl.value = "";
+  previewText.value = "";
+  previewErr.value = "";
+  previewLoading.value = false;
+}
+async function previewFileWeb(name) {
+  if (serviceDown()) { showToast("服务已停止，无法预览", "error"); return; }
+  const kind = previewKindOf(name);
+  // 移动壳(Android/iOS WebView)没有 PDF 渲染器: 交系统浏览器, 其余类型应用内看。
+  // PDF 查看器会发多段 Range, 一次性 ticket 首个 206 即被销毁 -> 后续全部 401,
+  // 因此这里用带访问码的完整 URL(交外部浏览器, 但保证整份文档可加载)。
+  if (isDesktop && kind === "pdf") {
+    const url = withPin(`${apiBase.value}${API.download(name)}?inline=1`);
+    tauriInvoke("open_url_cmd", { url })
+      .then((d) => { if (!d || !d.ok) copyText(url, "已复制预览链接，请在浏览器中打开"); })
+      .catch(() => copyText(url, "已复制预览链接，请在浏览器中打开"));
+    return;
+  }
+  // 文本整段读进内存展示: 超大日志先拦住, 避免手机上把内存吃满
+  if (kind === "text") {
+    const meta = allFiles.value.find(f => f.name === name);
+    if (meta && meta.size > 2 * 1024 * 1024) {
+      showToast("文本超过 2MB，请下载后查看", "error");
+      return;
+    }
+  }
+  document.activeElement?.blur?.();   // 先收软键盘, 否则 100dvh 层会被顶掉一截
+  const seq = ++previewSeq;
+  previewAbort?.abort();
+  previewAbort = null;
+  previewName.value = name;
+  previewKind.value = kind;
+  previewUrl.value = withPin(`${apiBase.value}${API.download(name)}?inline=1`);
+  previewText.value = "";
+  previewErr.value = "";
+  if (kind !== "text") return;
+  previewLoading.value = true;
+  const ctl = new AbortController();
+  previewAbort = ctl;
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(previewUrl.value, { signal: ctl.signal });
+    if (seq !== previewSeq) return;   // 期间已切到别的文件/关闭预览
+    if (!r.ok) previewErr.value = `加载失败 (HTTP ${r.status})`;
+    else previewText.value = await r.text();
+  } catch (e) {
+    if (seq === previewSeq) previewErr.value = "加载失败：请确认电脑端服务仍在运行";
+  } finally {
+    clearTimeout(timer);
+    if (seq === previewSeq) previewLoading.value = false;
+  }
+}
 async function downloadFileWeb(name) {
-  const url = downloadUrl(name);
+  const url = await authedDownloadUrl(name);
+  if (!url) { showToast("下载凭证生成失败，请重试", "error"); return; }
   const base = name.split("/").pop() || name;   // download 属性不带子目录路径(部分移动端拒收)
   // 桌面浏览器: HEAD 预检后直接交浏览器原生流式下载。
   // 旧逻辑 ≤1GB 会把整个文件 fetch 进内存(blob)才触发保存 —— 500MB 在 Wi-Fi 上要
@@ -1377,7 +1801,8 @@ async function downloadFileWeb(name) {
   // 处理器接管落盘(壳内没有浏览器下载管理器, blob 路径在壳内不可靠)
   if (mobileShell) {
     // 移动壳: WebView 没有 DownloadListener/on_download, 锚点下载不会落任何文件 ——
-    // 交给系统浏览器下载(其自带进度/断点), 失败复制链接兜底
+    // 交给系统浏览器下载。url 已优先使用一次性 ticket, 不把长期配对码写进
+    // 系统浏览器历史/外部 App。
     tauriInvoke("open_url_cmd", { url })
       .then((d) => {
         if (d && d.ok) showToast("已在系统浏览器打开下载");
@@ -1405,28 +1830,34 @@ async function downloadFileWeb(name) {
     showToast(isDesktop ? "已开始下载，完成后提示保存位置" : "已开始下载，进度见浏览器下载列表");
     return;
   }
-  let gotResp = false;
+  // 手机浏览器: 预检必须用 HEAD —— 一次性 ticket 只在真正的 GET 时消费。
+  // 旧实现先 GET 预检, 服务端立刻销票; 大文件分支再拿同一张票原生下载必然 401。
+  let len = 0;
   try {
-    // 响应头必须带超时(对齐桌面分支的 8s): 服务半开时 fetch 永久挂起 = "点了没反应"。
-    // 拿到响应后立即清表, blob 阶段不限时, 免得慢速大文件被误杀
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);
-    const r = await fetch(url, { signal: ctl.signal });
+    const h = await fetch(url, { method: "HEAD", signal: ctl.signal });
     clearTimeout(timer);
-    gotResp = true;
-    if (!r.ok) {
-      // HTTP 错误(404/400 等)如实报错, 不走原生回退 —— 否则会把 JSON 错误体当文件下载
-      showToast(`下载失败：HTTP ${r.status}`, "error");
+    if (!h.ok) {
+      showToast(`下载失败：HTTP ${h.status}`, "error");
       return;
     }
-    const len = Number(r.headers.get("Content-Length") || 0);
-    // 手机浏览器/WebView 的 blob 内存配额远低于桌面(iOS Safari 数百 MB 即杀标签页且无报错),
-    // 阈值降到 50MB, 超出一律走原生流式下载
-    if (len > 50 * 1024 * 1024) {
-      // 超大文件交给浏览器原生下载(流式省内存, 但无完成回调)
-      try { r.body?.cancel(); } catch (e) {}
-      nativeDownload(url, base);
-      showToast("大文件较大，已交由浏览器直接下载");
+    len = Number(h.headers.get("Content-Length") || 0);
+  } catch (e) {
+    showToast("下载失败：连接超时，请确认电脑端服务已启动", "error");
+    return;
+  }
+  // 手机浏览器/WebView 的 blob 内存配额远低于桌面(iOS Safari 数百 MB 即杀标签页且无报错),
+  // 阈值 50MB, 超出一律走原生流式下载(这一次 GET 才消费 ticket)
+  if (len > 50 * 1024 * 1024) {
+    nativeDownload(url, base);
+    showToast("大文件较大，已交由浏览器直接下载");
+    return;
+  }
+  try {
+    const r = await fetch(url);   // 唯一一次 GET, 消费 ticket
+    if (!r.ok) {
+      showToast(`下载失败：HTTP ${r.status}`, "error");
       return;
     }
     const blob = await r.blob();
@@ -1435,13 +1866,9 @@ async function downloadFileWeb(name) {
     setTimeout(() => URL.revokeObjectURL(objUrl), BLOB_REVOKE_MS);
     showToast(`已下载：${name}${len ? " (" + fmtSize(len) + ")" : ""}`);
   } catch (e) {
-    // 响应头都没等到 = 链路不通, 回退原生下载也只会再失败一次 —— 直接报超时
-    if (!gotResp) {
-      showToast("下载失败：连接超时，请确认电脑端服务已启动", "error");
-      return;
-    }
-    // blob 路径失败(内存/内核限制等) → 退回原生下载, 交给浏览器下载管理器
-    nativeDownload(url, name.split("/").pop() || name);
+    // blob 阶段失败(内存/内核限制): 原 ticket 已被上面的 GET 消费, 必须重新开票再交给浏览器
+    const retryUrl = await authedDownloadUrl(name);
+    nativeDownload(retryUrl, base);
     showToast("已交由浏览器下载");
   }
 }
@@ -1472,13 +1899,20 @@ async function doDelete() {
   showDel.value = false;
   if (offlineGuard()) return;   // 弹窗期间服务停掉的兜底
   let ok = 0, fail = 0, gone = 0;
+  const removed = new Set();
   for (const n of targets) {
     try {
       const r = await apiFetch(apiBase.value + API.del(n), { method: "DELETE" });
       // 404 = 文件已不存在(列表过期/他端已删/同名改名的旧名): 视为已处理而非失败
-      if (r.status === 404) { gone++; continue; }
-      r.ok ? ok++ : fail++;
+      if (r.status === 404) { gone++; removed.add(n); continue; }
+      if (r.ok) { ok++; removed.add(n); } else fail++;
     } catch (e) { fail++; }
+  }
+  // 删除后聊天里的文件卡片同步消失: remote 卡片由 loadFiles 过滤, 本机已上传
+  // 卡片是本地队列, 不主动清理会一直停在时间线里(用户以为没删掉)
+  if (removed.size) {
+    uploads.value = uploads.value.filter(u => !removed.has(uploadName(u)));
+    remoteFiles.value = remoteFiles.value.filter(c => !removed.has(c.name));
   }
   if (fail) showToast(`删除完成：成功 ${ok} 个，失败 ${fail} 个`, "error");
   else if (gone) showToast(targets.length > 1 ? `已清理 ${gone} 个失效条目，列表已刷新` : "文件已不存在，列表已刷新");
@@ -1490,6 +1924,16 @@ async function doDelete() {
 /* ---------- 上传(单请求整文件直传 + 整目录) ---------- */
 const uploads = ref([]);
 let upSeq = 0;
+let lastSelfUploadAt = 0;   // 自己上传完成的 files:changed 不点亮“新文件”绿点
+/* 其他设备上传的文件: 作为"文件消息"补进时间线。
+   本机上传走 uploads 卡片; 远端文件只能从服务端列表里"新出现"来识别 ——
+   首次拉取只建立基线, 避免历史文件在打开页面时全部刷成新消息。 */
+const remoteFiles = ref([]);
+let knownFileNames = null;   // 上一次文件列表快照; null = 尚未建立基线
+const REMOTE_CARDS_MAX = 100;
+let openBatch = null;       // 60s 内连续上传归入同一文件组
+let openBatchAt = 0;
+let openBatchSize = 0;
 /* 上传并发闸: 同时最多 UPLOAD_CONCURRENCY 个文件在传, 其余真正停在"等待中"。
    WebKit 每 host 仅 6 条 HTTP/1.1 连接, WS/轮询/下载要留预算 —— 一次选数百文件
    全并发时会把所有 XHR 压上 6 条连接(整文件版无看门狗, 不会像旧版那样集体误报
@@ -1512,7 +1956,11 @@ const dragOver = ref(false);
 function pickFiles() { document.getElementById("fileInput").click(); }
 // 移除上传条目(失败行不自动清理, 否则只能刷新页面才能清掉)
 function removeUpload(id) { uploads.value = uploads.value.filter(u => u.id !== id); }
-function pickDir() { document.getElementById("dirInput").click(); }
+function pickDir() {
+  // iOS Safari/WebView 不支持 webkitdirectory: 按钮保留可见(与其它端一致), 点击给出明确说明
+  if (isIOS) { showToast("iOS 浏览器不支持选择文件夹，请用「文件」多选", "error"); return; }
+  document.getElementById("dirInput").click();
+}
 function onPick(e) { handleFiles(e.target.files); e.target.value = ""; }
 function onPickDir(e) {
   // 选空文件夹与拖入空文件夹一致给反馈(原静默 return 像软件坏了)
@@ -1521,7 +1969,25 @@ function onPickDir(e) {
 }
 function handleFiles(list) {
   if (!list || !list.length) return;
-  for (const f of Array.from(list)) uploadFile(f);
+  const arr = Array.from(list);
+  const now = Date.now();
+  // 同一批选择 / 拖入 / 粘贴共享一个 batch；60s 内的连续上传继续归入同一批。
+  // 总数 >3 时时间线合并成一张文件组卡，避免连续小批上传刷屏。
+  let batch, batchSize;
+  if (openBatch && now - openBatchAt < 60000) {
+    batch = openBatch;
+    openBatchSize += arr.length;
+    batchSize = openBatchSize;
+    for (const u of uploads.value) if (u.batch === batch) u.batchSize = batchSize;
+  } else {
+    batch = "b" + now + "-" + (upSeq++);
+    openBatch = batch;
+    openBatchSize = arr.length;
+    batchSize = openBatchSize;
+  }
+  openBatchAt = now;
+  const t0 = now / 1000;
+  for (const f of arr) uploadFile(f, { batch, batchSize, t0 });
 }
 /* 全局粘贴上传(Ctrl+V/Cmd+V): mounted 挂载监听 —— 此函数曾在上传重构的
    块删除中被越界移除, 导致挂载钩子 ReferenceError 整页黑屏, 已恢复 */
@@ -1575,6 +2041,12 @@ async function collectDroppedFiles(dt) {
   return out;
 }
 const collecting = ref(false);   // 递归收集拖入条目期间置位: 超大目录树收集耗时秒级, 得让用户知道在干活
+async function onPageDragLeave(e) {
+  // 子元素之间移动也会冒泡 dragleave: 只有真正离开页面才收起投放层
+  if (!e.currentTarget || !e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) {
+    dragOver.value = false;
+  }
+}
 async function onDrop(e) {
   dragOver.value = false;
   if (collecting.value) return;
@@ -1625,24 +2097,50 @@ function setScreenKeepAlive(on) {
     try { keepAliveVideo.pause(); } catch (e) {}
   }
 }
+let wakeLockPending = null;
 async function updateWakeLock() {
   const want = uploads.value.some(u => u.status === "uploading" || u.status === "waiting");
   setScreenKeepAlive(want);
   try {
-    if (want && !wakeLock && navigator.wakeLock) {
-      wakeLock = await navigator.wakeLock.request("screen");
-      wakeLock.addEventListener("release", () => { wakeLock = null; });
-    } else if (!want && wakeLock) {
-      try { await wakeLock.release(); } catch (e) {}
-      wakeLock = null;
+    if (!want) {
+      // 在途请求先等它落地再释放: 否则 request 迟到把 wakeLock 重新点亮
+      if (wakeLockPending) {
+        const s = await wakeLockPending.catch(() => null);
+        try { if (s) await s.release(); } catch (e) {}
+        wakeLockPending = null;
+        wakeLock = null;
+        return;
+      }
+      if (wakeLock) {
+        try { await wakeLock.release(); } catch (e) {}
+        wakeLock = null;
+      }
+      return;
     }
+    // 同一时刻只允许一个 request: 多文件并发启动时不会创建多个 sentinel
+    if (wakeLock || wakeLockPending || !navigator.wakeLock) return;
+    wakeLockPending = navigator.wakeLock
+      .request("screen")
+      .then((s) => {
+        wakeLock = s;
+        s.addEventListener("release", () => { if (wakeLock === s) wakeLock = null; });
+        return s;
+      })
+      .catch(() => null)
+      .finally(() => { wakeLockPending = null; });
   } catch (e) {}
 }
-function uploadFile(file) {
+function uploadFile(file, meta = {}) {
   // 单请求整文件直传(1.1.2 传输) + 保留功能: 同名自动改名、取消✕、锁屏防中断
   const id = "up-" + Date.now() + "-" + upSeq++;
   const name = uploadRelName(file);   // 文件夹入口保留: 相对路径经 X-Filename 下传
-  uploads.value.push({ id, name, pct: 0, speed: "", status: "waiting" });   // waiting = 真实排队
+  uploads.value.push({
+    id, name, size: file.size || 0, pct: 0, speed: "", status: "waiting",
+    t0: meta.t0 || Date.now() / 1000,
+    batch: meta.batch || ("b" + id),
+    batchSize: meta.batchSize || 1,
+    file,   // 失败重试复用原 File 对象
+  });   // waiting = 真实排队
   const stat = () => uploads.value.find(u => u.id === id);
   upQueue.push(() => startUpload(file, id, name, stat));
   pumpUploadQueue();
@@ -1661,6 +2159,8 @@ function startUpload(file, id, name, stat) {
       if (accessPin.value) { try { xhr.setRequestHeader("X-Access-Pin", accessPin.value); } catch (e) {} }
       xhr.setRequestHeader("X-Filename", encodeURIComponent(name));
       xhr.setRequestHeader("X-File-Size", String(file.size));
+      // 上传者昵称: 其他端的时间线文件卡片据此显示头像(服务端内存态, 重启后回落通用头像)
+      xhr.setRequestHeader("X-Nickname", encodeURIComponent(deviceNick()));
       xhr.setRequestHeader("Content-Type", "application/octet-stream");
       const t0 = Date.now();
       let lastTick = Date.now();
@@ -1680,6 +2180,7 @@ function startUpload(file, id, name, stat) {
         if (it) { it.status = "error"; showToast("上传超时：" + name, "error"); }
         try { xhr.abort(); } catch (e) {}
         finish();
+        updateWakeLock();   // abort 走 onabort 不会经过 onload/onerror 的释放
       }, 5000);
       xhr.upload.onprogress = (e) => {
         lastTick = Date.now();
@@ -1694,26 +2195,51 @@ function startUpload(file, id, name, stat) {
       xhr.onload = () => {
         const it = stat(); if (!it) return finish();
         if (xhr.status === 200) {
-          it.pct = 100; it.status = "done";
+          it.pct = 100; it.status = "done"; it.doneAt = Date.now();
+          it.file = null; it.xhr = null;   // 完成卡片不再需要 Blob/句柄, 及时释放内存
           // 同名自动改名: 服务端把实际落盘名放 final 字段, 变了才提示"已存为"
           let d = {};
           try { d = JSON.parse(xhr.responseText); } catch (_) {}
           const base = name.split("/").pop();
-          const finalBase = typeof d.final === "string" && d.final ? d.final.split("/").pop() : "";
-          if (finalBase && finalBase !== base) {
-            it.final = finalBase;
+          const finalRel = typeof d.final === "string" ? d.final : "";
+          const finalBase = finalRel.split("/").pop();
+          if (finalRel && finalBase && finalBase !== base) {
+            // 保存**完整相对路径**: 文件夹上传触发改名时, 只存 basename 会让卡片
+            // 的打开/分享/删除指向共享根目录下的另一个同名文件
+            it.final = finalRel;
+            // 服务端先广播再回响应: 弱网下可能已把改名后的文件当成"远端新增"加了卡片,
+            // 响应落地后按 final 名移除, 避免时间线出现本机+远端重复卡
+            remoteFiles.value = remoteFiles.value.filter((c) => c.name !== finalRel);
             showToast("目录里已有同名文件，已改存为 「" + finalBase + "」");
           }
           updateWakeLock();
+          lastSelfUploadAt = Date.now();
+          // 发送文件后立即定位到最新: 卡片先出现在时间线, 再补两次滚动覆盖渲染/布局变化
+          atBottom.value = true;
+          jumpCount.value = 0;
+          nextTick(scrollChats);
+          setTimeout(scrollChats, 150);
           loadFiles();
-          setTimeout(() => { uploads.value = uploads.value.filter(u => u.id !== id); }, UPLOAD_DONE_KEEP_MS);
+          // 完成卡片留在时间线里（这是“文件即消息”的核心）；只裁剪过长的历史。
+          // keep=0 时必须显式取空数组 —— slice(-0) 会退化成 slice(0) 保留全部。
+          if (uploads.value.length > 200) {
+            const live = uploads.value.filter(u => u.status === "uploading" || u.status === "waiting");
+            const history = uploads.value.filter(u => u.status !== "uploading" && u.status !== "waiting");
+            const keep = Math.max(0, 200 - live.length);
+            const kept = keep > 0 ? history.slice(-keep) : [];
+            history.slice(0, Math.max(0, history.length - keep))
+              .forEach(u => { u.file = null; u.xhr = null; });   // 丢弃卡片释放 Blob/XHR
+            uploads.value = [...live, ...kept];
+          }
         } else {
           // 配对码是独立保留功能: 401/429 唤起弹框并清掉旧码(否则队列里每个文件
-          // 都会继续带错码计数, 把本机 IP 越锁越死); 失败文案与 1.1.2 逐字一致
-          if (xhr.status === 401 || xhr.status === 429) { dropAccessPin(); needPin.value = true; }
+          // 都会继续带错码计数, 把本机 IP 越锁越死); 失败文案与 1.1.2 逐字一致。
+          // 例外: 服务端上传并发闸门也返回 429, 不能把合法 PIN 当成错码清掉。
+          const busy = xhr.status === 429 && /并发/.test(xhr.responseText || "");
+          if (xhr.status === 401 || (xhr.status === 429 && !busy)) { dropAccessPin(); needPin.value = true; }
           it.status = "error";
           updateWakeLock();
-          showToast("上传失败: " + name, "error");
+          showToast(busy ? "上传并发过多，请稍后重试" : "上传失败: " + name, "error");
         }
         finish();
       };
@@ -1746,16 +2272,181 @@ function cancelUpload(u) {
   removeUpload(u.id);
   updateWakeLock();
 }
+/* ---------- 时间线：消息 + 文件卡片 + 文件组 ---------- */
+function uploadName(u) { return u.final || u.name; }
+function uploadDisplayName(u) { return uploadName(u).split("/").pop(); }
+function uploadStatusText(u) {
+  if (u.status === "waiting") return "等待中";
+  if (u.status === "uploading") return `${u.pct}%${u.speed ? " · " + u.speed : ""}`;
+  if (u.status === "done") return u.final ? `已存为 ${uploadDisplayName(u)}` : "已上传";
+  return "上传失败";
+}
+function fileTone(name) {
+  const e = extFor(name);
+  if (e === "pdf") return "pdf";
+  if (IMG_EXTS.includes(e)) return "img";
+  if (["zip", "rar", "7z", "tar", "gz"].includes(e)) return "zip";
+  if (["mp4", "mov", "avi", "mkv", "webm"].includes(e)) return "vid";
+  if (["doc", "docx"].includes(e)) return "doc";
+  if (["xls", "xlsx", "csv"].includes(e)) return "xls";
+  if (["ppt", "pptx"].includes(e)) return "ppt";
+  if (["md", "txt"].includes(e)) return "txt";
+  if (["jks", "keystore", "pem", "key"].includes(e)) return "key";
+  return "file";
+}
+function retryUpload(u) {
+  const f = u.file;
+  if (!f) return;
+  const meta = { batch: u.batch, batchSize: u.batchSize, t0: Date.now() / 1000 };
+  removeUpload(u.id);
+  uploadFile(f, meta);
+}
+function openUpload(u) {
+  const n = uploadName(u);
+  if (!n) return;
+  if (isRealDesktop) openFile(n);
+  else downloadFileWeb(n);
+}
+function openRemote(r) {
+  if (!r || !r.name) return;
+  if (isRealDesktop) openFile(r.name);
+  else downloadFileWeb(r.name);
+}
+/* 缩略图点击: 桌面交给系统程序打开; 浏览器端能内联预览就预览, 不能则下载。
+   400ms 内同名连点只响应一次 —— 双击缩略图会连发 click, 否则会开两次预览/下载 */
+let thumbLast = { name: "", t: 0 };
+function openThumb(name) {
+  if (!name) return;
+  const now = Date.now();
+  if (thumbLast.name === name && now - thumbLast.t < 400) return;
+  thumbLast.name = name;
+  thumbLast.t = now;
+  if (isRealDesktop) openFile(name);
+  else if (isPreviewable(name)) previewFileWeb(name);
+  else downloadFileWeb(name);
+}
+function shareUpload(u) {
+  const n = uploadName(u);
+  if (n) shareFile(n);
+}
+function locateFile(name) {
+  if (!name) return;
+  const idx = sortedFiles.value.findIndex(f => f.name === name);
+  if (idx >= 0) currentPage.value = Math.floor(idx / PAGE_SIZE) + 1;
+  openFilePanel();
+  locatedName.value = name;
+  nextTick(() => {
+    const el = [...document.querySelectorAll("[data-file]")].find(e => e.dataset.file === name);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  });
+  setTimeout(() => { if (locatedName.value === name) locatedName.value = ""; }, 2600);
+}
+function locateUpload(u) { locateFile(uploadName(u)); }
+function openFileMenu(name) { blurMobileKeyboard(); fileMenuName.value = name; }
+function isMine(m) { return (m.nickname || "") === curNick.value; }
+function fmtClock(ts) {
+  try {
+    return new Date(ts * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  } catch (e) { return ""; }
+}
+const uploadCount = computed(() => uploads.value.filter(u => u.status === "waiting" || u.status === "uploading").length);
+const uploadAvgPct = computed(() => {
+  const active = uploads.value.filter(u => u.status === "waiting" || u.status === "uploading");
+  if (!active.length) return 0;
+  return Math.round(active.reduce((s, u) => s + (u.pct || 0), 0) / active.length);
+});
+function groupSize(items) { return (items || []).reduce((s, u) => s + (u.size || 0), 0); }
+function groupDone(items) { return (items || []).filter(u => u.status === "done").length; }
+function groupErr(items) { return (items || []).filter(u => u.status === "error").length; }
+function groupStatusText(items) {
+  const err = groupErr(items), done = groupDone(items);
+  if (err) return `${err} 个失败`;
+  if (done >= (items || []).length) return "已上传";
+  return `上传中 ${done}/${(items || []).length}`;
+}
+const timelineItems = computed(() => {
+  const items = [];
+  for (const m of chatMsgs.value) {
+    if (m.timestamp <= clearedTs.value) continue;
+    items.push({ kind: "msg", key: "m" + m.id, ts: m.timestamp, msg: m, html: renderQuote(m.quote) + mdChat(m.message) });
+  }
+  for (const r of remoteFiles.value) {
+    items.push({ kind: "remote", key: r.key, ts: r.ts, r });
+  }
+  const groups = new Map();
+  for (const u of uploads.value) {
+    if ((u.batchSize || 1) > 3) {
+      let g = groups.get(u.batch);
+      if (!g) {
+        g = { kind: "group", key: "g" + u.batch, batch: u.batch, ts: u.t0 || 0, items: [] };
+        groups.set(u.batch, g);
+      }
+      g.items.push(u);
+      g.ts = Math.min(g.ts, u.t0 || 0);
+    } else {
+      items.push({ kind: "file", key: "u" + u.id, ts: u.t0 || 0, u });
+    }
+  }
+  for (const g of groups.values()) {
+    g.items.sort((a, b) => (a.t0 || 0) - (b.t0 || 0));
+    items.push(g);
+  }
+  items.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  return items;
+});
+function onTimelineScroll(e) {
+  const el = e.target;
+  if (!el) return;
+  atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90;
+  // 滚回底部 = 已看到最新消息: 立即追平未读, 否则 WS 在线时角标会一直挂着
+  if (atBottom.value) { jumpCount.value = 0; markChatSeen(); }
+}
+function jumpToLatest() {
+  jumpCount.value = 0;
+  atBottom.value = true;
+  nextTick(() => { scrollChats(); markChatSeen(); });
+}
 
 /* ---------- 聊天 ---------- */
 const chatMsgs = ref([]);
 const chatInput = ref("");
+const chatInputEl = ref(null);
+// 多行输入: textarea 随内容长高(最高 160px 后内部滚动), 空内容/发送后回落单行
+function autoGrowInput() {
+  const el = chatInputEl.value;
+  if (!el) return;
+  el.style.height = "auto";
+  // 按 CSS 的实际 max-height 计算(移动端 140 / 桌面 160), 未超出时隐藏滚动条 ——
+  // 空输入框或单行内容不应出现右侧滑块。
+  const max = parseFloat(getComputedStyle(el).maxHeight) || 160;
+  el.style.height = Math.min(el.scrollHeight, max) + "px";
+  el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+}
+watch(chatInput, () => nextTick(autoGrowInput));
 const nickInput = ref("");
-const seenChat = ref(0);
+const seenChat = ref(0);       // 兼容旧代码的已读条数(实际未读用 id 计算)
+const seenChatId = ref(0);     // 最后一条已读消息 id: 满 200 条后条数恒定, 不能用条数算未读
 const chatCount = ref(0);
 const chatBox = ref(null);
-const unread = computed(() => Math.max(0, chatCount.value - seenChat.value));
+const unread = computed(() => chatMsgs.value.filter(m => m.id > seenChatId.value).length);
+function setSeenToLatest() {
+  const last = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1] : null;
+  seenChatId.value = last ? last.id : 0;
+  seenChat.value = chatCount.value;
+}
 const curNick = computed(() => nickInput.value.trim() || autoNick);
+/* 合并后只有「传输」一个页面: 页面在前台且窗口有焦点时, 消息可见即已读。
+   失焦/切后台保留未读; 浏览器标签标题同步未读数(桌面壳由侧栏角标承担)。 */
+function markChatSeen() {
+  if (view.value !== "transfer") return;
+  if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+  setSeenToLatest();
+}
+watch([unread, view], () => {
+  if (isQrPetWindow) return;
+  const base = "CC-Flash · " + (VIEW_TITLES[view.value] || "消息发送");
+  document.title = unread.value > 0 ? `(${unread.value}) ${base}` : base;
+}, { immediate: true });
 function avatarFor(nick) {
   const pool = AVATAR_POOL;
   let h = 0;
@@ -1792,56 +2483,88 @@ function saveNick() {
 }
 /* 聊天文本链接化: 先转义防 XSS, 再把 URL 包成可点击链接(桌面走系统浏览器) */
 function escHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-/* 轻量 Markdown: 围栏代码块 / 行内代码 / 粗体 / 斜体 / 删除线 / 链接 */
-function mdChat(raw) {
-  let s = escHtml(String(raw));
+/* 轻量 Markdown(行内): 行内代码 / [文字](链接) / 裸链接 / 粗体 / 斜体 / 删除线。
+   输入已整体转义, 这里只把匹配片段换成自己生成的标签, 内容无法注入 HTML。 */
+function mdInline(s) {
   const stash = [];
   const keep = (html) => { stash.push(html); return `\u0000${stash.length - 1}\u0000`; };
-  s = s.replace(/```[\w+-]*\r?\n?([\s\S]*?)```/g,
-    (m0, code) => keep(`<pre class="chat-code"><code>${code.replace(/\n+$/, "")}</code></pre>`));
   s = s.replace(/`([^`\n]+)`/g, (m0, c) => keep(`<code class="chat-inline">${c}</code>`));
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (m0, t, u) => keep(`<span class="chat-link" data-url="${u}" title="点击跳转到浏览器">${t}</span>`));
   s = s.replace(/(https?:\/\/[^\s<>\u0000]+)/gi,
     (u) => `<span class="chat-link" data-url="${u}" title="点击跳转到浏览器">${u}</span>`);
   s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   s = s.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
-  s = s.replace(/\n/g, "<br>");
   return s.replace(/\u0000(\d+)\u0000/g, (m0, i) => stash[Number(i)]);
 }
-/* 单条消息"删除"= 仅本机隐藏(与「清空数据」语义一致: 不影响其他设备与服务端记录);
-   签名用 "时间戳:id" —— 服务端重启后 id 从 1 重新分配, 只存 id 会把同号的新消息误删。
-   持久化到 localStorage: 刷新/重进页面后不再复现, 上限 CHAT_DEL_MAX 条防止无限增长 */
-const CHAT_DEL_MAX = 500;
-function loadDeletedChat() {
-  try {
-    const a = JSON.parse(localStorage.getItem(LS.chatDel) || "[]");
-    return Array.isArray(a) ? a.filter(x => typeof x === "string").slice(-CHAT_DEL_MAX) : [];
-  } catch (e) { return []; }
-}
-const deletedChat = ref(loadDeletedChat());
-function chatMsgSig(m) { return m.timestamp + ":" + m.id; }
-function persistDeletedChat() {
-  try { localStorage.setItem(LS.chatDel, JSON.stringify(deletedChat.value)); } catch (e) {}
-}
-function deleteChatMsg(m) {
-  const sig = chatMsgSig(m);
-  if (!deletedChat.value.includes(sig)) {
-    deletedChat.value = [...deletedChat.value, sig].slice(-CHAT_DEL_MAX);
-    persistDeletedChat();
+/* 轻量 Markdown(块级): 围栏代码块 / 标题 / 无序·有序列表 / 引用 / 分割线。
+   块级占位符用 \u0001 包裹, 避免与 mdInline 的 \u0000 占位符互相覆盖。 */
+function mdChat(raw) {
+  let s = escHtml(String(raw));
+  const stash = [];
+  const keep = (html) => { stash.push(html); return `\u0001${stash.length - 1}\u0001`; };
+  // 围栏代码块先摘出来: 内容里的 * # - 等不能被后续规则误伤
+  s = s.replace(/```[\w+-]*\r?\n?([\s\S]*?)```/g,
+    (m0, code) => keep(`<pre class="chat-code"><code>${code.replace(/\n+$/, "")}</code></pre>`));
+
+  const out = [];
+  let para = [];
+  let list = null;
+  let quote = null;
+  const flushPara = () => {
+    if (!para.length) return;
+    out.push(`<div class="chat-p">${para.map(mdInline).join("<br>")}</div>`);
+    para = [];
+  };
+  const flushList = () => {
+    if (!list) return;
+    out.push(`<${list.tag} class="chat-list">${list.items.map(i => `<li>${mdInline(i)}</li>`).join("")}</${list.tag}>`);
+    list = null;
+  };
+  const flushQuote = () => {
+    if (!quote) return;
+    out.push(`<blockquote class="chat-md-quote">${quote.map(mdInline).join("<br>")}</blockquote>`);
+    quote = null;
+  };
+  const flushAll = () => { flushPara(); flushList(); flushQuote(); };
+
+  for (const line of s.split(/\r?\n/)) {
+    if (/^\u0001\d+\u0001$/.test(line.trim())) { flushAll(); out.push(line.trim()); continue; }
+    const h = line.match(/^\s*(#{1,6})\s+(.*)$/);
+    if (h) { flushAll(); out.push(`<div class="chat-h${h[1].length}">${mdInline(h[2])}</div>`); continue; }
+    if (/^\s*([-*_])\s*(?:\1\s*){2,}$/.test(line)) { flushAll(); out.push('<hr class="chat-hr">'); continue; }
+    const q = line.match(/^\s*(?:>|&gt;)\s?(.*)$/);   // escHtml 已把 > 转成 &gt;
+    if (q) { flushPara(); flushList(); if (!quote) quote = []; quote.push(q[1]); continue; }
+    const ul = line.match(/^\s*[-*+]\s+(.*)$/);
+    if (ul) {
+      flushPara(); flushQuote();
+      if (list && list.tag !== "ul") flushList();
+      if (!list) list = { tag: "ul", items: [] };
+      list.items.push(ul[1]);
+      continue;
+    }
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (ol) {
+      flushPara(); flushQuote();
+      if (list && list.tag !== "ol") flushList();
+      if (!list) list = { tag: "ol", items: [] };
+      list.items.push(ol[1]);
+      continue;
+    }
+    if (!line.trim()) { flushAll(); continue; }
+    flushList(); flushQuote(); para.push(line);
   }
-  // 误点可撤回: 提示停留 4s, 撤销即从隐藏集合移除
-  showToast("已删除（仅本机隐藏）", "success", {
-    label: "撤销",
-    fn: () => {
-      deletedChat.value = deletedChat.value.filter(s => s !== sig);
-      persistDeletedChat();
-    },
-  });
+  flushAll();
+  return out.join("").replace(/\u0001(\d+)\u0001/g, (m0, i) => stash[Number(i)]);
 }
-function copyChatMsg(m) { copyText(String(m.message || ""), "消息已复制"); }
-const displayMsgs = computed(() => chatMsgs.value
-  .filter(m => !deletedChat.value.includes(chatMsgSig(m)))
-  .map(m => ({ ...m, html: mdChat(m.message) })));
+/* 引用块与正文一起进 v-html: 引用内容同样转义, 只保留一行, 防止长引用撑爆气泡 */
+function renderQuote(q) {
+  if (!q || !q.message) return "";
+  const nick = escHtml(String(q.nickname || ""));
+  const text = escHtml(String(q.message)).replace(/\s*\n\s*/g, " ");
+  return `<div class="tx-quote"><b>${nick}</b><span>${text}</span></div>`;
+}
 /* 聊天内链接点击: 注册在组件生命周期内(挂载/卸载成对), 避免热重载时重复监听 */
 function onDocChatClick(e) {
   const link = e.target.closest(".chat-link");
@@ -1883,25 +2606,47 @@ async function loadChat() {
     // 水位过滤是"已清空历史不再复现"的唯一保证: 旧实现用 chatCleared 布尔开关, 新消息一到
     // 开关即解除, 全量 msgs 覆盖显示 → 之前清掉的历史整段回来。过滤后新消息正常出现,
     // 水位之下(已清空)的永远不再进入本窗口; clearedTs 初始为 0, 未清空时全员放行
-    chatMsgs.value = msgs.filter((m) => m.timestamp > clearedTs.value);
+    // 内容没变就不替换数组: 轮询/WS 重复拉取同一批消息时,
+    // 旧实现每次都重建 list → 整条时间线重渲染, 输入时光标被反复打断。
+    // 签名必须覆盖完整 id 列表: 只比"条数+末条 id"时, 服务端删除末条后
+    // 新消息复用同一 id, "删除+新增"在一次拉取内完成会被误判为没变化。
+    const prevLastId = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].id : 0;
+    const visible = msgs.filter((m) => m.timestamp > clearedTs.value);
+    const sig = visible.map((m) => m.id).join(",") + "|" + clearedTs.value;
+    if (sig !== loadChat._sig) {
+      loadChat._sig = sig;
+      chatMsgs.value = visible;
+    }
     chatCount.value = msgs.length;
+    const firstLoad = !loadChat._init;
     if (isQrPetWindow && petActivity.observeMessages(msgs)) markPetNotify();
+    // 首次拉取把已有历史视为已读: 后台自启/刚打开页面时不应顶着 99+ 未读
+    if (firstLoad) {
+      setSeenToLatest();
     // 断网恢复: 失联期间离线清空了本地计数, 恢复首拉若按全量算未读会瞬间冲到 99+ ——
     // 把恢复瞬间的历史视为已读, 之后的新消息照常计数
-    if (chatRecoveredOffline) {
+    } else if (chatRecoveredOffline) {
       chatRecoveredOffline = false;
-      seenChat.value = chatCount.value;
-    } else if (view.value === "chat" || chatOpen.value || (!isDesktop && !isNarrow)) {
-      seenChat.value = chatCount.value;
+      setSeenToLatest();
+    } else if (atBottom.value) {
+      markChatSeen();
+    } else {
+      // 用户上翻看历史: 新消息不能被静默标已读, 计入胶囊与未读角标
+      const fresh = msgs.filter((m) => m.id > prevLastId).length;
+      if (fresh > 0) jumpCount.value += fresh;
     }
     // 滚动判据用"最后一条消息 id"而非条数: 服务端封顶 200 条后条数恒定,
     // 旧判据 (msgs.length !== old) 永假 —— 聊天满 200 条后新消息不再自动滚到底
     const lastSig = msgs.length ? msgs[msgs.length - 1].id : 0;
-    if (lastSig !== loadChat._lastSig || !loadChat._init) {
-      loadChat._init = true;
+    if (lastSig !== loadChat._lastSig) {
       loadChat._lastSig = lastSig;
+      // 用户上翻看历史时不能被强制拽到底: 只有贴底或首拉才跟随;
+      // 未读胶囊已在上面按实际新增条数累加, 这里不再重复计数
+      if (firstLoad || atBottom.value) nextTick(scrollChats);
+    } else if (!loadChat._init) {
       nextTick(scrollChats);
     }
+    loadChat._init = true;
   } catch (e) { console.error(e); }
   loadingChat = false;
   if (reloadChatQueued) { reloadChatQueued = false; loadChat(); }
@@ -1910,24 +2655,159 @@ async function loadChat() {
    isComposing/keyCode 229 时不得触发发送 —— 否则把未上屏的拼音串当消息发出去 */
 function onChatEnter(e) {
   if (e.isComposing || e.keyCode === 229) return;
+  // 触屏: 回车换行(点发送按钮提交); 桌面: 回车发送, Shift+回车换行
+  if (touchOnly || e.shiftKey) return;
   e.preventDefault();
   sendChat();
 }
+const sending = ref(false);
+const quoting = ref(null);   // 引用中的消息快照: { id, nickname, message } | null
+const activeMsgKey = ref("");   // 浏览器/触屏: 点击气泡展开操作按钮(桌面壳走 hover)
+function onMsgClick(it) {
+  if (isRealDesktop) return;   // 桌面壳用悬停, 点击不锁操作条
+  activeMsgKey.value = activeMsgKey.value === it.key ? "" : it.key;
+}
+function startQuote(m) {
+  if (!m) return;
+  quoting.value = {
+    id: m.id,
+    nickname: m.nickname || "",
+    message: String(m.message || "").slice(0, 200),
+  };
+  nextTick(() => { const el = document.querySelector(".tx-input"); if (el) el.focus(); });
+}
+function copyMessage(m) {
+  if (!m) return;
+  copyText(String(m.message || ""), "消息已复制");
+}
+async function deleteMessage(m) {
+  if (!m || offlineGuard()) return;
+  let yes = false;   // 默认不删: 确认框异常时绝不能静默执行跨端删除
+  try {
+    if (isRealDesktop) {
+      yes = await askDialog("删除这条消息？所有设备都将看不到它。", { title: "删除消息", kind: "warning" });
+    } else {
+      yes = window.confirm("删除这条消息？所有设备都将看不到它。");
+    }
+  } catch (_) {
+    showToast("无法弹出确认框，请重试", "error");
+    return;
+  }
+  if (!yes) return;
+  try {
+    const r = await apiFetch(apiBase.value + API.chatDelete(m.id), { method: "DELETE" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "删除失败");
+    loadChat();
+    showToast("消息已删除");
+  } catch (e) {
+    showToast(e.message || "删除失败", "error");
+  }
+}
+function _fillChatText(text) {
+  chatInput.value = String(text).slice(0, cfg.value.msgMax);
+  showToast("已粘贴剪贴板文本");
+  nextTick(() => { const el = document.querySelector(".tx-input"); if (el) el.focus(); });
+}
+/* 原生剪贴板图片 → PNG File: 插件给的是 RGBA 原始像素, 经 canvas 编码后才能上传 */
+async function _pasteNativeImage() {
+  const img = await readClipboardImage();
+  if (!img) return false;
+  const size = await img.size();
+  if (!size || !size.width || !size.height) return false;
+  const rgba = await img.rgba();
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), size.width, size.height), 0, 0);
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+  if (!blob) return false;
+  handleFiles([new File([blob], `粘贴图片-${Date.now()}.png`, { type: "image/png" })]);
+  showToast("已粘贴剪贴板图片");
+  return true;
+}
+/* 点「粘贴」: 先看剪贴板有没有文本, 再看有没有图片/文件; 都没有才提示。
+   桌面/移动壳走原生剪贴板插件 —— 自定义协议下 WebView 的 Clipboard API 常被拒绝;
+   浏览器仅在安全上下文(https/localhost)才有 Clipboard API, http 局域网地址读不到。 */
+async function pasteFromClipboard() {
+  plusOpen.value = false;
+  if (isDesktop) {
+    try {
+      const text = await readClipboardText();
+      if (text && text.trim()) { _fillChatText(text); return; }
+    } catch (_) {}
+    try { if (await _pasteNativeImage()) return; } catch (_) {}
+    showToast("剪贴板里没有可粘贴的文本或图片（复制文件请直接 Cmd/Ctrl+V）", "error");
+    return;
+  }
+  const focusInput = () => { const el = document.querySelector(".tx-input"); if (el) el.focus(); };
+  if (!navigator.clipboard) {
+    // http 局域网地址不是安全上下文: 浏览器不提供 Clipboard API, 只能引导用户长按粘贴
+    focusInput();
+    showToast("浏览器限制无法读取剪贴板，请长按输入框选择「粘贴」", "error");
+    return;
+  }
+  let text = "";
+  let denied = false;
+  try { text = await navigator.clipboard.readText(); } catch (_) { denied = true; }
+  if (text && text.trim()) { _fillChatText(text); return; }
+  if (denied) {
+    focusInput();
+    showToast("无法读取剪贴板，请长按输入框选择「粘贴」", "error");
+    return;
+  }
+  try {
+    const items = await navigator.clipboard.read();
+    const files = [];
+    for (const item of items) {
+      for (const type of item.types) {
+        if (!type.startsWith("image/")) continue;
+        const blob = await item.getType(type);
+        const ext = type === "image/jpeg" ? "jpg" : (type.split("/")[1] || "png");
+        files.push(new File([blob], `粘贴图片-${Date.now()}.${ext}`, { type }));
+      }
+    }
+    if (files.length) { handleFiles(files); showToast(`已粘贴 ${files.length} 个文件`); return; }
+  } catch (_) {}
+  showToast("剪贴板里没有可粘贴的文件或文本", "error");
+}
 async function sendChat() {
+  if (sending.value) return;   // 连按回车/连点发送只产生一条消息
   const text = chatInput.value.trim();
   if (!text) return;
   const nickname = curNick.value;
+  const quote = quoting.value;
   saveNick();
+  sending.value = true;
+  chatInput.value = "";        // 立即清空: 响应在途期间不允许重复提交
   try {
     const r = await apiFetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(nickname), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nickname, message: text }),
+      body: JSON.stringify({ nickname, message: text, ...(quote ? { quote } : {}) }),
     });
     const d = await r.json();
-    if (d.ok) { chatInput.value = ""; loadChat(); }
-    else showToast(d.error || "发送失败", "error");
-  } catch (e) { showToast("发送失败", "error"); }
+    if (d.ok) {
+      quoting.value = null;
+      atBottom.value = true;
+      jumpCount.value = 0;
+      loadChat();
+      // 发送后立即钉到最新一条: 消息渲染/WS 回拉/移动端键盘动画都会改变高度, 多补两次
+      nextTick(scrollChats);
+      setTimeout(scrollChats, 150);
+      setTimeout(scrollChats, 450);
+    } else {
+      if (!chatInput.value) chatInput.value = text;   // 失败回填
+      showToast(d.error || "发送失败", "error");
+    }
+  } catch (e) {
+    if (!chatInput.value) chatInput.value = text;
+    showToast("发送失败", "error");
+  } finally {
+    sending.value = false;
+  }
 }
 
 /* ---------- 提示 ---------- */
@@ -1950,6 +2830,9 @@ const introSec = ref("feat");   // scroll spy 当前所在区块
 const INTRO_FAQS = [
   { q: "手机需要安装 App 吗？", a: "不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户如果想要原生体验，也可以直接安装我们提供的 APK。" },
   { q: "屏幕边缘的呼吸小球是什么？", a: "桌面端常驻的悬浮二维码：贴边只露一半，鼠标停留 1.5 秒展开「浏览器扫一扫」预览卡，移开自动收起；外圈呼吸=服务运行中、静止=已停止，环上绿点=有新文件或新消息。按住可拖到任意边缘，支持扩展屏——拖到哪块屏就吸哪块屏，位置连同屏幕一起记住、重启回原处，关闭入口在「CC设置 → 悬浮二维码」。" },
+  { q: "文件列表去哪了？", a: "收进了「共享文件」抽屉 / 面板：桌面点房间头文件夹图标（或右侧抽屉），手机点顶部文件夹或＋面板里的「共享文件」。排序、分页、全选、批量删除都在里面；上传的文件同时以卡片出现在对话里。" },
+  { q: "能直接预览文件吗？", a: "图片、PDF、纯文本（txt/md/log/csv）和音视频可以在应用内直接预览：点缩略图或「预览」打开全屏层，右上角「关闭」或按 Esc 即回到聊天。Office 文档、压缩包等浏览器无法渲染的类型仍需下载后查看；为安全起见 html/svg/xml 不会以网页形式打开。" },
+  { q: "聊天支持 Markdown 吗？", a: "支持常用语法：标题、无序/有序列表、引用、分割线、围栏代码块，以及行内代码、粗体、斜体、删除线、[文字](链接) 和裸链接。输入框是多行的——桌面端 Enter 发送、Shift+Enter 换行；手机端 Enter 换行，点「发送」提交。" },
   { q: "文件会上传到外网或云服务器吗？", a: "不会。HTTP 服务只监听你的电脑，所有传输都发生在局域网内部，不经过任何第三方服务器。拔掉外网网线，功能一切照常。" },
   { q: "端口被占用了怎么办？", a: "默认端口 1688，被占用时自动向后顺延探测（最多 20 个），当前生效地址会实时显示在顶栏与二维码中；也可以在「服务中心」手动指定端口。" },
   { q: "关闭窗口后服务会停止吗？", a: "不会。关窗只是把窗口收进系统托盘，服务继续保持运行，手机端不受影响；开机自启默认关闭，可在「CC设置」中手动开启。真正退出请点托盘菜单中的「退出」。" },
@@ -1973,7 +2856,7 @@ function closeIntro() { introShow.value = false; stopIntroSpy(); }   // 停掉 s
 watch(introShow, (v) => { document.body.style.overflow = v ? "hidden" : ""; });
 function goServiceFromIntro() { closeIntro(); setView("service"); }
 /* Hero「立即开始传输」→ 关介绍页后进文件传输(顶栏「去启动服务」才去服务中心) */
-function goTransferFromIntro() { closeIntro(); setView("files"); }
+function goTransferFromIntro() { closeIntro(); setView("transfer"); }
 function introScrollTo(sec) {
   const root = document.getElementById("introOverlay");
   const el = document.getElementById("sec-" + sec);
@@ -2073,6 +2956,8 @@ function connectWs() {
     wsRetryDelay = 1000;
     lastWsMsg = Date.now();
     applyWsMode();
+    // 服务端重启会清空内存票据: 重连即作废本地缓存, 避免分享出死链
+    clearShareTicketCache();
     loadChat();     // 连接即全量同步一次, 补上断线窗口期
     loadFiles();
   };
@@ -2083,9 +2968,16 @@ function connectWs() {
     if (ev.type === "chat:new") {
       markPetNotify();
       loadChat();
+    } else if (ev.type === "chat:changed") {
+      // 删除消息: 只重拉, 不点新消息提醒
+      loadChat();
     } else if (ev.type === "files:changed") {
       // 上传完成直接点亮，不依赖列表基线/HTTP 拉取；删除也发 files:changed，需区分。
-      if (ev.action === "uploaded") markPetNotify();
+      if (ev.action === "uploaded") {
+        markPetNotify();
+        // 别人上传且抽屉/面板关着时，在文件夹按钮上点绿点；自己的上传不点
+        if (!filePanelVisible() && Date.now() - lastSelfUploadAt > 3000) fileDot.value = true;
+      }
       loadFiles();
     }
     else if (ev.type === "status:up" || ev.type === "status:down") refreshStatus();
@@ -2094,8 +2986,14 @@ function connectWs() {
   ws.onerror = () => { try { ws && ws.close(); } catch (_) {} };
 }
 // WS 在线时停掉聊天/列表轮询(省电省请求); 断开时恢复轮询兜底
+let wsLiveState = null;   // null = 尚未初始化; 只有状态真正翻转才重排计时器
 function applyWsMode() {
-  const live = ws && ws.readyState === WebSocket.OPEN;
+  const live = !!(ws && ws.readyState === WebSocket.OPEN);
+  // 断线重连会按退避不断 closeWs→applyWsMode; 旧实现每次都 clear+setInterval,
+  // 1s/2s/4s/8s 的重连节奏永远等不到 5s 的文件轮询 —— WS 连不上时列表/聊天停更。
+  // 状态没翻转就不动计时器, 让既有间隔正常跑满。
+  if (live === wsLiveState) return;
+  wsLiveState = live;
   clearInterval(chatTimer); chatTimer = null;
   clearInterval(filesTimer); filesTimer = null;
   if (!live) {
@@ -2105,8 +3003,14 @@ function applyWsMode() {
 }
 // 服务启停/端口变化时管理连接
 watch([running, port], () => {
-  if (running.value && port.value) connectWs();
-  else { closeWs(); }
+  // 悬浮码窗已关闭(隐藏)时完全不建立 WS: 隐藏的 96px WebView 不该持续拉聊天/文件
+  if (isQrPetWindow && !qrFloatEnabled.value) { closeWs(); return; }
+  if (running.value && port.value) {
+    connectWs();
+    // 桌面壳的 apiBase 依赖实际端口: 启动瞬间 port 还是默认值/0, 首拉可能失败;
+    // 状态接口拿到真实端口后补拉一次, 不必等 5s 轮询或 WS 建连
+    if (isDesktop && view.value === "transfer") { loadFiles(false); loadChat(); }
+  } else { closeWs(); }
 });
 // Pet 显隐只由开关决定(服务停止也常驻圆点, 用状态点表达运行/停止)。
 // petPrefsReady: 开关权威值从 Rust pref 文件异步加载, 加载完才放行显隐 —— 否则启动时
@@ -2136,8 +3040,8 @@ watch([running, qrData, qrFloatEnabled], () => { syncPetVisibility(); }, { immed
 if (isQrPetWindow) {
   watch(qrFloatEnabled, (v) => {
     if (!petPrefsReady) return;
-    if (v) { startPolling(); refreshStatus(); connectWs(); }
-    else { stopPolling(); closeWs(); }
+    if (v) { petStartTimers(); startPolling(); refreshStatus(); connectWs(); }
+    else { petStopTimers(); stopPolling(); closeWs(); }
   });
 }
 
@@ -2170,6 +3074,7 @@ function stopPolling() {
   clearInterval(logTimer);
   clearInterval(statusTimer);
   clearInterval(filesTimer);
+  wsLiveState = null;   // 计时器已被清空: 下次 applyWsMode 必须重新排程
 }
 onMounted(() => {
   // 主窗首帧就绪信号: Rust 收到 main://ready 才 show —— 消灭「空壳先出、内容后蹦」
@@ -2180,6 +3085,59 @@ onMounted(() => {
   }
   document.addEventListener("paste", onPaste);
   document.addEventListener("click", onDocChatClick);
+  // 合并页未读：回到窗口/标签页时，若传输页可见则立即追平已读
+  const onSeenSignal = () => {
+    markChatSeen();
+    if (document.visibilityState !== "visible") return;
+    // 手机浏览器切后台会冻结定时器/留下半开 WS: 回到前台立即补拉一次,
+    // 不等 3s 轮询或重连退避 —— 否则"桌面发的消息手机没收到"要等很久
+    if (!isRealDesktop) { loadChat(); loadFiles(false); }
+    if (!ws || ws.readyState !== WebSocket.OPEN) connectWs();
+  };
+  window.addEventListener("focus", onSeenSignal);
+  document.addEventListener("visibilitychange", onSeenSignal);
+  onMountedCleanup(() => {
+    window.removeEventListener("focus", onSeenSignal);
+    document.removeEventListener("visibilitychange", onSeenSignal);
+  });
+  // 视口变化(软键盘收放/手机地址栏折叠/横竖屏): 贴底时重新钉到最新消息
+  const onViewportResize = () => { if (atBottom.value) nextTick(scrollChats); };
+  // iOS Safari: 键盘/底部工具栏会改变 visualViewport 的高度和偏移。
+  // fixed 布局必须同时跟随 offsetTop, 否则键盘弹出时输入框会被顶出可视区(输入框消失)
+  const syncAppViewportHeight = () => {
+    // 移动壳(isDesktop=true, isRealDesktop=false)同样需要: 其 WebView 与手机 Safari
+    // 一样可能是"键盘覆盖视口而不 resize", 跳过会导致输入栏被键盘遮住
+    if (isRealDesktop) return;
+    const vv = window.visualViewport;
+    const h = (vv && vv.height) || window.innerHeight;
+    const top = (vv && vv.offsetTop) || 0;
+    document.documentElement.style.setProperty("--app-vh", Math.round(h) + "px");
+    document.documentElement.style.setProperty("--app-vv-top", Math.round(top) + "px");
+  };
+  const onResize = () => {
+    syncAppViewportHeight();
+    requestAnimationFrame(syncAppViewportHeight);   // 键盘动画期间高度会连续变化, 下一帧再校准一次
+    // 软键盘弹出(可视高度骤减): 收起加号/更多浮层, 把空间还给聊天区
+    const vv = window.visualViewport;
+    if (isNarrow.value && vv && vv.height < window.innerHeight * 0.75) {
+      plusOpen.value = false;
+      moreOpen.value = false;
+    }
+    onViewportResize();
+  };
+  syncAppViewportHeight();
+  window.addEventListener("resize", onResize);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", onResize);
+    window.visualViewport.addEventListener("scroll", onResize);
+  }
+  onMountedCleanup(() => {
+    window.removeEventListener("resize", onResize);
+    if (window.visualViewport) {
+      window.visualViewport.removeEventListener("resize", onResize);
+      window.visualViewport.removeEventListener("scroll", onResize);
+    }
+  });
   // 壳内下载完成通知(Rust on_download 落盘后 emit): 提示保存位置
   if (isDesktop) {
     listen("download://done", (e) => {
@@ -2209,6 +3167,11 @@ onMounted(() => {
   const escIntro = (e) => { if (e.key === "Escape" && introShow.value) closeIntro(); };
   document.addEventListener("keydown", escIntro);
   onMountedCleanup(() => document.removeEventListener("keydown", escIntro));
+  // Esc 关闭文件预览(预览层优先于介绍页)
+  const escPreview = (e) => { if (e.key === "Escape" && previewName.value) closePreview(); };
+  document.addEventListener("keydown", escPreview);
+  onMountedCleanup(() => document.removeEventListener("keydown", escPreview));
+  // 气泡引导不响应 Esc: 只有用户点开共享文件入口才收起并记录
   // 拖拽兜底: 文件拖到 dropzone 之外(页面边缘/侧栏)松手时, 浏览器默认会导航到该文件,
   // 整个页面被替换且无法后退。只在携带 Files 时拦默认行为, 不影响页面内文本拖选
   const preventFileDragNav = (e) => {
@@ -2269,45 +3232,9 @@ onMounted(() => {
       // [临时探针] boot = 页面启动+写通道存活; doc-over = 事件是否进了页面。
       // 与 petEnter 的 enter/expand-fire 串联可精确定位悬停断链环节
       petDiag({ fn: "boot", t: Date.now() });
-      // 在场轮询: 悬停判定的权威通道(250ms), 不依赖边界事件
-      petPollPresence();
-      petPollTimer = setInterval(petPollPresence, 250);
-      // 屏幕拓扑自愈: 启动落位重试只覆盖前 ~3 分钟; 睡眠/改分辨率/拔屏后窗口若整体
-      // 移出工作区(悬停够不到、onMoved 不触发), 30s 巡检发现即按停靠记忆重新落位。
-      // 另覆盖扩展屏"离线兜底 → 插回归位": 上次落位用了兜底屏(记忆屏不在)而这次
-      // 记忆屏找得到(monBack) → 主动搬回记忆屏, 不等窗口中心恰好越界
-      petHealTimer = setInterval(() => {
-        if (petResizing) return;
-        (async () => {
-          try {
-            const win = getCurrentWebviewWindow();
-            const wa = await petWorkArea(true);
-            if (!wa) return;
-            let fresh = false;
-            if (!petDock) {
-              // 启动重试(约3分钟)全失败后的唯一再初始化入口: 显示器唤醒即可恢复
-              setPetDock(await petLoadDock() || { edge: "left", cross: wa.h / 2 });
-              fresh = true;
-            }
-            const monBack = petWaFallback && !wa.viaFallback;
-            const p = await win.outerPosition();
-            const s = await win.outerSize();
-            // Windows 统一在物理像素空间比较(混合 DPI 下逻辑换算会跨屏失真)
-            const cx = isWindows ? p.x + s.width / 2 : p.x / wa.sf + (s.width / wa.sf) / 2;
-            const cy = isWindows ? p.y + s.height / 2 : p.y / wa.sf + (s.height / wa.sf) / 2;
-            const pad = isWindows ? 16 * wa.sf : 16;
-            const mx = isWindows ? wa.x * wa.sf : wa.x;
-            const my = isWindows ? wa.y * wa.sf : wa.y;
-            const mw = isWindows ? wa.w * wa.sf : wa.w;
-            const mh = isWindows ? wa.h * wa.sf : wa.h;
-            const outside = cx < mx - pad || cx > mx + mw + pad || cy < my - pad || cy > my + mh + pad;
-            if (fresh || monBack || outside) {
-              petDiag({ fn: "heal", fresh, monBack, cx: Math.round(cx), cy: Math.round(cy) });
-              await petApply();
-            }
-          } catch (e) { /* 瞬时异常, 下一巡再试 */ }
-        })();
-      }, 30000);
+      // 在场轮询 + 30s 拓扑自愈; 悬浮码一开始就是关闭态时不启动
+      // (watcher 只在值变化时触发, 初值即 false 会让隐藏小窗永久轮询)
+      if (qrFloatEnabled.value) petStartTimers();
       // [临时探针] JS 心跳: 每 2.5s 一次共 8 次 —— 区分"页面 JS 线程卡死"与"事件没投递"
       let hbN = 0;
       const hbTimer = setInterval(() => {
@@ -2355,16 +3282,27 @@ onMounted(() => {
     }
     refreshControl();
     refreshAutostart();
+    // 桌面端把当前配色/明暗写入 pref, 供 /api/info 下发给浏览器/移动壳跟随
+    saveTextPref("ui-theme", theme.value);
+    saveTextPref("ui-mode", themeMode.value);
+    // 首次进入提示共享文件入口(仅桌面端, 不自动收起)
+    setTimeout(maybeShowFileHint, 1500);
     // 启动静默检查更新: 延迟触发(等 appVersion 下发到位) + 24h 频控, 失败/无更新均无感;
     // 悬浮码窗(pet)不检查 —— 否则更新弹窗会把 96×96 的小窗整个盖死
     setTimeout(() => {
       if (!isQrPetWindow && Date.now() - lastCheckedAt() >= UPDATE_CHECK_INTERVAL_MS) checkUpdate(false);
     }, UPDATE_CHECK_DELAY_MS);
   }
-  loadFiles();
-  loadChat();
-  refreshStatus();
-  startPolling();
+  // 悬浮码窗在"关闭"状态下完全不拉数据/不轮询: 它只是个隐藏的 96px 小窗,
+  // 之前无条件启动会让它持续 250ms IPC + WS + 3s/5s 轮询, 白耗电
+  if (!(isQrPetWindow && !qrFloatEnabled.value)) {
+    loadFiles();
+    loadChat();
+    refreshStatus();
+    startPolling();
+  }
+  // 首帧后补滚一次: 图片/字体落地会改变列表高度, 首次 nextTick 时可能还没贴底
+  setTimeout(scrollChats, 300);
 });
 onUnmounted(() => {
   setupDisposed = true;
@@ -2378,8 +3316,7 @@ onUnmounted(() => {
   clearTimeout(petSnapTimer);
   clearTimeout(petHoverTimer);
   clearTimeout(petCloseTimer);
-  if (petPollTimer) clearInterval(petPollTimer);
-  if (petHealTimer) clearInterval(petHealTimer);
+  petStopTimers();
   // 窄屏断点监听: 此前从不反注册, 热重载后回调叠加(closeChat 被重复触发)
   if (typeof mq.removeEventListener === "function") mq.removeEventListener("change", onMqChange);
   else if (typeof mq.removeListener === "function") mq.removeListener(onMqChange);
@@ -2392,6 +3329,21 @@ onUnmounted(() => {
 });
 
 const logsBox = ref(null);
+const logQuery = ref("");
+const filteredLogs = computed(() => {
+  const terms = logQuery.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return logs.value;
+  return logs.value.filter((e) => {
+    const hay = `${e.ts} ${lvlName(e.level)} ${e.loc} ${e.msg}`.toLowerCase();
+    return terms.every((t) => hay.includes(t));
+  });
+});
+watch(logQuery, () => {
+  nextTick(() => {
+    const b = logsBox.value;
+    if (b) b.scrollTop = b.scrollHeight;   // 过滤后定位到最新匹配
+  });
+});
 async function refreshLogs() {
   // 只在服务中心页在台前时拉取: 日志面板仅此页展示, 其余视图每 2s 空拉+全量重排是纯浪费
   if (view.value !== "service") return;
@@ -2432,6 +3384,7 @@ async function clearLogs() {
     if (isDesktop) await tauriInvoke("control_clear_logs_cmd");
     else await apiFetch(apiBase.value + API.logsClear, { method: "POST" });
     logs.value = [];
+    logQuery.value = "";
     showToast("日志已清空");
   } catch (e) {
     showToast("清空日志失败", "error");
@@ -2520,7 +3473,7 @@ async function refreshStatus() {
     const d = isRealDesktop
       ? await tauriInvoke("control_status_cmd")
       : await (await apiFetch(apiBase.value + API.info)).json();
-    if (typeof d.pinEnabled === "boolean") { pinEnabled.value = d.pinEnabled; pinCode.value = d.pin || ""; clearAccessPinIfOff(pinEnabled.value); }
+    syncPinState(d);
     // 轮询成功(=电脑端已关闭访问码, 约束真实解除)才收起输入框, 且给提示让"自动消失"可理解;
     // 访问码仍开启时所有请求 401, 永远走不到这里 —— 弹框不会被静默清掉。
     // 刻意不设"取消"按钮: 码仍生效时, 底下页面每次请求都会 401 再度弹回
@@ -2552,6 +3505,7 @@ async function refreshStatus() {
     syncPortInput(running.value, d.port);
     if (typeof d.version === "string") appVersion.value = d.version;
     applyServerConfig(d.config);
+    applyServerUiTheme(d);
     if (d.share && document.activeElement?.tagName !== "INPUT") shareInput.value = d.share;
     if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
     const ip = d.ip || "";
@@ -2589,6 +3543,15 @@ async function refreshStatus() {
       chatMsgs.value = [];
       chatCount.value = 0;
       seenChat.value = 0;
+      seenChatId.value = 0;
+      // 清空数组的同时必须让"内容签名"失效: 否则恢复后服务端内容与断网前一致,
+      // loadFiles/loadChat 会因签名相同跳过赋值, 界面永久停在空列表
+      loadFiles._sig = null;
+      loadChat._sig = null;
+      loadChat._lastSig = null;
+      loadChat._init = false;
+      knownFileNames = null;
+      remoteFiles.value = [];
       // clearedTs 不重置: 本机清空意图不应被一次网络抖动(离线→恢复)作废,
       // 否则短暂失联重连后已清空的历史又会全量回来
     }
@@ -2609,11 +3572,11 @@ async function refreshStatus() {
       <p v-if="addrErr" class="cg-err">❌ {{ addrErr }}</p>
     </div>
   </div>
-  <div v-if="!isQrPetWindow" class="shell">
+  <div v-if="!isQrPetWindow" class="shell" :class="{ 'transfer-active': view === 'transfer', 'has-wx-banner': isWeChat, 'real-desktop': isRealDesktop }">
     <!-- 微信内置浏览器拦非微信域名下载: 顶部常驻引导(右上角 ⋯ → 在浏览器打开) -->
     <div v-if="isWeChat" class="wx-banner">ⓘ 当前在微信内打开，文件下载可能被拦截 —— 点右上角 <b>⋯</b> 选择「<b>在浏览器打开</b>」即可正常传输</div>
     <!-- ===== 侧边栏(仅桌面壳) ===== -->
-    <aside v-if="isDesktop" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <aside v-if="isDesktop && !mobileShell" class="sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="brand">
         <div class="logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
         <div class="t">CC-Flash</div>
@@ -2623,12 +3586,9 @@ async function refreshStatus() {
         </button>
       </div>
       <nav class="nav">
-        <button class="nav-item" :class="{ active: view === 'files' }" title="文件传输" @click="setView('files')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span><span class="nav-label">文件传输</span>
-        </button>
-        <button v-if="isDesktop || !isNarrow" class="nav-item" :class="{ active: view === 'chat' }" title="文本消息" @click="setView('chat')">
-          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span><span class="nav-label">文本消息</span>
-          <span v-if="unread > 0 && view !== 'chat'" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
+        <button class="nav-item" :class="{ active: view === 'transfer' }" title="消息发送" @click="setView('transfer')">
+          <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span><span class="nav-label">消息发送</span>
+          <span v-if="unread > 0" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
         </button>
         <button v-if="isRealDesktop" class="nav-item svc" :class="{ active: view === 'service' }" title="服务中心" @click="setView('service')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span><span class="nav-label">服务中心</span>
@@ -2652,20 +3612,20 @@ async function refreshStatus() {
     </aside>
 
     <!-- ===== 主区 ===== -->
-    <main class="main" :class="{ 'chat-full': isDesktop && view === 'chat', 'web': !isDesktop }">
-      <!-- 顶部栏(桌面壳):标题一行 + 地址栏独占一行(保证地址完整展示) -->
-      <div v-if="isDesktop" class="topbar">
+    <main class="main" :class="{ 'transfer-main': view === 'transfer', 'web': !isDesktop }">
+      <!-- 顶部栏(桌面壳): 各页统一展示标题与地址; 传输页额外用房间头承载对话操作 -->
+      <div v-if="isRealDesktop" class="topbar">
         <div class="topbar-head">
-          <h2>{{ VIEW_TITLES[view] || VIEW_TITLES.files }}</h2>
-          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备可访问下方地址" : "服务未启动 —— 到「服务中心」页启动" }}</div>
+          <h2>{{ VIEW_TITLES[view] || VIEW_TITLES.transfer }}</h2>
+          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备用浏览器访问下方地址即可使用" : "服务未启动 —— 到「服务中心」页启动" }}</div>
         </div>
         <div class="topbar-url">
-          <span class="chip" :class="running ? 'run' : 'stop'">
-            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
-          </span>
           <div class="url-box">
+            <span class="url-state" :class="running ? 'run' : 'stop'" :title="running ? '服务运行中' : '服务已停止'">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b>{{ running ? "运行中" : "已停止" }}</b>
+            </span>
             <span class="protocol">HTTP</span>
-            <input class="url-text" :value="running ? shareUrl : '服务未启动'" readonly @click="$event.target.select()" />
+            <input class="url-text" :value="urlText" :style="{ '--url-w': urlWidth }" readonly @click="$event.target.select()" />
           </div>
           <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
                   aria-label="复制链接" @click="copied || copyUrl()">
@@ -2681,179 +3641,339 @@ async function refreshStatus() {
         </div>
       </div>
 
-      <!-- 网页端头部: 品牌 + 服务状态/复制/二维码。地址与统计网格已移除 ——
-           浏览器地址栏本身就有地址, 统计信息在各功能卡内已有, 避免首屏占高、信息重复 -->
-      <template v-else>
-        <header class="web-head">
-          <div class="web-logo"><img class="logo-img" src="/logo.png" alt="logo" /></div>
-          <div class="web-head-title">
-            <h2>CC-Flash</h2>
-            <div class="sub">局域网高速文件共享</div>
-          </div>
-          <div class="web-head-act">
-            <span class="chip" :class="running ? 'run' : 'stop'">
-              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "○ 已停止" }}
-            </span>
-            <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
-                    aria-label="复制链接" @click="copied || copyUrl()">
-              <svg v-if="!copied" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-              <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            </button>
-            <button class="icon-btn" title="显示二维码" aria-label="显示二维码" @click="openQr">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="14" y1="17" x2="14" y2="21"/><line x1="17" y1="21" x2="21" y2="21"/><line x1="21" y1="17" x2="21" y2="21"/></svg>
-            </button>
-          </div>
-        </header>
-      </template>
-
-      <!-- 文件共享 -->
-      <template v-if="isDesktop && view === 'files'">
-        <div v-if="isDesktop && !running" class="warn-banner">
-          <span>🔒 服务未启动 —— 手机暂时无法访问</span>
-          <!-- 启动入口只给真实桌面: 移动壳无法在本机起服务(客户端模式), 去启动只会打开空页面 -->
-          <button v-if="isRealDesktop" class="btn btn-primary" @click="setView('service')">去启动</button>
-        </div>
-        <div class="card">
-          <h3>上传文件</h3>
-          <div class="dropzone" :class="{ 'drag-over': dragOver }" @click="pickFiles"
-               @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false"
-               @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
-            <div class="ic">⬆️</div>
-            <h5>{{ collecting ? "正在读取拖入的文件…" : "点击选择文件 或 拖拽到此处" }}</h5>
-            <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
-              <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
-              · 大文件稳定传输，锁屏自动防中断</p>
-            <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
-            <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
-          </div>
-          <div v-for="u in uploads" :key="u.id" class="upload-item">
-            <div class="up-line">
-              <span class="up-name">{{ u.name }}</span>
-              <span class="up-status" :class="u.status">
-                {{ u.status === "uploading" ? u.pct + "% " + u.speed
-                 : u.status === "waiting" ? "等待中"
-                 : u.status === "done" ? (u.final ? "已存为 " + u.final : "完成") : u.speed || "失败" }}
-              </span>
-              <button v-if="u.status === 'waiting' || u.status === 'uploading'" class="icon-btn" title="取消上传"
-                      style="margin-left:6px" @click="cancelUpload(u)">✕</button>
+      <!-- ===== 传输(合并入口, 微信式) ===== -->
+      <template v-if="view === 'transfer'">
+        <div class="transfer-page" :class="{ 'is-mobile': isNarrow, 'is-web': !isDesktop }"
+             @dragover.prevent="dragOver = true" @dragleave.prevent="onPageDragLeave"
+             @drop.prevent="onDrop">
+          <section class="tx-chat">
+            <div v-if="isRealDesktop && !running" class="tx-service-bar">
+              <span>🔒 服务未启动，手机暂时无法访问</span>
+              <button @click="setView('service')">去启动</button>
             </div>
-            <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
-          </div>
-        </div>
-
-        <div class="card files-card">
-          <div class="list-head">
-            <div class="lh-left">
-              <h3>共享文件</h3>
-              <span class="badge">{{ stats.count }} 个文件</span>
-            </div>
-            <div class="lh-right">
-              <label v-if="pageFiles.length" class="sel-all" title="全选/取消本页">
-                <input type="checkbox" :checked="pageAllSelected" @change="toggleAll" />全选
-              </label>
-              <div class="sort-group">
-                <button class="sort-btn" :class="{ active: sortBy === 'time' }" @click="setSort('time')">最新</button>
-                <button class="sort-btn" :class="{ active: sortBy === 'name' }" @click="setSort('name')">名称</button>
-                <button class="sort-btn" :class="{ active: sortBy === 'size' }" @click="setSort('size')">大小</button>
+            <header class="tx-head" :class="{ slim: isRealDesktop }">
+              <div v-if="isRealDesktop" class="tx-room-brief">{{ running ? "同一 Wi-Fi · 局域网实时互通" : "服务未启动" }}</div>
+              <span v-if="!isRealDesktop" class="tx-room">CC</span>
+              <div v-if="!isRealDesktop" class="tx-room-title">
+                <div class="tx-room-head">
+                  <h2>消息发送</h2>
+                  <span class="chip" :class="running ? 'run' : 'stop'">
+                    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{ running ? "运行中" : "已停止" }}
+                  </span>
+                </div>
+                <p>{{ running ? "同一 Wi-Fi · 局域网实时互通" : "服务未启动" }}</p>
               </div>
-              <button v-if="selectedCount > 0" class="btn btn-del" style="height:28px;padding:0 12px"
-                      @click="confirmDeleteSelected" title="删除选中的文件">
-                🗑 删除选中 ({{ selectedCount }})
-              </button>
-              <button v-if="selectedCount > 0" class="refresh-btn" title="取消选择" @click="clearSel">✕</button>
-              <button class="refresh-btn" :class="{ spinning: refreshing }" title="刷新文件列表" @click="loadFiles(true)">↻</button>
-            </div>
-          </div>
-          <div v-if="pageFiles.length === 0" class="empty-state">
-            <div class="es-icon">📦</div>
-            <h4>还没有文件</h4>
-            <p>拖拽文件到上方区域开始传输</p>
-            <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
-          </div>
-          <div v-else>
-            <div v-for="f in pageFiles" :key="f.name" class="file-row" :data-name="f.name" @dblclick="rowDblClick($event, f)">
-              <label class="sel-box" @click.stop>
-                <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
-              </label>
-              <div class="file-thumb">
-                <img v-if="isImage(f.name)" :src="downloadUrl(f.name)" loading="lazy"
-                     @error="$event.target.style.display = 'none'" />
-                <span class="icon-overlay">{{ iconFor(f.name) }}</span>
+              <div class="tx-acts">
+                <button class="tx-hbtn tx-clear-btn" title="清空本窗口的消息显示（不影响其他设备）" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
+                <button class="tx-hbtn" :class="{ 'hint-pulse': fileHintShow }" title="共享文件" @click="toggleFilePanel">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                  <b>{{ stats.count }}</b>
+                  <i v-if="fileDot" class="tx-dot" role="status" title="有新文件"></i>
+                  <div v-if="fileHintShow" class="tx-hint-card" @click.stop>
+                    <div class="tx-hint-head"><span class="tx-hint-ico">📁</span><b>共享文件都在这里</b></div>
+                    <p>预览、下载、分享、删除都在抽屉里，聊天里的文件卡片也会同步。</p>
+                    <div class="tx-hint-acts">
+                      <button class="tx-hint-ok" @click.stop="openFilePanel">打开共享文件</button>
+                    </div>
+                  </div>
+                </button>
+                <button v-if="!isNarrow && !isRealDesktop" class="tx-hbtn icon" title="复制地址" @click="copyUrl(); moreOpen = false">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                </button>
+                <button v-if="!isNarrow && !isRealDesktop" class="tx-hbtn icon" title="显示二维码" @click="openQr(); moreOpen = false">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="14" y1="17" x2="14" y2="21"/><line x1="17" y1="21" x2="21" y2="21"/><line x1="21" y1="17" x2="21" y2="21"/></svg>
+                </button>
+                <!-- 桌面壳宽屏的菜单已无剩余项, 不渲染「⋯」; 窄屏仍有「服务中心」入口 -->
+                <button v-if="!isRealDesktop || isNarrow" class="tx-hbtn icon" title="更多" @click.stop="toggleMore">⋯</button>
+                <span class="tx-me" :title="'昵称：' + curNick" @click="openNick">{{ avatarFor(curNick) }}</span>
               </div>
-              <div class="file-info">
-                <div class="fname" :title="f.name" @click="shareFile(f.name)">{{ f.name }}</div>
-                <div class="fmeta">
-                  <span>{{ fmtSize(f.size) }}</span><span>{{ fmtTime(f.modified) }}</span>
-                  <span v-if="isImage(f.name)" style="color:var(--warning);font-size:10px">预览</span>
+              <div v-if="moreOpen" class="tx-more" @click.stop>
+                <button v-if="isNarrow" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
+                <button v-if="!isRealDesktop" @click="copyUrl(); moreOpen = false">复制地址</button>
+                <button v-if="!isRealDesktop" @click="openQr(); moreOpen = false">显示二维码</button>
+                <button v-if="mobileShell" @click="setView('settings'); moreOpen = false">CC设置</button>
+                <button v-if="isRealDesktop && isNarrow" @click="setView('service'); moreOpen = false">服务中心</button>
+              </div>
+            </header>
+            <div v-if="moreOpen" class="tx-menu-backdrop" @click="moreOpen = false"></div>
+
+            <div class="tx-list" ref="chatBox" @scroll="onTimelineScroll" @click.self="activeMsgKey = ''">
+              <div class="tx-date">{{ running ? "今天" : "服务已停止" }}</div>
+              <div v-if="!timelineItems.length" class="tx-empty">
+                <div class="tx-empty-ic">📁</div>
+                <h3>还没有内容</h3>
+                <p>拖个文件进来，或说句话。</p>
+                <div class="tx-empty-actions">
+                  <button class="btn btn-primary" @click="pickFiles">上传文件</button>
+                  <button class="btn btn-ghost" @click="openFilePanel">共享文件</button>
                 </div>
               </div>
-              <div class="file-btns">
-                <!-- 真实桌面: 打开 + 复制; Android/iOS 壳: 下载(打开/复制在移动端是死路) -->
-                <template v-if="isRealDesktop">
-                  <button class="btn-act fb-open" title="打开文件（系统默认程序）" @click="openFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
-                  <button class="btn-act fb-copy" title="复制文件到剪贴板（可在访达/资源管理器粘贴）" @click="copyFileToClipboard(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
-                </template>
-                <button v-else class="btn-act fb-dl" title="下载" @click="downloadFileWeb(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-                <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
-                <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
-              </div>
-            </div>
-            <div class="pagination" v-if="totalPages > 1">
-              <button class="page-btn" :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
-              <template v-for="(it, i) in pageItems" :key="i">
-                <span v-if="it === '…'" class="page-ellipsis">…</span>
-                <button v-else class="page-btn" :class="{ active: it === currentPage }" @click="goPage(it)">{{ it }}</button>
-              </template>
-              <button class="page-btn" :disabled="currentPage === totalPages" @click="goPage(currentPage + 1)">›</button>
-            </div>
-          </div>
-        </div>
 
-      </template>
-
-      <!-- 聊天室 -->
-      <template v-if="isDesktop && view === 'chat'">
-        <div class="chat-card">
-          <div class="chat-header">
-            <h3>💬 文本消息 · 局域网内实时互通</h3>
-            <div class="chat-head-right">
-              <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
-                      @click="clearChatDisplay">清空数据</button>
-              <span class="avatar-chip" title="头像由昵称自动生成">{{ avatarFor(curNick) }}</span>
-              <div class="chat-nickname">
-                <span style="font-size:11px;color:var(--text3)">昵称:</span>
-                <input v-model="nickInput" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax" title="输入昵称，会自动记住" @change="saveNick" />
-              </div>
-            </div>
-          </div>
-          <div class="chat-messages" ref="chatBox">
-            <div v-if="displayMsgs.length === 0" class="chat-empty">👋 还没有消息，发一条打个招呼吧</div>
-            <div v-for="m in displayMsgs" :key="m.id" class="chat-message">
-              <span class="msg-avatar">{{ avatarFor(m.nickname) }}</span>
-              <div class="msg-body">
-                <div class="chat-nick">{{ m.nickname }}</div>
-                <div class="chat-text" v-html="m.html"></div>
-                <div class="chat-meta">
-                  <span class="chat-time">{{ fmtTime(m.timestamp) }}</span>
-                  <div class="msg-acts">
-                    <button type="button" class="msg-act" title="复制消息" aria-label="复制消息" @click="copyChatMsg(m)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                    </button>
-                    <button type="button" class="msg-act del" title="删除消息（仅本机隐藏）" aria-label="删除消息" @click="deleteChatMsg(m)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
+              <template v-for="it in timelineItems" :key="it.key">
+                <div v-if="it.kind === 'msg'" class="tx-msg" :class="{ out: isMine(it.msg), active: activeMsgKey === it.key }" @click="onMsgClick(it)">
+                  <span class="tx-ava">{{ avatarFor(it.msg.nickname) }}</span>
+                  <div class="tx-col">
+                    <div class="tx-name">{{ it.msg.nickname }}</div>
+                    <div class="tx-bubble" v-html="it.html"></div>
+                    <div class="tx-foot">
+                      <span class="tx-time">{{ fmtClock(it.msg.timestamp) }}</span>
+                      <div class="tx-msg-acts" @click.stop>
+                        <button class="danger" title="删除" aria-label="删除消息" @click="deleteMessage(it.msg)">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                        </button>
+                        <button title="引用" aria-label="引用消息" @click="startQuote(it.msg)">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10.7 8.4c-1.8.6-2.9 1.9-2.9 3.5 0 1.3.9 2.2 2.1 2.2 1.1 0 2-.9 2-2 0-1-.6-1.7-1.5-1.9.2-.4.6-.8 1.1-1z" fill="currentColor" stroke="none"/><path d="M16.6 8.4c-1.8.6-2.9 1.9-2.9 3.5 0 1.3.9 2.2 2.1 2.2 1.1 0 2-.9 2-2 0-1-.6-1.7-1.5-1.9.2-.4.6-.8 1.1-1z" fill="currentColor" stroke="none"/></svg>
+                        </button>
+                        <button title="复制" aria-label="复制消息" @click="copyMessage(it.msg)">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                <div v-else-if="it.kind === 'remote'" class="tx-file">
+                  <span class="tx-ava" :title="it.r.uploader ? '上传者：' + it.r.uploader : '来自其他设备'">{{ avatarFor(it.r.uploader || '共享文件') }}</span>
+                  <div class="tx-file-col">
+                    <div class="tx-name">{{ it.r.uploader || "其他设备" }}</div>
+                    <div class="tx-filecard">
+                      <div class="tx-file-main">
+                        <span class="tx-ficon clickable" :class="'tone-' + fileTone(it.r.name)"
+                              :title="isRealDesktop ? '打开' : (isPreviewable(it.r.name) ? '预览' : '下载')"
+                              @click.stop="openThumb(it.r.name)">
+                          <img v-if="isImage(it.r.name)" :src="downloadUrl(it.r.name)" loading="lazy" alt="" @error="$event.target.style.display = 'none'" />
+                          <template v-else>{{ iconFor(it.r.name) }}</template>
+                        </span>
+                        <span class="tx-finfo">
+                          <span class="tx-fname" :title="it.r.name">{{ it.r.name }}</span>
+                          <span class="tx-fmeta">{{ it.r.uploader ? "来自 " + it.r.uploader : "来自其他设备" }} · {{ fmtSize(it.r.size) }}</span>
+                        </span>
+                      </div>
+                      <div class="tx-file-actions">
+                        <button v-if="isRealDesktop" @click="openRemote(it.r)">打开</button>
+                        <button v-else-if="isPreviewable(it.r.name)" @click="previewFileWeb(it.r.name)">预览</button>
+                        <button v-else @click="openRemote(it.r)">下载</button>
+                        <button v-if="isRealDesktop" @click="copyFileToClipboard(it.r.name)">复制</button>
+                        <button @pointerenter="prefetchShareTicket(it.r.name)" @click="shareFile(it.r.name)">分享</button>
+                        <button @click="locateFile(it.r.name)">定位</button>
+                        <button class="danger" @click="confirmDelete(it.r.name)">删除</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-else-if="it.kind === 'file'" class="tx-file out">
+                  <div class="tx-file-col">
+                    <div class="tx-name">{{ curNick }}</div>
+                    <div class="tx-filecard">
+                      <div class="tx-file-main">
+                        <span class="tx-ficon" :class="['tone-' + fileTone(it.u.name), { clickable: it.u.status === 'done' }]"
+                              :title="it.u.status === 'done' ? (isRealDesktop ? '打开' : (isPreviewable(uploadName(it.u)) ? '预览' : '下载')) : ''"
+                              @click.stop="it.u.status === 'done' && openThumb(uploadName(it.u))">
+                          <img v-if="it.u.status === 'done' && isImage(it.u.name)" :src="downloadUrl(uploadName(it.u))" loading="lazy" alt="" @error="$event.target.style.display = 'none'" />
+                          <template v-else>{{ iconFor(it.u.name) }}</template>
+                        </span>
+                        <span class="tx-finfo">
+                          <span class="tx-fname" :title="uploadName(it.u)">{{ uploadDisplayName(it.u) }}</span>
+                          <span class="tx-fmeta" :class="{ doing: it.u.status === 'uploading' || it.u.status === 'waiting', err: it.u.status === 'error' }">{{ uploadStatusText(it.u) }}</span>
+                        </span>
+                        <button v-if="it.u.status === 'uploading' || it.u.status === 'waiting'" class="tx-fx" title="取消上传" @click="cancelUpload(it.u)">✕</button>
+                        <button v-else-if="it.u.status === 'error'" class="tx-fx tx-retry" @click="retryUpload(it.u)">重试</button>
+                      </div>
+                      <div v-if="it.u.status === 'uploading' || it.u.status === 'waiting'" class="tx-progress"><i :style="{ width: (it.u.pct || 0) + '%' }"></i></div>
+                      <div v-if="it.u.status === 'done'" class="tx-file-actions">
+                        <button v-if="isRealDesktop" @click="openUpload(it.u)">打开</button>
+                        <button v-else-if="isPreviewable(uploadName(it.u))" @click="previewFileWeb(uploadName(it.u))">预览</button>
+                        <button v-else @click="openUpload(it.u)">下载</button>
+                        <button v-if="isRealDesktop" @click="copyFileToClipboard(uploadName(it.u))">复制</button>
+                        <button @pointerenter="prefetchShareTicket(uploadName(it.u))" @click="shareUpload(it.u)">分享</button>
+                        <button @click="locateUpload(it.u)">定位</button>
+                        <button class="danger" @click="confirmDelete(uploadName(it.u))">删除</button>
+                      </div>
+                      <div v-else-if="it.u.status === 'error'" class="tx-file-actions">
+                        <button @click="retryUpload(it.u)">重试</button>
+                        <button @click="cancelUpload(it.u)">取消</button>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="tx-ava">{{ avatarFor(curNick) }}</span>
+                </div>
+
+                <div v-else-if="it.kind === 'group'" class="tx-file out">
+                  <div class="tx-file-col">
+                    <div class="tx-name">{{ curNick }}</div>
+                    <div class="tx-groupcard">
+                      <div class="tx-group-head" @click="toggleGroup(it.batch)">
+                        <span class="tx-gicon" :class="'tone-' + fileTone(it.items[0] && it.items[0].name)">{{ iconFor(it.items[0] && it.items[0].name) }}</span>
+                        <span class="tx-gtitle">
+                          <b>{{ it.items.length }} 个文件</b>
+                          <small>{{ fmtSize(groupSize(it.items)) }} · {{ groupStatusText(it.items) }}</small>
+                        </span>
+                        <span class="tx-gtoggle">{{ expandedGroups[it.batch] ? "收起" : "展开" }} ›</span>
+                      </div>
+                      <div class="tx-gicons">
+                        <span v-for="u in it.items.slice(0, 6)" :key="u.id" class="tx-gicon small" :class="'tone-' + fileTone(u.name)">{{ iconFor(u.name) }}</span>
+                        <span v-if="it.items.length > 6" class="tx-gmore">+{{ it.items.length - 6 }}</span>
+                      </div>
+                      <div v-if="expandedGroups[it.batch]" class="tx-glist">
+                        <div v-for="u in it.items" :key="u.id" class="tx-grow">
+                          <span class="tx-gname" :title="uploadName(u)">{{ uploadDisplayName(u) }}</span>
+                          <span class="tx-gmeta" :class="{ err: u.status === 'error' }">{{ uploadStatusText(u) }}</span>
+                          <button v-if="u.status === 'uploading' || u.status === 'waiting'" @click="cancelUpload(u)">✕</button>
+                          <button v-else-if="u.status === 'error'" @click="retryUpload(u)">重试</button>
+                          <button v-else @click="locateUpload(u)">定位</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="tx-ava">{{ avatarFor(curNick) }}</span>
+                </div>
+              </template>
+
+            </div>
+            <button v-if="jumpCount" class="tx-jump" :style="{ bottom: (uploadCount ? 100 : 70) + 'px' }" @click="jumpToLatest">{{ jumpCount }} 条新消息 · 回到底部</button>
+
+            <div v-if="uploadCount" class="tx-upload-strip">
+              <span>正在上传 {{ uploadCount }} 个</span>
+              <span class="bar"><i :style="{ width: uploadAvgPct + '%' }"></i></span>
+              <span>{{ uploadAvgPct }}%</span>
+            </div>
+
+            <div v-if="plusOpen" class="tx-plus-panel" @click.stop>
+              <button class="tx-pa" @click="pickFiles(); plusOpen = false"><span class="ic">📄</span>文件</button>
+              <button class="tx-pa" @click="pickDir(); plusOpen = false"><span class="ic">🗂</span>文件夹</button>
+              <button class="tx-pa" @click="pasteFromClipboard"><span class="ic">📋</span>粘贴</button>
+              <button class="tx-pa" @click="openFilePanel(); plusOpen = false"><span class="ic">📁</span>共享文件</button>
+            </div>
+
+            <div v-if="quoting" class="tx-quoting">
+              <span class="tx-quoting-txt">引用 {{ quoting.nickname }}：{{ quoting.message }}</span>
+              <button title="取消引用" aria-label="取消引用" @click="quoting = null">✕</button>
+            </div>
+
+            <footer class="tx-composer" :class="{ 'has-quote': quoting }">
+              <button class="tx-plus" :class="{ open: plusOpen }" title="上传文件 / 文件夹" @click="togglePlus">＋</button>
+              <textarea ref="chatInputEl" class="tx-input" v-model="chatInput" :maxlength="cfg.msgMax" rows="1"
+                        :placeholder="running ? (touchOnly ? '说点什么…' : '说点什么…（回车发送，Shift+回车换行）') : '服务未启动'"
+                        @focus="onInputFocus" @keydown.enter="onChatEnter" @input="autoGrowInput"></textarea>
+              <button class="tx-send" :disabled="!chatInput.trim() || sending" @click="sendChat">{{ sending ? "发送中…" : "发送" }}</button>
+            </footer>
+
+            <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
+            <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
+
+            <div v-if="dragOver" class="tx-drag">
+              <div class="tx-drag-ic">⬆</div>
+              <b>松手传到电脑</b>
+              <small>{{ collecting ? "正在读取拖入的文件…" : "文件 / 文件夹 · 保持目录结构" }}</small>
+            </div>
+          </section>
+
+          <aside class="tx-files" :class="{ collapsed: !isNarrow && drawerCollapsed, sheet: isNarrow, open: fileSheetOpen }">
+            <div class="tx-grab" @click="fileSheetOpen = false"><i></i></div>
+            <div class="tx-files-head">
+              <b>共享文件</b><span class="tx-count">{{ stats.count }}</span>
+              <button class="tx-files-close" :title="isNarrow ? '关闭' : '收起'" @click="isNarrow ? fileSheetOpen = false : drawerCollapsed = true">{{ isNarrow ? "完成" : "›" }}</button>
+            </div>
+            <div class="tx-files-tools">
+              <div class="tx-sort">
+                <button :class="{ on: sortBy === 'time' }" @click="setSort('time')">最新</button>
+                <button :class="{ on: sortBy === 'name' }" @click="setSort('name')">名称</button>
+                <button :class="{ on: sortBy === 'size' }" @click="setSort('size')">大小</button>
+              </div>
+              <label v-if="pageFiles.length" class="tx-selall" title="全选/取消本页">
+                <input type="checkbox" :checked="pageAllSelected" @change="toggleAll" />全选
+              </label>
+              <button class="tx-mini" :class="{ spinning: refreshing }" title="刷新文件列表" @click="loadFiles(true)">↻</button>
+            </div>
+            <div class="tx-files-list">
+              <div v-if="!pageFiles.length" class="tx-files-empty">
+                <div>📦</div>
+                <p>还没有文件</p>
+                <button class="btn btn-primary" @click="pickFiles">上传文件</button>
+              </div>
+              <div v-for="f in pageFiles" :key="f.name" class="tx-frow" :class="{ located: locatedName === f.name }" :data-file="f.name" @dblclick="rowDblClick($event, f)">
+                <label class="tx-check" @click.stop>
+                  <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
+                </label>
+                <div class="tx-thumb clickable" :class="'tone-' + fileTone(f.name)"
+                     :title="isRealDesktop ? '打开' : (isPreviewable(f.name) ? '预览' : '下载')"
+                     @click="openThumb(f.name)">
+                  <span>{{ iconFor(f.name) }}</span>
+                  <img v-if="isImage(f.name)" :src="downloadUrl(f.name)" loading="lazy" @error="$event.target.style.display = 'none'" />
+                </div>
+                <div class="tx-finfo2">
+                  <div class="tx-fname2" :title="f.name">{{ f.name }}</div>
+                  <div class="tx-fmeta2">{{ fmtSize(f.size) }} · {{ fmtTime(f.modified) }}</div>
+                </div>
+                <div class="tx-frow-acts">
+                  <button v-if="isNarrow" title="更多" @click="openFileMenu(f.name)">⋯</button>
+                  <template v-else>
+                    <template v-if="isRealDesktop">
+                      <button title="打开" aria-label="打开" @click="openFile(f.name)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      </button>
+                      <button title="复制到剪贴板" aria-label="复制到剪贴板" @click="copyFileToClipboard(f.name)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      </button>
+                    </template>
+                    <template v-else>
+                      <button v-if="isPreviewable(f.name)" title="预览" aria-label="预览" @click="previewFileWeb(f.name)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button title="下载" aria-label="下载" @click="downloadFileWeb(f.name)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      </button>
+                    </template>
+                    <button class="tx-share" title="分享" aria-label="分享" @click="shareFile(f.name)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                    </button>
+                    <button class="danger" title="删除" aria-label="删除" @click="confirmDelete(f.name)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                    </button>
+                  </template>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="chat-input-area">
-            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
-                   @keydown.enter="onChatEnter" />
-            <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
+            <div class="tx-files-foot">
+              <button v-if="selectedCount" class="tx-del" @click="confirmDeleteSelected">🗑 删除选中 ({{ selectedCount }})</button>
+              <span v-else-if="isNarrow" class="tx-files-tip">点 ⋯ 查看操作</span>
+              <div class="tx-pg" v-if="totalPages > 1">
+                <button :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
+                <template v-for="(it, i) in pageItems" :key="i">
+                  <span v-if="it === '…'">…</span>
+                  <button v-else :class="{ on: it === currentPage }" @click="goPage(it)">{{ it }}</button>
+                </template>
+                <button :disabled="currentPage === totalPages" @click="goPage(currentPage + 1)">›</button>
+              </div>
+            </div>
+          </aside>
+          <div v-if="isNarrow && fileSheetOpen" class="tx-sheet-backdrop" @click="fileSheetOpen = false"></div>
+        </div>
+
+        <div v-if="fileMenuName" class="tx-action-overlay" @click.self="closeFileMenu">
+          <div class="tx-action-sheet">
+            <div class="tx-action-title">{{ fileMenuName }}</div>
+            <template v-if="isRealDesktop">
+              <button @click="openFile(fileMenuName); closeFileMenu()">打开</button>
+              <button @click="copyFileToClipboard(fileMenuName); closeFileMenu()">复制文件</button>
+            </template>
+            <template v-else>
+              <button v-if="isPreviewable(fileMenuName)" @click="previewFileWeb(fileMenuName); closeFileMenu()">预览</button>
+              <button @click="downloadFileWeb(fileMenuName); closeFileMenu()">下载</button>
+            </template>
+            <button @click="shareFile(fileMenuName); closeFileMenu()">分享</button>
+            <button class="danger" @click="confirmDelete(fileMenuName); closeFileMenu()">删除</button>
+            <button @click="closeFileMenu">取消</button>
           </div>
         </div>
       </template>
+
+      <!-- 移动壳的非传输页(设置): 顶部返回条 -->
+      <div v-if="mobileShell && view !== 'transfer'" class="tx-mobile-viewhead">
+        <button title="返回消息发送" @click="setView('transfer')">‹</button>
+        <h2>{{ VIEW_TITLES[view] }}</h2>
+      </div>
 
       <!-- 服务中心: 控制卡通栏 + 日志卡吃满剩余高度; 扫码走顶栏「显示二维码」弹窗(信息更全), 页面不再放冗余扫码卡 -->
       <template v-if="isRealDesktop && view === 'service'">
@@ -2886,14 +4006,19 @@ async function refreshStatus() {
           <div class="list-head">
             <div class="lh-left">
               <h3>服务日志</h3>
-              <span class="badge">{{ logs.length }} 条</span>
+              <span class="badge">{{ logQuery ? filteredLogs.length + " / " + logs.length : logs.length }} 条</span>
+            </div>
+            <div class="log-search" :class="{ on: logQuery }">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+              <input v-model="logQuery" placeholder="搜索日志" spellcheck="false" @keydown.esc="logQuery = ''" />
+              <button v-if="logQuery" class="log-search-clear" title="清除搜索" aria-label="清除搜索" @click="logQuery = ''">✕</button>
             </div>
             <button class="btn btn-ghost" style="height:28px" title="清空服务日志显示（不影响服务运行）"
                     @click="clearLogs">清空日志</button>
           </div>
           <div class="svc-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:0;min-height:0">
             <div class="logs" ref="logsBox" style="flex:1;height:auto">
-              <div v-for="(e, i) in logs" :key="i" class="log-line">
+              <div v-for="(e, i) in filteredLogs" :key="i" class="log-line">
                 <span class="log-ts">{{ e.ts }}</span>
                 <span class="log-sep">|</span>
                 <span class="log-lvl" :class="'lvl-' + e.level">{{ lvlName(e.level) }}</span>
@@ -2902,7 +4027,7 @@ async function refreshStatus() {
                 <span class="log-sep">-</span>
                 <span class="log-msg" v-html="logHtml(e.msg)"></span>
               </div>
-              <div v-if="!logs.length" class="log-empty">HTTP 请求与服务事件…</div>
+              <div v-if="!filteredLogs.length" class="log-empty">{{ logQuery ? "没有匹配的日志" : "HTTP 请求与服务事件…" }}</div>
             </div>
           </div>
         </div>
@@ -3002,148 +4127,8 @@ async function refreshStatus() {
         </div>
       </template>
 
-      <!-- 网页端(PyQt 风格): 左列上传+文件, 右列聊天室 -->
-      <div v-if="!isDesktop" class="web-cols">
-        <div class="web-lcol">
-          <div class="card">
-            <h3>上传文件</h3>
-            <div class="dropzone" :class="{ 'drag-over': dragOver }" @click="pickFiles"
-                 @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false"
-                 @dragend.prevent="dragOver = false" @drop.prevent="onDrop">
-              <div class="ic">⬆️</div>
-              <h5>{{ collecting ? "正在读取拖入的文件…" : "点击选择文件 或 拖拽到此处" }}</h5>
-              <p>支持多选与<b>整个文件夹</b>（保持目录结构） · 可直接 Ctrl+V / Cmd+V 粘贴文件
-                <span v-if="!isIOS"> · <a class="dir-pick" @click.stop="pickDir" title="选择文件夹上传">选择文件夹</a></span>
-                · 大文件稳定传输，锁屏自动防中断</p>
-              <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
-              <input type="file" id="dirInput" webkitdirectory multiple style="display:none" @change="onPickDir" />
-            </div>
-            <div v-for="u in uploads" :key="u.id" class="upload-item">
-              <div class="up-line">
-                <span class="up-name">{{ u.name }}</span>
-                <span class="up-status" :class="u.status">
-                  {{ u.status === "uploading" ? u.pct + "% " + u.speed
-                   : u.status === "waiting" ? "等待中"
-                   : u.status === "done" ? (u.final ? "已存为 " + u.final : "完成") : u.speed || "失败" }}
-                </span>
-                <button v-if="u.status === 'waiting' || u.status === 'uploading'" class="icon-btn" title="取消上传"
-                        style="margin-left:6px" @click="cancelUpload(u)">✕</button>
-              </div>
-              <div class="up-bar-wrap"><div class="up-bar-fill" :class="u.status" :style="{ width: u.pct + '%' }"></div></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="list-head">
-              <div class="lh-left">
-                <h3>共享文件</h3>
-                <span class="badge">{{ stats.count }} 个文件</span>
-              </div>
-              <div class="lh-right">
-                <label v-if="pageFiles.length" class="sel-all" title="全选/取消本页">
-                  <input type="checkbox" :checked="pageAllSelected" @change="toggleAll" />全选
-                </label>
-                <div class="sort-group">
-                  <button class="sort-btn" :class="{ active: sortBy === 'time' }" @click="setSort('time')">最新</button>
-                  <button class="sort-btn" :class="{ active: sortBy === 'name' }" @click="setSort('name')">名称</button>
-                  <button class="sort-btn" :class="{ active: sortBy === 'size' }" @click="setSort('size')">大小</button>
-                </div>
-                <button v-if="selectedCount > 0" class="btn btn-del" style="height:28px;padding:0 12px"
-                        @click="confirmDeleteSelected" title="删除选中的文件">
-                  🗑 删除选中 ({{ selectedCount }})
-                </button>
-                <button v-if="selectedCount > 0" class="refresh-btn" title="取消选择" @click="clearSel">✕</button>
-                <button class="refresh-btn" :class="{ spinning: refreshing }" title="刷新文件列表" @click="loadFiles(true)">↻</button>
-              </div>
-            </div>
-            <div v-if="pageFiles.length === 0" class="empty-state">
-              <div class="es-icon">📦</div>
-              <h4>还没有文件</h4>
-              <p>拖拽文件到上方区域开始传输</p>
-              <button class="btn btn-primary" @click="pickFiles">⬆ 立即上传</button>
-            </div>
-            <div v-else>
-              <div v-for="f in pageFiles" :key="f.name" class="file-row" :data-name="f.name">
-                <label class="sel-box" @click.stop>
-                  <input type="checkbox" :checked="selected.has(f.name)" @change="toggleSel(f.name)" />
-                </label>
-                <div class="file-thumb">
-                  <img v-if="isImage(f.name)" :src="downloadUrl(f.name)" loading="lazy"
-                       @error="$event.target.style.display = 'none'" />
-                  <span class="icon-overlay">{{ iconFor(f.name) }}</span>
-                </div>
-                <div class="file-info">
-                  <div class="fname" :title="f.name" @click="shareFile(f.name)">{{ f.name }}</div>
-                  <div class="fmeta">
-                    <span>{{ fmtSize(f.size) }}</span><span>{{ fmtTime(f.modified) }}</span>
-                    <span v-if="isImage(f.name)" style="color:var(--warning);font-size:10px">预览</span>
-                  </div>
-                </div>
-                <div class="file-btns">
-                  <!-- 浏览器端: 下载 + 删除 + 分享 -->
-                  <button class="btn-act fb-dl" title="下载" @click="downloadFileWeb(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-                  <button class="btn-act fb-del" title="删除" @click="confirmDelete(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
-                  <button class="btn-act fb-share" title="分享（复制链接）" @click="shareFile(f.name)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
-                </div>
-              </div>
-              <div class="pagination" v-if="totalPages > 1">
-                <button class="page-btn" :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
-                <template v-for="(it, i) in pageItems" :key="i">
-                  <span v-if="it === '…'" class="page-ellipsis">…</span>
-                  <button v-else class="page-btn" :class="{ active: it === currentPage }" @click="goPage(it)">{{ it }}</button>
-                </template>
-                <button class="page-btn" :disabled="currentPage === totalPages" @click="goPage(currentPage + 1)">›</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="web-rcol">
-          <div class="chat-card">
-            <div class="chat-header">
-              <h3>💬 聊天室</h3>
-              <div class="chat-head-right">
-                <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
-                        @click="clearChatDisplay">清空数据</button>
-                <span class="avatar-chip" title="头像由昵称自动生成">{{ avatarFor(curNick) }}</span>
-                <div class="chat-nickname">
-                  <span style="font-size:11px;color:var(--text3)">昵称:</span>
-                  <input v-model="nickInput" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax" title="输入昵称，会自动记住" @change="saveNick" />
-                </div>
-              </div>
-            </div>
-            <div class="chat-messages" id="chatMessages">
-              <div v-if="displayMsgs.length === 0" class="chat-empty">👋 还没有消息，发一条打个招呼吧</div>
-              <div v-for="m in displayMsgs" :key="m.id" class="chat-message">
-                <span class="msg-avatar">{{ avatarFor(m.nickname) }}</span>
-                <div class="msg-body">
-                  <div class="chat-nick">{{ m.nickname }}</div>
-                  <div class="chat-text" v-html="m.html"></div>
-                  <div class="chat-meta">
-                    <span class="chat-time">{{ fmtTime(m.timestamp) }}</span>
-                    <div class="msg-acts">
-                      <button type="button" class="msg-act" title="复制消息" aria-label="复制消息" @click="copyChatMsg(m)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                      </button>
-                      <button type="button" class="msg-act del" title="删除消息（仅本机隐藏）" aria-label="删除消息" @click="deleteChatMsg(m)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="chat-input-area">
-              <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
-                     @keydown.enter="onChatEnter" />
-              <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 页脚: 版权(内容不满一屏时贴底)。桌面端仅 CC设置页保留, 其余页面去掉、
-         底部统一收在主区内距上; 网页端不受影响, 全页显示 -->
+      <!-- 页脚: 版权(内容不满一屏时贴底)。浏览器/移动壳所有页面都显示(含传输页),
+          桌面端仅 CC设置页保留 -->
       <footer v-if="!isDesktop || (isRealDesktop && view === 'settings')" class="app-foot">{{ FOOTER_TEXT }}</footer>
     </main>
   </div>
@@ -3206,64 +4191,6 @@ async function refreshStatus() {
       </div>
     </div>
   </template>
-
-  <!-- 悬浮球(手机端浏览器): 桌面壳窄窗不展示 —— 聊天走侧边栏「文本消息」, FAB 是手机端专属入口 -->
-  <button v-if="!isDesktop && isNarrow && !chatOpen" class="chat-fab" title="聊天室" @click="openChat">
-    💬<span v-show="unread > 0" class="fab-badge">{{ unread > 99 ? "99+" : unread }}</span>
-  </button>
-
-  <!-- 底部聊天面板(手机端) -->
-  <div class="chat-sheet" :class="{ open: chatOpen }">
-    <div class="sheet-backdrop" @click="closeChat"></div>
-    <div class="sheet-panel">
-      <div class="sheet-handle" @click="closeChat"><div class="handle-bar"></div></div>
-      <div id="sheet-chat-host">
-        <div class="chat-card in-sheet">
-          <div class="chat-header">
-            <h2>📝 聊天室</h2>
-            <div class="chat-head-right">
-              <button class="btn btn-ghost" style="height:28px" title="仅清空本窗口的显示，不影响其他设备与服务端记录"
-                      @click="clearChatDisplay">清空数据</button>
-              <span class="avatar-chip">{{ avatarFor(curNick) }}</span>
-              <div class="chat-nickname">
-                <span style="font-size:11px;color:var(--text3)">昵称:</span>
-                <input v-model="nickInput" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax" title="输入昵称，会自动记住" @change="saveNick" />
-              </div>
-              <button class="icon-btn sheet-only" title="收起" aria-label="收起聊天面板" @click="closeChat">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-          </div>
-          <div class="chat-messages" id="chatMessagesSheet">
-            <div v-if="displayMsgs.length === 0" class="chat-empty">👋 还没有消息，发一条打个招呼吧</div>
-            <div v-for="m in displayMsgs" :key="m.id" class="chat-message">
-              <span class="msg-avatar">{{ avatarFor(m.nickname) }}</span>
-              <div class="msg-body">
-                <div class="chat-nick">{{ m.nickname }}</div>
-                <div class="chat-text" v-html="m.html"></div>
-                <div class="chat-meta">
-                  <span class="chat-time">{{ fmtTime(m.timestamp) }}</span>
-                  <div class="msg-acts">
-                    <button type="button" class="msg-act" title="复制消息" aria-label="复制消息" @click="copyChatMsg(m)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                    </button>
-                    <button type="button" class="msg-act del" title="删除消息（仅本机隐藏）" aria-label="删除消息" @click="deleteChatMsg(m)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="chat-input-area">
-            <input class="chat-input" v-model="chatInput" placeholder="说点什么…（回车发送）" :maxlength="cfg.msgMax"
-                   @keydown.enter="onChatEnter" />
-            <button class="btn btn-primary send-btn" @click="sendChat">发送</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- 软件介绍页(桌面端全屏 overlay, 按 docs/软件介绍页设计稿.html 实现); v-if 延迟到首次打开才挂载 -->
   <Transition name="intro">
@@ -3359,21 +4286,15 @@ async function refreshStatus() {
       <p class="lead">从会议室到工位，日常的文件、消息、临时协作，一个页面全部解决。手机不用装任何 App。</p>
       <div class="cards">
         <div class="card">
-          <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
-          <h3>文件传输</h3>
-          <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。整文件直传、失败或停服即时回滚半截文件，悬挂连接自动超时释放；图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
-          <div class="tags"><span class="tag">多途径上传</span><span class="tag">批量管理</span><span class="tag">分享链接</span></div>
-        </div>
-        <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
-          <h3>文本消息</h3>
-          <p>电脑手机实时互通（WebSocket 推送秒级到达，断线自动降级轮询）。自定义昵称与 24 款 emoji 头像，支持代码块、粗体、链接的轻量 Markdown；链接点击直达系统浏览器，未读角标不漏消息。</p>
-          <div class="tags"><span class="tag">实时互通</span><span class="tag">Markdown</span><span class="tag">未读提醒</span></div>
+          <h3>文件与消息</h3>
+          <p>文件和文字在一条对话里：上传即出现文件卡片（等待 / 上传中 / 完成 / 失败），批量上传自动合并成文件组；聊天支持标题、列表、引用、代码块、粗体与链接等 Markdown，输入框可多行编辑（桌面 Enter 发送、Shift+Enter 换行；手机 Enter 换行后点发送）。图片、PDF、文本、音视频可在应用内直接预览，右上角关闭即回到聊天。完整共享文件列表收进右侧抽屉 / 手机底部面板，排序、分页、批量删除都在。</p>
+          <div class="tags"><span class="tag">文件即消息</span><span class="tag">Markdown</span><span class="tag">应用内预览</span><span class="tag">共享文件</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏与 Windows 混合 DPI、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
+          <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏与 Windows 混合 DPI、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，五套配色 × 亮色 / 暗色 / 跟随系统即点即换，桌面对话气泡也随主题皮肤同步。</p>
           <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
         </div>
         <div class="card">
@@ -3486,6 +4407,29 @@ async function refreshStatus() {
     </div>
   </Transition>
 
+  <!-- 应用内文件预览: 全屏层 + 关闭按钮, 关闭即回到聊天页 -->
+  <div v-if="previewName" class="pv-overlay" @click.self="closePreview">
+    <div class="pv-head">
+      <span class="pv-name" :title="previewName">{{ previewName.split("/").pop() }}</span>
+      <button class="pv-close" aria-label="关闭预览" @click="closePreview">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span>关闭</span>
+      </button>
+    </div>
+    <div class="pv-body">
+      <img v-if="previewKind === 'image'" :src="previewUrl" alt="" @error="previewErr = '图片加载失败'" />
+      <video v-else-if="previewKind === 'video'" :src="previewUrl" controls playsinline preload="metadata"></video>
+      <audio v-else-if="previewKind === 'audio'" :src="previewUrl" controls preload="metadata"></audio>
+      <iframe v-else-if="previewKind === 'pdf'" :src="previewUrl" title="PDF 预览"></iframe>
+      <template v-else>
+        <div v-if="previewLoading" class="pv-tip">加载中…</div>
+        <div v-else-if="previewErr" class="pv-tip err">{{ previewErr }}</div>
+        <pre v-else class="pv-text">{{ previewText }}</pre>
+      </template>
+      <div v-if="previewErr && previewKind !== 'text'" class="pv-tip err">{{ previewErr }}</div>
+    </div>
+  </div>
+
   <!-- 二维码弹窗 -->
   <div v-if="qrShow" class="dialog-overlay" @click.self="qrShow = false">
     <div class="dialog-box">
@@ -3495,6 +4439,20 @@ async function refreshStatus() {
       <p style="word-break:break-all">{{ shareUrl }}</p>
       <p style="font-size:12px;color:var(--text2);margin:0">{{ TIP_QR }}</p>
       <div class="dialog-actions"><button class="btn btn-primary" @click="qrShow = false">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- 昵称设置(合并页: 从房间头头像进入, 保留原聊天页昵称能力) -->
+  <div v-if="nickOpen" class="dialog-overlay" @click.self="nickOpen = false">
+    <div class="dialog-box">
+      <h4>设置昵称</h4>
+      <p style="font-size:12.5px;color:var(--text2)">昵称会显示在消息与文件卡片旁，自动记住。</p>
+      <input class="svc-input" v-model="nickDraft" :placeholder="cfg.defaultNick" :maxlength="cfg.nickMax"
+             style="width:100%;box-sizing:border-box;text-align:center" @keydown.enter.prevent="saveNickAndClose" />
+      <div class="dialog-actions" style="margin-top:14px">
+        <button class="btn btn-ghost" @click="nickOpen = false">取消</button>
+        <button class="btn btn-primary" @click="saveNickAndClose">保存</button>
+      </div>
     </div>
   </div>
 
@@ -3521,6 +4479,7 @@ async function refreshStatus() {
              autocomplete="off" inputmode="numeric"
              @keydown.enter.prevent="submitPin" />
       <button class="btn btn-primary pin-btn" @click="submitPin">配 对</button>
+      <button class="btn btn-ghost" style="margin-top:8px;width:100%" @click="needPin = false">稍后再输入</button>
     </div>
   </div>
 

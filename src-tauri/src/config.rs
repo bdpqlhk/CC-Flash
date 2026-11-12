@@ -7,7 +7,12 @@ pub const APP_NAME: &str = "CC-Flash";
 /// 应用版本号。唯一来源是 Cargo.toml 的 [package] version:
 /// tauri.conf.json 已省略 version 字段(构建时自动回退读 Cargo.toml),
 /// 这里编译期取同值, 随 /api/info 下发给前端展示。
-pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// 四段版本(tag vX.Y.Z.W)由 CI/发布脚本通过 CCFLASH_BUILD_VERSION 注入;
+/// 本地 cargo build 没有该变量时回退 Cargo.toml 的三段 semver。
+pub const APP_VERSION: &str = match option_env!("CCFLASH_BUILD_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 // ---- 建议前端轮询间隔(ms) [同步: config.js POLL_*] ---- //
 /// 仅作下发值: 前端以 /api/info 到达后的服务端值为准, config.js 里是启动兜底

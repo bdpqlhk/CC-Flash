@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC-Flash · 整个过程历史改动记录（2026-11-03 至 2026-11-12）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC-Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-11-03 至 2026-11-12</b> · 版本：<b>v1.1.7 → v1.2.1.1</b> · 与《技术实现文档》《后期规划》《需求设计文档》配套阅读</div>
+<div class="callout"><b>阅读说明</b>本文按当时实现记录，保留历史原貌。最新行为（应用内预览、Markdown、四段版本、CSP 与并发闸等）以当前 README 与《技术实现文档》为准。2026-11-12 一节记录的是工作区待提交改动。</div>
+
+<h2>一、v1.1.7（11-02 / 11-03）</h2>
+<ul>
+<li><b>iOS 上传稳定性</b>：上传期间申请 <code>wakeLock</code> + 静音保活，避免锁屏/切后台冻结连接；失败自动复活时按服务端账本续传，不再整文件重来。</li>
+</ul>
+
+<h2>二、v1.1.8（11-04）</h2>
+<ul>
+<li><b>上传语义回滚</b>：恢复“单请求整文件直传”，整文件就是最大的分片；服务端保留 16 并发闸、120s 空闲超时与半截文件清理。</li>
+<li><b>日志与常驻扫码</b>：服务日志切换 loguru 风格实时滚动；侧边栏常驻二维码 + 安全布局加固。</li>
+<li>同日修复：补回上传完成 <code>files:changed</code> 广播与 120s 空闲超时（v1.1.8 回归）；量化脚本升级；文档对齐最新代码。</li>
+</ul>
+
+<h2>三、v1.1.9（11-06）</h2>
+<ul>
+<li><b>悬浮码贴边呼吸球</b>：56/64px 贴边收拢，悬停 1.5s 展开扫码预览卡，移开自动收起；呼吸/静止表达服务启停，环上绿点提示新文件/消息。</li>
+<li><b>移动端客户端模式</b>：Android/iOS 壳作为纯客户端，连接电脑地址后使用；连接门、无信号页、重新设置地址等自救路径。</li>
+<li><b>服务端安全加固</b>：路径校验、配对码退避、分享票据、控制接口来源限制等收口。</li>
+</ul>
+
+<h2>四、v1.1.10（11-06）</h2>
+<ul>
+<li><b>悬浮码扩展屏与跨屏</b>：模块级 <code>currentMonitor</code> 选屏、光标坐标空间统一、系统阴影 <code>shadow(false)</code>，拖到哪块屏就吸哪块屏。</li>
+<li><b>分享复制票据</b>：悬停预取一次性票据，点击手势内同步复制；分享票据使用短 token（后续在 v1.2.1.1 前升级为 12 位十六进制 / 48bit）。</li>
+<li>vite 忽略 docs 目录，避免编辑文档触发整页重载；README/docs 全量同步。</li>
+</ul>
+
+<h2>五、v1.2.0（11-07）</h2>
+<ul>
+<li>沿用并收敛 v1.1.10 的扩展屏/跨屏修复、分享票据预取与短 token。</li>
+<li><b>后期规划重排</b>：明确“不做分片上传/断点续传”红线，转为轻量化增强包；README、docs 与介绍页同步。</li>
+</ul>
+
+<h2>六、v1.2.1（11-09）</h2>
+<ul>
+<li><b>安全与数据一致性</b>：WS 断线日志降噪、上传占位/删除 TOCTOU、停服等待在途上传、配对码轮换自锁、票据猜码限流与轮换作废、移动端服务命令门控。</li>
+<li><b>移动端加固</b>：客户端模式失联出路、连接门与地址校验、后台恢复补拉。</li>
+<li><b>Windows 混合 DPI</b>：悬浮码多显示器落位与坐标换算修复。</li>
+<li><b>发布链路</b>：debug 包拒绝进入正式 Release、重跑 tag 的草稿门禁、图标与 Android R8 规则；README/docs/介绍页全量同步。</li>
+</ul>
+
+<h2>七、v1.2.1.1（11-11）</h2>
+<ul>
+<li><b>网页端页头精简</b>：手机/电脑浏览器移除地址行与统计网格，状态/复制/二维码并入品牌行；320~980px 响应式适配。</li>
+<li><b>聊天体验</b>：文本消息支持单条复制/删除（仅本机隐藏、可撤销）并持久化；时间统一为「月-日 时:分」（跨年补年份）。</li>
+<li><b>发布脚本</b>：<code>release.sh</code> 支持 <code>X.Y.Z.W</code> 四段 tag，应用版本取前三段。</li>
+</ul>
+
+<h2>八、2026-11-12（工作区待提交）</h2>
+<p>本轮针对全平台（macOS / Windows / Linux / Android / iOS / 电脑浏览器 / 手机浏览器 / 微信内置浏览器）做完整深度审计后的集中修复与体验改版：</p>
+<ul>
+<li><b>应用内预览</b>：图片、PDF、纯文本、音视频全屏预览，右上角「关闭」或 Esc 回到聊天；Office/压缩包下载查看；html/svg/xml 不内联；文本超 2MB 提示下载；预览请求加代际校验与 15s 超时。</li>
+<li><b>聊天 Markdown 与多行输入</b>：标题/列表/引用/分割线/围栏代码块 + 行内代码/粗体/斜体/删除线/链接；输入框改为自动长高 textarea，桌面 Enter 发送、Shift+Enter 换行，触屏 Enter 换行后点发送。</li>
+<li><b>顶栏与共享文件</b>：标题/副标题居左，运行状态 + 地址 + 复制/二维码/浏览器按钮整组靠右上，地址宽度随内容自适应，窄于 900px 整组换行撑满；共享文件抽屉 340~400px、字号加大、分页占满底栏、缩略图/预览按钮可预览、默认收起；新文件绿点修复。</li>
+<li><b>首次使用引导（桌面端）</b>：气泡/浮层引导——文件夹按钮呼吸高亮，指向按钮的卡片展示标题、说明与「打开共享文件」；不自动收起，只有用户点开共享文件入口后才收起并记为已看过；仅桌面端，不打断浏览器/移动端。</li>
+<li><b>主题</b>：桌面端首次启动默认「森林薄荷」；5 套配色 × 亮色/暗色/跟随系统；桌面对话气泡跟随主题；浏览器/移动壳通过 <code>/api/info</code> 下发桌面端配色与明暗，保持一致。</li>
+<li><b>浏览器体验</b>：网页端恢复底部版权页脚（含传输页）；窄屏页头收起低频的「清空消息」到「⋯」菜单，标题与高频入口不再拥挤；桌面端不再显示设置页的「新手引导」入口。</li>
+<li><b>安全与稳定</b>：CSP 放行局域网图片/媒体/iframe；上传 429 不再误清 PIN；下载 32 并发闸（许可持有到流结束）；上传低速闸（60s &lt;16KB 中止）；删除不跟随符号链接；<code>.ccup</code> 状态机区分上传令牌/完成标记/用户文件；长文件名含 marker 预检；托盘失败不 panic；自启扫描移出主线程；<code>open_lan</code> 持久化并明确重启生效；IPv6 <code>/64</code> 聚合锁窗上限 10 分钟；Android 外链检查 <code>am</code> 退出码。</li>
+<li><b>发版链路</b>：四段 tag 前三位与 Cargo 版本校验；<code>CCFLASH_BUILD_VERSION</code> 注入完整版本；Android versionCode 按四段计算；重发同名 tag 默认拒绝（<code>FORCE_REPUBLISH=1</code> 放行）、不再自动删除远端 tag；更新检查改读 releases 列表并兼容 prerelease。</li>
+<li><b>文档</b>：README、docs 全量文档、软件内介绍页与本次实现同步；新增本历史记录。</li>
+</ul>
+
+<div class="callout">同期工程基建：四路并行深度审计（后端/前端逻辑/Tauri 跨平台/样式与浏览器兼容）；<code>cargo check</code>、<code>npm run build</code>、workflow YAML、<code>release.sh</code> 语法与 HTML 标签闭合校验；最终 <code>npm run tauri build</code> 产出 macOS app + dmg。</div>
+<p class="small">CC-Flash · 历史改动记录 · 2026-11-12</p>
+</body>
+</html>

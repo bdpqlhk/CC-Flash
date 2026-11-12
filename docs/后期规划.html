@@ -57,7 +57,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 
 <nav class="toc">
 <h3>目 录</h3>
-<a href="#s1">一、基线：v1.1.2 现状</a>
+<a href="#s1">一、基线：v1.2.1.1 现状</a>
 <a href="#s2">二、规划总览与版本节奏</a>
 <a href="#s3">三、v1.2.x · 质量与安全打磨</a>
 <a href="#s4">四、v1.3 · 能力扩展</a>
@@ -73,8 +73,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC-Flash · 后期规划</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-07（v1.2.0 发布修订）</b></span>
-<span>基线：<b>v1.2.0 已发布</b>（悬浮码扩展屏与跨屏修复 / 分享复制票据预取修复 / 分享票据 6 位 token；继承 v1.1.9：悬浮码贴边呼吸球与悬停预览 / 移动端客户端模式 / 服务端安全加固；v1.1.8：整文件直传+并发闸 / loguru 日志 / 侧边栏常驻扫码）</span>
+<span>文档日期：<b>2026-11-12（v1.2.1.1 发布修订）</b></span>
+<span>基线：<b>v1.2.1.1 已发布</b>（应用内预览 / 聊天 Markdown 与多行输入 / 五套配色与桌面气泡跟随主题 / 顶栏与共享文件抽屉打磨 / 服务端并发与低速闸、.ccup 状态机、符号链接删除保护 / 四段 tag 与重发保护；继承 v1.2.0：悬浮码扩展屏与跨屏修复 / 分享复制票据预取修复；v1.1.9：悬浮码贴边呼吸球与悬停预览 / 移动端客户端模式 / 服务端安全加固）</span>
 <span>约束：<b>不做分片上传（红线）· 全线轻量化</b></span>
 <span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
 </div>
@@ -82,13 +82,13 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 
 <!-- ============ 1 ============ -->
 <section id="s1">
-<h2><span class="no">一</span>基线：v1.1.2 现状</h2>
+<h2><span class="no">一</span>基线：v1.2.1.1 现状</h2>
 <table>
 <tr><th>维度</th><th>状态</th></tr>
-<tr><td>平台</td><td>macOS / Windows / Android（4 ABI 分包 + release 签名）；Linux 可源码构建</td></tr>
-<tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、聊天室、服务控制/日志、5 皮肤（<b>当时</b>；v1.1.6 起为明暗×六配色）、介绍页、开机自启、托盘唤窗、单实例</td></tr>
-<tr><td>工程</td><td>CI 三平台自动发版（10 产物：macOS 双架构 dmg×2 + app.tar.gz×2、Windows exe/msi、4 ABI APK）、Android 签名 Secrets 链路、8 轮深度审查清零</td></tr>
-<tr><td>已知遗留</td><td>iOS 无真机包（依赖开发者账号）、应用内自更新未做、mDNS 发现已评估未实施、前后端大小单位表未统一、<span class="tag t-done">Android 正式签名已完成</span></td></tr>
+<tr><td>平台</td><td>macOS / Windows / Android（4 ABI 分包 + release 签名）；Linux 可源码构建；iOS 用 Safari 访问网页版</td></tr>
+<tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、合并传输页（消息 + 文件卡片同一时间线）、<b>应用内预览（图片/PDF/文本/音视频）</b>、<b>聊天 Markdown 与多行输入</b>、服务控制/日志、<b>5 套配色 × 亮/暗/跟随</b>、介绍页、开机自启、托盘唤窗、单实例、桌面悬浮码</td></tr>
+<tr><td>工程</td><td>CI 三平台自动发版（macOS 双架构 dmg、Windows exe/msi、4 ABI APK）、Android 签名 Secrets 链路、<b>四段 tag（vX.Y.Z.W）</b>与四段 versionCode、重发 tag 默认拒绝、发布前草稿门禁</td></tr>
+<tr><td>已知遗留</td><td>iOS 无真机包（依赖开发者账号）、应用内自更新未做、mDNS/UDP 发现未实施、HTTPS 自签未做、<span class="tag t-done">Android 正式签名已完成</span>、<span class="tag t-done">应用内预览 / Markdown / 四段版本已落地</span></td></tr>
 </table>
 </section>
 
@@ -97,8 +97,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">二</span>规划总览与版本节奏</h2>
 <table>
 <tr><th>版本</th><th>主题</th><th>时间窗</th><th>一句话</th></tr>
-<tr><td><b>v1.2.x</b></td><td>质量与安全打磨</td><td>1 ~ 2 个月</td><td>安全缺口优先，穿插轻量体验补齐（系统通知 / 回收站 / 搜索等小步快跑，每个都可感知）</td></tr>
-<tr><td><b>v1.3</b></td><td>能力扩展</td><td>第 3 ~ 5 月</td><td>临时分享链接、在线预览增强、UDP 广播发现、共享文件夹监控—— 推送化/整目录已于 v1.1.3 提前落地；<b>上传断点续传已列入红线不做</b></td></tr>
+<tr><td><b>v1.2.x</b></td><td>质量与安全打磨</td><td>1 ~ 2 个月</td><td>安全缺口优先，穿插轻量体验补齐（系统通知 / 回收站 / 搜索 / 诊断包等小步快跑，每个都可感知）；<b>应用内预览、Markdown、五套配色、四段版本已于 v1.2.1 落地</b></td></tr>
+<tr><td><b>v1.3</b></td><td>能力扩展</td><td>第 3 ~ 5 月</td><td>临时分享链接增强、UDP 广播发现、共享文件夹监控—— 在线预览增强已于 v1.2.1 落地，推送化/整目录已于 v1.1.3 提前落地；<b>上传断点续传已列入红线不做</b></td></tr>
 <tr><td><b>v2.0</b></td><td>生态演进</td><td>第 6 月起</td><td>iOS、应用市场、应用内更新、国际化</td></tr>
 </table>
 <div class="callout c-tip"><b>排序原则</b>安全缺口 &gt; 高频痛点 &gt; 传播型功能（如发现）&gt; 平台扩张。每个版本只承诺 1 个「主菜」，其余为配菜——避免摊大饼。</div>
@@ -112,7 +112,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <table>
 <tr><th style="width:180px">项</th><th>方案</th><th style="width:60px">优先级</th></tr>
 <tr><td>配对码模式</td><td><span class="tag t-done">✔ 已实现（v1.1.4，超出原方案）</span>服务端生成 6 位访问令牌，持久化防静默失效；<b>全部 /api/* 与 WS 均需配对</b>（比原方案只保护写接口更严）；配对尝试带指数退避防爆破（锁定窗内正确码也拒，防 Accept 伪造绕过）；桌面端设置页常驻显示/复制。剩余项：检测到公共 Wi-Fi 特征时提示开启</td><td><span class="tag t-done">✔</span></td></tr>
-<tr><td>控制接口令牌</td><td>删除/启停/清日志等写操作要求 <code>X-Token</code>（QR 内嵌），只读浏览不设卡</td><td><span class="tag t-p0">P0</span></td></tr>
+<tr><td>控制接口令牌</td><td><span class="tag t-done">✔ 已实现（替代方案）</span>控制接口已收紧为<b>仅回环来源</b>（/api/control/* 非本机一律 403），局域网设备无法启停/读日志，无需再引入 <code>X-Token</code>；另提供 open_lan 安全模式（仅监听 127.0.0.1）</td><td><span class="tag t-done">✔</span></td></tr>
 <tr><td>HTTPS 自签 + 扫码信任</td><td>自签证书随服务生成，二维码带上证书指纹，手机首次扫码即信任（消除「HTTP 明文」在推广后的安全性质疑）</td><td><span class="tag t-p1">P1</span></td></tr>
 </table>
 <h3>3.2 配菜（P1）</h3>
@@ -135,7 +135,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <table>
 <tr><th style="width:150px">项</th><th>说明</th><th>量级</th><th style="width:60px">优先级</th></tr>
 <tr><td><b>临时分享链接</b></td><td><span class="tag t-done">基础版已于 v1.2.0 落地</span>当前为「仅下载」一次性票据：绑定单文件、10 分钟、完整下载即焚、对方免输配对码。后续增强：可选时长（1 天/7 天）、多文件打包链接、链接管理/手动作废、下载次数限制</td><td>约 1~2 天</td><td><span class="tag t-p0">P0</span></td></tr>
-<tr><td><b>在线预览增强</b></td><td>视频/音频用浏览器原生 <code>&lt;video&gt;/&lt;audio&gt;</code> 播放（服务端 Range 已就绪，只差标签）；TXT/Markdown/代码 fetch 后转义渲染在线看；PDF 走 iframe 内嵌——纯前端零新依赖</td><td>约 1 天</td><td><span class="tag t-p1">P1</span></td></tr>
+<tr><td><b>在线预览增强</b></td><td><span class="tag t-done">✔ 已于 v1.2.1 落地</span>应用内全屏预览层：图片 <code>&lt;img&gt;</code>、视频/音频原生 <code>&lt;video&gt;/&lt;audio&gt;</code>（服务端 Range 就绪）、TXT/MD/LOG/CSV fetch 后转义展示、PDF iframe（桌面/移动壳交系统浏览器）；html/svg/xml 明确不内联；CSP 已放行 img/media/frame 的局域网 http 源</td><td>已落地</td><td><span class="tag t-done">✔</span></td></tr>
 <tr><td><b>UDP 广播发现</b></td><td>手机页面点「发现」→ UDP 广播 → 电脑回 IP:port；<code>std::net</code> <b>零依赖</b>，绕开 mDNS 两个硬边界（Android 不解析 .local、企业网禁多播）。<b>mDNS（wft.local）方案降为备选</b>；失败自动退回扫码路径</td><td>约 0.3 天</td><td><span class="tag t-p1">P1</span></td></tr>
 <tr><td><b>WebSocket 推送</b></td><td>聊天/列表/状态由轮询改推送 —— <b>✅ 已于 v1.1.4 提前落地</b>（聊天/列表/状态事件推送 + 15s 心跳 + 看门狗强制重连，轮询保留为降级通道）</td><td>约 3~4 天</td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td><b>整目录/文件夹上传</b></td><td>拖文件夹进页面保持目录结构上传 —— <b>✅ 已于 v1.1.3 提前落地</b>（拖拽递归 + webkitdirectory + 子目录列表）</td><td>约 1~2 天</td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -230,13 +230,15 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td>v1.1.8</td><td class="muted">已发布（2026-11-04）</td><td>上传回滚整文件直传（+并发闸）+ loguru 风格结构化日志 + 侧边栏常驻扫码 + Windows MAX_PATH 预检 + 磁盘周期查盘 + 布局收紧</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.1.9</td><td class="muted">已发布（2026-11-06）</td><td>悬浮码贴边呼吸球与悬停预览 + 移动端客户端模式 + 服务端安全加固</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.0</td><td class="muted">已发布（2026-11-07）</td><td>悬浮码扩展屏与跨屏修复（选屏/坐标空间/系统阴影）+ 分享复制票据预取修复 + 票据 6 位 token + 文档与规划全量同步</td><td><span class="tag t-done">✔ 已发</span></td></tr>
-<tr><td>v1.2.1</td><td class="muted">当前分支</td><td><b>安全与数据一致性收口</b>：WS 断线日志不再刷屏、上传占位/删除 TOCTOU、停服等待在途上传、配对码轮换自锁、票据猜码限流与轮换作废、移动端服务命令门控、Windows 混合 DPI 落位、发布链路加固（debug 包拒绝进入正式 Release / 重跑已发布 tag 不改线上资产 / 图标与 R8 规则）</td><td>审查清单高危项清零，文档与代码同步</td></tr>
-<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索 / 在线预览）；小尾巴清零 / 诊断包导出（断网自愈、路径安全测试集已提前落地）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
-<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接增强（可选时长/多文件/链接管理；基础一次性票据已在 v1.2.0 落地）+ UDP 广播发现 + 在线预览增强（上传断点续传已列入红线不做）</td><td>链接管理与发现能力上线</td></tr>
+<tr><td>v1.2.1</td><td class="muted">已发布（2026-11-09）</td><td><b>安全与数据一致性收口</b>：WS 断线日志不再刷屏、上传占位/删除 TOCTOU、停服等待在途上传、配对码轮换自锁、票据猜码限流与轮换作废、移动端服务命令门控、Windows 混合 DPI 落位、发布链路加固（debug 包拒绝进入正式 Release / 重跑已发布 tag 不改线上资产 / 图标与 R8 规则）</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.2.1.1</td><td class="muted">已发布（2026-11-11）</td><td><b>体验补齐与传输安全加固</b>：应用内预览（图片/PDF/文本/音视频）与 CSP 放行、聊天 Markdown + 多行输入、顶栏/共享文件抽屉打磨、5 套配色 × 亮/暗/跟随、桌面气泡跟随主题；服务端下载 32/上传 16/WS 64 并发闸、上传低速闸、.ccup 状态机、长文件名 marker 预检、符号链接删除保护、.ccpart 只清会话指纹命名、open_lan 持久化、IPv6 /64 锁窗封顶 10 分钟；四段 tag 与重发保护</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索）；小尾巴清零 / 诊断包导出（断网自愈、路径安全测试集、在线预览均已落地）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
+<tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接增强（可选时长/多文件/链接管理；基础一次性票据已在 v1.2.0 落地）+ UDP 广播发现 + 共享文件夹监控（上传断点续传已列入红线不做）</td><td>链接管理与发现能力上线</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
 </table>
-<div class="callout c-info"><b>与推广方案的联动</b>v1.2.1 的「公共 Wi-Fi 安全感」（HTTPS 自签扫码信任）是推广阶段三大量曝光前的必要前置——先修城墙，再开城门。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-09 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
+<div class="callout"><b>已提前落地（2026-11-10）</b>对话式合并入口（微信式）：文件与消息合并为唯一「传输」，文件即卡片、共享文件收进右侧抽屉 / 手机底部面板，桌面壳 / 电脑浏览器 / 手机浏览器 / 手机端 App 四端同构。设计见 <a href="文件与消息合并入口-全端整体设计方案.html">全端整体设计方案</a>。</div>
+<div class="callout c-info"><b>与推广方案的联动</b>v1.2.x 的「公共 Wi-Fi 安全感」（HTTPS 自签扫码信任）是推广阶段三大量曝光前的必要前置——先修城墙，再开城门；v1.2.1 已先落地配对码退避、控制接口回环限制与 open_lan 安全模式。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 后期规划 · 2026-11-12 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
 </section>
 
 </main>

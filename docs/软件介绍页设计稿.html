@@ -407,14 +407,13 @@ a { color: inherit; text-decoration: none; }
                 </span>
             </div>
             <nav class="nav">
-                <button class="nav-item active"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>文件传输</button>
-                <button class="nav-item"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>文本消息</button>
+                <button class="nav-item active"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span>消息发送</button>
                 <button class="nav-item"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>服务中心</button>
                 <button class="nav-item"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>CC设置</button>
             </nav>
             <div class="side-foot">
                 <div class="side-status"><span class="d"></span>运行中 :1688</div>
-                <div class="side-ver">v1.1.9 · Tauri</div>
+                <div class="side-ver">v1.2.1 · Tauri</div>
             </div>
         </div>
 
@@ -522,21 +521,15 @@ a { color: inherit; text-decoration: none; }
         <p class="lead">从会议室到工位，日常的文件、消息、临时协作，一个页面全部解决。手机不用装任何 App。</p>
         <div class="cards">
             <div class="card">
-                <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
-                <h3>文件传输</h3>
-                <p>拖拽、点击、Ctrl+V 粘贴都能传，多文件带实时进度与速率。整文件直传、失败或停服即时回滚半截文件，悬挂连接自动超时释放；图片缩略预览、60+ 彩色文件图标，最新 / 名称 / 大小排序，批量选择删除，一键复制带温馨提示的分享链接。</p>
-                <div class="tags"><span class="tag">多途径上传</span><span class="tag">批量管理</span><span class="tag">分享链接</span></div>
-            </div>
-            <div class="card">
                 <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
-                <h3>文本消息</h3>
-                <p>电脑手机实时互通（WebSocket 推送秒级到达，断线自动降级轮询）。自定义昵称与 24 款 emoji 头像，支持代码块、粗体、链接的轻量 Markdown；链接点击直达系统浏览器，未读角标不漏消息。</p>
-                <div class="tags"><span class="tag">实时互通</span><span class="tag">Markdown</span><span class="tag">未读提醒</span></div>
+                <h3>文件与消息</h3>
+                <p>文件和文字在一条对话里：上传即出现文件卡片（等待 / 上传中 / 完成 / 失败），批量上传自动合并成文件组；聊天气泡支持昵称、头像、Markdown 与链接，输入框可多行（桌面 Enter 发送、Shift+Enter 换行；手机 Enter 换行后点发送）。图片、PDF、文本、音视频可在应用内直接预览，右上角关闭即回到聊天。完整共享文件列表收进右侧抽屉 / 手机底部面板，排序、分页、批量删除都在。</p>
+                <div class="tags"><span class="tag">文件即消息</span><span class="tag">Markdown</span><span class="tag">应用内预览</span><span class="tag">共享文件</span></div>
             </div>
             <div class="card">
                 <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                 <h3>服务中心</h3>
-                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、Windows 混合 DPI 正确落位、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色 × 明暗主题即点即换。</p>
+                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、Windows 混合 DPI 正确落位、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，五套配色（深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀）× 亮色 / 暗色 / 跟随系统即点即换，桌面对话气泡也随主题同步。</p>
                 <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
             </div>
             <div class="card">
@@ -562,7 +555,7 @@ a { color: inherit; text-decoration: none; }
             <div class="step">
                 <div class="no">02</div>
                 <h3>扫码或输地址</h3>
-                <p>手机连上同一个 Wi-Fi，扫二维码，或在浏览器输入 <code>http://电脑IP:端口</code>，立即进入共享页。</p>
+                <p>手机连上同一个 Wi-Fi，扫二维码，或在浏览器输入 <code>http://电脑IP:端口</code>，立即进入「消息发送」页。</p>
             </div>
             <div class="step">
                 <div class="no">03</div>
@@ -636,6 +629,18 @@ npm run tauri build</div>
                 <div class="faq-a"><p>桌面端常驻的悬浮二维码：贴边只露一半，鼠标停留 1.5 秒展开「浏览器扫一扫」预览卡，移开自动收起；外圈呼吸=服务运行中、静止=已停止，环上绿点=有新文件或新消息。按住可拖到任意边缘，支持扩展屏——拖到哪块屏就吸哪块屏，位置连同屏幕一起记住、重启回原处，关闭入口在「CC设置 → 悬浮二维码」。</p></div>
             </div>
             <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">文件列表去哪了？<span class="pm">+</span></button>
+                <div class="faq-a"><p>收进了「共享文件」抽屉 / 面板：桌面点房间头文件夹图标（或右侧抽屉），手机点顶部文件夹或＋面板里的「共享文件」。排序、分页、全选、批量删除都在里面；上传的文件同时以卡片出现在对话里。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">能直接预览文件吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>图片、PDF、纯文本（txt/md/log/csv）和音视频可以在应用内直接预览：点缩略图或「预览」打开全屏层，右上角「关闭」或按 Esc 即回到聊天。PDF 在浏览器网页里内嵌查看，桌面壳 / 手机 App 交系统浏览器打开；Office 文档、压缩包等浏览器无法渲染的类型仍需下载后查看；为安全起见 html/svg/xml 不会以网页形式打开。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">聊天支持 Markdown 吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>支持常用语法：标题、无序/有序列表、引用、分割线、围栏代码块，以及行内代码、粗体、斜体、删除线、[文字](链接) 和裸链接。输入框是多行的——桌面端 Enter 发送、Shift+Enter 换行；手机端 Enter 换行，点「发送」提交。</p></div>
+            </div>
+            <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">文件会上传到外网或云服务器吗？<span class="pm">+</span></button>
                 <div class="faq-a"><p>不会。HTTP 服务只监听你的电脑，所有传输都发生在局域网内部，不经过任何第三方服务器。拔掉外网网线，功能一切照常。</p></div>
             </div>
@@ -657,7 +662,7 @@ npm run tauri build</div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">访问令牌和分享链接安全吗？<span class="pm">+</span></button>
-                <div class="faq-a"><p>访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，锁定期间正确码也会被拒，稍等即可。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。</p></div>
+                <div class="faq-a"><p>访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，IPv6 下再按 /64 网段聚合（单窗上限 10 分钟），锁定期间正确码也会被拒，稍等即可。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。服务端另有上传 / 下载 / WebSocket 并发闸，CSP 只放行局域网媒体与 PDF 内嵌。</p></div>
             </div>
         </div>
     </section>

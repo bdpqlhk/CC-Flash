@@ -1,6 +1,6 @@
 // 版本更新检查: GitHub Releases(公开仓库免鉴权, api.github.com 支持 CORS, 纯前端即可)。
 // 设计约定: 任何网络失败一律返回 null 由调用方静默处理 —— 更新检查绝不能影响正常使用。
-import { RELEASES_API, RELEASES_PAGE, UPDATE_CHECK_TIMEOUT_MS } from "./config";
+import { GITHUB_REPO, RELEASES_API, RELEASES_PAGE, UPDATE_CHECK_TIMEOUT_MS } from "./config";
 
 /* 版本号解析: 剥 v 前缀与预发布后缀(-beta), 按 "." 分段取数值 */
 function verParts(v) {
@@ -58,11 +58,18 @@ export async function fetchLatestRelease() {
     clearTimeout(timer);
     if (!r.ok) return null;   // 404(还没发过 Release)/403(限流)等 → 视为无结果
     const d = await r.json();
-    if (!d || !d.tag_name) return null;
+    const list = Array.isArray(d) ? d : [d];
+    // 列表按发布时间倒序: 跳过草稿, 保留 prerelease(缺签名时它就是正式产物)
+    const rel = list.find((x) => x && !x.draft && x.tag_name);
+    if (!rel) return null;
+    // 不信任 API 返回的任意跳转地址: 只接受本仓库 Releases 前缀, 否则回落到固定页面,
+    // 防止上游/镜像被接管后把用户导向任意下载站
+    const expected = `https://github.com/${GITHUB_REPO}/releases/`;
+    const rawUrl = typeof rel.html_url === "string" ? rel.html_url : "";
     return {
-      latest: String(d.tag_name),
-      notes: String(d.body || "").trim(),   // Release 说明, 弹框摘要展示
-      url: d.html_url || RELEASES_PAGE,     // Release 页面(浏览器打开即可下载安装包)
+      latest: String(rel.tag_name),
+      notes: String(rel.body || "").trim(),   // Release 说明, 弹框摘要展示
+      url: rawUrl.startsWith(expected) ? rawUrl : RELEASES_PAGE,
     };
   } catch (e) {
     return null;   // 超时/断网/DNS 失败: 静默

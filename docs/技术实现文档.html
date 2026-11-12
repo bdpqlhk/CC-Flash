@@ -69,9 +69,10 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC-Flash · 技术实现文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-09</b></span>
+<span>文档日期：<b>2026-11-12</b></span>
+<span>应用版本：<b>1.2.1</b>（支持四段 tag vX.Y.Z.W）</span>
 <span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
-<span>平台：<b>macOS 已出包 · Windows 待验</b></span>
+<span>平台：<b>macOS / Windows / Android 已出包</b></span>
 </div>
 </header>
 
@@ -86,7 +87,7 @@ pre code{background:none;color:inherit;padding:0}
                 │ invoke (IPC, 免端口/CORS)      │ async_runtime
 ┌───────────────▼──────────────┐   ┌───────────▼───────────────┐
 │   Vue3 前端 (App.vue 单文件)   │   │  axum 文件服务 (server.rs) │
-│ 桌面形态(侧栏三页)             │◄──┤ 0.0.0.0:1688(占用自动+1)   │
+│ 桌面形态(传输+共享文件抽屉)     │◄──┤ 0.0.0.0:1688(占用自动+1)   │
 │ 网页形态(单页双栏) ← 同一份代码 │   │ 静态资源: rust_embed ../dist│
 │ 手机形态(悬浮球+底部面板)       │   │ 文件/聊天/日志/控制 API      │
 └──────────────────────────────┘   └───────────┬───────────────┘
@@ -113,16 +114,16 @@ cc-flash/
 ├── src/
 │   ├── App.vue                  # 全部 UI 与逻辑（单文件）
 │   ├── config.js                # 前端配置中心（轮询/阈值/API 路径/存储键/文案）
-│   ├── update.js                # 版本更新检查（GitHub Releases + 语义化比较）
-│   ├── style.css                # 主题变量 + 全部样式（6 套配色 × 明暗模式）
+│   ├── update.js                # 版本更新检查（GitHub Releases 列表，兼容 prerelease + 语义化比较）
+│   ├── style.css                # 主题变量 + 全部样式（5 套配色 × 亮/暗/跟随）
 │   ├── main.js
 │   └── assets/no-signal.png     # 失联"无信号"测试卡（构建期内联 base64）
 ├── docs/                        # 需求/技术/使用说明/历史改动 四份文档
-├── scripts/release.sh           # 一键发版（升版本/提交/打标签/推送/API 兜底）
-├── .github/workflows/release.yml# 推 v* 标签自动三平台构建并挂 Release
+├── scripts/release.sh           # 一键发版（升版本/四段 tag/提交/推送/API 兜底）
+├── .github/workflows/release.yml# 推 v* 标签（支持四段）自动三平台构建并挂 Release
 ├── public/logo.png              # 应用 logo
 └── src-tauri/
-    ├── Cargo.toml               # axum/tokio/chrono/fs2/tauri2 …（版本号唯一来源）
+    ├── Cargo.toml               # axum/tokio/chrono/fs2/tauri2 …（应用版本前三段来源）
     ├── tauri.conf.json          # 窗口 1180×840(最小560×520)；桌面壳 visible:false 防自启闪窗，移动壳初始可见
     ├── capabilities/default.json# 窗口权限白名单(notification/dialog)
     ├── capabilities/desktop.json# 桌面专属权限（autostart:default，platforms 限 linux/macOS/windows）
@@ -155,20 +156,22 @@ cc-flash/
 <tr><td><code>PORT</code></td><td><code>AtomicU16</code></td><td>当前服务端口</td></tr>
 <tr><td><code>running_slot()</code></td><td><code>Mutex&lt;Option&lt;ServerHandle&gt;&gt;</code></td><td>ServerHandle = { port, shutdown: oneshot::Sender, task: JoinHandle }</td></tr>
 <tr><td><code>share_dir()</code></td><td>—</td><td>共享目录（默认 ~/CC-Flash，可 set）</td></tr>
+<tr><td><code>ws_permits()</code> / <code>upload_permits()</code> / <code>download_permits()</code></td><td><code>Semaphore</code></td><td>并发闸：WS 连接 <b>64</b>、上传 <b>16</b>、下载 <b>32</b>；超限立即 429/503，不排队（每条连接都占任务、fd 或流式缓冲）</td></tr>
+<tr><td><code>OPEN_LAN</code></td><td><code>AtomicBool</code></td><td>是否开放局域网（默认 true）；偏好落盘用户目录 <code>open_lan_pref</code>（Android 为应用专属目录），运行中切换只改标志，<b>重启服务后按新监听地址生效</b></td></tr>
 </table>
 <h3>3.2 启动流程 <code>start(preferred: Option&lt;u16&gt;)</code></h3>
 <ol>
 <li>已在运行 → 直接返回当前端口（幂等）；</li>
 <li>创建共享目录（失败报「共享目录不可用」）；</li>
-<li>候选端口序列：<code>preferred, preferred+1..+20</code> → 再扫 <code>1688..1707</code>，去重后逐个 <code>bind("0.0.0.0", p)</code>；</li>
-<li>记录端口 → 写日志「服务已启动 端口 N 目录 …」/「首选端口 X 被占用，已顺延至 N」/「共享目录当前 N 个文件 · 访问地址: …」；</li>
+<li>候选端口序列：<code>preferred, preferred+1..+20</code> → 再扫 <code>1688..1707</code>，去重后逐个绑定；<code>open_lan=true</code> 时走 <code>bind_dualstack</code>（<code>[::]</code> 双栈 + v4 连通自检，失败回落 <code>0.0.0.0</code>），关闭时仅绑 <code>127.0.0.1</code>（安全模式）；</li>
+<li>记录实际生效端口 →（本次指定过端口时）写端口偏好 → 写日志「服务已启动 端口 N 目录 …」/「首选端口 X 被占用，已顺延至 N」/「共享目录当前 N 个文件 · 访问地址: …」；<b>open_lan 偏好持久化</b>，切换后重启服务生效；</li>
 <li><code>router(share).into_make_service_with_connect_info::&lt;SocketAddr&gt;()</code> 注入连接信息（日志取来源 IP 用）；</li>
 <li><code>axum::serve</code> + <code>with_graceful_shutdown</code>（oneshot 通道），任务句柄存入 running_slot。</li>
 </ol>
 <h3>3.3 停止 / 自启 / 状态</h3>
 <ul>
-<li><code>stop()</code>：取走 handle → 发 shutdown → 写「服务已停止」；task 为 daemon 语义不等待；</li>
-<li><code>autostart()</code>：应用启动时 <code>start(None)</code>，失败只打 stderr 不阻断 GUI；</li>
+<li><code>stop()</code>：取走 handle → 广播 <code>ws_kick</code> → 发 shutdown → 写「服务已停止」；在途上传随之回滚，task 为 daemon 语义不等待；</li>
+<li><code>autostart()</code>：应用启动时回放上次端口 <code>start(last_preferred_port())</code>，失败只打 stderr 不阻断 GUI；</li>
 <li><code>status()</code> → <code>(running, PORT, lan_ip())</code>。</li>
 </ul>
 <h3>3.4 局域网 IP 探测 <code>lan_ip()</code></h3>
@@ -187,17 +190,18 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <table>
 <tr><th>方法</th><th>路径</th><th>功能</th><th>要点</th></tr>
 <tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>递归收集（深度 ≤8，相对路径作 name，隐藏 .ccpart 产物与符号链接，<code>spawn_blocking</code>）→ name/size/modified(JSON 时间秒)，按修改时间倒序；<b>单次最多返回 5000 条</b>（<code>FILES_LIST_MAX</code>，超出置 <code>truncated:true</code>）——超大目录不再无界遍历/序列化</td></tr>
-<tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载</td><td>通配路由支持子目录；<b>Range 断点续传</b>（单区间 206 + Content-Range + Accept-Ranges，416 越界；N-M 以 take 截断防分帧破坏）；目录 is_file 拒绝；流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名；<b>显式 Content-Length</b>；MIME 按扩展名猜</td></tr>
-<tr><td>POST</td><td><code>/api/share-ticket</code></td><td>签发分享票据</td><td>{name} → {ticket, ttl}；token 为 <b>6 位十六进制</b>（3 字节 CSPRNG——承载式凭证边界可控：绑定单文件 + 10min TTL + 完整下载即焚）；容量 2048 上限，先剪过期再淘汰最旧；文件名走 safe_rel_path + 存在性/is_file 校验；<b>无效票据按来源 IP 限流</b>（连续 20 次失败暂停 10 分钟，成功即清零）——否则 24bit 空间可在局域网全速穷举</td></tr>
-<tr><td>POST</td><td><code>/api/upload</code></td><td>上传（单请求整文件直传）</td><td><code>X-Filename</code>(URL编码, 相对路径) + <code>X-File-Size</code>；磁盘空间预检(不足→400，含 256MB 安全余量) → 路径越界预检 + create_dir_all + 建后复验(TOCTOU) → <code>create_new</code> 原子占位、被抢先则 <code>dedup_rel_name</code> 顺延 (1)(2)…（绝不覆盖同名）→ body 流式落盘（无分片/账本/会话状态）；"占位→标记→在途登记"与 DELETE 的复查/删除共用 <code>file_op_lock</code>（消除删在途仍回 200 的 TOCTOU 假成功）；写失败/断开/空闲超时/总时长超限/磁盘低于余量一律回滚半截文件；<code>sync_all</code> 失败同样回滚并 500；成功后 200{ok,name,final,size}（final = 改名后实际落盘名，前端据此提示"已存为"）</td></tr>
-<tr><td>GET</td><td><code>/api/upload_progress</code></td><td>断点查询（仅旧版遗留）</td><td>?name=&amp;id=[&amp;size=] → {received, chunks}。现上传为整文件直传、不再产生新断点，本接口仅服务 v1.1.5-1.1.7 遗留 .ccpart：并行账本会话按账本求和 / 真旧版顺序会话按 part 长度 / 账本形状非法一律 0（防预分配长度被当成全量 → 假完成丢文件）；会话 id 不匹配 → 0 且不下发账本（会话隔离）；断点不在但完成记录的最终名大小吻合 → 报满量；纯只读不建目录</td></tr>
-<tr><td>POST</td><td><code>/api/upload_cancel</code></td><td>断点清理（仅旧版遗留）</td><td>?name=&amp;id= → 只删与 id 匹配的会话 .ccpart/.meta（防猜 id 删他人断点）；会话活跃标记为旧版并行上传兼容保留，现版本无增量方</td></tr>
+<tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载 / 应用内预览</td><td><b>并发闸 32</b>（超限 429）；通配路由支持子目录；<b>Range 断点续传</b>（单区间 206 + Content-Range + Accept-Ranges，416 越界；N-M 以 take 截断防分帧破坏）；目录 is_file 拒绝；流式（ReaderStream 1MB 块）；Content-Disposition RFC5987 中文名（<code>?inline=1</code> 且类型安全时用 inline）；<b>显式 Content-Length</b>；MIME 按扩展名猜；<code>.ccup</code> 标记仍属上传中 → 409 不返回半截文件</td></tr>
+<tr><td>POST</td><td><code>/api/share-ticket</code></td><td>签发分享票据</td><td>{name} → {ticket, ttl}；token 为 <b>12 位十六进制</b>（6 字节 CSPRNG——48bit 空间，绑定单文件 + 10min TTL + 下载即焚）；容量 2048 上限，先剪过期再淘汰最旧；<b>生成时检查唯一性</b>，碰撞不覆盖旧票；文件名走 safe_rel_path + 存在性/is_file 校验；<b>无效票据按来源 IP 限流</b>（连续 20 次失败暂停 10 分钟，成功即清零）</td></tr>
+<tr><td>POST</td><td><code>/api/upload</code></td><td>上传（单请求整文件直传）</td><td><b>并发闸 16</b>（超限 429）；<code>X-Filename</code>(URL编码, 相对路径) + <code>X-File-Size</code>；磁盘空间预检(不足→400，含 256MB 安全余量) → 路径越界预检 + create_dir_all + 建后复验(TOCTOU) → <code>create_new</code> 原子占位、被抢先则 <code>dedup_rel_name</code> 顺延 (1)(2)…（绝不覆盖同名）→ <b>长文件名含 marker 预检</b>（<code>base.len()+6 &gt; 249</code> → 400，避免卡在 <code>.ccup</code> 创建）→ 写首字节前落 <code>.{名}.ccup</code> 标记 → body 流式落盘（无分片/账本/会话状态）；"占位→标记→在途登记"与 DELETE 的复查/删除共用 <code>file_op_lock</code>（消除删在途仍回 200 的 TOCTOU 假成功）；写失败/断开/空闲 120s/总时长 6h/<b>低速闸（连续 60s 增量 &lt; 16KB）</b>/磁盘低于余量一律回滚半截文件；<code>sync_all</code> 失败同样回滚并 500；成功后 200{ok,name,final,size}（final = 改名后实际落盘名，前端据此提示"已存为"）</td></tr>
+<tr><td>GET</td><td><code>/api/upload_progress</code></td><td>断点查询（仅旧版遗留）</td><td>?name=&amp;id=[&amp;size=] → {received, chunks}。现上传为整文件直传、<b>恒返回 0</b>，本接口仅服务 v1.1.5-1.1.7 遗留 .ccpart：并行账本会话按账本求和 / 真旧版顺序会话按 part 长度 / 账本形状非法一律 0（防预分配长度被当成全量 → 假完成丢文件）；会话 id 不匹配 → 0 且不下发账本（会话隔离）；断点不在但完成记录的最终名大小吻合 → 报满量；纯只读不建目录</td></tr>
+<tr><td>POST</td><td><code>/api/upload_cancel</code></td><td>断点清理（仅旧版遗留）</td><td>?name=&amp;id= → 只删与 id 匹配、且文件名符合<b>会话指纹命名</b>（<code>&lt;name&gt;.&lt;16hex&gt;.ccpart/.meta</code>）的遗留产物（防猜 id / 误删用户同名文件）；现版本无增量方，会话活跃标记仅作旧版兼容保留</td></tr>
 <tr><td>DELETE</td><td><code>/api/delete/*name</code></td><td>删除</td><td>safe_rel_path + 越界校验后删文件（支持子目录）</td></tr>
 <tr><td>GET</td><td><code>/api/chat</code></td><td>拉取聊天</td><td>返回全部（≤200）消息数组</td></tr>
-<tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、记录来源 IP；id 分配与入队同一临界区（防并发重复 id）；返回自增 id</td></tr>
-<tr><td>GET</td><td><code>/ws</code></td><td>WebSocket 事件推送</td><td>broadcast 总线推 {type: chat:new|files:changed|status:up|down}；15s 心跳 {"type":"hb"}；慢消费者跳过积压（客户端收到事件后本就全量拉取）；停服先 ws_kick 踢掉所有连接再优雅关闭</td></tr>
+<tr><td>POST</td><td><code>/api/chat</code></td><td>发送聊天</td><td>昵称截 20 字（空则"匿名用户"）、消息截 2000 字、剥 NUL、记录来源 IP；可带 <code>quote</code> 引用快照（同样消毒/截断）；id 分配与入队同一临界区（防并发重复 id）；返回自增 id</td></tr>
+<tr><td>DELETE</td><td><code>/api/chat/{id}</code></td><td>删除单条消息</td><td>按 id 移除并广播 <code>chat:changed</code>；不存在 → 404；局域网可信模型下任何接入设备均可删</td></tr>
+<tr><td>GET</td><td><code>/ws</code></td><td>WebSocket 事件推送</td><td>连接闸 <b>64</b>（超限 503）、广播通道容量 64、消息/帧上限 64KB/16KB；推 {type: chat:new|chat:changed|files:changed|status:up|down}；15s 心跳 {"type":"hb"}；慢消费者跳过积压（客户端收到事件后本就全量拉取）；停服先 ws_kick 踢掉所有连接再优雅关闭</td></tr>
 <tr><td>GET</td><td><code>/api/info</code></td><td>服务信息</td><td>{ip, port, running, <b>version</b>, <b>config</b>, <b>pinEnabled</b>}——网页端状态轮询用，config 见第 10 节；pinEnabled 只表示"是否开启访问令牌"（不下发码值），浏览器/移动壳据此清理本地陈旧配对码</td></tr>
-<tr><td>GET</td><td><code>/api/control/status</code></td><td>状态</td><td>{running, port, ip}</td></tr>
+<tr><td>GET</td><td><code>/api/control/status</code></td><td>状态</td><td>{running, port, ip, version, config}</td></tr>
 <tr><td>POST</td><td><code>/api/control/start</code></td><td>启动</td><td>JSON {port?}</td></tr>
 <tr><td>POST</td><td><code>/api/control/stop</code></td><td>停止</td><td>—</td></tr>
 <tr><td>GET</td><td><code>/api/control/logs</code></td><td>拉日志（结构化 {ts,level,loc,msg}，前端按 loguru 形态渲染：全量时间戳 / INFO·SUCCESS·WARNING·ERROR 着色 / 来源 文件:行 / 贴底跟随）</td><td>desktop 每 2s 轮询（仅服务中心页在台前时）</td></tr>
@@ -210,13 +214,14 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <h3>4.1 Tauri 命令（IPC，桌面壳专用）</h3>
 <table>
 <tr><th>命令</th><th>功能</th></tr>
-<tr><td><code>control_status_cmd</code></td><td>running/port/ip/share/free/total + version + config 一次性打包返回（控制台数据源）</td></tr>
+<tr><td><code>control_status_cmd</code></td><td>running/port/ip/share/free/total + version + config + pinEnabled/pin + <b>openLan</b> 一次性打包返回（控制台数据源；工作线程执行，避免网卡/磁盘查询卡 UI）</td></tr>
+<tr><td><code>set_open_lan_cmd(open)</code></td><td>切换开放局域网 / 安全模式：写 <code>open_lan_pref</code> 并更新内存标志，<b>重启服务后按新监听地址生效</b></td></tr>
 <tr><td><code>control_start_cmd(port?)</code></td><td>启动服务；<b>Android/iOS 直接拒绝</b>（移动端是纯客户端，仅前端按钮门控挡不住注入脚本拉起局域网服务）</td></tr>
 <tr><td><code>control_stop_cmd</code></td><td>停止服务（移动端同样拒绝）</td></tr>
 <tr><td><code>control_clear_logs_cmd</code></td><td>清空日志</td></tr>
 <tr><td><code>set_share_dir_cmd(path)</code></td><td>校验目录存在后切换共享目录</td></tr>
 <tr><td><code>open_path_cmd(path)</code></td><td>系统程序打开文件/目录</td></tr>
-<tr><td><code>open_url_cmd(url)</code></td><td>系统浏览器打开 URL（顶栏"打开浏览器"按钮/分享兜底/移动壳外链与下载的落地通道）：macOS <code>open</code> · Windows <code>rundll32 FileProtocolHandler</code>(不经 cmd shell 防注入) · Android <code>am start -a VIEW</code>(壳内 WebView 无下载通道，交系统浏览器) · iOS 明确返回不支持（沙箱禁止 spawn，前端走复制链接兜底） · Linux <code>xdg-open</code>；启动器子进程后台 wait 回收防僵尸</td></tr>
+<tr><td><code>open_url_cmd(url)</code></td><td>系统浏览器打开 URL（顶栏"打开浏览器"按钮/分享兜底/移动壳外链与下载的落地通道）：macOS <code>open</code> · Windows <code>rundll32 FileProtocolHandler</code>(不经 cmd shell 防注入) · Android <code>am start -a VIEW</code>(壳内 WebView 无下载通道，交系统浏览器；<b>同步检查 am 退出码</b>，失败如实报错不假成功) · iOS 明确返回不支持（沙箱禁止 spawn，前端走复制链接兜底） · Linux <code>xdg-open</code>；非 Android 启动器子进程后台 wait 回收防僵尸</td></tr>
 <tr><td><code>copy_file_cmd(name)</code></td><td>复制文件本体到剪贴板：macOS osascript（ARGV 传参防注入）/ Windows PowerShell <code>SetFileDropList</code>（CF_HDROP，资源管理器直接粘贴出文件；注意 Set-Clipboard 无 -LiteralPath 参数且只会粘出路径文本）/ Linux 未支持</td></tr>
 <tr><td><code>show_qr_pet_cmd(show)</code></td><td>显隐悬浮码窗（开关切换 / 状态轮询兜底重显）；<code>show=true</code> 在 <code>PET_READY</code> 置位前拒绝，保证"先落位再显示"</td></tr>
 <tr><td><code>pet_ready_cmd</code></td><td>Pet 完成首次落位/2.5s 兜底后上报，放行主窗的强制显示</td></tr>
@@ -232,7 +237,8 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <h2><span class="no">5</span>关键流程实现</h2>
 <h3>5.1 上传（单请求整文件直传 + 同名顺延 + 目录结构保留）</h3>
 <pre>
-HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验, 保留形态与系统垃圾文件
+并发闸: upload_permits 16 个槽位, 超限立即 429(不排队, 防空闲连接耗尽 fd)
+→ HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐段校验, 保留形态与系统垃圾文件
   [.DS_Store/._*/Thumbs.db/desktop.ini, 防目录文件名元数据泄露]、控制字符(CR/LF/NUL 等,
   Windows 文件名非法且跨端不一致)与 RTL 覆写符(U+202A-E, 防"exe.jpg"反转伪装扩展名)仅上传拒绝) ─非法→ 400
 → #[cfg(windows)] MAX_PATH(260) 预检(按 UTF-16 code unit 计, 查最终落盘路径) ─超限→ 400「路径过长」
@@ -240,28 +246,36 @@ HEAD 头校验 → percent_decode(X-Filename) → safe_rel_path(相对路径逐�
 → 越界预检(canonicalize 最近存在祖先, 先查后建防符号链接) + create_dir_all + 建后复验(TOCTOU, 越界回滚空目录)
 → **file_op_lock 临界区**: create_new 原子占位(绝不覆盖): AlreadyExists → dedup_rel_name 从**原名**
    重算第一个空闲变体 (1)(2)… 重试 └─ Windows: 变体名二次查 MAX_PATH(260) → 超限→400「改名后路径过长」
-→ 写首字节前创建 .{名}.ccup **完整性标记**: 首行 16 位会话令牌 + 第二行声明大小
-   (令牌让 abort 只清理本会话产物, 不会误删同名新上传; 声明大小让启动清理能识别"已完整落盘"的成品)
+→ **marker 长度预检**: base.len() + 6 &gt; 249 → 400「文件名过长（含上传标记超出系统上限）」
+   (.{名}.ccup 比成品名多 6 字符, 接近 NAME_MAX 的合法文件名否则会卡在标记创建)
+→ 写首字节前创建 .{名}.ccup **完整性标记**: 首行 ccflash-v1: + 16 位会话令牌 / 第二行声明大小
+   (旧版裸 16hex 标记只做安全迁移; "ok" = 上传成功但标记删除失败; 空标记 = 崩溃在建标记后写令牌前;
+    非以上形态一律视为用户自己的 .x.ccup, 绝不触碰/覆盖)
    同一临界区内 active_uploads 计数+1 —— 占位/标记/登记与 DELETE 的复查/删除互斥, 无 TOCTOU 假成功
 → body 流式落盘: body.into_data_stream() 逐帧 write_all(零内存膨胀); 每 64MB 复查磁盘剩余(低于 256MB 余量→507+清理)
-   ├─ 写失败/断开/空闲 120s/总时长 6h/磁盘不足/收到停服信号 → drop 句柄后 abort(仅标记仍属本会话才删成品+标记, 计数-1)
+   ├─ 写失败/断开/空闲 120s/总时长 6h/**低速闸(连续 60s 增量 &lt; 16KB)**/磁盘不足/收到停服信号
+   │   → drop 句柄后 abort(仅标记仍属本会话才删成品+标记, 计数-1)
    └─ 正常结束 → sync_all(失败→清理+500) → **written ≠ 声明 size → 按不完整清理+400**
         → 删标记(失败则写入 "ok", 启动见 ok 只删标记保成品) → 在途计数-1 → 日志 → 200{ok, name, final, size}
-   在途保护: DELETE 见 active_uploads 计数或 .ccup 标记存在 → 409「上传中」(且与上传临界区互斥)
+   在途保护: DELETE 见 active_uploads 计数或**合法上传令牌**标记 → 409「上传中」
+             ("ok" 标记与用户自建 .ccup 不锁文件; "ok" 顺带回收)
    停服: stop() 广播停服信号 → 在途上传立即回滚; start() 前等待 active_uploads 清空, 避免启动清理误删仍在写的文件
 </pre>
-<p class="small">语义：<b>一个文件 = 一个请求 = 一条连接</b>，整文件即"最大的分片"，服务端不维护任何分片/账本/会话状态（v1.1.8 回归 1.1.2 直传语义，仅保留 1.1.5 起的同名自动改名）。锁屏防中断由前端 Wake Lock + 2px 视频通路保活承担（9.4）。<code>/api/upload_progress</code>、<code>/api/upload_cancel</code> 与启动 TTL 清理仅为 v1.1.5-1.1.7 旧版遗留 .ccpart 服务（按 now−mtime 真实年龄判定；<b>未来 mtime</b>（系统时钟被改）按未过期保留，宁多留不误删），新上传不再产生断点文件。</p>
+<p class="small">语义：<b>一个文件 = 一个请求 = 一条连接</b>，整文件即"最大的分片"，服务端不维护任何分片/账本/会话状态（v1.1.8 回归 1.1.2 直传语义，仅保留 1.1.5 起的同名自动改名；v1.2.1.x 增加并发/低速闸与 marker 状态机）。锁屏防中断由前端 Wake Lock + 2px 视频通路保活承担（9.4）。<code>/api/upload_progress</code>、<code>/api/upload_cancel</code> 与启动 TTL 清理仅为 v1.1.5-1.1.7 旧版遗留 .ccpart 服务；<b>清理只认带会话指纹的命名</b>（<code>&lt;name&gt;.&lt;16hex&gt;.ccpart/.meta</code> 与 <code>.ccpart.meta.tmp</code>），同名同后缀的普通用户文件不删；按 now−mtime 真实年龄判定，<b>未来 mtime</b>（系统时钟被改）按未过期保留，宁多留不误删。</p>
 <h3>5.2 下载（流式 + Range 断点续传）</h3>
 <pre>
+并发闸: download_permits 32 个槽位, 超限立即 429(每条下载固定占流式缓冲/fd)
 准入(中间件): 有效分享票据<b>先于访问码</b>放行(否则开 pin 时分享链接先吃 401, 接收方被迫索要全站码);
-  票据 peek 不销, **完整成功 GET 后才焚票** —— Range 解析起始数字为 0(bytes=0-/bytes=00-/bytes=0-123)
-  视为全量同样销票(防一个链接无限拉全文; 前缀字符串匹配会漏掉 bytes=00-), N&gt;0 续传与 HEAD 不销票;
+  票据 peek 不销, **任意成功 GET(含 206 Range) 后即焚** —— 旧实现只认起始 0,
+  `Range: bytes=1-` 可无限重复拉取余下全文; HEAD 预检不销票; 断点续传后续请求需重新索取链接;
   无效票据按 IP 限流(20 次/10 分钟); 文件名逐段 percent 解码后再校验(中文名票据可匹配, %2E%2E 仍被拦)
 safe_rel_path(读路径: 保留形态放行, 否则既有 aux.pdf 等取不回) → safe_join_existing
 → metadata.is_file() 校验(目录在 Unix 上 open 成功但读到 EISDIR 中途断流 → 400)
 → 解析 Range(单区间 "N-" / "N-M"; 多区间/畸形忽略按整体 200; start≥size → 416 + bytes */size)
 → seek(start) → take(end_excl - start)(N-M 必须截断: 不截断读到 EOF 会多发字节,
   与 CONTENT_LENGTH 不符破坏 HTTP 分帧) → BufReader → ReaderStream 1MB
+→ 应用内预览: ?inline=1 且扩展名在 is_inline_safe(图片/PDF/文本/音视频; 排除 html/svg/xml)
+   → Content-Disposition: inline(其余一律 attachment, 防同源脚本执行)
 → 日志「下载 (大小) ← IP[ · 续传自 N]」
 → headers: Content-Type / Accept-Ranges: bytes / Content-Disposition(RFC5987) /
    Cache-Control: no-cache / Content-Length(显式) [206 时附 Content-Range: bytes s-e/size]
@@ -269,14 +283,19 @@ safe_rel_path(读路径: 保留形态放行, 否则既有 aux.pdf 等取不回) 
 <p>浏览器断下重试携带 <code>Range: bytes=N-</code> 时返回 206 从断点继续——10GB 文件传到 8GB 断掉不再从零重来。</p>
 <h3>5.3 聊天收发</h3>
 <pre>
-POST: trim → 空消息 400 → 昵称 chars().take(20)（空则"匿名用户"）→ 消息 take(2000)
-    → id = 上一条+1 → ChatMsg{..., ip} 入队（&gt;200 pop_front）
-    → 日志「聊天 {昵称}: {内容前40字}… ← IP」
+POST: trim → 剥 NUL → 空消息 400 → 昵称 chars().take(20)（空则"匿名用户"）→ 消息 take(2000)
+    → quote 快照同样剥 NUL/截断 → id = 上一条+1 → ChatMsg{..., ip, quote} 入队（&gt;200 pop_front）
+    → 日志「聊天 {昵称}: {内容前40字}… ← IP」→ 广播 chat:new
 GET:  返回 Vec&lt;ChatMsg&gt;
+DELETE /api/chat/{id}: 移除消息 → 广播 chat:changed（不存在 404）
 </pre>
 <h3>5.4 删除</h3>
 <pre>
-safe_rel_path → safe_join_existing → remove_file
+safe_rel_path → safe_join_existing → file_op_lock 内复查在途 → 删除
+  ├─ active_uploads 计数 &gt; 0 或 .ccup 首行为合法上传令牌 → 409「上传中」
+  ├─ 标记为 "ok"(上传成功但删标记失败) → 顺手回收标记，不阻塞删除
+  └─ **符号链接只删链接本身**: safe_join_existing 返回 canonical 目标，
+     直接 remove 会删掉共享目录里的另一个真实文件 → 改用原路径 remove_file
 → 成功: 日志「删除 {名} ← IP」+ 广播 files:changed；失败: 日志「删除失败 …」→ 500
 </pre>
 </section>
@@ -289,15 +308,20 @@ safe_rel_path → safe_join_existing → remove_file
 <li><b><code>safe_rel_path(raw)</code></b>（输入应为已解码字符串）：把 <code>\</code> 归一为 <code>/</code> → 逐段校验：拒绝空 / "." / ".." / 首尾空格 / Windows 非法字符（<code>/:*?"&lt;&gt;|</code>，其余平台统一保证跨端一致）/ 结尾点 / 内部产物后缀（.ccpart/.meta）→ 段数上限 8（与列表递归深度一致）→ 以 <code>/</code> 连接返回相对路径；</li>
 <li><b><code>safe_join_existing(share, name)</code></b>：拼路径后 <code>canonicalize()</code>，校验结果必须以共享目录 canonicalize 前缀开头（防符号链接/编码绕过越界）。</li>
 </ol>
+<div class="callout c-warn"><b>删除符号链接的边界</b>删除接口拿到的是 canonical 目标路径，直接 <code>remove_file</code> 会删到共享目录内的另一个真实文件；删除前用 <code>symlink_metadata</code> 判断原路径，<b>是链接就只删链接本身</b>。</div>
 <div class="callout c-info"><b>上传的额外预检</b>上传可能创建新路径：建目录前对「最近存在的祖先」做 canonicalize 越界校验——<code>create_dir_all</code> 会跟随符号链接，先建后查会把目录建到共享目录之外。断点查询（upload_progress）纯只读、不创建任何目录（防任意查询串刷出空目录树）。</div>
 <div class="callout c-tip"><b>解码边界</b>axum 的 Path/Query 提取器自带一次 percent 解码；<code>X-Filename</code> 请求头不经提取器，由 upload 处理解一次再传入。<code>safe_rel_path</code> 本身不再解码——避免含字面 <code>%XX</code> 的文件名被双重解码后指向别的文件。</div>
 <h3>6.1 访问令牌与请求准入（中间件）</h3>
 <ul>
 <li><b>本机来源豁免</b>：<code>is_local_source</code> = 回环地址 ∪「源 IP 绑定 UDP socket 试探」（同机浏览器经局域网 IP 访问时源地址是网卡 IP 而非 127.0.0.1，只判回环会把电脑前的人锁在外面）；伪造源地址需完成 TCP 握手（收不到 SYN-ACK），不可冒充。双栈监听（<code>[::]</code>）下 IPv4 连接的源地址是 v4-mapped 形态（<code>::ffff:a.b.c.d</code>），而 is_loopback/UDP 探测只认纯 v4——统一经 <code>normalize_peer</code> 折回纯 IPv4 再判定（v1.1.4 修复：此前桌面壳经 127.0.0.1 的控制接口调用被误判远程 403，"服务日志"面板因此全瞎）；</li>
 <li><b>控制接口仅限本机</b>：<code>/api/control/*</code>（启停/日志）非回环来源一律 403；</li>
+<li><b>安全模式（open_lan=false）</b>：关闭「开放局域网」后服务只绑 <code>127.0.0.1</code>，局域网设备无法连接；偏好写 <code>open_lan_pref</code>，重启服务生效（运行中切换不重绑）；</li>
 <li><b>Host/Origin 守卫</b>：Host 必须是 IP / localhost（<b>已移除 *.local</b>——同 Wi-Fi 攻击者可自架 mDNS 应答做 DNS 重绑定，让受害者浏览器同源直连本机服务、源地址豁免 pin；二维码本就下发 IP，收紧无损正常路径）；带 Origin 的请求只放行自身与 tauri WebView 源（挡跨源 CSRF）；</li>
+<li><b>公网来源守卫</b>：非本机且非私网/链路本地/ULA 的地址，在未开启访问令牌时直接 403——主机有公网 IPv6 且防火墙未拦入站时，旧行为会把共享目录暴露到互联网；私网设备仍零配置直连；</li>
+<li><b>共享目录选择</b>：<code>set_share_dir_cmd</code> 先 <code>canonicalize</code> 再判断家目录/祖先/文件系统根，<code>..</code>、指向家目录的符号链接、Windows 大小写/8.3 短名不能绕过高风险目录二次确认；切换目录会清空所有分享票据；</li>
 <li><b>访问令牌（可选）</b>：开启后非本机的 API/WS 请求必须携带 <code>?pin=</code> 或 <code>X-Access-Pin</code>；6 位数字码（时间纳秒^进程id^自增序号经 splitmix64 扩散），状态落盘重启不静默失效；导航请求（Accept 含 text/html）回可输入配对码的 HTML 中转页而非裸 JSON；</li>
-<li><b>防爆破退避（v1.1.4，双层化于安全加固）</b>：只统计「实际提交了配对码」的尝试（无码的后台轮询不计额度）；<b>单 IP 层</b>：连续失败 8 次后指数退避（15s 起步每次翻倍、封顶 1h）；<b>IPv6 /64 聚合层</b>：隐私扩展轮换接口地址刷新不了聚合窗口（40 次/60s 起步，独立封顶）——任一层处于锁定窗内一律 429，<b>正确码也拒绝</b>（若放行，对/错码响应可区分，攻击者伪造 Accept 头即可全速逐个试码，退避形同虚设）；锁定中不记数不延长（轰炸无法续窗），配对成功两层立即清零；逐键计数使攻击者只能锁住自己的源地址/网段。导航请求在锁定窗内回可重试的 429 表单页；配对码比较为常量时间（无逐字符短路时序差）；</li>
+<li><b>防爆破退避（v1.1.4，双层化于安全加固）</b>：只统计「实际提交了配对码」的尝试（无码的后台轮询不计额度）；<b>单 IP 层</b>：连续失败 8 次后指数退避（15s 起步每次翻倍、封顶 1h）；<b>IPv6 /64 聚合层</b>：隐私扩展轮换接口地址刷新不了聚合窗口（40 次/60s 起步，<b>封顶 10 分钟</b>）——任一层处于锁定窗内一律 429，<b>正确码也拒绝</b>（若放行，对/错码响应可区分，攻击者伪造 Accept 头即可全速逐个试码，退避形同虚设）；锁定中不记数不延长（轰炸无法续窗），配对成功两层立即清零；逐键计数使攻击者只能锁住自己的源地址/网段。导航请求在锁定窗内回可重试的 429 表单页；配对码比较为常量时间（无逐字符短路时序差）；</li>
+<li><b>CSP</b>：生产 WebView 配置 <code>script-src 'self'</code>、<code>object-src 'none'</code>、<code>base-uri 'self'</code>；<code>connect-src</code> 放行 <code>http: ws:</code>，<code>img-src</code>/<code>media-src</code> 放行 <code>http:</code> 与 <code>blob:</code>，<code>frame-src</code> 放行 <code>http:</code>（<b>不再 'none'</b>）——应用内预览需要从局域网地址加载图片/音视频/PDF，只留回环会把发版包整端拦死；html/svg/xml 仍由服务端 inline 白名单挡在同源执行之外；</li>
 <li><b>日志卫生</b>：日志行剥 CR/LF 防伪造注入、单行硬截断 400 字符；查询串中的 pin 一律脱敏为 <code>pin=***</code>。</li>
 </ul>
 </section>
@@ -334,15 +358,16 @@ safe_rel_path → safe_join_existing → remove_file
 <li><b>左键点托盘图标 = 唤出主窗口</b>（<code>show_menu_on_left_click(false)</code> 后左键不再弹菜单——macOS 挂了 menu 的托盘左键会直接进入菜单追踪，Click 事件到不了 handler；关掉后两平台统一为 左键唤窗 / 右键菜单）；右键打开菜单；</li>
 <li><b>唤窗统一走 <code>show_main_window(app)</code></b>（<code>unminimize → show → set_focus</code>，show() 只置可见不会还原最小化），三条路径共用：① 托盘菜单「显示主窗口」② 左键托盘图标 ③ 单实例回调 / macOS <code>RunEvent::Reopen</code>（点程序坞图标触发 <code>applicationShouldHandleReopen</code>）；</li>
 <li><b>单实例守卫</b>：<code>tauri-plugin-single-instance</code>（<b>必须注册在所有插件之前</b>）——运行中再次启动不再新建进程，回调直接 <code>show_main_window</code>，杜绝 Windows 侧托盘图标越开越多；</li>
-<li><b>关窗 = 收纳</b>：<code>CloseRequested</code> 事件 <code>prevent_close</code> + <code>hide()</code>，服务保持运行；首次收纳发系统通知（tauri-plugin-notification）告知退出方式（文案区分程序坞/任务栏）。</li>
+<li><b>关窗 = 收纳</b>：<code>CloseRequested</code> 事件 <code>prevent_close</code> + <code>hide()</code>，服务保持运行；首次收纳发系统通知（tauri-plugin-notification）告知退出方式（文案区分程序坞/任务栏）；</li>
+<li><b>托盘初始化失败不拖垮应用</b>：托盘构建包成独立 <code>Result</code>，Linux 无 StatusNotifier / DBus 异常 / 图标缺失时只打 stderr，主窗与局域网服务照常启动。</li>
 </ul>
 <h3>8.2 启动序列</h3>
 <ol>
 <li>注册单实例插件（最先）→ notification / dialog → 桌面条件注册 autostart（参数 <code>["--hidden"]</code>）→ 全部命令（generate_handler!）；</li>
 <li>构建托盘与菜单/左键点击事件；</li>
 <li>主窗口绑定关闭事件；桌面壳窗口<b>默认隐藏</b>（<code>visible(!cfg!(desktop))</code>：桌面 false 防自启闪窗，移动壳没有托盘/隐藏→显示路径，必须初始可见否则整个 App 空白），启动参数<b>不含</b> <code>--hidden</code> 时<b>等前端挂载完成发 <code>main://ready</code> 再 show</b>（Rust 注册 Listener + 2s 兜底：前端异常宁可空壳也不让窗口永不可见；webview 加载本不依赖 show，隐藏窗照常跑页）——消灭「空壳先出、内容后蹦」的断层，实测启动≈0.4s 即**带内容上屏**（服务就绪≈0.3s 更早）；开机自启（<code>--hidden</code>）不监听不兜底，收进托盘不弹；<code>MAIN_SHOWN</code> 与托盘唤窗共享，2s 内唤窗后再收托盘不会被兜底重新弹出；单实例回调早于建窗时短轮询补发唤窗，不再"双击图标没反应"；</li>
-<li><code>server::autostart()</code> 自动拉起服务（端口被占自动顺延），结果打 stderr：<code>[wft] 服务已启动: http://ip:port</code>。</li>
-<li>端口绑定：开放局域网用双栈 <code>[::]</code> 并<b>自检 v4 连通</b>后采用，无 IPv6 / <code>bindv6only=1</code> 时回落 <code>0.0.0.0</code>（<code>bind_dualstack</code>，此前该回落只存在于未编译的测试代码，禁 IPv6 主机整机起不来、v4 设备全拒连）；<code>STOPPING</code> 标志让 start 等在途 stop 收尾（≤3.5s，stop 入口先置位再抢 START_GUARD），停启竞态不再把地址顺延漂移；停服时先广播 <code>ws_kick</code> 让在途上传立即回滚, 并等待 <code>active_uploads</code> 清空(≤3s)后才允许 start 绑定新端口——axum 连接任务是独立 spawn 的, 只 abort serve future 不会停掉它们, 否则启动清理会删掉旧 handler 仍在写的文件；启动清理顺序：<b>先</b> <code>clean_incomplete_uploads</code>（.ccup 标记→半截成品）<b>再</b> <code>clean_stale_parts</code>（过期断点）。标记首行必须是系统会话令牌(16 位十六进制)才处理——用户自己的 <code>.x.ccup</code> 文件绝不误删；令牌下第二行声明大小与成品大小吻合 = 崩溃在"写完但标记未删"窗口，保留成品只删标记。</li>
+<li><code>server::autostart()</code> 在<b>工作线程</b>中自动拉起服务（共享目录在休眠外接盘/不可达 SMB 时扫描可能阻塞数秒，放 setup 主线程会拖住首帧），端口被占自动顺延，结果打 stderr：<code>[wft] 服务已启动: http://ip:port</code>。</li>
+<li>端口绑定：开放局域网用双栈 <code>[::]</code> 并<b>自检 v4 连通</b>后采用，无 IPv6 / <code>bindv6only=1</code> 时回落 <code>0.0.0.0</code>（<code>bind_dualstack</code>，此前该回落只存在于未编译的测试代码，禁 IPv6 主机整机起不来、v4 设备全拒连）；<code>STOPPING</code> + <code>STOP_IN_FLIGHT</code> 与共享生命周期锁让 start 等在途 stop 收尾（并发第二个 stop 不会提前清标志），停启竞态不再把地址顺延漂移；停服时先广播 <code>ws_kick</code> 让在途上传立即回滚, 并等待 <code>active_uploads</code> 清空(≤3s)后才允许 start 绑定新端口——axum 连接任务是独立 spawn 的, 只 abort serve future 不会停掉它们, 否则启动清理会删掉旧 handler 仍在写的文件；启动清理顺序：<b>先</b> <code>clean_incomplete_uploads</code>（.ccup 标记→半截成品）<b>再</b> <code>clean_stale_parts</code>（过期断点）；两段遍历受 1.5s/2 万条预算与 32 层深度上限保护，避免 setup 线程被大目录阻塞。标记首行必须是 `ccflash-v1:` + 16 位十六进制令牌才处理——名为 <code>.ccup</code> 的空基名文件与用户自己的 <code>.x.ccup</code> 文件绝不误删；令牌下第二行声明大小与成品大小吻合 = 崩溃在"写完但标记未删"窗口，保留成品只删标记。</li>
 </ol>
 <h3>8.3 桌面悬浮码窗口（qr-pet）</h3>
 <ul>
@@ -359,20 +384,24 @@ safe_rel_path → safe_join_existing → remove_file
 <h3>9.1 运行模式判定</h3>
 <table>
 <tr><th>标志</th><th>判定</th><th>影响</th></tr>
-<tr><td><code>isDesktop</code></td><td><code>"__TAURI_INTERNALS__" in window</code></td><td>侧栏三页 vs 网页单页；invoke vs fetch；文件按钮组差异（<b>注意：Android/iOS 的 Tauri WebView 同样为 true</b>）</td></tr>
-<tr><td><code>isRealDesktop</code></td><td><code>isDesktop && UA 不含 Android/iOS</code></td><td>依赖桌面专属插件的功能门控：开机自启开关与设置卡仅真实桌面显示（Android 平板上 autostart 插件未注册，直连必失败）</td></tr>
-<tr><td><code>isNarrow</code></td><td><code>matchMedia("(max-width:980px)")</code> 监听</td><td>手机布局：导航精简、悬浮球+底部面板、地址行两行式</td></tr>
+<tr><td><code>isDesktop</code></td><td><code>"__TAURI_INTERNALS__" in window</code></td><td>桌面壳（侧栏 + 传输页 + 右侧抽屉）vs 网页（顶部房间头 + 抽屉）；invoke vs fetch；文件按钮组差异（<b>注意：Android/iOS 的 Tauri WebView 同样为 true</b>）</td></tr>
+<tr><td><code>isRealDesktop</code></td><td><code>isDesktop && UA 不含 Android/iOS</code></td><td>依赖桌面专属插件的功能门控：开机自启、服务中心、悬浮码仅真实桌面显示（Android 平板上 autostart 插件未注册，直连必失败）</td></tr>
+<tr><td><code>isNarrow</code></td><td><code>matchMedia("(max-width:980px)")</code> 监听</td><td>手机布局：传输单列 + 共享文件底部面板 + 文件操作面板；旧聊天悬浮球/底部聊天面板已移除</td></tr>
 </table>
 <h3>9.2 主要响应式状态</h3>
 <table>
 <tr><th>状态</th><th>用途</th></tr>
-<tr><td><code>allFiles / sortedFiles / pageFiles</code></td><td>文件列表（每页 8 条，时间/名称/中文 locale 排序，智能页码）</td></tr>
-<tr><td><code>uploads</code></td><td>上传任务队列（XHR 上报进度/速率，四态）</td></tr>
+<tr><td><code>allFiles / sortedFiles / pageFiles</code></td><td>共享文件列表（每页 <b>10 条</b>，时间/名称/中文 locale 排序，智能页码省略）；渲染在桌面右侧抽屉 / 手机底部面板</td></tr>
+<tr><td><code>uploads</code></td><td>上传任务队列（XHR 上报进度/速率，四态；完成卡片保留在时间线，批量 &gt;3 合并为文件组）</td></tr>
+<tr><td><code>view / timelineItems</code></td><td>合并后的 <code>transfer | service | settings</code>；时间线 = 聊天消息 + 文件卡片/文件组，按时间戳排序（<code>timelineItems</code> computed）</td></tr>
+<tr><td><code>drawerCollapsed / fileSheetOpen / plusOpen / moreOpen / expandedGroups</code></td><td>桌面抽屉开合 / 手机文件面板 / ＋面板 / 更多菜单 / 文件组展开</td></tr>
 <tr><td><code>running / port / lanIp / shareInput / freeSpace</code></td><td>服务状态（2.5s 轮询刷新）</td></tr>
 <tr><td><code>cfg / appVersion</code></td><td>运行参数（服务端下发覆盖本地兜底，见第 10 节）/ 应用版本号（接口下发）</td></tr>
 <tr><td><code>updateInfo / showUpdate / checkingUpdate</code></td><td>版本更新（检查结果 / 弹框开关 / 检查中状态）</td></tr>
 <tr><td><code>logs</code></td><td>服务日志（2s 轮询）</td></tr>
-<tr><td><code>chatMsgs / displayMsgs / seenChat / chatCount / unread</code></td><td>聊天（3s 轮询；清空显示= clearedAt 截断，新消息自动恢复）</td></tr>
+<tr><td><code>chatMsgs / displayMsgs / seenChat / chatCount / unread</code></td><td>聊天（3s 轮询兜底；<code>mdChat</code> 渲染 Markdown；清空显示 = clearedAt 截断，新消息自动恢复）</td></tr>
+<tr><td><code>chatInput / chatInputEl / quoting</code></td><td>多行输入（textarea 随内容长高，最高 160px 后内部滚动；空内容/发送后回落单行）/ 引用回复快照；桌面 Enter 发送、Shift+Enter 换行，触屏 Enter 换行、点发送按钮提交，IME 组字期间 Enter 不发送</td></tr>
+<tr><td><code>previewName / previewKind / previewUrl / previewText</code></td><td>应用内预览全屏层（图片 / 视频 / 音频 / PDF / 文本；Esc 或「关闭」返回；文本 &gt;2MB 直接提示下载）</td></tr>
 <tr><td><code>nickInput / curNick / autoNick</code></td><td>昵称（localStorage 记忆；自动昵称 = 系统+浏览器-随机4位）</td></tr>
 <tr><td><code>refreshing / offline</code></td><td>手动刷新旋转态 / 浏览器端与服务失联标志（连续 2 次状态请求失败置位）</td></tr>
 <tr><td><code>selected / sortBy / currentPage</code></td><td>批量选择 / 排序 / 分页</td></tr>
@@ -382,12 +411,36 @@ safe_rel_path → safe_join_existing → remove_file
 <tr><td><code>qrPetExpanded / qrPetShown</code></td><td>悬浮码<b>几何态</b>（决定窗口尺寸与半隐/贴边，petApply 执行瞬间读取）与<b>展示态</b>（模板 expanded class）——刻意解耦：展开先放大窗再切卡片、收拢先切球再缩窗，过渡零挤压帧；快路径要求双 ref 一致，半途卡死态可在下次悬停自愈</td></tr>
 <tr><td><code>petDock / petEdge / petNotify / petMainVis</code></td><td>停靠记忆 {edge, cross}（执行时同步到 petEdge 供状态点方位/面板滑入方向）/ 新文件新消息绿点 / 主窗可见性（可见即抑制并清零绿点）</td></tr>
 </table>
+<h3>9.2.1 合并传输页（微信式）</h3>
+<ul>
+<li><b>唯一入口</b>：<code>view = transfer</code>；桌面壳用侧栏 + 房间头，浏览器用顶部房间头，手机用单列；四端共用房间头、时间线、输入栏与共享文件管理器。</li>
+<li><b>时间线</b>：<code>timelineItems</code> = 聊天消息 + 本次会话的 <code>uploads</code>；上传开始即出现文件卡片，状态原地更新；批量 &gt;3 自动合并为文件组。完成卡片保留在时间线，刷新后历史文件回到共享文件抽屉（不伪造历史发送者）。</li>
+<li><b>共享文件</b>：桌面右侧 <b><code>clamp(340px, 30vw, 400px)</code></b> 抽屉（可收起，宽度随窗口放宽给文件名与「大小 · 时间」留一行），窄屏底部 86dvh 面板；排序、分页（每页 10 条）、全选、批量删除复用原有 <code>allFiles/sortedFiles/pageFiles</code> 状态；文件行提供预览入口（桌面缩略图打开系统程序，浏览器/移动壳可内联预览时显示「预览」）。</li>
+<li><b>＋面板</b>：文件 / 文件夹 / 粘贴 / 共享文件；整页拖拽投放，页面级 <code>preventDefault</code> 防导航；上传总览条吸在输入栏上方。</li>
+<li><b>未读</b>：<code>markChatSeen</code> 仅在传输页可见且 <code>document.hasFocus()</code>/<code>visibilityState==="visible"</code> 时清零；浏览器/手机写 <code>document.title</code>，桌面壳用侧栏角标；新文件只点文件夹按钮绿点，不混入消息未读。</li>
+<li><b>手机 App</b>：首次连接门 + CC设置由房间头「⋯ → CC设置」进入；纯客户端，不显示托盘/服务启停；设置页顶部有返回条。</li>
+</ul>
+<h3>9.2.2 应用内预览（图片 / PDF / 文本 / 音视频）</h3>
+<ul>
+<li><b>入口</b>：文件缩略图、文件行「预览」按钮、文件操作面板「预览」、聊天时间线文件卡片；<code>isPreviewable()</code> 按扩展名判定，与<a href="#s4">服务端 <code>is_inline_safe</code></a>对齐。</li>
+<li><b>呈现</b>：全屏 <code>.pv-overlay</code> + 顶部文件名/关闭按钮；<code>previewKindOf()</code> 分派 <code>&lt;img&gt;</code>、<code>&lt;video controls playsinline&gt;</code>、<code>&lt;audio controls&gt;</code>、PDF <code>&lt;iframe&gt;</code>、其余按文本 <code>&lt;pre&gt;</code>；Esc 与「关闭」均回到聊天页，不新开标签/不离开会话。</li>
+<li><b>URL 与鉴权</b>：<code>/api/download/{name}?inline=1</code>。预览层优先使用长期 PIN 直连而<b>不是一次性票据</b>——音视频会发多次 Range，首个 206 就会把票据焚毁，后续分段全部 401；应用内不导航，PIN 不会进浏览器历史。</li>
+<li><b>桌面/移动壳的 PDF</b>：WebView 无内置 PDF 查看器，交系统浏览器打开（<code>open_url_cmd</code>），失败则复制链接兜底；浏览器端直接用 iframe。</li>
+<li><b>安全</b>：服务端只对安全类型返回 <code>Content-Disposition: inline</code>，<b>html/svg/xml 一律 attachment</b>——若以 inline 打开会运行在服务同源上，可直接调用删除/控制接口。</li>
+<li><b>边界</b>：文本预览落地为 fetch 后 <code>&lt;pre&gt;</code> 转义展示（保留 Markdown 源码，不做富文本渲染），&gt;2MB 提示下载；图片/音视频加载失败在层内提示。</li>
+</ul>
+<h3>9.2.3 聊天 Markdown 与多行输入</h3>
+<ul>
+<li><b>块级</b>：围栏代码块、<code>#</code>～<code>######</code> 标题、无序/有序列表、<code>&gt;</code> 引用、分割线；<b>行内</b>：行内代码、<code>[文字](链接)</code>、裸 URL、粗体、斜体、删除线。</li>
+<li><b>XSS 边界</b>：先整体 <code>escHtml</code>，再把匹配片段替换为自生成的标签；代码块/行内用 <code>\u0000</code>/<code>\u0001</code> 占位符隔离，服务端同时剥 NUL，防消息体伪造占位符搬运内容；链接点击走 <code>openExternal</code>（桌面系统浏览器）。</li>
+<li><b>输入</b>：<code>&lt;textarea rows="1"&gt;</code> 随内容长高（最高 160px，之后内部滚动）；桌面 Enter 发送 / Shift+Enter 换行；触屏 Enter 换行、点「发送」提交；<code>isComposing</code>/<code>keyCode 229</code> 时 Enter 不触发发送，避免中文 IME 把未上屏拼音发出去。</li>
+</ul>
 <h3>9.3 WebSocket 推送 + 轮询兜底</h3>
 <p>聊天/文件列表/服务状态优先走 <code>/ws</code>（事件驱动即时刷新），轮询降级为兜底通道——两条通道任一可用页面即活：</p>
 <table>
 <tr><th>机制</th><th>要点</th></tr>
 <tr><td>connectWs / closeWs</td><td>桌面 <code>ws://127.0.0.1:{port}/ws</code>、网页 <code>(wss?)://host/ws</code>；地址变化（换端口）先清场重连；连接即全量同步一次（loadChat+loadFiles）补断线窗口期</td></tr>
-<tr><td>事件分发</td><td><code>chat:new</code> → loadChat；<code>files:changed</code> → loadFiles；<code>status:up|down</code> → refreshStatus；任何消息（含 15s 心跳 hb）刷新 <code>lastWsMsg</code></td></tr>
+<tr><td>事件分发</td><td><code>chat:new</code> / <code>chat:changed</code> → loadChat；<code>files:changed</code> → loadFiles；<code>status:up|down</code> → refreshStatus；任何消息（含 15s 心跳 hb）刷新 <code>lastWsMsg</code></td></tr>
 <tr><td>看门狗</td><td>10s 巡检，超过 45s（<code>WS_HB_TIMEOUT_MS</code>）未收到任何消息 → 强制 <code>close()</code>——桌面端状态轮询走 invoke 永远"成功"，无看门狗时半开连接会永久卡死</td></tr>
 <tr><td>applyWsMode</td><td>WS OPEN 时停 chatTimer/filesTimer（省电省请求）；断开时恢复轮询 + 退避重连（1s→10s）；桌面服务已停时停止重连等待 running 变化，网页端持续重试（服务回来自动恢复）</td></tr>
 <tr><td>断连自愈</td><td>statusTimer 检测失联恢复（wasOffline）→ toast + 立即全量重载 + connectWs，不等下一轮</td></tr>
@@ -405,7 +458,7 @@ safe_rel_path → safe_join_existing → remove_file
 <ul>
 <li><b>单请求整文件直传</b>：一个文件 = 一个 XHR POST（<code>xhr.send(file)</code>，Blob 由浏览器流式读取、零内存整载）。整文件即"最大的分片"，无分片/账本/断点状态。<b>代价</b>：传输中断无断点可续（服务端删半截文件，重传 = 整份重来）；</li>
 <li><b>XHR 替代 fetch</b>：fetch 无上传进度事件；XHR <code>upload.onprogress</code> 提供实时百分比与速率展示；401/429（配对码）置 <code>needPin</code> 唤起配对弹框；200 响应的 <code>final</code> 字段与原名不同 → toast「已存为 xxx」（服务端同名自动改名）；</li>
-<li><b>并发闸</b>：同时最多 3 个文件在传（<code>UPLOAD_CONCURRENCY</code>，整文件版一个文件=一条连接），其余真实排队（waiting 状态生效）——WebKit 每 host 仅 6 条 HTTP/1.1 连接，WS/轮询/下载要留预算，一次选数百文件不再全部压上；纯内存排队，完成（成功/失败/取消，含 <code>onabort</code>）即出队；</li>
+<li><b>并发闸</b>：客户端同时最多 3 个文件在传（<code>UPLOAD_CONCURRENCY</code>，整文件版一个文件=一条连接），其余真实排队（waiting 状态生效）——WebKit 每 host 仅 6 条 HTTP/1.1 连接，WS/轮询/下载要留预算，一次选数百文件不再全部压上；纯内存排队，完成（成功/失败/取消，含 <code>onabort</code>）即出队；<b>服务端另有 16 槽上传闸</b>，超限直接 429（多客户端并发时保护 fd/磁盘）；</li>
 <li><b>锁屏保活</b>：有上传进行中即申请屏幕常亮（v1.1.7，iOS 锁屏/熄屏会冻结上传连接 = 此前"传一半失败"主因）——Wake Lock API（安全上下文）+ 2px 静音内联视频循环（HTTP 非安全上下文的 iOS 通路；captureStream 在微信 WebView 可能抛错，先局部构造全部成功才落全局，失败可重试）；开始/完成/失败/取消各节点同步申请/释放；</li>
 <li><b>取消</b>：✕ 直接 <code>xhr.abort()</code>，服务端连接断开路径自动删除半截文件，无需额外请求；</li>
 <li>整目录：拖拽走 <code>webkitGetAsEntry</code> 递归收集（混合拖入兼容、空文件夹给提示），「选择文件夹」走 <code>webkitdirectory</code>（iOS/iPadOS 无此能力入口隐藏），相对路径经 <code>webkitRelativePath</code> 保留；</li>
@@ -414,7 +467,8 @@ safe_rel_path → safe_join_existing → remove_file
 </ul>
 <h3>9.5 主题系统</h3>
 <ul>
-<li><code>:root</code> 定义全套 CSS 变量；<b>配色</b> = <code>[data-theme="..."]</code> 覆盖变量（6 套：蓝/灰/绿/紫/金/粉每色相一套），<b>主题模式</b> = <code>[data-mode="light|dark"]</code>（亮色中性面 + color-mix 强调色衍生；暗色为默认）——配色定色相、模式定明暗，正交组合；<code>setTheme/setThemeMode</code> 写 dataset + localStorage(<code>wft-theme</code>/<code>wft-mode</code>)；跟随系统监听 <code>prefers-color-scheme</code> 实时切换；旧皮肤 id 启动时经 <code>THEME_MIGRATE</code> 自动迁移；</li>
+<li><code>:root</code> 定义全套 CSS 变量；<b>配色</b> = <code>[data-theme="..."]</code> 覆盖变量（<b>5 套</b>：深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），<b>主题模式</b> = <code>[data-mode="light|dark"]</code>（亮色中性面 + color-mix 强调色衍生）——配色定色相、模式定明暗，正交组合；默认「深空蓝 + 亮色」，已有用户保留 localStorage 选择；<code>setTheme/setThemeMode</code> 写 dataset + localStorage(<code>wft-theme</code>/<code>wft-mode</code>)；跟随系统监听 <code>prefers-color-scheme</code> 实时切换；旧皮肤 id（含已移除的微信绿/石墨灰）启动时经 <code>THEME_MIGRATE</code> 自动迁移；</li>
+<li>桌面对话气泡跟随主题：<code>.shell.real-desktop .tx-bubble</code> 用 <code>var(--card)</code> / <code>var(--text)</code>，发送方轻染 <code>color-mix(accent, card)</code>，链接/代码块同步换主题变量；浏览器/移动端仍用白底黑字保证浅色会话可读。</li>
 <li>每套配色覆盖：bg/card/border/<b>text·text2·text3（三级文字色与主题同色相）</b>/accent 系；</li>
 <li>语义色（success/danger/warning）全局共用。</li>
 </ul>
@@ -436,8 +490,9 @@ safe_rel_path → safe_join_existing → remove_file
 <ul>
 <li>二维码本地生成（qrcode 库 → canvas dataURL），不依赖外网；</li>
 <li>文件类型徽标映射表（pdf/doc/xls/mp4/mp3/zip/py…40+ 扩展名 → 2–3 字母徽标），图片扩展名显示缩略图+「预览」；</li>
-<li>相对时间格式化（刚刚/n 分钟前/n 小时前/日期+时间）；</li>
-<li>聊天链接化：先 <code>escHtml</code> 再正则包 URL（桌面端点击 open_url_cmd 系统浏览器打开）；</li>
+<li>统一具体时间格式（<code>月-日 时:分</code>，跨年补年份）——多端同时查看不再出现"刚刚/几分钟前"的相对误读；</li>
+<li>聊天链接化：先 <code>escHtml</code> 再识别 Markdown/裸 URL（桌面端点击 open_url_cmd 系统浏览器打开）；</li>
+<li><b>顶栏布局</b>：标题/副标题居左；运行状态 + 地址输入框 + 复制/二维码/浏览器按钮作为一组靠右上（<code>margin-left:auto</code>）；地址宽度随内容（<code>--url-w</code>），窄屏（≤900px）整组自动换行并占满宽度。</li>
 <li>头像：昵称 hash(31 进制) → 24 emoji 池取模；</li>
 <li>浏览器端下载：HEAD 预检（8s 超时，激活窗口内完成）→ 锚点原生流式下载（浏览器下载管理器接管，自带进度）；手机浏览器 ≤50MB 保留 fetch→blob→objectURL 路径（完成 toast 带 <code>fmtSize</code>）。</li>
 <li>列表头结构 <code>list-head &gt; lh-left(标题+计数徽标) + lh-right(操作控件)</code>，窄屏 lh-right 换行防溢出；窄屏统计格（stat-cell）恢复独立描边小卡 2×2。</li>
@@ -454,8 +509,8 @@ safe_rel_path → safe_join_existing → remove_file
 </ul>
 <h3>9.10 版本更新检查（update.js）</h3>
 <ul>
-<li><code>fetchLatestRelease()</code>：直连 <code>api.github.com/repos/{repo}/releases/latest</code>（免鉴权、支持跨域、AbortController 8s 超时），<b>任何失败返回 null 由调用方静默处理</b>；</li>
-<li><code>isNewer()</code>：语义化比较（剥 v 前缀/-beta 后缀、分段数值、短方补 0）；</li>
+<li><code>fetchLatestRelease()</code>：直连 <code>repos/{repo}/releases?per_page=10</code> <b>列表</b>（免鉴权、支持跨域、AbortController 8s 超时）——按发布时间倒序跳过草稿、<b>保留 prerelease</b>（缺签名 Secrets 时产物即 prerelease，<code>/latest</code> 不返回，会永远收不到更新）；只接受本仓库 Releases 前缀的跳转地址，<b>任何失败返回 null 由调用方静默处理</b>；</li>
+<li><code>isNewer()</code>：语义化比较（剥 v 前缀、分段数值、短方补 0；支持四段构建号；预发布后缀按 semver 规则判旧）；</li>
 <li>触发：启动 3s 后静默检查 + localStorage 24h 频控（<code>wft-update-check</code>）；「关于」卡手动检查（失败有明确提示）；发现新版弹框，「前往下载」走 <code>open_url_cmd</code> 打开 Release 页。</li>
 </ul>
 <h3>9.11 软件介绍页（intro overlay）</h3>
@@ -490,13 +545,13 @@ safe_rel_path → safe_join_existing → remove_file
 <table>
 <tr><th>文件</th><th>职责</th><th>典型内容</th></tr>
 <tr><td><code>src-tauri/src/config.rs</code></td><td><b>运行参数唯一事实源</b></td><td>APP_NAME / APP_VERSION、默认端口 1688 + 顺延窗口、聊天保留 200 条、昵称 20 / 消息 2000、日志上限 1000、噪音白名单 NOISY_GET_PATHS、下载缓冲、共享目录名/持久化文件、建议轮询间隔 POLL_*</td></tr>
-<tr><td><code>src/config.js</code></td><td>前端纯界面行为 + 启动兜底值</td><td>POLL_* 兜底、失联阈值、Toast/旋转时长、分页大小、上传并发闸/无进展看门狗、API 路径表、localStorage 键表、主题迁移表、相对时间阈值、图标映射表、头像池、话术模板、页脚文案</td></tr>
+<tr><td><code>src/config.js</code></td><td>前端纯界面行为 + 启动兜底值</td><td>POLL_* 兜底、失联阈值、Toast/旋转时长、分页大小、上传并发闸/无进展看门狗、API 路径表、localStorage 键表、主题迁移表、统一时间格式、图标映射表、头像池、话术模板、页脚文案</td></tr>
 </table>
 <p>跨端约定项（端口、长度上限、默认昵称、轮询路径↔白名单）以 <code>[同步: config.rs xxx]</code> / <code>[同步: config.js xxx]</code> 注释互相指向。</p>
 <h3>10.2 参数下发机制</h3>
 <p><code>frontend_config()</code> 把运行参数随三个出口下发——<code>/api/info</code>、<code>/api/control/status</code>、桌面 invoke <code>control_status_cmd</code>（同时携带 <code>version</code>）：</p>
 <pre><code>{ "ip": "...", "port": 1688, "running": true,
-  "version": "1.0.0",
+  "version": "1.2.1",
   "config": { "nickMax": 20, "msgMax": 2000, "defaultNick": "匿名用户",
               "chatMax": 200, "poll": { "chat": 3000, "files": 5000, "status": 2500, "logs": 2000 } } }</code></pre>
 <ul>
@@ -506,10 +561,11 @@ safe_rel_path → safe_join_existing → remove_file
 </ul>
 <h3>10.3 版本号单一来源</h3>
 <ul>
-<li>唯一来源：<code>Cargo.toml [package] version</code>；</li>
-<li><code>tauri.conf.json</code> 省略 version 字段（Tauri 构建自动回退读 Cargo.toml）；</li>
-<li><code>APP_VERSION = env!("CARGO_PKG_VERSION")</code> 编译期取同源值，随状态接口下发；</li>
-<li>前端侧边栏展示接口下发的版本号，更新检查亦以此比较——发版只改 Cargo.toml 一处。</li>
+<li>应用版本（前三段）：<code>Cargo.toml [package] version</code>，<code>tauri.conf.json</code> 省略 version 字段（Tauri 构建回退读 Cargo.toml）；</li>
+<li><code>APP_VERSION</code>：优先取编译期注入的 <code>option_env!("CCFLASH_BUILD_VERSION")</code>（CI 传完整 tag 版本，如 <code>1.2.1.1</code>），否则取 <code>env!("CARGO_PKG_VERSION")</code>（本地构建为三段）；随 <code>/api/info</code>、<code>/api/control/status</code>、<code>control_status_cmd</code> 下发；</li>
+<li><b>四段版本</b>：<code>git tag vX.Y.Z.W</code> 的第四段是同一应用版本内的构建号；CI 校验 tag 前三位 == Cargo.toml version，Android <code>versionCode</code> 由 <code>release.sh</code> 按 <code>major×10^7 + minor×10^5 + patch×10^2 + build</code> 计算；</li>
+<li><code>release.sh</code> 同时同步 <code>src/config.js APP_VERSION_FALLBACK</code>、<code>package.json</code>、<code>tauri.conf.json</code> 的 Android versionCode 与 <code>Cargo.lock</code>，避免接口未返回时前端拿旧兜底版本误弹更新；</li>
+<li>前端侧边栏展示接口下发的版本号，更新检查亦以此比较。</li>
 </ul>
 </section>
 
@@ -521,8 +577,8 @@ npm run tauri build
   ├─ beforeBuildCommand: npm run build   (vite → dist/)
   ├─ cargo build --release               (静态嵌入 dist)
   └─ bundle
-      ├─ macOS  .app  4.69 MiB    src-tauri/target/release/bundle/macos/
-      └─ macOS  .dmg   4.06 MiB    src-tauri/target/release/bundle/dmg/
+      ├─ macOS  .app  ≈4.7 MiB    src-tauri/target/release/bundle/macos/
+      └─ macOS  .dmg  ≈4.1–4.3 MiB src-tauri/target/release/bundle/dmg/
          (本机 aarch64 单架构实测, opt-level=z + 图标量化后)
 </pre>
 <ul>
@@ -532,10 +588,11 @@ npm run tauri build
 </ul>
 <h3>11.1 CI 自动发版</h3>
 <ul>
-<li><code>.github/workflows/release.yml</code>：推送 <code>v*</code> 标签触发——desktop(macos×2 分架构 aarch64/x64 + windows，两腿 <code>fail-fast:false</code> 互不连坐、rust-cache 键含 arch 防互踩，tauri-action 建 Release 并上传) + android(ubuntu, <code>needs: desktop</code> 但 <code>if: always()</code> 不连坐)；<code>permissions: contents: write</code> 为必需（GITHUB_TOKEN 默认只读）；同一 tag 设 <code>concurrency</code> 组（不取消进行中），且 tauri-action 带 <code>retryAttempts: 3</code>——两腿 mac 并发 getOrCreateRelease 不再 422/拆 draft；Android 需先接受 SDK 许可并定位 NDK_HOME，Gradle 的 <code>ndkVersion</code> 跟随 <code>NDK_HOME</code> 目录名，避免与 Rust 侧 NDK 漂移；</li>
+<li><code>.github/workflows/release.yml</code>：推送 <code>v*</code> 标签触发——<b>prepare job 先校验 tag 与 Cargo.toml</b>（四段 <code>vX.Y.Z.W</code> 取前三段比较）并单点创建/确认草稿 Release，desktop(macos×2 分架构 aarch64/x64 + windows，两腿 <code>fail-fast:false</code> 互不连坐、rust-cache 键含 arch 防互踩，tauri-action 只追加资产) + android(ubuntu, <code>needs: desktop</code> 但 <code>if: always()</code> 不连坐)；<code>permissions: contents: write</code> 为必需（GITHUB_TOKEN 默认只读）；同一 tag 设 <code>concurrency</code> 组（不取消进行中）；Android 需先接受 SDK 许可并定位 NDK_HOME，Gradle 的 <code>ndkVersion</code> 跟随 <code>NDK_HOME</code> 目录名，避免与 Rust 侧 NDK 漂移；</li>
 <li><b>Android 构建与签名</b>：<code>tauri android build --apk --split-per-abi</code> 按 4 个 ABI 分包（flavor arm64/arm/x86/x86_64 → 文件名映射 arm64-v8a/armeabi-v7a/x86/x86_64）。配置 <code>ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD</code> 四个 Secrets 后：keystore 解码到 <code>$RUNNER_TEMP</code>、导出 <code>CC_KEYSTORE_*</code> 环境变量 → 入库的 <code>gen/android/app/build.gradle.kts</code> 中 <code>signingConfigs.release</code> 读取并挂到 release 变体（<b>固定证书，版本间可覆盖安装</b>）；<b>任一 Secret 缺失直接 job 失败</b>——正式 Release 绝不允许 debug 包混入（debuggable、签名每次不同，用户无法覆盖升级）。release 变体显式 <code>usesCleartextTraffic=true</code>——应用全部流量是有意的局域网明文 HTTP，否则 API 全部被 <code>ERR_CLEARTEXT_NOT_PERMITTED</code> 拦死；R8 已配置 <code>SourceFile,LineNumberTable</code> 与 <code>com.ccflash.app.**</code> keep 规则（无规则时入口类被裁/行号丢失）；</li>
 <li><b>发布保护</b>：产物 <code>find ! -name "*unsigned*" ! -name "*-debug*"</code> 兜底；Android 上传前用 <code>gh release view --json isDraft</code> 校验 Release 仍为草稿——重跑已发布 tag 时 desktop 腿必失败，但 android 腿（always）原本会把新 APK 写进线上 Release，绕过"全绿才发布"；desktop job 失败时 APK 仍可写入草稿，但 Release 保持<b>草稿</b>，人工确认后手动 Publish；</li>
-<li>一键发版：<code>./scripts/release.sh X.Y.Z [提交信息]</code>——升版本/提交/打标签/推送（3 次重试 + GitHub API 建 tag 引用兜底，应对 git 443 通道抖动），并轮询验证 Actions 已触发；脚本对暂存区做扩展名+内容双私钥扫描，并打印暂存/未跟踪清单，避免"一锅端"夹带；<b>workflow 改动必须经 release.sh 提交进 tag</b>，手打 tag 会用旧版工作流构建；</li>
+<li>一键发版：<code>./scripts/release.sh X.Y.Z|X.Y.Z.W [提交信息]</code>——升版本（四段 tag 的应用版本取前三段）/同步兜底版本与 Android versionCode/提交/打标签/推送（3 次重试 + GitHub API 建 tag 引用兜底，应对 git 443 通道抖动），并轮询验证 Actions 已触发；脚本对暂存区做扩展名+内容双私钥扫描，并打印暂存/未跟踪清单，避免"一锅端"夹带；<b>workflow 改动必须经 release.sh 提交进 tag</b>，手打 tag 会用旧版工作流构建；</li>
+<li><b>重发保护</b>：远端已存在同名 tag 时 <code>release.sh</code> <b>默认拒绝</b>（重发会让 Release 资产 ≠ tag 代码），确认安全后用 <code>FORCE_REPUBLISH=1</code> 显式放行；<b>不再自动删除远端 tag 重推</b>，推送失败只尝试 API 建引用，已存在则明确失败；CI 侧 prepare 与 Android 上传前都会校验 Release 仍是草稿，已公开则拒绝改写线上资产。</li>
 <li>注意：git 推送标签与 main 同批推送存在事件偶发丢失的情况，脚本采用分步推送 + 触发验证来规避。</li>
 </ul>
 </section>
@@ -545,17 +602,18 @@ npm run tauri build
 <h2><span class="no">12</span>设计取舍与已知事项</h2>
 <table>
 <tr><th>事项</th><th>说明</th></tr>
-<tr><td>无鉴权</td><td>可信局域网模型，控制接口与文件接口均无鉴权；切勿暴露公网</td></tr>
+<tr><td>默认无鉴权</td><td>可信局域网模型：文件/聊天接口默认无鉴权；可选 6 位访问令牌（配对码）保护非本机访问；<code>/api/control/*</code> 仅限回环；<b>安全模式</b>（open_lan=false）只监听 <code>127.0.0.1</code>；切勿暴露公网</td></tr>
+<tr><td>并发与低速保护</td><td>下载 32 / 上传 16 / WS 64 并发闸，超限立即 429/503；上传连续 60s 增量 &lt; 16KB 判定占槽不传并清理，防慢速滴流长期占用槽位</td></tr>
 <tr><td>推送 + 轮询双通道</td><td>聊天/列表/状态走 WebSocket 推送（15s 心跳 + 10s 看门狗强制重连），轮询降级兜底；日志仍 2s 轮询（仅桌面控制台消费，不值得占 WS）</td></tr>
 <tr><td>App.vue 单文件</td><td>全部 UI/逻辑集中一个 SFC——体量可控，若继续膨胀建议拆组件</td></tr>
-<tr><td>更新检查</td><td>前端直连 GitHub Releases API，失败一律静默；应用内自更新（签名+自动重启）留作演进</td></tr>
+<tr><td>更新检查</td><td>前端直连 GitHub Releases <b>列表</b>（兼容 prerelease），失败一律静默；应用内自更新（签名+自动重启）留作演进</td></tr>
 <tr><td>移动端编译适配</td><td>托盘/关窗收纳等桌面 API 以 <code>#[cfg(desktop)]</code> 门控；<code>run()</code> 标注 <code>#[cfg_attr(mobile, tauri::mobile_entry_point)]</code> 生成 JNI 符号；<code>copy_file_cmd</code> 非 mac/win 分支显式标注 <code>Result&lt;Output, io::Error&gt;</code> 类型（三处均为移动端首编实测踩坑）。日常可用 <code>cargo check --target aarch64-linux-android</code> 本地 30 秒预检</td></tr>
-<tr><td>Android APK 体积</td><td>CI 产 <b>release 变体 + 固定发布证书签名</b>（<code>--split-per-abi</code> 按 ABI 分包，strip+LTO 后每包约 20MB；<b>四个 Secrets 任一缺失直接 CI 失败</b>，不再退回 debug 签名——debug 包 debuggable 且证书每次不同，会让用户无法覆盖升级）。debug 变体含全量调试符号且体积大，仅用于本地排查。<b>gen/android 已入库</b>：签名配置读 <code>CC_KEYSTORE_*</code> 环境变量，无证书时 <code>storeFile</code> 为 null 不挂 signingConfig → 产出 unsigned 包（与模板默认一致，CI 有守卫拦截）</td></tr>
+<tr><td>Android APK 体积</td><td>CI 产 <b>release 变体 + 固定发布证书签名</b>（<code>--split-per-abi</code> 按 ABI 分包，strip+LTO 后 arm64 包约 7MB；<b>四个 Secrets 任一缺失直接 CI 失败</b>，不再退回 debug 签名——debug 包 debuggable 且证书每次不同，会让用户无法覆盖升级）。debug 变体含全量调试符号且体积大，仅用于本地排查。<b>gen/android 已入库</b>：签名配置读 <code>CC_KEYSTORE_*</code> 环境变量，无证书时 <code>storeFile</code> 为 null 不挂 signingConfig → 产出 unsigned 包（与模板默认一致，CI 有守卫拦截）</td></tr>
 <tr><td>日志时间</td><td>chrono 本地时间毫秒</td></tr>
 <tr><td>Linux 剪贴板</td><td>copy_file_cmd 暂不支持 Linux（返回明确错误）</td></tr>
 <tr><td>大文件传输</td><td>上传单请求整文件直传（body 流式落盘零内存膨胀）；浏览器端下载原生流式（无完成回调属浏览器限制）；应用内下载经 on_download 落盘系统下载目录</td></tr>
-<tr><td>分享票据语义</td><td>bearer 一次性 + 文件名绑定 + TTL 10min；token <b>6 位十六进制</b>（3 字节 CSPRNG——承载式+绑定单文件+即焚，攻击者不能自造票据）；<b>无效票据按 IP 限流</b>（20 次/10 分钟），成功即清零；<b>响应头就绪即焚</b>——完整 GET 中途断网则票据已消费、重试需重新索取（换正确性：404/406 不焚、Range N&gt;0 续传不焚、起始数字为 0（含 bytes=00-）视为全量焚）；并发同链请求在首个响应头返回前均可 peek 通过（窗口=首传时长，接受）；前端 pointerover 预取（分享按钮/文件名）保证点击手势内同步复制，缓存取用即删、后台换新票（见 9.8）</td></tr>
-<tr><td>.ccup 完整性标记</td><td>首行 16 位会话令牌 + 第二行声明大小。"ok"=已完整只是删除失败（启动只删标记保成品）；令牌属本会话才在 abort 时删成品（防误删同名新上传）；启动清理只处理合法令牌，"声明大小 == 成品大小"视为已完整落盘并保留；非令牌形态的 .ccup 视为用户文件不触碰；上传侧整体拒绝 .ccup 文件名，读/删同样拒绝</td></tr>
+<tr><td>分享票据语义</td><td>bearer 一次性 + 文件名绑定 + TTL 10min；token <b>12 位十六进制</b>（6 字节 CSPRNG——48bit，承载式+绑定单文件+即焚，攻击者不能自造票据）；<b>无效票据按 IP 限流</b>（20 次/10 分钟），成功即清零；<b>响应头就绪即焚</b>——任意成功 GET(含 206) 均消费，HEAD 不焚；断点续传后续请求需重新索取链接；并发同链请求在首个响应头返回前均可 peek 通过（窗口=首传时长，接受）；前端 pointerover 预取（分享按钮/文件名）保证点击手势内同步复制，缓存取用即删、后台换新票（见 9.8）</td></tr>
+<tr><td>.ccup 完整性标记</td><td>首行 <code>ccflash-v1:</code> + 16 位会话令牌，第二行声明大小。<b>"ok"</b>=已完整只是删除失败（启动只删标记保成品）；<b>空标记</b>=崩溃在"建标记后、写令牌前"，仅当成品为 0 字节才回收；<b>合法令牌</b>属上传中，abort 只清理本会话产物；<b>非以上形态</b>一律视为用户自己的 <code>.x.ccup</code>，绝不删除/覆盖；旧版裸 16hex 标记只做安全迁移（大小吻合才清标记，绝不自动删成品）；启动清理"声明大小 == 成品大小"保留成品；上传侧整体拒绝 .ccup 文件名</td></tr>
 <tr><td>访问码退避代价</td><td>锁判定先行（锁内正确码也 429，消灭对/错 oracle）——被锁的就是攻击者自己的设备（自锁可接受）；同 /64 他人需等一个窗周期，任一正确码即清零恢复</td></tr>
 <tr><td>悬浮码持久化</td><td>位置/开关/诊断一律 Rust 侧文件（<code>pet-dock.json</code>、<code>pref-*</code>），localStorage 仅作缓存——webview 存储不落盘实测后弃用；诊断按事件分文件+时间戳（单文件互相覆盖会丢时序）</td></tr>
 <tr><td>悬停在场判定</td><td>用光标轮询替代 mouseenter/leave：边界过渡事件在窗口程序化移动/页面重载后会丢配对（"点击通、悬停死"的根因）；轮询为命中测试级可靠，代价是 250ms 检测粒度（叠加 1.5s 停留，实际出码 1.5~1.75s）。<b>跨屏比较前必须统一坐标空间</b>：cursor raw 恒 ×主屏 sf、窗口 raw ×本屏 sf，混 DPI 直接比会永远判不中（见 9.12 跨屏 API 语义）</td></tr>
@@ -565,7 +623,7 @@ npm run tauri build
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-11-09 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 技术实现文档 · 2026-11-12 · 与《需求设计文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

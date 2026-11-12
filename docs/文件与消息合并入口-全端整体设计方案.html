@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CC-Flash · 文件与消息合并 · 全端整体设计方案</title>
+<style>
+  :root{
+    --paper:#f1f2f4;
+    --paper-2:#e7e9ec;
+    --white:#ffffff;
+    --ink:#16181a;
+    --ink-2:#555b63;
+    --ink-3:#8a9099;
+    --line:#dcdfe3;
+    --green:#07c160;
+    --green-dark:#059e4e;
+    --green-soft:#e9f9f0;
+    --coral:#ff6478;
+    --blue:#4f8af7;
+    --amber:#f0a232;
+    --red:#e25757;
+    --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+    --mono:"SF Mono","Cascadia Code","Roboto Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.72;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--green-soft);color:var(--ink)}
+  .skip{position:absolute;left:-9999px;top:0;background:var(--ink);color:#fff;padding:8px 14px;border-radius:0 0 8px 0;z-index:99}
+  .skip:focus{left:0}
+
+  .page{display:grid;grid-template-columns:190px minmax(0,1fr);max-width:1320px;margin:0 auto}
+  .rail{position:sticky;top:0;height:100vh;padding:32px 18px 26px;border-right:1px solid var(--line);display:flex;flex-direction:column}
+  .rail-brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:-.02em}
+  .rail-ring{width:20px;height:20px;border-radius:50%;border:2px solid var(--coral);display:grid;place-items:center;font:800 7px/1 var(--mono);color:var(--coral);box-shadow:0 0 0 4px rgba(255,100,120,.10)}
+  .rail-sub{margin:8px 0 24px;font:10px/1.6 var(--mono);letter-spacing:.12em;color:var(--ink-3)}
+  .rail-thread{position:relative;display:flex;flex-direction:column;gap:2px}
+  .rail-thread::before{content:"";position:absolute;left:13px;top:14px;bottom:14px;border-left:1px solid var(--line)}
+  .rail-thread a{position:relative;display:flex;gap:9px;align-items:baseline;padding:7px 8px 7px 29px;border-radius:9px;font-size:12px;color:var(--ink-2)}
+  .rail-thread a::before{content:"";position:absolute;left:9px;top:50%;width:8px;height:8px;border-radius:50%;background:#c5cad1;transform:translateY(-50%);box-shadow:0 0 0 3px var(--paper)}
+  .rail-thread a:hover{background:rgba(255,255,255,.7);color:var(--ink)}
+  .rail-thread a.on{background:var(--white);color:var(--ink);font-weight:700;box-shadow:0 0 0 1px var(--line)}
+  .rail-thread a.on::before{background:var(--green);box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--green-soft)}
+  .rail-thread .n{font:9.5px/1 var(--mono);color:var(--ink-3)}
+  .rail-thread a.on .n{color:var(--green-dark)}
+  .rail-thread .ctx{margin:10px 0 3px;padding-left:9px;font:9px/1 var(--mono);letter-spacing:.12em;color:var(--ink-3)}
+  .rail-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--line);font:9.5px/1.7 var(--mono);color:var(--ink-3);letter-spacing:.05em}
+
+  main{min-width:0;padding:0 44px 88px}
+  .hero{position:relative;padding:60px 0 40px;border-bottom:1px solid var(--line);overflow:hidden}
+  .hero::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:24px 24px;-webkit-mask-image:radial-gradient(ellipse 70% 80% at 70% 20%,#000 0%,transparent 72%);mask-image:radial-gradient(ellipse 70% 80% at 70% 20%,#000 0%,transparent 72%)}
+  .hero-in{position:relative}
+  .kicker{font:10.5px/1 var(--mono);letter-spacing:.2em;color:var(--green-dark);text-transform:uppercase}
+  h1{margin:14px 0 15px;font-size:clamp(38px,5.6vw,70px);line-height:1.04;letter-spacing:-.06em;font-weight:900}
+  h1 em{font-style:normal;color:var(--green-dark)}
+  .lead{max-width:760px;margin:0;font-size:15.5px;color:var(--ink-2)}
+  .lead b{color:var(--ink)}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+  .meta span{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:var(--white);border:1px solid var(--line);font-size:12px;color:var(--ink-2)}
+  .meta span::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--green)}
+  .meta span.c::before{background:var(--coral)}
+  .meta span.b::before{background:var(--blue)}
+  .meta span.a::before{background:var(--amber)}
+
+  /* 四端签名条 */
+  .ctxstrip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:32px;position:relative;min-width:720px}
+  .ctxstrip-wrap{overflow-x:auto;padding-bottom:6px}
+  .ctx-hint{display:none;margin:14px 0 0;font-size:11.5px;color:var(--ink-3)}
+  @media (max-width:900px){.ctx-hint{display:block}}
+  .ctxstrip::before{content:"";position:absolute;left:18px;right:18px;top:78px;border-top:1.5px dashed var(--green);opacity:.4}
+  .ctx{position:relative;z-index:1;background:var(--white);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:0 14px 30px -28px rgba(22,24,26,.4)}
+  .ctx .cm{height:104px;background:#ededed;border:1px solid #e1e3e5;border-radius:7px;overflow:hidden;position:relative}
+  .ctx .cl{display:flex;align-items:center;gap:6px;margin:8px 2px 2px;font-size:11px;font-weight:700;color:var(--ink-2)}
+  .ctx .cl i{width:7px;height:7px;border-radius:50%;display:block}
+  .ctx .cl i.sh{background:var(--coral)}.ctx .cl i.bw{background:var(--blue)}.ctx .cl i.mb{background:var(--amber)}.ctx .cl i.ma{background:var(--green)}
+  /* mini frames */
+  .mini-shell{display:flex;height:100%}
+  .mini-side{width:24%;background:#f7f7f7;border-right:1px solid #e1e3e5;padding:7px 4px}
+  .mini-side b{display:block;height:4px;border-radius:2px;background:#cfd4d9;margin:0 3px 6px}
+  .mini-side i{display:block;height:3px;border-radius:2px;background:#e0e3e6;margin:0 3px 5px}
+  .mini-side i.on{background:#b7ebcd}
+  .mini-main{flex:1;padding:7px 6px;display:flex;flex-direction:column;gap:5px}
+  .mini-line{height:5px;border-radius:3px;background:#dfe3e6}
+  .mini-line.w40{width:40%}.mini-line.w60{width:60%}.mini-line.w75{width:75%}
+  .mini-bubble{height:12px;border-radius:3px 6px 6px 6px;background:#fff;border:1px solid #e1e3e5;width:62%}
+  .mini-bubble.self{background:#95ec69;border-color:#87df5d;margin-left:auto;border-radius:6px 3px 6px 6px}
+  .mini-file{height:16px;border-radius:3px;background:#fff;border:1px solid #e1e3e5;display:flex;align-items:center;gap:3px;padding:0 3px}
+  .mini-file i{width:8px;height:8px;border-radius:2px;background:#e25757;display:block}
+  .mini-file b{display:block;height:3px;width:55%;border-radius:2px;background:#dfe3e6}
+  .mini-browser{padding:5px 6px;display:flex;flex-direction:column;gap:5px;height:100%}
+  .mini-btop{height:8px;border-radius:3px;background:#f7f7f7;border:1px solid #e1e3e5}
+  .mini-bbar{height:6px;border-radius:3px;background:#f7f7f7;border:1px solid #e1e3e5;width:70%}
+  .mini-phone{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:42%;height:80px;border:2px solid #2b2f34;border-radius:9px;background:#ededed;padding:5px 4px;display:flex;flex-direction:column;gap:3px}
+  .mini-phone .mp-head{height:5px;border-radius:2px;background:#d5d9dd}
+  .mini-phone .mp-b{height:6px;border-radius:2px;background:#fff;border:1px solid #e1e3e5;width:70%}
+  .mini-phone .mp-b.self{background:#95ec69;border-color:#87df5d;margin-left:auto}
+  .mini-phone .mp-brow{height:3px;border-radius:2px;background:#e0e3e6;margin-top:auto}
+
+  .sec{padding:52px 0 56px;border-bottom:1px solid var(--line)}
+  .sec:last-of-type{border-bottom:0}
+  .sec-head{display:grid;grid-template-columns:132px minmax(0,1fr);gap:22px;align-items:start;margin-bottom:26px}
+  .sec-no{font:10.5px/1.7 var(--mono);letter-spacing:.16em;color:var(--green-dark);padding-top:6px}
+  .sec-no span{color:var(--ink-3)}
+  h2{margin:0 0 9px;font-size:clamp(25px,3.1vw,37px);line-height:1.18;letter-spacing:-.04em;font-weight:900}
+  .sec-intro{margin:0;max-width:760px;color:var(--ink-2);font-size:14.5px}
+  h3{margin:0 0 8px;font-size:16px;letter-spacing:-.01em;font-weight:800}
+  p{margin:0 0 10px}
+  .small{font-size:12.5px;color:var(--ink-3)}
+  .mono{font-family:var(--mono)}
+  .green{color:var(--green-dark)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--paper-2);color:var(--ink-2);white-space:nowrap}
+  .tag.ok{background:var(--green-soft);color:#087a44}
+  .tag.move{background:#e8effd;color:#2f5da8}
+  .tag.no{background:#fde9ec;color:#a43749}
+
+  .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  .cards.four{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .states4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+  .state4{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:11px}
+  .state4 .s4-k{font:9px/1 var(--mono);letter-spacing:.12em;color:var(--ink-3);margin-bottom:8px}
+  .state4 p{font-size:11px;color:var(--ink-2);margin:8px 0 0}
+  @media (max-width:900px){.states4{grid-template-columns:1fr}}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:13px;padding:17px}
+  .card .c-k{font:10px/1 var(--mono);letter-spacing:.14em;color:var(--green-dark);margin-bottom:10px}
+  .card h3{font-size:15px}
+  .card p{margin:0;font-size:13px;color:var(--ink-2)}
+  .card .c-foot{margin-top:11px;padding-top:9px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3)}
+  .tray-mini{margin-top:10px;border:1px solid var(--line);border-radius:8px;background:#fbfbfc;padding:4px;font-size:11px;color:var(--ink-2)}
+  .tray-mini span{display:block;padding:4px 7px;border-radius:4px}
+  .tray-mini span:hover{background:#f2f3f4}
+  .tray-mini .sep{height:1px;background:var(--line);margin:3px 5px}
+
+  /* =========================================================
+     共享聊天 UI（四种形态复用）
+     ========================================================= */
+  .ui{--bg:#ededed;--panel:#f7f7f7;--card:#ffffff;--ink:#1f2225;--meta:#9aa0a7;--line:#e0e2e4;--line2:#f0f1f2;--self:#95ec69;--green:#07c160;--link:#576b95;--red:#e25757;
+    background:var(--bg);color:var(--ink);display:flex;flex-direction:column;min-height:0;position:relative;font-family:var(--sans);font-size:12px}
+  .ui.dark{--bg:#0d1017;--panel:#111620;--card:#161b26;--ink:#e1e4ed;--meta:#7f8a9b;--line:#252c39;--line2:#1d2430;--self:#2f8f5b;--green:#3ddc97;--link:#7fb0ff;--red:#ff7b7b}
+  .ui-head{height:54px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 15px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .ui-room{width:31px;height:31px;border-radius:6px;background:var(--green-soft);border:1px solid #cdebd9;display:grid;place-items:center;font:800 8px/1 var(--mono);color:var(--green-dark);flex-shrink:0}
+  .ui.dark .ui-room{background:rgba(61,220,151,.1);border-color:rgba(61,220,151,.25);color:var(--green)}
+  .ui-head h4{margin:0;font-size:13px;line-height:1.2;color:var(--ink)}
+  .ui-head p{margin:2px 0 0;font-size:9.5px;color:var(--meta)}
+  .ui-acts{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .ui-hbtn{height:27px;padding:0 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--ink-2);white-space:nowrap}
+  .ui-hbtn b{font:700 9px/1 var(--mono);background:var(--line2);border-radius:8px;padding:2px 5px;color:var(--ink-2)}
+  .ui-hbtn.icon{width:27px;padding:0;justify-content:center}
+  .ui-chat{flex:1;min-height:0;overflow:hidden;padding:13px 18px 4px;position:relative}
+  .ui-date{text-align:center;font:9px/1 var(--mono);color:var(--meta);margin:2px 0 13px}
+  .ui-msg{display:flex;gap:8px;margin:10px 0;align-items:flex-start}
+  .ui-msg .ava{width:31px;height:31px;border-radius:5px;background:#e3e5e8;display:grid;place-items:center;font-size:15px;flex-shrink:0}
+  .ui-msg .col{display:flex;flex-direction:column;min-width:0;max-width:350px}
+  .ui-msg.out{flex-direction:row-reverse}
+  .ui-msg.out .col{align-items:flex-end;margin-left:auto}
+  .ui-msg.out .ava{order:-1}
+  .ui-name{font-size:9.5px;color:var(--meta);margin:0 0 3px 2px}
+  .ui-msg.out .ui-name{text-align:right;margin:0 2px 3px 0}
+  .ui-bubble{background:var(--card);border-radius:3px 8px 8px 8px;padding:8px 11px;font-size:11.5px;line-height:1.55;color:var(--ink);box-shadow:0 1px 1px rgba(0,0,0,.035);overflow-wrap:anywhere}
+  .ui-msg.out .ui-bubble{background:var(--self);border-radius:8px 3px 8px 8px;color:#101410}
+  .ui.dark .ui-msg.out .ui-bubble{color:#eafff3}
+  .ui-bubble .lk{color:var(--link);text-decoration:underline;text-underline-offset:2px}
+  .ui-bubble code{font:10px var(--mono);background:rgba(0,0,0,.05);padding:0 3px;border-radius:3px}
+  .ui-time{font:8px/1 var(--mono);color:var(--meta);margin-top:3px}
+  .ui-msg.out .ui-time{text-align:right}
+
+  .ui-file{display:flex;gap:8px;margin:10px 0;align-items:flex-start}
+  .ui-file.out{flex-direction:row-reverse}
+  .ui-file .ava{width:31px;height:31px;border-radius:5px;background:#e3e5e8;display:grid;place-items:center;font-size:15px;flex-shrink:0}
+  .ui-file.out .ava{order:-1}
+  .ui-filecard{width:320px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 10px 7px;box-shadow:0 1px 1px rgba(0,0,0,.035)}
+  .ui-file-main{display:flex;gap:9px;align-items:center}
+  .ui-ficon{width:35px;height:35px;border-radius:6px;display:grid;place-items:center;font:800 7.5px/1 var(--mono);color:#fff;flex-shrink:0}
+  .fi-pdf{background:linear-gradient(135deg,#e25757,#c73d3d)}.fi-jpg{background:linear-gradient(135deg,#4f8af7,#3468c9)}.fi-zip{background:linear-gradient(135deg,#3ddc97,#23a874)}.fi-key{background:linear-gradient(135deg,#f0a232,#c98217)}.fi-vid{background:linear-gradient(135deg,#a78bfa,#7c6ff7)}.fi-md{background:linear-gradient(135deg,#667082,#4a5566)}
+  .ui-fn{font-size:11px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ui-fm{font:8.5px/1.4 var(--mono);color:var(--meta);margin-top:2px}
+  .ui-fm.doing{color:var(--green-dark)}.ui-fm.err{color:var(--red)}
+  .ui-fmenu{margin-left:auto;color:var(--meta);font-size:13px;line-height:1}
+  .ui-facts{display:flex;gap:14px;border-top:1px solid var(--line2);margin-top:7px;padding-top:6px;font-size:9.5px;color:var(--link)}
+  .ui-progress{height:3px;border-radius:2px;background:var(--line2);margin-top:7px;overflow:hidden}
+  .ui-progress i{display:block;height:100%;background:var(--green);border-radius:2px}
+  .ui-progress.err i{background:var(--red)}
+  .ui-group{width:318px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 10px;box-shadow:0 1px 1px rgba(0,0,0,.035)}
+  .ui-gh{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink)}
+  .ui-gh b{font-weight:700}
+  .ui-gh span{margin-left:auto;font:8.5px/1 var(--mono);color:var(--meta)}
+  .ui-gicons{display:flex;gap:4px;margin-top:7px}
+  .ui-gicon{width:26px;height:26px;border-radius:4px;display:grid;place-items:center;font:800 6px/1 var(--mono);color:#fff}
+  .ui-gmore{margin-top:7px;padding-top:6px;border-top:1px solid var(--line2);font-size:9.5px;color:var(--link)}
+  .ui-strip{height:25px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 15px;background:var(--panel);border-top:1px solid var(--line);font-size:9px;color:var(--ink-3)}
+  .ui-strip .bar{flex:1;height:2px;border-radius:1px;background:var(--line);overflow:hidden}
+  .ui-strip .bar i{display:block;height:100%;width:58%;background:var(--green)}
+  .ui-input{height:55px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 13px;background:var(--panel);border-top:1px solid var(--line)}
+  .ui-plus{width:29px;height:29px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;color:var(--ink-2);font-size:17px;line-height:1;flex-shrink:0}
+  .ui-inputbox{flex:1;height:33px;background:var(--card);border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;padding:0 9px;font-size:10.5px;color:var(--meta)}
+  .ui-send{height:29px;padding:0 13px;border-radius:5px;background:var(--green);color:#fff;font-size:10.5px;font-weight:700;display:grid;place-items:center}
+
+  .ui-drawer{width:340px;flex-shrink:0;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .ui-dhead{height:54px;flex-shrink:0;display:flex;align-items:center;gap:7px;padding:0 12px;border-bottom:1px solid var(--line2)}
+  .ui-dhead b{font-size:12px;color:var(--ink)}
+  .ui-count{font:8.5px/1 var(--mono);background:var(--line2);color:var(--ink-2);border-radius:8px;padding:3px 6px}
+  .ui-dhead .x{margin-left:auto;color:var(--meta);font-size:15px}
+  .ui-sort{display:flex;gap:3px;padding:7px 10px;border-bottom:1px solid var(--line2)}
+  .ui-sort span{font-size:9px;color:var(--meta);padding:3px 7px;border-radius:4px}
+  .ui-sort span.on{background:var(--green-soft);color:var(--green-dark);font-weight:700}
+  .ui-flist{flex:1;min-height:0;overflow:hidden;padding:3px 6px}
+  .ui-frow{display:grid;grid-template-columns:11px 28px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 5px;border-radius:6px;position:relative}
+  .ui-frow:hover,.ui-frow.sel{background:rgba(0,0,0,.035)}
+  .ui.dark .ui-frow:hover,.ui.dark .ui-frow.sel{background:rgba(255,255,255,.04)}
+  .ui-check{width:11px;height:11px;border:1px solid #cfd3d7;border-radius:3px;background:var(--card)}
+  .ui-check.on{background:var(--green);border-color:var(--green);position:relative}
+  .ui-check.on::after{content:"";position:absolute;left:3px;top:0.5px;width:3px;height:6px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+  .ui-thumb{width:28px;height:28px;border-radius:5px;display:grid;place-items:center;font:800 6px/1 var(--mono);color:#fff}
+  .ui-fname{font-size:10px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ui-fmeta{font:8px/1.4 var(--mono);color:var(--meta);margin-top:1px}
+  .ui-facts2{display:flex;gap:1px;opacity:0}
+  .ui-frow:hover .ui-facts2,.ui-frow.sel .ui-facts2{opacity:1}
+  .ui-facts2 b{width:17px;height:17px;border-radius:4px;display:grid;place-items:center;color:var(--meta);font-weight:400;font-size:9.5px}
+  .ui-dfoot{flex-shrink:0;border-top:1px solid var(--line2);padding:7px 9px;display:flex;align-items:center;gap:6px}
+  .ui-dfoot .del{font-size:9px;color:#c33;background:#fdecec;border-radius:4px;padding:4px 6px}
+  .ui-pg{margin-left:auto;display:flex;gap:3px;font:8.5px/1 var(--mono);color:var(--meta)}
+  .ui-pg b{width:16px;height:16px;border-radius:4px;display:grid;place-items:center;font-weight:500}
+  .ui-pg b.on{background:var(--green);color:#fff}
+
+  /* 移动端缩放 */
+  .ui.mobile{font-size:11px}
+  .ui.mobile .ui-head{height:47px;padding:0 11px;gap:7px}
+  .ui.mobile .ui-room{width:27px;height:27px;font-size:7px}
+  .ui.mobile .ui-head h4{font-size:11.5px}
+  .ui.mobile .ui-head p{font-size:8px}
+  .ui.mobile .ui-hbtn{height:25px;padding:0 7px;font-size:9px}
+  .ui.mobile .ui-chat{padding:9px 11px 3px}
+  .ui.mobile .ui-date{margin:2px 0 9px;font-size:8px}
+  .ui.mobile .ui-msg,.ui.mobile .ui-file{margin:8px 0;gap:6px}
+  .ui.mobile .ui-msg .ava,.ui.mobile .ui-file .ava{width:26px;height:26px;font-size:13px}
+  .ui.mobile .ui-msg .col{max-width:78%}
+  .ui.mobile .ui-name{font-size:8px}
+  .ui.mobile .ui-bubble{padding:7px 9px;font-size:10px;line-height:1.5}
+  .ui.mobile .ui-time{font-size:7px}
+  .ui.mobile .ui-filecard{width:260px;padding:7px 8px 6px}
+  .ui.mobile .ui-ficon{width:28px;height:28px;font-size:6px}
+  .ui.mobile .ui-fn{font-size:9.5px}
+  .ui.mobile .ui-fm{font-size:7.5px}
+  .ui.mobile .ui-facts{font-size:8.5px;gap:11px;margin-top:5px;padding-top:5px}
+  .ui.mobile .ui-group{width:210px}
+  .ui.mobile .ui-gicon{width:21px;height:21px;font-size:5.5px}
+  .ui.mobile .ui-strip{height:22px;font-size:8px;padding:0 11px}
+  .ui.mobile .ui-input{height:47px;padding:0 9px;gap:6px}
+  .ui.mobile .ui-plus{width:27px;height:27px;font-size:15px}
+  .ui.mobile .ui-inputbox{height:29px;font-size:9px;padding:0 8px}
+  .ui.mobile .ui-send{height:26px;padding:0 9px;font-size:9px}
+
+  /* 桌面应用窗口 */
+  .shot-scroll{overflow-x:auto;padding-bottom:10px}
+  .shot-hint{display:none;margin:0 0 8px;font-size:11.5px;color:var(--ink-3)}
+  @media (max-width:900px){.shot-hint{display:block}}
+  .shell-wrap{position:relative;min-width:1000px;padding-left:26px}
+  .shell-frame{border-radius:14px;overflow:hidden;box-shadow:0 34px 80px -40px rgba(22,24,26,.5),0 0 0 1px rgba(22,24,26,.12);background:#ededed}
+  .shell-title{height:32px;display:flex;align-items:center;gap:9px;padding:0 13px;background:#f7f7f7;border-bottom:1px solid #e0e2e4;color:#90959c;font:10px/1 var(--mono)}
+  .shell-title .dots{display:flex;gap:6px}
+  .shell-title .dots i{width:9px;height:9px;border-radius:50%;display:block}
+  .shell-title .dots i:nth-child(1){background:#ff5f57}.shell-title .dots i:nth-child(2){background:#febc2e}.shell-title .dots i:nth-child(3){background:#28c840}
+  .shell-title .nm{color:#5f646b}
+  .shell-title .right{margin-left:auto;color:#a7abb1}
+  .shell-body{display:flex;height:620px}
+  .shell-side{width:182px;flex-shrink:0;background:#f7f7f7;border-right:1px solid #e0e2e4;padding:13px 10px 11px;display:flex;flex-direction:column}
+  .shell-brand{display:flex;align-items:center;gap:8px;padding:2px 7px 14px;font-weight:800;font-size:12.5px;letter-spacing:-.02em;color:#222}
+  .shell-brand .r{width:18px;height:18px;border-radius:50%;border:2px solid var(--coral);display:grid;place-items:center;font:800 6px/1 var(--mono);color:var(--coral)}
+  .shell-nav{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:7px;color:#686e76;font-size:11.5px;margin-bottom:2px}
+  .shell-nav.on{background:#e6f7ee;color:#078c4b;font-weight:700}
+  .shell-nav .badge{margin-left:auto;min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:#fa5151;color:#fff;font:700 9px/16px var(--mono);text-align:center}
+  .shell-foot{margin-top:auto;padding:10px 7px 0;border-top:1px solid #e0e2e4;color:#a0a5ab;font:9px/1.7 var(--mono)}
+  .shell-foot b{display:block;color:var(--green-dark);font-weight:600}
+  .shell-main{flex:1;min-width:0;display:flex}
+  .shell-main .ui{flex:1;min-width:0}
+  .pet-orb{position:absolute;left:0;top:55%;width:52px;height:52px;border-radius:50%;border:2px solid var(--coral);background:#f7f7f7;display:grid;place-items:center;font:800 8px/1 var(--mono);color:var(--coral);box-shadow:0 10px 26px -14px rgba(22,24,26,.5);z-index:6}
+  .pet-label{position:absolute;left:8px;top:calc(55% + 56px);font:9px/1.5 var(--mono);color:var(--ink-3);text-align:center;width:40px}
+  .tray-inset{position:absolute;right:18px;top:42px;width:176px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 40px -24px rgba(22,24,26,.45);z-index:7;padding:6px;font-size:9.5px;color:#555}
+  .tray-inset .ti{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:5px}
+  .tray-inset .ti:hover{background:#f5f6f7}
+  .tray-inset .sep{height:1px;background:#eceef0;margin:4px 6px}
+  .tray-tag{position:absolute;right:204px;top:56px;font:9px/1 var(--mono);color:var(--ink-3);z-index:7}
+
+  /* 桌面浏览器 */
+  .browser-frame{min-width:1000px;border-radius:14px;overflow:hidden;background:#dfe1e4;box-shadow:0 34px 80px -40px rgba(22,24,26,.5),0 0 0 1px rgba(22,24,26,.12)}
+  .browser-top{height:70px;background:#dfe1e4;padding:7px 12px 0}
+  .browser-tabs{display:flex;align-items:flex-end;gap:4px;height:28px}
+  .browser-tab{height:26px;display:flex;align-items:center;gap:7px;padding:0 12px;border-radius:7px 7px 0 0;background:#f7f7f7;font-size:10px;color:#4b5057;min-width:170px}
+  .browser-tab .fav{width:11px;height:11px;border-radius:3px;background:var(--green-soft);border:1px solid #b7ebcd;display:grid;place-items:center;font:800 5px/1 var(--mono);color:var(--green-dark)}
+  .browser-tab .x{margin-left:auto;color:#a0a5ab}
+  .browser-newtab{width:26px;height:24px;display:grid;place-items:center;color:#7a7f86;font-size:14px}
+  .browser-bar{height:38px;display:flex;align-items:center;gap:8px;background:#f7f7f7;border-radius:0 8px 0 0;padding:0 10px;border-top:1px solid #e6e8ea}
+  .browser-nav{display:flex;gap:5px;color:#8a9099;font-size:12px}
+  .browser-url{flex:1;height:26px;background:#fff;border:1px solid #dfe2e5;border-radius:6px;display:flex;align-items:center;gap:7px;padding:0 9px;font:10px/1 var(--mono);color:#4b5057}
+  .browser-url .lock{font-size:9px;color:#8a9099}
+  .browser-tools{display:flex;gap:8px;color:#8a9099;font-size:11px}
+  .browser-page{display:flex;height:600px;background:#ededed}
+  .web-main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .web-topbar{height:53px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 15px;background:#f7f7f7;border-bottom:1px solid #e0e2e4}
+  .web-brand{display:flex;align-items:center;gap:7px;font-weight:800;font-size:12px;color:#222}
+  .web-brand .r{width:17px;height:17px;border-radius:50%;border:2px solid var(--coral);display:grid;place-items:center;font:800 5.5px/1 var(--mono);color:var(--coral)}
+  .web-room{font-size:12px;font-weight:700;color:#222;margin-left:4px}
+  .web-sub{font-size:9px;color:#9aa0a7;margin-left:6px}
+  .web-topbar .acts{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .web-main .ui{flex:1;min-height:0}
+  .web-main .ui-head{display:none}
+  .browser-drawer{width:340px;flex-shrink:0;display:flex}
+  .browser-drawer .ui-drawer{border-left:1px solid #e0e2e4}
+
+  /* 手机 */
+  .mobile-layout{display:grid;grid-template-columns:minmax(0,310px) minmax(0,1fr);gap:28px;align-items:start}
+  .phone{width:100%;max-width:310px;border-radius:32px;padding:7px;background:#1a1c1e;border:1px solid #30343a;box-shadow:0 30px 70px -40px rgba(22,24,26,.55);justify-self:center}
+  .phone-screen{height:620px;border-radius:26px;overflow:hidden;background:#ededed;display:flex;flex-direction:column;position:relative;color:#1f2225}
+  .p-status{height:24px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 15px;font:8px/1 var(--mono);color:#8c9197;background:#f7f7f7}
+  .mb-top{height:40px;flex-shrink:0;background:#f7f7f7;border-bottom:1px solid #e0e2e4;display:flex;align-items:center;gap:7px;padding:0 10px}
+  .mb-url{flex:1;height:25px;border-radius:6px;background:#fff;border:1px solid #dfe2e5;display:flex;align-items:center;justify-content:center;font:8.5px/1 var(--mono);color:#5f646b}
+  .mb-tool{color:#8a9099;font-size:11px}
+  .wechat-banner{flex-shrink:0;background:#e8f8ee;border-bottom:1px solid #c9ecd9;color:#087a44;font-size:8.5px;line-height:1.5;padding:6px 11px;text-align:center}
+  .mb-toolbar{height:36px;flex-shrink:0;background:#f7f7f7;border-top:1px solid #e0e2e4;display:flex;align-items:center;justify-content:space-around;color:#8a9099;font-size:12px}
+  .phone-screen .ui{flex:1;min-height:0}
+  .phone-screen .ui-head{height:45px}
+  .safe-strip{height:8px;flex-shrink:0;background:#f7f7f7}
+  .detail-col{display:flex;flex-direction:column;gap:12px}
+  .inset{background:var(--white);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .inset .i-k{font:9.5px/1 var(--mono);letter-spacing:.12em;color:var(--ink-3);margin-bottom:8px}
+  .inset h4{margin:0 0 7px;font-size:14px}
+  .inset p{margin:0;font-size:12px;color:var(--ink-2)}
+  .inset .field{height:30px;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;padding:0 9px;font:10px/1 var(--mono);color:#8a9099;margin-top:8px}
+  .inset .btn{height:30px;border-radius:6px;background:var(--green);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:7px}
+  .inset .hint{font-size:10.5px;color:var(--ink-3);margin-top:7px}
+  .mini-sheet{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 13px 30px -24px rgba(22,24,26,.4)}
+  .mini-sheet .ms-head{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #eceef0;font-size:10px;font-weight:700}
+  .mini-sheet .ms-head .cnt{font:8px/1 var(--mono);background:#eef1f3;color:#6a7078;border-radius:7px;padding:2px 5px}
+  .mini-sheet .ms-head .done{margin-left:auto;color:var(--green-dark);font-size:9px}
+  .mini-sheet .ms-row{display:grid;grid-template-columns:10px 25px minmax(0,1fr) auto;gap:6px;align-items:center;padding:6px 9px;border-bottom:1px solid #f4f5f6;font-size:9px}
+  .mini-sheet .ms-row:last-child{border-bottom:0}
+  .mini-sheet .ms-th{width:25px;height:25px;border-radius:4px;display:grid;place-items:center;font:800 5.5px/1 var(--mono);color:#fff}
+  .mini-sheet .ms-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .mini-sheet .ms-m{font:7.5px/1.3 var(--mono);color:#9aa0a7}
+  .mini-sheet .more{color:#b0b4b9}
+  .plus-mini{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:#f7f7f7;border:1px solid var(--line);border-radius:10px;padding:11px}
+  .plus-mini .pa{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:8.5px;color:#6b7077}
+  .plus-mini .pa i{width:36px;height:36px;border-radius:9px;background:#fff;border:1px solid #e4e6e8;display:grid;place-items:center;font-style:normal;font-size:16px}
+  .plus-mini .pa i.g{background:var(--green-soft);border-color:#b7ebcd;color:var(--green-dark)}
+
+  /* 设计系统 */
+  .token-table{table-layout:fixed}
+  .swatch{display:inline-flex;align-items:center;gap:6px;font:9.5px/1 var(--mono)}
+  .swatch i{width:13px;height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.08);display:block}
+  .dark-demo{background:#0d1017;border-radius:14px;padding:14px;color:#e1e4ed;border:1px solid #222a36;box-shadow:0 20px 50px -34px rgba(0,0,0,.7)}
+  .dark-demo .ui{height:300px;border-radius:10px;overflow:hidden}
+  .type-row{display:grid;grid-template-columns:120px repeat(3,1fr);gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
+  .type-row:last-child{border-bottom:0}
+  .type-row .t-k{font:9.5px/1 var(--mono);color:var(--ink-3)}
+  .type-row .t-v{color:var(--ink-2)}
+  .comp-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .comp-chips span{padding:5px 9px;border-radius:7px;background:var(--white);border:1px solid var(--line);font-size:11.5px;color:var(--ink-2)}
+
+  .ix{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .ix .card{padding:16px}
+  .ix .ic-k{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .ix .ic-k .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-soft)}
+  .ix h3{font-size:14px;margin:0}
+  .ix p{font-size:12.8px;color:var(--ink-2);margin:0}
+  .ix ul{margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--ink-2)}
+  .ix li{margin:4px 0}
+
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--white)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px}
+  th,td{padding:9px 11px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  th{background:#eef0f2;color:var(--ink-2);font-size:10.5px;letter-spacing:.03em;font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  td:first-child{font-weight:600;color:var(--ink)}
+
+  .impl{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:16px}
+  .code{background:#16181a;color:#d3d7dc;border-radius:12px;padding:15px 16px;overflow:auto;font:11px/1.7 var(--mono);white-space:pre-wrap;word-break:break-word;box-shadow:0 18px 44px -32px rgba(22,24,26,.55)}
+  .code .cm{color:#7d838a}.code .k{color:#ff9dae}.code .s{color:#9be8c5}.code .f{color:#8fd0ff}
+  .steps{display:flex;flex-direction:column;gap:8px}
+  .step{display:grid;grid-template-columns:23px minmax(0,1fr);gap:10px;background:var(--white);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  .step .n{width:21px;height:21px;border-radius:6px;background:var(--ink);color:#fff;display:grid;place-items:center;font:700 9.5px/1 var(--mono)}
+  .step b{font-size:12.5px;display:block;margin-bottom:2px}
+  .step p{margin:0;font-size:11.8px;color:var(--ink-2)}
+  .risk{margin-top:15px;border-left:3px solid var(--amber);background:#fff9ec;border-radius:0 10px 10px 0;padding:11px 14px;font-size:12.5px;color:#6f531a}
+  .risk b{color:#5a410c}
+  .risk ul{margin:5px 0 0;padding-left:17px}
+
+  .checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .check{display:flex;gap:8px;align-items:flex-start;background:var(--white);border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink-2)}
+  .check .bx{width:14px;height:14px;border-radius:4px;border:1px solid var(--line);flex-shrink:0;margin-top:2px;display:grid;place-items:center;color:transparent;font-size:9px}
+  .check:hover .bx{border-color:var(--green);color:var(--green-dark)}
+
+  .foot{padding:34px 0 10px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;font-size:12px;color:var(--ink-3)}
+  .foot b{color:var(--ink-2)}
+
+  @media (max-width:1150px){
+    main{padding:0 32px 78px}
+    .mobile-layout{grid-template-columns:minmax(0,290px) minmax(0,1fr);gap:20px}
+  }
+  @media (max-width:900px){
+    .page{display:block}.rail{display:none}
+    main{padding:0 20px 60px}
+    .hero{padding-top:42px}
+    .sec-head{grid-template-columns:1fr;gap:4px}.sec-no{padding-top:0}
+    .cards,.cards.four,.ix{grid-template-columns:1fr}
+    .mobile-layout{grid-template-columns:1fr}
+    .checks{grid-template-columns:1fr}
+    .impl{grid-template-columns:1fr}
+    .ctxstrip{min-width:760px}
+  }
+  @media (max-width:560px){
+    h1{font-size:35px}
+    .hero{padding:36px 0 32px}
+    .sec{padding:38px 0 42px}
+  }
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+  @media print{
+    .rail,.skip{display:none}.page{display:block}main{padding:0}
+    .shot-scroll,.ctxstrip-wrap,.tbl-wrap{overflow:visible}
+    .shell-wrap,.browser-frame{min-width:0}
+    .sec{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#decision">跳到方案结论</a>
+
+<div class="page">
+  <aside class="rail" aria-label="目录">
+    <div class="rail-brand"><span class="rail-ring">CC</span> CC-Flash</div>
+    <div class="rail-sub">MASTER DESIGN<br>2026-11 / v1.2.1 已落地</div>
+    <nav class="rail-thread">
+      <a class="on" href="#decision"><span class="n">01</span>采纳结论</a>
+      <a href="#ia"><span class="n">02</span>信息架构</a>
+      <a href="#system"><span class="n">03</span>设计系统</a>
+      <div class="ctx">FOUR CONTEXTS</div>
+      <a href="#shell"><span class="n">04</span>桌面壳</a>
+      <a href="#desktop-web"><span class="n">05</span>电脑浏览器</a>
+      <a href="#mobile-web"><span class="n">06</span>手机浏览器</a>
+      <a href="#mobile-app"><span class="n">07</span>手机端 App</a>
+      <div class="ctx">CROSS-CUTTING</div>
+      <a href="#cross"><span class="n">08</span>跨端一致性</a>
+      <a href="#impl"><span class="n">09</span>实现映射</a>
+      <a href="#acceptance"><span class="n">10</span>验收清单</a>
+    </nav>
+    <div class="rail-foot">CC-FLASH<br>ONE THREAD<br>FOUR SURFACES</div>
+  </aside>
+
+  <main>
+    <!-- ================= hero ================= -->
+    <header class="hero">
+      <div class="hero-in">
+        <div class="kicker">CC-Flash · 文件与消息合并 · 全端整体设计方案</div>
+        <h1>一套对话，<br><em>四种形态。</em></h1>
+        <p class="lead">
+          采纳微信式聊天页作为唯一入口：<b>文件即消息，共享文件收进抽屉</b>。
+          桌面壳、电脑浏览器、手机浏览器、手机端 App 共用同一条时间线与同一套结构；
+          各端只改变外壳、能力与入口方式，不改变功能。
+        </p>
+        <div class="meta">
+          <span>1 条时间线</span>
+          <span class="b">4 种运行形态</span>
+          <span>1 套结构</span>
+          <span class="c">0 功能删减</span>
+          <span class="a">v1.2.1 已落地</span>
+        </div>
+
+        <p class="ctx-hint">← 左右滑动查看四种形态 →</p>
+        <div class="ctxstrip-wrap">
+          <div class="ctxstrip" aria-label="四种运行形态共用同一条时间线">
+            <div class="ctx">
+              <div class="cm">
+                <div class="mini-shell">
+                  <div class="mini-side"><b></b><i class="on"></i><i></i><i></i></div>
+                  <div class="mini-main">
+                    <div class="mini-line w40"></div>
+                    <div class="mini-bubble"></div>
+                    <div class="mini-bubble self"></div>
+                    <div class="mini-file"><i></i><b></b></div>
+                  </div>
+                </div>
+              </div>
+              <div class="cl"><i class="sh"></i>桌面壳</div>
+            </div>
+            <div class="ctx">
+              <div class="cm">
+                <div class="mini-browser">
+                  <div class="mini-btop"></div>
+                  <div class="mini-bbar"></div>
+                  <div class="mini-line w75"></div>
+                  <div class="mini-bubble self"></div>
+                  <div class="mini-file"><i></i><b></b></div>
+                </div>
+              </div>
+              <div class="cl"><i class="bw"></i>电脑浏览器</div>
+            </div>
+            <div class="ctx">
+              <div class="cm">
+                <div class="mini-phone">
+                  <div class="mp-head"></div>
+                  <div class="mp-b"></div>
+                  <div class="mp-b self"></div>
+                  <div class="mp-brow"></div>
+                </div>
+              </div>
+              <div class="cl"><i class="mb"></i>手机浏览器</div>
+            </div>
+            <div class="ctx">
+              <div class="cm">
+                <div class="mini-phone" style="top:16px">
+                  <div class="mp-head" style="background:#b7ebcd"></div>
+                  <div class="mp-b self"></div>
+                  <div class="mp-b"></div>
+                  <div class="mp-brow"></div>
+                </div>
+              </div>
+              <div class="cl"><i class="ma"></i>手机端 App</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ================= 01 采纳结论 ================= -->
+    <section class="sec" id="decision">
+      <div class="sec-head">
+        <div class="sec-no">01<br><span>DECISION</span></div>
+        <div>
+          <h2>采纳微信式结构，统一到一条时间线。</h2>
+          <p class="sec-intro">
+            这不是“给四端各做一套”，而是<b>一套产品、四种外壳</b>。对话时间线、文件卡片、共享文件抽屉、
+            ＋面板与输入栏是共同区块；桌面壳多一个侧栏、托盘与悬浮码，浏览器多一个地址与标题，
+            手机多一层键盘与安全区，手机 App 多一个“连接电脑”的客户端门。
+          </p>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="c-k">SHARED CORE</div>
+          <h3>一套对话结构</h3>
+          <p>消息气泡、文件卡片、文件组、上传总览、共享文件抽屉、＋面板、输入栏。四端复用，不在各端重画。</p>
+          <div class="c-foot">结构一致，只按容器宽度缩放</div>
+        </div>
+        <div class="card">
+          <div class="c-k">PLATFORM SHELLS</div>
+          <h3>四种外壳</h3>
+          <p>桌面壳 = 侧栏 + 应用窗口；电脑浏览器 = 标签页 + 顶部栏；手机浏览器 = 地址栏 + 页面；
+             手机 App = 状态栏 + 客户端门。</p>
+          <div class="c-foot">外壳不同，时间线相同</div>
+        </div>
+        <div class="card">
+          <div class="c-k">ZERO REGRESSION</div>
+          <h3>功能只换位置</h3>
+          <p>上传、下载、排序、分页、批量删除、分享、聊天、未读、访问令牌、票据、悬浮码、托盘、自启全部保留。</p>
+          <div class="c-foot">详见第 08 节能力矩阵</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 02 信息架构 ================= -->
+    <section class="sec" id="ia">
+      <div class="sec-head">
+        <div class="sec-no">02<br><span>INFORMATION ARCHITECTURE</span></div>
+        <div>
+          <h2>一个入口「消息发送」，四种到达方式。</h2>
+          <p class="sec-intro">
+            旧的「文件传输 / 文本消息」两个导航项合并为「消息发送」。文件管理从独立页面变为桌面右侧抽屉 / 移动底部面板；
+            聊天、远端文件与本次上传共享同一条时间线。服务中心与 CC设置保持原职责（移动壳不显示服务中心）。
+          </p>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <div class="c-k">BEFORE</div>
+          <h3>两个页面，两套注意力</h3>
+          <p>文件页负责列表与上传，聊天页负责消息；手机上还要在文件页与悬浮球面板之间切换。</p>
+          <div class="c-foot">文件 / 消息两个入口 · 手机多一个悬浮球</div>
+        </div>
+        <div class="card">
+          <div class="c-k">AFTER</div>
+          <h3>一条时间线，一个抽屉</h3>
+          <p>上传成为文件卡片，文字仍是气泡；共享文件抽屉 / 面板负责长期管理。侧栏只剩「消息发送 / 服务中心 / CC设置」。</p>
+          <div class="c-foot">未读只出现一次 · 文件管理不消失</div>
+        </div>
+        <div class="card">
+          <div class="c-k">UNREAD</div>
+          <h3>消息计未读，文件点绿点</h3>
+          <p>聊天消息进入未读计数；新文件只在共享文件按钮上点绿点，不把“3 个文件”混成“3 条消息”。滚到底部也会立即追平未读。</p>
+          <div class="c-foot">桌面：侧栏角标；浏览器：标签标题 + 房间头；手机：页面胶囊 + 文件绿点</div>
+        </div>
+      </div>
+
+      <div class="tbl-wrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th style="width:150px">形态</th><th>导航 / 外壳</th><th>文件管理</th><th>未读</th><th>服务与能力</th></tr></thead>
+          <tbody>
+            <tr><td>桌面壳</td><td>侧栏：消息发送 / 服务中心 / CC设置</td><td>右侧抽屉 340–400px，可收起</td><td>侧栏「消息发送」角标 + 文件绿点</td><td>托管服务、托盘、悬浮码、自启、更新</td></tr>
+            <tr><td>电脑浏览器</td><td>浏览器标签 + 房间头</td><td>右侧抽屉 340–400px，可收起</td><td>标签标题 + 房间头角标</td><td>不托管；地址/二维码/复制；浏览器下载</td></tr>
+            <tr><td>手机浏览器</td><td>地址栏 + 房间头</td><td>底部面板 86dvh</td><td>页面内「N 条新消息」胶囊 + 文件绿点</td><td>不托管；浏览器下载 / 微信引导</td></tr>
+            <tr><td>手机端 App</td><td>原生状态栏 + 房间头</td><td>底部面板 86dvh</td><td>页面内胶囊 / 文件夹绿点</td><td>纯客户端；首次连接电脑；系统浏览器下载</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 03 设计系统 ================= -->
+    <section class="sec" id="system">
+      <div class="sec-head">
+        <div class="sec-no">03<br><span>DESIGN SYSTEM</span></div>
+        <div>
+          <h2>微信式结构，CC 的皮肤。</h2>
+          <p class="sec-intro">
+            结构统一，皮肤可切换。当前实现提供 5 套低饱和配色（深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），
+            每套都有亮色、暗色、跟随系统三种模式；所有颜色走同一组 token，切换只换变量，不换组件。
+            桌面壳的对话气泡跟随主题变量；浏览器与移动端气泡保持浅底黑字，保证正文可读。
+          </p>
+        </div>
+      </div>
+
+      <div class="tbl-wrap" style="margin-bottom:14px">
+        <table class="token-table">
+          <thead><tr><th style="width:150px">Token</th><th>浅色示例</th><th>深色示例</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td>--bg</td><td><span class="swatch"><i style="background:#f4f6fa"></i>#F4F6FA</span></td><td><span class="swatch"><i style="background:#0d1017"></i>#0D1017</span></td><td>聊天画布</td></tr>
+            <tr><td>--panel</td><td><span class="swatch"><i style="background:#ffffff"></i>#FFFFFF</span></td><td><span class="swatch"><i style="background:#151a23"></i>#151A23</span></td><td>头部 / 输入栏 / 侧栏</td></tr>
+            <tr><td>--card</td><td><span class="swatch"><i style="background:#ffffff"></i>#FFFFFF</span></td><td><span class="swatch"><i style="background:#161b26"></i>#161B26</span></td><td>气泡 / 文件卡片 / 抽屉</td></tr>
+            <tr><td>--text</td><td><span class="swatch"><i style="background:#232936"></i>#232936</span></td><td><span class="swatch"><i style="background:#e1e4ed"></i>#E1E4ED</span></td><td>主文字</td></tr>
+            <tr><td>--text2</td><td><span class="swatch"><i style="background:#5c6575"></i>#5C6575</span></td><td><span class="swatch"><i style="background:#a6adc2"></i>#A6ADC2</span></td><td>次级文字 / 按钮</td></tr>
+            <tr><td>--text3</td><td><span class="swatch"><i style="background:#99a2b1"></i>#99A2B1</span></td><td><span class="swatch"><i style="background:#6b7590"></i>#6B7590</span></td><td>时间 / 元信息</td></tr>
+            <tr><td>--accent</td><td><span class="swatch"><i style="background:#4f8af7"></i>#4F8AF7</span></td><td><span class="swatch"><i style="background:#4f8af7"></i>#4F8AF7</span></td><td>强调 / 发送 / 进度（5 套配色各自替换）</td></tr>
+            <tr><td>--accent2</td><td><span class="swatch"><i style="background:#7c6ff7"></i>#7C6FF7</span></td><td><span class="swatch"><i style="background:#7c6ff7"></i>#7C6FF7</span></td><td>渐变第二色</td></tr>
+            <tr><td>--success</td><td><span class="swatch"><i style="background:#34c97c"></i>#34C97C</span></td><td><span class="swatch"><i style="background:#34c97c"></i>#34C97C</span></td><td>成功 / 运行中 / 文件绿点</td></tr>
+            <tr><td>--danger</td><td><span class="swatch"><i style="background:#f2596b"></i>#F2596B</span></td><td><span class="swatch"><i style="background:#f2596b"></i>#F2596B</span></td><td>失败 / 删除 / 停止</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cards" style="margin-bottom:14px">
+        <div class="card">
+          <div class="c-k">TYPE</div>
+          <h3>字号与层级</h3>
+          <p>房间标题 20/700（移动 15/700）· 消息 13.5/1.6（移动 15）· 文件名称 12.5/600（移动 13）· 文件元信息 10.5（移动 11）· 时间 10–11 · 按钮 12–13.5/700。</p>
+          <div class="c-foot">移动端整体上调字号，输入框 16px 避免 iOS 聚焦缩放</div>
+        </div>
+        <div class="card">
+          <div class="c-k">SPACING</div>
+          <h3>间距与圆角</h3>
+          <p>4 / 8 / 12 / 16 / 24 的 8pt 网格；气泡圆角 4–10；文件卡 10；抽屉 / 面板底栏贴边；输入框 10。</p>
+          <div class="c-foot">文件卡片上限 320px（移动 260），避免跳动</div>
+        </div>
+        <div class="card">
+          <div class="c-k">MOTION</div>
+          <h3>动效克制</h3>
+          <p>消息进入 160ms、抽屉 220ms、＋面板 200ms；进度条线性更新。尊重 reduced-motion。</p>
+          <div class="c-foot">不做消息逐条弹跳，避免打扰</div>
+        </div>
+      </div>
+
+      <div class="impl">
+        <div>
+          <div class="dark-demo">
+            <div class="ui dark" style="height:300px;border-radius:10px;overflow:hidden">
+              <div class="ui-head">
+                <span class="ui-room">CC</span>
+                <div><h4>消息发送</h4><p>同一 Wi-Fi · 局域网实时互通</p></div>
+                <div class="ui-acts"><span class="ui-hbtn">共享文件 <b>12</b></span></div>
+              </div>
+              <div class="ui-chat">
+                <div class="ui-date">今天 14:02</div>
+                <div class="ui-msg">
+                  <span class="ava">🦊</span>
+                  <div class="col"><div class="ui-name">MacBook · 小林</div><div class="ui-bubble">深色皮肤下，文件卡片与气泡保持同一层级。</div></div>
+                </div>
+                <div class="ui-msg out">
+                  <div class="col"><div class="ui-bubble">收到，切到深色也清楚。</div></div>
+                  <span class="ava">🐼</span>
+                </div>
+                <div class="ui-file">
+                  <span class="ava">🦊</span>
+                  <div class="ui-filecard">
+                    <div class="ui-file-main"><span class="ui-ficon fi-pdf">PDF</span><span style="min-width:0"><div class="ui-fn">需求评审纪要.pdf</div><div class="ui-fm">2.4 MB · 已上传</div></span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="small" style="margin:9px 0 0;color:#7f8a9b">同一组件、同一结构；只替换 token。</p>
+          </div>
+        </div>
+        <div>
+          <div class="comp-chips" style="margin-bottom:12px">
+            <span>气泡（in / out）</span><span>文件卡片</span><span>文件组</span><span>上传总览条</span>
+            <span>输入栏</span><span>＋面板</span><span>共享文件抽屉</span><span>共享文件面板</span>
+            <span>房间头</span><span>未读胶囊</span><span>空状态</span><span>无信号 / 连接门</span>
+          </div>
+          <div class="type-row"><span class="t-k">ROOM</span><span class="t-v">20 / 700</span><span class="t-v">15 / 700（移动）</span><span class="t-v">15 / 700（示意）</span></div>
+          <div class="type-row"><span class="t-k">MESSAGE</span><span class="t-v">13.5 / 1.6</span><span class="t-v">15（移动 / 浏览器）</span><span class="t-v">10（画布示意）</span></div>
+          <div class="type-row"><span class="t-k">FILE NAME</span><span class="t-v">12.5 / 600</span><span class="t-v">13 / 600（移动）</span><span class="t-v">11 / 600（抽屉）</span></div>
+          <div class="type-row"><span class="t-k">META</span><span class="t-v">10.5 / mono</span><span class="t-v">11 / mono（移动）</span><span class="t-v">9 / mono（抽屉）</span></div>
+          <p class="small" style="margin-top:10px">注：文档内示意按画布等比缩小；落地时以实际容器断点为准。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 04 桌面壳 ================= -->
+    <section class="sec" id="shell">
+      <div class="sec-head">
+        <div class="sec-no">04<br><span>DESKTOP SHELL</span></div>
+        <div>
+          <h2>桌面壳：对话 + 抽屉 + 托盘与悬浮码。</h2>
+          <p class="sec-intro">
+            Tauri 窗口内是一条完整的微信式会话：侧栏负责导航，主区是时间线，右侧是共享文件抽屉（340–400px，可收起）。
+            顶部栏左侧是标题 / 副标题，右侧把运行状态 + 地址 + 复制 / 二维码 / 在浏览器打开按钮整组靠右上；地址宽度按内容自适应，
+            窄于 900px 时整组换行撑满。托盘与悬浮码是独立于页面的壳能力，保持原样，不挤进对话。
+          </p>
+        </div>
+      </div>
+
+      <p class="shot-hint">← 左右滑动查看完整桌面壳示意 →</p>
+      <div class="shot-scroll">
+        <div class="shell-wrap">
+          <div class="pet-orb">CC</div>
+          <div class="pet-label">悬浮码<br>独立置顶</div>
+
+          <div class="shell-frame" role="img" aria-label="桌面壳：侧栏、对话时间线、共享文件抽屉、悬浮码与托盘">
+            <div class="shell-title">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="nm">CC-Flash</span>
+              <span class="right">192.168.1.8:1688 · 运行中</span>
+            </div>
+            <div class="shell-body">
+              <aside class="shell-side">
+                <div class="shell-brand"><span class="r">CC</span> CC-Flash</div>
+                <div class="shell-nav on">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                  消息发送
+                </div>
+                <div class="shell-nav">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  服务中心
+                </div>
+                <div class="shell-nav">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                  CC设置
+                </div>
+                <div class="shell-foot"><b>● 运行中 :1688</b>v1.2.1 · Tauri</div>
+              </aside>
+
+              <div class="shell-main">
+                <div class="ui">
+                  <div class="ui-head">
+                    <span class="ui-room">CC</span>
+                    <div><h4>消息发送</h4><p>同一 Wi-Fi · 局域网实时互通</p></div>
+                    <div class="ui-acts">
+                      <span class="ui-hbtn">共享文件 <b>12</b></span>
+                      <span class="ui-hbtn icon">⌫</span>
+                      <span class="ui-hbtn icon">⋯</span>
+                    </div>
+                  </div>
+                  <div class="ui-chat">
+                    <div class="ui-date">今天 14:02</div>
+                    <div class="ui-msg">
+                      <span class="ava">🦊</span>
+                      <div class="col"><div class="ui-name">MacBook · 小林</div><div class="ui-bubble">文件收到了，<span class="lk">https://192.168.1.8:1688</span> 这个链接手机能直接开。</div><div class="ui-time">14:02</div></div>
+                    </div>
+                    <div class="ui-msg out">
+                      <div class="col"><div class="ui-bubble">好，我把截图也传上来，稍等 <code>01:32</code></div><div class="ui-time">14:03</div></div>
+                      <span class="ava">🐼</span>
+                    </div>
+                    <div class="ui-file">
+                      <span class="ava">🦊</span>
+                      <div class="ui-filecard">
+                        <div class="ui-file-main"><span class="ui-ficon fi-pdf">PDF</span><span style="min-width:0"><div class="ui-fn">需求评审纪要.pdf</div><div class="ui-fm">2.4 MB · 已上传</div></span><span class="ui-fmenu">⋯</span></div>
+                        <div class="ui-facts"><span>预览</span><span>打开</span><span>分享</span><span>定位</span></div>
+                      </div>
+                    </div>
+                    <div class="ui-file out">
+                      <div class="ui-filecard">
+                        <div class="ui-file-main"><span class="ui-ficon fi-jpg">JPG</span><span style="min-width:0"><div class="ui-fn">现场照片_01.jpg</div><div class="ui-fm doing">上传中 64% · 8.2 MB/s</div></span><span class="ui-fmenu">✕</span></div>
+                        <div class="ui-progress"><i style="width:64%"></i></div>
+                      </div>
+                      <span class="ava">🐼</span>
+                    </div>
+                    <div class="ui-file">
+                      <span class="ava">🐧</span>
+                      <div class="ui-group">
+                        <div class="ui-gh"><b>阿哲 上传了 6 个文件</b><span>328 MB</span></div>
+                        <div class="ui-gicons">
+                          <span class="ui-gicon fi-vid">VID</span><span class="ui-gicon fi-pdf">PDF</span><span class="ui-gicon fi-jpg">JPG</span><span class="ui-gicon fi-zip">ZIP</span><span class="ui-gicon fi-key">KEY</span><span class="ui-gicon fi-md">MD</span>
+                        </div>
+                        <div class="ui-gmore">展开全部 6 个文件 ›</div>
+                      </div>
+                    </div>
+                    <div class="ui-msg">
+                      <span class="ava">🐧</span>
+                      <div class="col"><div class="ui-name">Windows · 阿哲</div><div class="ui-bubble"><b>release-build.zip</b> 已经下完了。</div><div class="ui-time">14:05</div></div>
+                    </div>
+                  </div>
+                  <div class="ui-strip"><span>正在上传 2 个</span><span class="bar"><i></i></span><span>58%</span></div>
+                  <div class="ui-input">
+                    <span class="ui-plus">＋</span>
+                    <span class="ui-inputbox">说点什么…（回车发送）</span>
+                    <span class="ui-send">发送</span>
+                  </div>
+                </div>
+
+                <aside class="ui-drawer">
+                  <div class="ui-dhead"><b>共享文件</b><span class="ui-count">12</span><span class="x">›</span></div>
+                  <div class="ui-sort"><span class="on">最新</span><span>名称</span><span>大小</span></div>
+                  <div class="ui-flist">
+                    <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-pdf">PDF</span><span><div class="ui-fname">需求评审纪要.pdf</div><div class="ui-fmeta">2.4 MB · 2 分钟前</div></span><span class="ui-facts2"><b>↗</b><b>⧉</b><b>🗑</b><b>➦</b></span></div>
+                    <div class="ui-frow sel"><span class="ui-check on"></span><span class="ui-thumb fi-jpg">JPG</span><span><div class="ui-fname">现场照片_01.jpg</div><div class="ui-fmeta">5.1 MB · 8 分钟前</div></span><span class="ui-facts2"><b>↗</b><b>⧉</b><b>🗑</b><b>➦</b></span></div>
+                    <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-zip">ZIP</span><span><div class="ui-fname">release-build.zip</div><div class="ui-fmeta">128 MB · 今天 09:41</div></span><span class="ui-facts2"><b>↗</b><b>⧉</b><b>🗑</b><b>➦</b></span></div>
+                    <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-key">KEY</span><span><div class="ui-fname">android-release.jks</div><div class="ui-fmeta">3.8 KB · 昨天</div></span><span class="ui-facts2"><b>↗</b><b>⧉</b><b>🗑</b><b>➦</b></span></div>
+                    <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-vid">VID</span><span><div class="ui-fname">会议录像_1109.mp4</div><div class="ui-fmeta">486 MB · 昨天</div></span><span class="ui-facts2"><b>↗</b><b>⧉</b><b>🗑</b><b>➦</b></span></div>
+                    <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-md">MD</span><span><div class="ui-fname">上线说明.md</div><div class="ui-fmeta">12 KB · 11-08</div></span><span class="ui-facts2"><b>↗</b><b>⧉</b><b>🗑</b><b>➦</b></span></div>
+                  </div>
+                  <div class="ui-dfoot"><span class="del">🗑 删除选中 (1)</span><span class="ui-pg"><b>‹</b><b class="on">1</b><b>2</b><b>3</b><b>›</b></span></div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="legend" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px 16px;margin:14px 0 0;padding:0">
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">A</b><span><b>侧栏</b>：消息发送 / 服务中心 / CC设置；未读在「消息发送」，可收起为 64px。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">B</b><span><b>顶栏 + 房间头</b>：标题/副标题在左，运行状态+地址+复制/二维码/浏览器按钮靠右上；房间头压成 50px 轻量工具条。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">C</b><span><b>文件卡片</b>：进度、取消、打开 / 复制 / 分享 / 定位；缩略图与预览按钮可打开全屏预览。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">D</b><span><b>文件组</b>：批量上传合并，展开看全部，单项可取消 / 重试。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">E</b><span><b>共享文件抽屉</b>：340–400px，排序、分页、全选、批量删除；分页占满底栏，新文件显示绿点。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">F</b><span><b>输入栏</b>：＋ 面板、多行 textarea、桌面 Enter 发送 / Shift+Enter 换行。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">G</b><span><b>悬浮码</b>：独立置顶窗，呼吸环 / 悬停扫码保持原样。</span></li>
+        <li style="list-style:none;display:flex;gap:8px;font-size:12.5px;color:var(--ink-2)"><b class="green">H</b><span><b>托盘菜单</b>：显示 / 启停 / 打开网页 / 退出；关窗不退出。</span></li>
+      </ul>
+
+      <div class="cards" style="margin-top:14px">
+        <div class="card">
+          <div class="c-k">WINDOW</div>
+          <h3>尺寸与断点</h3>
+          <p>默认 1180×840，最小 560×520；侧栏 216（收起 64），抽屉 <span class="mono">clamp(340px,30vw,400px)</span>。≥980 对话 + 右侧抽屉；&lt;980 切换为单列 + 86dvh 底部面板。抽屉是布局内列，不做过覆盖式浮层。</p>
+        </div>
+        <div class="card">
+          <div class="c-k">SHELL</div>
+          <h3>壳能力保持独立</h3>
+          <p>托盘、悬浮码、开机自启、单实例、更新检查、访问令牌、服务日志与共享目录设置全部保留；它们不属于对话页面。</p>
+          <div class="tray-mini" aria-label="托盘菜单示意">
+            <span>🖥 显示主窗口</span>
+            <span>⏯ 启动 / 停止服务</span>
+            <span>🌐 打开网页</span>
+            <div class="sep"></div>
+            <span>⏻ 退出</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="c-k">STATES</div>
+          <h3>桌面状态</h3>
+          <p>服务停止：时间线上方一条「服务未启动 · 去启动」，上传/发送禁用。配对码：弹配对框（6 位 PIN，本机豁免）。更新：弹更新框。日志仍在服务中心。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 05 电脑浏览器 ================= -->
+    <section class="sec" id="desktop-web">
+      <div class="sec-head">
+        <div class="sec-no">05<br><span>DESKTOP BROWSER</span></div>
+        <div>
+          <h2>电脑浏览器：把服务页面当成一间房。</h2>
+          <p class="sec-intro">
+            浏览器里没有侧栏和托盘，也没有服务控制。页面顶部是房间头：标题「消息发送」、运行状态、共享文件入口（含总数与绿点），
+            右侧是清空消息、复制地址、二维码、更多与昵称头像；下面是同一条时间线与同一个 340–400px 抽屉。地址栏本身就是分享地址。
+          </p>
+        </div>
+      </div>
+
+      <p class="shot-hint">← 左右滑动查看完整浏览器示意 →</p>
+      <div class="shot-scroll">
+        <div class="browser-frame" role="img" aria-label="电脑浏览器：标签页、地址栏、对话时间线与共享文件抽屉">
+          <div class="browser-top">
+            <div class="browser-tabs">
+              <div class="browser-tab"><span class="fav">CC</span> CC-Flash · 消息发送 <span class="x">×</span></div>
+              <div class="browser-newtab">＋</div>
+            </div>
+            <div class="browser-bar">
+              <span class="browser-nav">‹ › ⟳</span>
+              <div class="browser-url"><span class="lock">ⓘ</span> http://192.168.1.8:1688</div>
+              <span class="browser-tools">☆ ⋮</span>
+            </div>
+          </div>
+          <div class="browser-page">
+            <div class="web-main">
+              <div class="web-topbar">
+                <span class="web-brand"><span class="r">CC</span>CC-Flash</span>
+                <span class="web-room">消息发送</span>
+                <span class="web-sub">同一 Wi-Fi · 运行中 · 服务由电脑端托管</span>
+                <div class="acts">
+                  <span class="ui-hbtn">复制地址</span>
+                  <span class="ui-hbtn">二维码</span>
+                  <span class="ui-hbtn">共享文件 <b>12</b></span>
+                  <span class="ui-hbtn icon">🐼</span>
+                </div>
+              </div>
+              <div class="ui">
+                <div class="ui-chat">
+                  <div class="ui-date">今天 14:02</div>
+                  <div class="ui-msg"><span class="ava">🦊</span><div class="col"><div class="ui-name">MacBook · 小林</div><div class="ui-bubble">在浏览器里也能直接看文件和回消息。</div><div class="ui-time">14:02</div></div></div>
+                  <div class="ui-msg out"><div class="col"><div class="ui-bubble">对，不用装软件，地址发给同事就行。</div><div class="ui-time">14:03</div></div><span class="ava">🐼</span></div>
+                  <div class="ui-file"><span class="ava">🦊</span><div class="ui-filecard"><div class="ui-file-main"><span class="ui-ficon fi-zip">ZIP</span><span style="min-width:0"><div class="ui-fn">release-build.zip</div><div class="ui-fm">128 MB · 已上传</div></span><span class="ui-fmenu">⋯</span></div><div class="ui-facts"><span>下载</span><span>分享</span><span>定位</span></div></div></div>
+                  <div class="ui-msg"><span class="ava">🐧</span><div class="col"><div class="ui-name">Windows · 阿哲</div><div class="ui-bubble">已下完，浏览器自带进度条。</div><div class="ui-time">14:05</div></div></div>
+                </div>
+                <div class="ui-input"><span class="ui-plus">＋</span><span class="ui-inputbox">说点什么…（回车发送）</span><span class="ui-send">发送</span></div>
+              </div>
+            </div>
+            <div class="browser-drawer">
+              <aside class="ui-drawer">
+                <div class="ui-dhead"><b>共享文件</b><span class="ui-count">12</span><span class="x">›</span></div>
+                <div class="ui-sort"><span class="on">最新</span><span>名称</span><span>大小</span></div>
+                <div class="ui-flist">
+                  <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-pdf">PDF</span><span><div class="ui-fname">需求评审纪要.pdf</div><div class="ui-fmeta">2.4 MB · 2 分钟前</div></span><span class="ui-facts2"><b>↓</b><b>🗑</b><b>➦</b></span></div>
+                  <div class="ui-frow sel"><span class="ui-check on"></span><span class="ui-thumb fi-zip">ZIP</span><span><div class="ui-fname">release-build.zip</div><div class="ui-fmeta">128 MB · 今天 09:41</div></span><span class="ui-facts2"><b>↓</b><b>🗑</b><b>➦</b></span></div>
+                  <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-jpg">JPG</span><span><div class="ui-fname">现场照片_01.jpg</div><div class="ui-fmeta">5.1 MB · 8 分钟前</div></span><span class="ui-facts2"><b>↓</b><b>🗑</b><b>➦</b></span></div>
+                  <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-vid">VID</span><span><div class="ui-fname">会议录像_1109.mp4</div><div class="ui-fmeta">486 MB · 昨天</div></span><span class="ui-facts2"><b>↓</b><b>🗑</b><b>➦</b></span></div>
+                  <div class="ui-frow"><span class="ui-check"></span><span class="ui-thumb fi-md">MD</span><span><div class="ui-fname">上线说明.md</div><div class="ui-fmeta">12 KB · 11-08</div></span><span class="ui-facts2"><b>↓</b><b>🗑</b><b>➦</b></span></div>
+                </div>
+                <div class="ui-dfoot"><span class="del">🗑 删除选中 (1)</span><span class="ui-pg"><b>‹</b><b class="on">1</b><b>2</b><b>3</b><b>›</b></span></div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ix" style="margin-top:14px">
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>没有壳能力，但有地址</h3></div>
+          <p>浏览器不显示托盘、悬浮码、服务启停与日志面板；它只负责“访问这台电脑的服务”。房间头保留复制地址、二维码与共享文件入口，共享文件抽屉宽 340–400px，可收起。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>标签标题就是未读</h3></div>
+          <p>有新消息且页面不在前台时，把未读数写进标签标题（<span class="mono">(3) CC-Flash · 消息发送</span>），并在房间头「共享文件」旁显示角标；页面可见 + 窗口聚焦时清零，滚到底也追平。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>下载交给浏览器</h3></div>
+          <p>点击文件卡或抽屉行 → 先 HEAD 预检，再交浏览器原生下载（带进度、断点续传）；手机浏览器 ≤50MB 走 fetch + blob，超过 50MB 走原生流式，避免 iOS 内存配额杀标签页。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>窄窗口退化为手机形态</h3></div>
+          <p>窗口宽度 &lt;980 时，抽屉变为底部共享文件面板：房间头 + 单列时间线 + 86dvh 面板，与手机浏览器同一套布局。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>应用内预览</h3></div>
+          <p>浏览器与移动端：图片 / PDF / 纯文本 / 音视频打开应用内全屏层，右上角关闭或 Esc 返回；办公文档 / 压缩包下载；html / svg / xml 不内联。真实桌面沿用系统程序打开；PDF 在桌面 / 移动壳交系统浏览器。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>Markdown 与主题</h3></div>
+          <p>聊天支持标题 / 列表 / 引用 / 代码块 / 行内代码 / 链接；多行输入框自动长高。5 套配色 × 亮 / 暗 / 跟随系统，桌面气泡跟随主题。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 06 手机浏览器 ================= -->
+    <section class="sec" id="mobile-web">
+      <div class="sec-head">
+        <div class="sec-no">06<br><span>MOBILE BROWSER</span></div>
+        <div>
+          <h2>手机浏览器：打开网址，就是对话。</h2>
+          <p class="sec-intro">
+            地址栏由浏览器提供，页面本身只负责房间、时间线与输入栏。微信内置浏览器保留顶部引导条：
+            下载被拦时提示点右上角 ⋯ → 在浏览器打开；引导条只占一行，≤980px 不再占满整屏。
+            共享文件面板从房间头文件夹或＋面板打开，高 86dvh。没有“连接电脑”门——网址本身就是连接。
+          </p>
+        </div>
+      </div>
+
+      <div class="mobile-layout">
+        <div class="phone" role="img" aria-label="手机浏览器：地址栏、微信引导条、对话时间线与输入栏">
+          <div class="phone-screen">
+            <div class="p-status"><span>9:41</span><span>▮▮▮ ᯤ ▰</span></div>
+            <div class="mb-top">
+              <span class="mb-tool">‹</span>
+              <span class="mb-url">192.168.1.8:1688</span>
+              <span class="mb-tool">⟳</span>
+              <span class="mb-tool">⋯</span>
+            </div>
+            <div class="wechat-banner">ⓘ 当前在微信内打开，文件下载可能被拦截 —— 点右上角 ⋯ 选择「在浏览器打开」</div>
+            <div class="ui mobile">
+              <div class="ui-head">
+                <span class="ui-room">CC</span>
+                <div><h4>消息发送</h4><p>同一 Wi-Fi · 局域网实时互通</p></div>
+                <div class="ui-acts">
+                  <span class="ui-hbtn">🗂<b>12</b></span>
+                  <span class="ui-hbtn icon">⋯</span>
+                </div>
+              </div>
+              <div class="ui-chat">
+                <div class="ui-date">今天 14:02</div>
+                <div class="ui-msg"><span class="ava">🦊</span><div class="col"><div class="ui-name">MacBook · 小林</div><div class="ui-bubble">文件收到了，链接手机能直接开。</div></div></div>
+                <div class="ui-msg out"><div class="col"><div class="ui-bubble">好，我把截图也传上来</div></div><span class="ava">🐼</span></div>
+                <div class="ui-file"><span class="ava">🦊</span><div class="ui-filecard"><div class="ui-file-main"><span class="ui-ficon fi-pdf">PDF</span><span style="min-width:0"><div class="ui-fn">需求评审纪要.pdf</div><div class="ui-fm">2.4 MB · 已上传</div></span></div><div class="ui-facts"><span>预览</span><span>下载</span><span>分享</span></div></div></div>
+                <div class="ui-msg"><span class="ava">🐧</span><div class="col"><div class="ui-name">Windows · 阿哲</div><div class="ui-bubble"><b>release-build.zip</b> 已经下完了。</div></div></div>
+              </div>
+              <div class="ui-input"><span class="ui-plus">＋</span><span class="ui-inputbox">说点什么…</span><span class="ui-send">发送</span></div>
+            </div>
+            <div class="mb-toolbar"><span>‹</span><span>›</span><span>⤴</span><span>□</span><span>⋯</span></div>
+          </div>
+        </div>
+
+        <div class="detail-col">
+          <div class="inset">
+            <div class="i-k">＋ PANEL / MOBILE</div>
+            <h4>＋ 面板：四个动作</h4>
+            <p>文件 / 文件夹 / 粘贴 / 共享文件。选完立即上传，面板自动收起；键盘弹起时面板先收起，避免顶起两层。</p>
+            <div class="plus-mini" style="margin-top:9px">
+              <div class="pa"><i class="g">📄</i>文件</div>
+              <div class="pa"><i>🗂</i>文件夹</div>
+              <div class="pa"><i>📋</i>粘贴</div>
+              <div class="pa"><i>📁</i>共享文件</div>
+            </div>
+          </div>
+          <div class="inset">
+            <div class="i-k">SHARED FILES / SHEET</div>
+            <h4>共享文件面板</h4>
+            <p>房间头文件夹或＋面板打开；高 86dvh，支持排序、分页、全选、批量删除；行尾「⋯」打开动作面板（预览 / 下载 / 分享 / 删除）。</p>
+            <div class="mini-sheet" style="margin-top:9px">
+              <div class="ms-head">共享文件<span class="cnt">12</span><span class="done">完成</span></div>
+              <div class="ms-row"><span class="ui-check"></span><span class="ms-th fi-pdf">PDF</span><span><div class="ms-n">需求评审纪要.pdf</div><div class="ms-m">2.4 MB · 2 分钟前</div></span><span class="more">⋯</span></div>
+              <div class="ms-row"><span class="ui-check on"></span><span class="ms-th fi-jpg">JPG</span><span><div class="ms-n">现场照片_01.jpg</div><div class="ms-m">5.1 MB · 8 分钟前</div></span><span class="more">⋯</span></div>
+              <div class="ms-row"><span class="ui-check"></span><span class="ms-th fi-zip">ZIP</span><span><div class="ms-n">release-build.zip</div><div class="ms-m">128 MB · 今天 09:41</div></span><span class="more">⋯</span></div>
+              <div class="ms-row"><span class="ui-check"></span><span class="ms-th fi-vid">VID</span><span><div class="ms-n">会议录像_1109.mp4</div><div class="ms-m">486 MB · 昨天</div></span><span class="more">⋯</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ix" style="margin-top:14px">
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>下载策略</h3></div>
+          <p>≤50MB 走 fetch + blob（有完成提示）；&gt;50MB 交浏览器原生下载（省内存、带进度）；HTTP 错误如实提示，不把 JSON 错误体当文件。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>微信内置浏览器</h3></div>
+          <p>顶部引导条只在微信内置浏览器出现（点 ⋯ → 在浏览器打开），≤980px 只占一行、不再占满整屏；下载被拦时复制链接兜底；分享链接带一次性票据（10 分钟、单文件、下载一次即失效）。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>键盘与安全区</h3></div>
+          <p>输入栏使用 <span class="mono">dvh</span> / <span class="mono">visualViewport</span> 与 <span class="mono">env(safe-area-inset-bottom)</span>；键盘弹起时保持输入框可见，消息列表自动贴底。多行输入框 16px，避免 iOS 聚焦缩放。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>无连接门</h3></div>
+          <p>能打开页面就说明地址可达。服务停止 → 整页「无信号」；地址变化 → 用电脑端新地址重开。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 07 手机端 App ================= -->
+    <section class="sec" id="mobile-app">
+      <div class="sec-head">
+        <div class="sec-no">07<br><span>MOBILE APP</span></div>
+        <div>
+          <h2>手机端 App：先连电脑，再进对话。</h2>
+          <p class="sec-intro">
+            Android / iOS 壳是纯客户端：服务跑在电脑上。首次打开先填电脑地址，连上后进入同一条时间线；
+            手机端不托管服务、不显示托盘，下载交给系统浏览器。iOS 当前不提供安装包。
+          </p>
+        </div>
+      </div>
+
+      <div class="mobile-layout">
+        <div class="phone" role="img" aria-label="手机端 App：原生状态栏、对话时间线、输入栏">
+          <div class="phone-screen">
+            <div class="p-status"><span>9:41</span><span>▮▮▮ ᯤ ▰</span></div>
+            <div class="ui mobile">
+              <div class="ui-head">
+                <span class="ui-room">CC</span>
+                <div><h4>消息发送</h4><p>已连接 192.168.1.8:1688</p></div>
+                <div class="ui-acts">
+                  <span class="ui-hbtn">🗂<b>12</b></span>
+                  <span class="ui-hbtn icon">⋯</span>
+                </div>
+              </div>
+              <div class="ui-chat">
+                <div class="ui-date">今天 14:02</div>
+                <div class="ui-msg"><span class="ava">🦊</span><div class="col"><div class="ui-name">MacBook · 小林</div><div class="ui-bubble">文件收到了，链接手机能直接开。</div></div></div>
+                <div class="ui-msg out"><div class="col"><div class="ui-bubble">好，我把截图也传上来</div></div><span class="ava">🐼</span></div>
+                <div class="ui-file out"><div class="ui-filecard"><div class="ui-file-main"><span class="ui-ficon fi-jpg">JPG</span><span style="min-width:0"><div class="ui-fn">现场照片_01.jpg</div><div class="ui-fm doing">上传中 64% · 8.2 MB/s</div></span></div><div class="ui-progress"><i style="width:64%"></i></div></div><span class="ava">🐼</span></div>
+                <div class="ui-msg"><span class="ava">🐧</span><div class="col"><div class="ui-name">Windows · 阿哲</div><div class="ui-bubble"><b>release-build.zip</b> 已经下完了。</div></div></div>
+              </div>
+              <div class="ui-input"><span class="ui-plus">＋</span><span class="ui-inputbox">说点什么…</span><span class="ui-send">发送</span></div>
+            </div>
+            <div class="safe-strip"></div>
+          </div>
+        </div>
+
+        <div class="detail-col">
+          <div class="inset">
+            <div class="i-k">FIRST RUN / CONNECT</div>
+            <h4>首次打开：连接电脑</h4>
+            <p>输入电脑端「服务中心」顶部显示的地址；只支持 IP / localhost，不接受 <span class="mono">xxx.local</span>。</p>
+            <div class="field">192.168.1.8:1688</div>
+            <div class="btn">连接</div>
+            <div class="hint">连上后地址写入本地偏好文件，重启不再重填。</div>
+          </div>
+          <div class="inset">
+            <div class="i-k">CLIENT MODE</div>
+            <h4>纯客户端，不托管服务</h4>
+            <p>手机上不启动局域网服务、不显示托盘与服务启停；Rust 命令层直接拒绝托管请求。下载通过系统浏览器打开，失败复制链接。</p>
+          </div>
+          <div class="inset">
+            <div class="i-k">NO SIGNAL / RESET</div>
+            <h4>失联：重新设置地址</h4>
+            <p>电脑换 IP / 换电脑后，无信号页点「重新设置电脑地址」回到连接页；也可在 CC设置 → 连接电脑 修改。</p>
+            <div class="btn" style="background:var(--ink-2)">重新设置电脑地址</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ix" style="margin-top:14px">
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>Android</h3></div>
+          <p>提供按 ABI 分包的 release 签名 APK；返回键先关＋面板 / 文件面板，再退到系统；通知与下载交给系统。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>iOS</h3></div>
+          <p>当前不提供安装包；iOS 用户用 Safari 打开电脑地址使用网页版。本地网络权限与壳能力尚未适配。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>设置页</h3></div>
+          <p>只保留「连接电脑」、皮肤、关于与检查更新提示；不展示开机自启、悬浮码、服务启停等桌面能力。</p>
+        </div>
+        <div class="card">
+          <div class="ic-k"><span class="dot"></span><h3>安全区</h3></div>
+          <p>输入栏与底部面板处理 <span class="mono">safe-area-inset-bottom</span>；键盘弹起时＋面板与键盘互斥，切后台回来保留滚动位置。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 08 跨端一致性 ================= -->
+    <section class="sec" id="cross">
+      <div class="sec-head">
+        <div class="sec-no">08<br><span>CONSISTENCY</span></div>
+        <div>
+          <h2>四端可以不同，但规则必须一致。</h2>
+          <p class="sec-intro">
+            同一套结构在不同容器里可以缩放、换外壳，但未读、上传、文件卡片、服务状态与安全规则必须一致；
+            否则用户换一台设备就像换了一个产品。
+          </p>
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th style="width:130px">能力</th><th>桌面壳</th><th>电脑浏览器</th><th>手机浏览器</th><th>手机端 App</th></tr></thead>
+          <tbody>
+            <tr><td>托管服务</td><td><span class="tag ok">支持</span></td><td>不支持（访问电脑）</td><td>不支持（访问电脑）</td><td>不支持（纯客户端）</td></tr>
+            <tr><td>入口</td><td>侧栏「消息发送」</td><td>房间头</td><td>房间头</td><td>房间头</td></tr>
+            <tr><td>文件管理</td><td>右侧抽屉 340–400px</td><td>右侧抽屉 340–400px</td><td>底部面板 86dvh</td><td>底部面板 86dvh</td></tr>
+            <tr><td>上传</td><td>＋面板 / 拖拽 / 粘贴</td><td>＋面板 / 拖拽 / 粘贴</td><td>＋面板 / 粘贴</td><td>＋面板 / 粘贴</td></tr>
+            <tr><td>下载</td><td>系统程序 / 复制 / 分享</td><td>浏览器原生</td><td>浏览器原生 / blob</td><td>系统浏览器</td></tr>
+            <tr><td>预览</td><td>系统程序打开；PDF 交系统浏览器</td><td>应用内全屏</td><td>应用内全屏</td><td>应用内全屏；PDF 交系统浏览器</td></tr>
+            <tr><td>托盘 / 悬浮码</td><td><span class="tag ok">支持</span></td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>访问令牌</td><td>本机豁免</td><td>远程需配对（同机访问可豁免）</td><td>需配对</td><td>需配对</td></tr>
+            <tr><td>未读</td><td>侧栏角标 + 文件绿点</td><td>标签标题 + 房间头角标</td><td>页面胶囊 + 文件绿点</td><td>页面胶囊 + 文件绿点</td></tr>
+            <tr><td>连接电脑</td><td>—</td><td>—</td><td>—</td><td><span class="tag move">首次 / 失联</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cards" style="margin-top:14px">
+        <div class="card">
+          <div class="c-k">BREAKPOINTS</div>
+          <h3>一套断点</h3>
+          <p>≥980：对话 + 右侧抽屉（340–400px）；&lt;980：单列 + 86dvh 底部面板。手机 320–430 使用同一移动组件；侧栏 ≤720px 只留图标。</p>
+        </div>
+        <div class="card">
+          <div class="c-k">UNREAD</div>
+          <h3>未读口径</h3>
+          <p>聊天消息按消息 id 计未读；文件只点绿点。页面可见且窗口有焦点才清零，滚到底也追平；失焦保留；其他页面显示角标。</p>
+        </div>
+        <div class="card">
+          <div class="c-k">STATES</div>
+          <h3>状态统一</h3>
+          <p>上传中 / 失败 / 文件组 / 空状态 / 服务停止 / 无信号 / 配对 / 连接门，四端共用同一套视觉与文案。</p>
+        </div>
+      </div>
+
+      <div class="states4">
+        <div class="state4">
+          <div class="s4-k">WAITING</div>
+          <div class="ui" style="background:transparent">
+            <div class="ui-filecard" style="width:100%"><div class="ui-file-main"><span class="ui-ficon fi-vid">VID</span><span style="min-width:0"><div class="ui-fn">会议录像_1109.mp4</div><div class="ui-fm">等待中 · 前面还有 2 个</div></span></div></div>
+          </div>
+          <p>并发闸已满，卡片先显示等待；可取消。</p>
+        </div>
+        <div class="state4">
+          <div class="s4-k">UPLOADING</div>
+          <div class="ui" style="background:transparent">
+            <div class="ui-filecard" style="width:100%"><div class="ui-file-main"><span class="ui-ficon fi-jpg">JPG</span><span style="min-width:0"><div class="ui-fn">现场照片_01.jpg</div><div class="ui-fm doing">上传中 64% · 8.2 MB/s</div></span><span class="ui-fmenu">✕</span></div><div class="ui-progress"><i style="width:64%"></i></div></div>
+          </div>
+          <p>进度、速率、取消都在卡片上。</p>
+        </div>
+        <div class="state4">
+          <div class="s4-k">DONE</div>
+          <div class="ui" style="background:transparent">
+            <div class="ui-filecard" style="width:100%"><div class="ui-file-main"><span class="ui-ficon fi-pdf">PDF</span><span style="min-width:0"><div class="ui-fn">需求评审纪要.pdf</div><div class="ui-fm">2.4 MB · 已上传</div></span></div><div class="ui-facts"><span>打开</span><span>分享</span><span>定位</span></div></div>
+          </div>
+          <p>完成态可打开 / 分享 / 定位到抽屉。</p>
+        </div>
+        <div class="state4">
+          <div class="s4-k">FAILED</div>
+          <div class="ui" style="background:transparent">
+            <div class="ui-filecard" style="width:100%"><div class="ui-file-main"><span class="ui-ficon fi-md">MD</span><span style="min-width:0"><div class="ui-fn">上线说明.md</div><div class="ui-fm err">上传失败 · 连接中断</div></span></div><div class="ui-facts"><span>重试</span><span>取消</span></div></div>
+          </div>
+          <p>失败卡片保留原因与重试；半截文件已清理。</p>
+        </div>
+      </div>
+
+      <div class="tbl-wrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th style="width:150px">跨端规则</th><th>约定</th></tr></thead>
+          <tbody>
+            <tr><td>文件卡片</td><td>完成态在四端都有「打开 / 下载 / 分享 / 定位」中的适用动作；移动端用「⋯」动作面板，不依赖长按。</td></tr>
+            <tr><td>文件组</td><td>一次 &gt;3 个或 60s 内连续上传合并；展开后单项仍可取消 / 重试；抽屉始终是完整列表。</td></tr>
+            <tr><td>历史文件</td><td>只把本次会话真实发生的上传当消息；刷新后历史文件回到抽屉，不伪造时间与发送者。</td></tr>
+            <tr><td>服务状态</td><td>停止：输入栏上方一条内联提示 + 上传/发送禁用；失联：整页「无信号」；手机端额外给「重新设置地址」。</td></tr>
+            <tr><td>预览</td><td>浏览器 / 移动端：图片 / PDF / 纯文本 / 音视频应用内全屏层，右上角关闭 / Esc；真实桌面：系统程序打开，PDF 交系统浏览器；Office / 压缩包下载；html / svg / xml 不内联。</td></tr>
+            <tr><td>主题</td><td>5 套配色 × 亮 / 暗 / 跟随系统；桌面壳气泡跟随主题变量，浏览器 / 移动端气泡保持浅底黑字。</td></tr>
+            <tr><td>安全</td><td>Host 仅 IP / localhost；6 位 PIN 配对（本机豁免，按 IP 退避）；分享一次性票据（10 分钟、单文件、一次）；客户端上传并发 3、服务端上传 16 / 下载 32；CSP 放行 <span class="mono">media-src http: blob:</span>；手机端命令层拒绝托管服务。</td></tr>
+            <tr><td>可访问性</td><td>焦点环、键盘顺序、触屏无 hover 时动作常显、reduced-motion 四端一致。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 09 实现映射 ================= -->
+    <section class="sec" id="impl">
+      <div class="sec-head">
+        <div class="sec-no">09<br><span>IMPLEMENTATION</span></div>
+        <div>
+          <h2>一套结构，四种外壳。</h2>
+          <p class="sec-intro">
+            当前 v1.2.1 仍在 <span class="mono">App.vue</span> 内以区块 + 同一套 CSS 变量实现四端复用，尚未拆成独立组件文件；
+            下图的组件树是结构示意。不重写服务端、不重写上传/聊天底层；只新增时间线与平台外壳。
+          </p>
+        </div>
+      </div>
+
+      <div class="impl">
+        <div>
+          <div class="code" aria-label="组件与布局示意">
+<span class="cm">// 共享页面：四端都用它</span>
+<span class="f">TransferPage</span>
+  ├─ <span class="f">RoomHeader</span>        <span class="cm">// 房间 / 运行状态 / 共享文件入口</span>
+  ├─ <span class="f">ChatTimeline</span>      <span class="cm">// 消息 + 文件卡片 + 文件组</span>
+  ├─ <span class="f">UploadStrip</span>      <span class="cm">// 在途上传总览（可点击定位）</span>
+  ├─ <span class="f">Composer</span>         <span class="cm">// 文字 + ＋ 面板</span>
+  └─ <span class="f">FileManager</span>      <span class="cm">// 桌面抽屉 / 移动面板</span>
+
+<span class="cm">// 四种外壳只决定容器</span>
+<span class="f">ShellLayout</span>    = Topbar + Sidebar + TransferPage + Drawer + 托盘/悬浮码
+<span class="f">WebLayout</span>      = RoomHeader + TransferPage + Drawer
+<span class="f">MobileLayout</span>   = RoomHeader + TransferPage + Sheet
+<span class="f">MobileAppLayout</span>= StateBar + ConnectGate? + MobileLayout
+
+<span class="cm">// 时间线（仅本次会话的上传）</span>
+<span class="k">const</span> timeline = ref([]);
+<span class="k">const</span> merged = computed(() =&gt; sortByTime([
+  ...chatMsgs.value.map(m =&gt; ({ type: <span class="s">"msg"</span>, ...m })),
+  ...timeline.value,   <span class="cm">// file / filegroup</span>
+]));
+          </div>
+          <p class="small" style="margin-top:9px">平台判断沿用现有 <span class="mono">isDesktop / isRealDesktop / mobileShell / isNarrow</span>，不再新增第二套环境检测。</p>
+        </div>
+
+        <div class="steps">
+          <div class="step"><span class="n">1</span><span><b>共享区块</b><p>把现有聊天、文件列表、上传条目按 <span class="mono">ChatTimeline / FileManager / Composer</span> 的职责组织；当前仍在 App.vue 内，未拆独立组件文件。</p></span></div>
+          <div class="step"><span class="n">2</span><span><b>时间线主干</b><p>新增 <span class="mono">timeline</span>，上传 start/progress/done/fail 生成或更新文件卡片；聊天消息按时间戳并入。</p></span></div>
+          <div class="step"><span class="n">3</span><span><b>四端外壳</b><p>桌面壳侧栏 + 340–400px 抽屉；电脑浏览器房间头 + 抽屉；手机浏览器 / App 单列 + 86dvh 面板；App 首次连接门。</p></span></div>
+          <div class="step"><span class="n">4</span><span><b>文件组与抽屉</b><p>批量上传合并；抽屉 / 面板复用现有 <span class="mono">allFiles</span>、排序、分页、选中与批量删除；分页占满底栏，新文件绿点。</p></span></div>
+          <div class="step"><span class="n">5</span><span><b>平台差异</b><p>桌面壳保留托盘/悬浮码与跟随主题的气泡；浏览器加标签标题未读；手机 App 加连接门与系统下载；预览层浏览器 / 移动端共用，真实桌面走系统程序，PDF 在壳内交系统浏览器。</p></span></div>
+          <div class="step"><span class="n">6</span><span><b>回归验收</b><p>按第 10 节四端矩阵跑上传、下载、聊天、未读、停服、失联、令牌、断点。</p></span></div>
+        </div>
+      </div>
+
+      <div class="risk">
+        <b>改动风险与规避</b>
+        <ul>
+          <li><b>时间线刷屏</b>：文件组必须做；一次 200 个文件不能把聊天记录淹没。</li>
+          <li><b>历史与刷新</b>：时间线只保留本次会话真实发生的上传；刷新后历史回到抽屉，不伪造。</li>
+          <li><b>移动端键盘</b>：输入栏与＋面板、文件面板、键盘三者的层级要明确；键盘弹起先收面板。</li>
+          <li><b>浏览器标题</b>：未读写入 <span class="mono">document.title</span> 后，离开页面要恢复原标题；注意与其他页面标题的冲突。</li>
+          <li><b>桌面壳布局</b>：窗口 &lt;980 时切换到单列 + 底部面板，但托盘 / 服务能力仍在；不要误删桌面专属入口。</li>
+          <li><b>预览与 Range</b>：音视频 / PDF 会发多次 Range，一次性票据首个 206 即失效；应用内预览改用长期 PIN 直连，且不写进浏览器历史。</li>
+          <li><b>内联安全</b>：html / svg / xml 不得 inline 打开；服务端 <span class="mono">is_inline_safe</span> 与 CSP 必须同时兜底。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ================= 10 验收 ================= -->
+    <section class="sec" id="acceptance">
+      <div class="sec-head">
+        <div class="sec-no">10<br><span>ACCEPTANCE</span></div>
+        <div>
+          <h2>四端都做到，才算整体完成。</h2>
+          <p class="sec-intro">按形态分组，每条都可手动验证。</p>
+        </div>
+      </div>
+
+      <div class="cards" style="margin-bottom:12px">
+        <div class="card">
+          <div class="c-k">DESKTOP SHELL</div>
+          <h3>桌面壳</h3>
+          <p>侧栏 3 项；时间线 + 340–400px 抽屉；托盘 / 悬浮码 / 服务中心 / 设置可用；关窗服务不停；窗口 &lt;980 切单列 + 底部面板但能力不丢。</p>
+        </div>
+        <div class="card">
+          <div class="c-k">DESKTOP WEB</div>
+          <h3>电脑浏览器</h3>
+          <p>顶部栏 + 时间线 + 抽屉；无托盘/悬浮码/服务控制；标签标题显示未读；下载走浏览器原生。</p>
+        </div>
+        <div class="card">
+          <div class="c-k">MOBILE</div>
+          <h3>手机浏览器 / App</h3>
+          <p>单列时间线 + 面板；＋面板与共享文件面板完整；App 首次连接 / 失联重置；浏览器微信引导条与下载策略。</p>
+        </div>
+      </div>
+
+      <div class="checks">
+        <div class="check"><span class="bx">✓</span><span>四端都只有一个「消息发送」入口，未读只出现一次，新文件只点绿点。</span></div>
+        <div class="check"><span class="bx">✓</span><span>桌面壳顶栏标题/副标题在左，运行状态+地址+复制/二维码/浏览器按钮整组靠右上；窄于 900px 整组换行撑满。</span></div>
+        <div class="check"><span class="bx">✓</span><span>上传开始即出现文件卡片，等待 / 上传中 / 完成 / 失败四态正确。</span></div>
+        <div class="check"><span class="bx">✓</span><span>超过 3 个文件合并为文件组，可展开、可取消单项。</span></div>
+        <div class="check"><span class="bx">✓</span><span>共享文件抽屉 340–400px / 底部面板 86dvh，支持排序、分页、全选、批量删除；分页占满底栏。</span></div>
+        <div class="check"><span class="bx">✓</span><span>浏览器 / 移动端缩略图、预览按钮、行尾菜单都能打开应用内预览；真实桌面走系统程序；Office / 压缩包下载；html/svg/xml 不内联。</span></div>
+        <div class="check"><span class="bx">✓</span><span>聊天 Markdown（标题 / 列表 / 引用 / 代码块 / 行内 / 链接）与多行输入正常。</span></div>
+        <div class="check"><span class="bx">✓</span><span>＋面板四动作可用；拖拽 / 粘贴行为与现版一致。</span></div>
+        <div class="check"><span class="bx">✓</span><span>桌面壳托盘 / 悬浮码 / 服务中心 / 设置无回归。</span></div>
+        <div class="check"><span class="bx">✓</span><span>电脑浏览器标签标题未读正确，离开页面恢复原标题。</span></div>
+        <div class="check"><span class="bx">✓</span><span>手机浏览器微信引导条只占一行（≤980px 不占满整屏），下载策略、安全区正常。</span></div>
+        <div class="check"><span class="bx">✓</span><span>手机 App 首次连接、失联重置、纯客户端门控正确。</span></div>
+        <div class="check"><span class="bx">✓</span><span>560 / 900 / 980 / 1280px 与手机 320–430 无横向溢出。</span></div>
+        <div class="check"><span class="bx">✓</span><span>服务停止 / 失联 / 配对 / 票据 / 并发闸四端口径一致；CSP 放行媒体。</span></div>
+        <div class="check"><span class="bx">✓</span><span>5 套配色 × 亮 / 暗 / 跟随系统切换后组件结构不塌；桌面气泡跟随主题。</span></div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <div><b>CC-Flash · 文件与消息合并 · 全端整体设计方案</b><br>v1.2.1 · 2026-11 · 微信式结构已落地</div>
+      <div>配套阅读：《文件与消息合并入口-微信版设计方案》<br>《技术实现文档》《需求设计文档》</div>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

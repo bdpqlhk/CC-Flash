@@ -22,8 +22,53 @@ permissions:
   contents: write
 
 jobs:
-  # ---- 桌面端: tauri-action 构建 + 创建/补充 Release ----
+  # ---- 准备: 校验版本 + 串行创建草稿 Release ----
+  # 三个桌面 matrix 腿若各自 getOrCreateRelease, 可能在秒级窗口内各建一个同名草稿;
+  # retryAttempts 对"都成功创建"无效。这里先单点创建/确认草稿, 后面所有腿只追加资产。
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验 tag 与 Cargo.toml 版本一致
+        id: ver
+        run: |
+          set -e
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          # 四段 tag(X.Y.Z.W) 的第四段是同一应用版本内的构建号: Cargo/semver 只存前三段
+          base="$tag"
+          case "$tag" in *.*.*.*) base="${tag%.*}" ;; esac
+          if [ "$base" != "$ver" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 Cargo.toml version $ver 不一致（四段 tag 前三位应等于应用版本）"
+            exit 1
+          fi
+          echo "版本校验通过: $GITHUB_REF_NAME (应用版本 $ver)"
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - name: 创建/确认草稿 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          tag="${GITHUB_REF_NAME}"
+          state=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null || echo missing)
+          if [ "$state" = "false" ]; then
+            echo "::error::Release $tag 已公开，拒绝重跑发版"
+            exit 1
+          fi
+          if [ "$state" = "missing" ]; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "CC-Flash $tag" --notes "对应标签 $tag 的自动构建产物。"
+          else
+            echo "草稿 Release 已存在，直接复用"
+          fi
+
+  # ---- 桌面端: tauri-action 构建 + 向既有草稿追加资产 ----
   desktop:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +118,18 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 应用内展示/更新比较使用完整四段版本(本地构建回退 Cargo 三段)
+          CCFLASH_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+          # 可选签名/公证: Secrets 未配置时为空, 行为与未签名一致;
+          # 配好 Developer ID / Apple ID / Windows 证书后无需改 workflow 即启用
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "CC-Flash ${{ github.ref_name }}"
@@ -86,10 +143,9 @@ jobs:
 
   # ---- Android: 全架构 APK(必须用发布证书 Secrets 走 release 签名; 缺失则 job 失败) ----
   android:
-    needs: desktop          # 等 desktop job 先建好 Release, 再追加 APK 资产
-    # desktop 任一平台失败不连坐 APK 发布(softprops 上传时 Release 不存在会自动创建);
-    # 仍等待 desktop 结束再跑, 避免两个 job 同时创建 Release 的竞态; 用户手动取消时不跑
-    if: ${{ always() && needs.desktop.result != 'cancelled' }}
+    needs: [prepare, desktop]   # 草稿已由 prepare 串行建好, 再追加 APK 资产
+    # desktop 任一平台失败不连坐 APK 发布; prepare 失败则不再上传; 用户手动取消时不跑
+    if: ${{ always() && needs.prepare.result == 'success' && needs.desktop.result != 'cancelled' }}
     runs-on: ubuntu-latest  # runner 自带 Android SDK
     steps:
       - uses: actions/checkout@v4
@@ -142,6 +198,7 @@ jobs:
       #   密码/别名分别填入 ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
       - name: 构建 Android APK(必须使用发布证书)
         env:
+          CCFLASH_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -251,7 +308,26 @@ jobs:
         if: ${{ needs.desktop.result == 'success' && needs.android.result == 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
         run: |
+          set -e
+          assets=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets -q '.assets[].name')
+          echo "$assets"
+          # 精确断言完整资产集: 只要求"至少一个"时, 部分架构/ABI 构建失败也会把残缺版本公开
+          dmg_count=$(printf '%s\n' "$assets" | grep -cE '\.dmg$' || true)
+          [ "$dmg_count" -ge 2 ] || { echo "::error::Release 缺少完整 macOS 双架构 dmg(当前 $dmg_count 个)"; exit 1; }
+          printf '%s\n' "$assets" | grep -qE '\.(exe|msi)$' || { echo "::error::Release 缺少 Windows 安装包"; exit 1; }
+          apk_count=$(printf '%s\n' "$assets" | grep -cE 'android-.*\.apk$' || true)
+          [ "$apk_count" -ge 4 ] || { echo "::error::Release 缺少完整 Android 4 ABI APK(当前 $apk_count 个)"; exit 1; }
+          # 未签名/未公证的包不得作为正式版公开: macOS Gatekeeper 会直接拦截,
+          # Windows SmartScreen 也会警告。缺签名 Secrets 时只发布为预发布。
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$WINDOWS_CERTIFICATE" ]; then
+            echo "::warning::签名 Secrets 不完整(APPLE_CERTIFICATE/WINDOWS_CERTIFICATE), 本次以预发布(prerelease)公开"
+            gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --prerelease
+            echo "✔ ${{ github.ref_name }} 已发布为预发布(未签名)"
+            exit 0
+          fi
           gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
           echo "✔ ${{ github.ref_name }} 已发布"
       - name: 未全绿时提示

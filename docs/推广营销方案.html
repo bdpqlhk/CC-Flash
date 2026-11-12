@@ -75,8 +75,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC-Flash · 推广营销方案</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-06（修订）</b></span>
-<span>版本：<b>面向 v1.1.6 起</b></span>
+<span>文档日期：<b>2026-11-12（修订）</b></span>
+<span>版本：<b>面向 v1.2.1 起（四段 tag v1.2.1.1）</b></span>
 <span>原则：<b>零预算内容驱动 · 不吹不黑 · 安全口径先行</b></span>
 </div>
 </header>
@@ -87,11 +87,11 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <p><b>一句话定位</b>：同一 Wi-Fi 下，电脑开服务、手机扫码就能互传文件发消息——<b>不用装 App、不用登录、不走外网</b>的局域网「文件驿站」。</p>
 <table>
 <tr><th style="width:180px">卖点</th><th>传播话术（口语化，与产品「保姆级」原则一致）</th></tr>
-<tr><td>🚀 极致轻量</td><td>dmg 仅约 6MB，双击即用，比一张照片还小</td></tr>
+<tr><td>🚀 极致轻量</td><td>macOS dmg 仅约 4MB（Windows exe 约 3MB），双击即用，比一张照片还小</td></tr>
 <tr><td>🔒 数据不出局域网</td><td>断外网照样传；不上云、无账号、不经任何第三方服务器</td></tr>
 <tr><td>📱 对方零成本</td><td>手机不用装任何 App，扫码打开浏览器就能用</td></tr>
-<tr><td>⚡ 速度即路由速度</td><td>局域网直传，百 MB 秒级，比微信文件传输助手快一个数量级</td></tr>
-<tr><td>🖥 三平台 + 安卓 APK</td><td>macOS / Windows / Android，手机浏览器全平台通吃</td></tr>
+<tr><td>⚡ 速度即路由速度</td><td>局域网直传，百 MB 秒级，比微信文件传输助手快一个数量级；图片 / PDF / 文本 / 音视频还能在应用内直接预览</td></tr>
+<tr><td>🖥 桌面三平台 + 安卓 APK</td><td>macOS / Windows / Linux（源码构建）+ Android APK，手机浏览器全平台通吃</td></tr>
 <tr><td>📦 开源透明</td><td>代码可审计，安全模型写在文档里，敢给安全圈的人看</td></tr>
 </table>
 <div class="callout c-tip"><b>差异化一句话</b>对比 AirDrop（要苹果生态）、微信传输助手（走外网、有大小限制）、LocalSend（要双方装 App）——CC-Flash 是「<b>对方什么都不用装</b>」的那一个。</div>
@@ -102,7 +102,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">二</span>现状盘点：可复用资产</h2>
 <table>
 <tr><th>资产</th><th>状态</th><th>推广用途</th></tr>
-<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、移动端纯客户端模式、访问令牌 + 一次性分享票据、服务端安全加固；明暗主题×六配色、同名文件自动改名、Android 应用内下载与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
+<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、移动端纯客户端模式、访问令牌 + 一次性分享票据、配对码 IPv6 /64 聚合退避、CSP 与上传/下载/WS 并发闸；应用内预览、聊天 Markdown 与多行输入、共享文件抽屉加宽（每页 10 条）、顶栏标题左/状态地址右的自适应布局、五套配色 × 亮/暗/跟随系统、同名文件自动改名、Android 应用内下载与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
 <tr><td>文档体系</td><td class="muted">需求/技术/使用说明/历史记录/设计稿 五件套 + README</td><td>技术社区传播的「信任状」</td></tr>
 <tr><td>发布流水线</td><td class="muted">打 tag 自动出多平台产物（macOS 双架构 dmg/app.tar.gz、Windows exe/msi、4 ABI APK）；Android 必须 release 签名，debug 包禁止进入正式 Release</td><td>快速响应热点，随发随推</td></tr>
 <tr><td>介绍页</td><td class="muted">应用内全屏介绍页（Hero/三步上手/FAQ）</td><td>新用户 30 秒看懂，降低传播流失</td></tr>
@@ -149,11 +149,11 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <p class="muted">原则：<b>挑「局域网传文件」有真实提问的地方回答，不做无差别轰炸</b>。每个渠道先潜水看调性，再以「作者」身份诚恳出场。</p>
 <table>
 <tr><th style="width:130px">渠道</th><th>切入方式</th><th>内容角度</th><th style="width:60px">节奏</th></tr>
-<tr><td><b>V2EX · 分享创造</b></td><td>发创作分享帖（社区对个人开源项目友好，忌广告腔）</td><td>「做了个 6MB 的局域网传文件工具，手机扫码就能用，开源」+ 求拍砖</td><td>第 2 周 1 帖</td></tr>
+<tr><td><b>V2EX · 分享创造</b></td><td>发创作分享帖（社区对个人开源项目友好，忌广告腔）</td><td>「做了个约 4MB 的局域网传文件工具，手机扫码就能用，开源」+ 求拍砖</td><td>第 2 周 1 帖</td></tr>
 <tr><td><b>知乎</b></td><td>检索「局域网 文件传输 / 不走微信传文件 / AirDrop 安卓」等老问题，写高质量回答</td><td>原理科普（为什么局域网快、为什么不走外网）为骨，工具为末——<b>先给答案再提自己</b></td><td>每周 2 回答</td></tr>
 <tr><td><b>B 站 / YouTube</b></td><td>发 1~3 分钟演示：办公室传 100MB 对比微信</td><td>「同一个 Wi-Fi 传文件能有多快」实测向</td><td>第 3 周首发</td></tr>
 <tr><td><b>少数派 / 爱范儿投稿</b></td><td>效率工具栏目投稿（需过编辑关，准备 1000 字体验稿）</td><td>「免安装的跨平台传文件方案」场景向</td><td>第 3~4 周投</td></tr>
-<tr><td><b>Linux.do / NodeSeek / 异步社区</b></td><td>技术论坛发帖 + 回帖</td><td>技术栈向（Tauri + Rust + Vue，6MB 原理拆解）</td><td>第 2~3 周</td></tr>
+<tr><td><b>Linux.do / NodeSeek / 异步社区</b></td><td>技术论坛发帖 + 回帖</td><td>技术栈向（Tauri + Rust + Vue，约 4MB 原理拆解）</td><td>第 2~3 周</td></tr>
 <tr><td><b>即刻 ·效率工具圈</b></td><td>轻量分享，配 GIF</td><td>「安利一个冷门但好用的」</td><td>第 2 周</td></tr>
 <tr><td><b>小红书</b></td><td>非技术人群：办公室/宿舍场景</td><td>「手机电脑互传照片，不用加微信好友」封面要场景化</td><td>第 4 周试水</td></tr>
 </table>
@@ -168,7 +168,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <li><b>发布矩阵</b>：知乎专栏为主阵地，同步掘金 / CSDN / 博客园 / 公众号（同文多发，文末统一挂 GitHub 链接 + UTM 参数区分来源）；</li>
 <li><b>技术向深度文</b>（给开发者看，涨 Star 最有效）：
   <ul>
-    <li>《用 Tauri 写一个 6MB 的跨平台工具：托盘、单实例、开机自启的坑》</li>
+    <li>《用 Tauri 写一个约 4MB 的跨平台工具：托盘、单实例、开机自启的坑》</li>
     <li>《局域网传文件为什么不能直接用 mDNS？—— LocalSend / AirDrop / 微信面对面的发现方案对比》</li>
     <li>《我们如何用 4 个 GitHub Secrets 搞定 Android 四架构签名发版》（把本仓库真实踩坑史写成故事）</li>
   </ul></li>
@@ -230,7 +230,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <!-- ============ 11 ============ -->
 <section id="s11">
 <h2><span class="no">十一</span>风险与合规口径</h2>
-<div class="callout c-danger"><b>安全口径（所有渠道统一，一字不改）</b>本工具面向<b>可信局域网</b>（家庭/办公室）：默认同一网络的人都能查看、下载、删除共享文件。半可信网络请在电脑端开启<b>访问令牌</b>（6 位配对码、按 IP 指数退避、本机免输）；分享链接为单文件一次性票据（10 分钟、下载一次即焚、轮换令牌全部作废、无效票据按 IP 限流）。请勿在公共 Wi-Fi 使用，勿把地址发给外网人员。默认无密码是定位选择，不是疏漏——这句话先说清楚，避免被安全社区反噬。</div>
+<div class="callout c-danger"><b>安全口径（所有渠道统一，一字不改）</b>本工具面向<b>可信局域网</b>（家庭/办公室）：默认同一网络的人都能查看、下载、删除共享文件。半可信网络请在电脑端开启<b>访问令牌</b>（6 位配对码、按来源 IP 指数退避、IPv6 按 /64 聚合且单窗上限 10 分钟、本机免输）；分享链接为单文件一次性票据（10 分钟、下载一次即焚、轮换令牌全部作废、无效票据按 IP 限流）。服务端有上传 / 下载 / WebSocket 并发闸，CSP 只放行局域网媒体与 PDF 内嵌。请勿在公共 Wi-Fi 使用，勿把地址发给外网人员。默认无密码是定位选择，不是疏漏——这句话先说清楚，避免被安全社区反噬。</div>
 <ul>
 <li><b>不黑竞品</b>：对比 AirDrop/微信/LocalSend 只讲差异，不说「替代/吊打」；被反问时用「场景不同」回应；</li>
 <li><b>不夸大</b>：「0 流量」类表述要严谨（配对/检查更新走互联网，传文件不走）；</li>
@@ -252,7 +252,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td class="muted">第 4 月起</td><td>官网域名 / brew·winget / awesome PR / 英文界面</td><td>1000★，包管理器至少 1 个收录</td></tr>
 </table>
 <div class="callout c-tip"><b>执行建议</b>阶段一的 7 件事可以一次 PR 完成；阶段二每条渠道首贴前，先花 30 分钟读该社区近一周热帖找手感。<b>所有阶段都以「真实用户的一个好评」为最高优先级信号</b>——数据次之。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 推广营销方案 · 2026-11-06 · 与《后期规划》《需求设计文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC-Flash · 推广营销方案 · 2026-11-12 · 适用于 v1.2.1（四段 tag v1.2.1.1） · 与《后期规划》《需求设计文档》《保姆级使用说明》配套阅读</p>
 </section>
 
 </main>

@@ -19,7 +19,7 @@ export const BLOB_REVOKE_MS = 60_000;    // 下载 blob: URL 回收延时(10s �
 export const REFRESH_SPIN_MS = 600;       // 手动刷新最短旋转时长(本地请求太快, 不兜底动画会一闪而过)
 
 /* ---------- 列表 / 传输 ---------- */
-export const PAGE_SIZE = 8;                     // 文件分页大小
+export const PAGE_SIZE = 10;                    // 文件分页大小
 /* 上传 = 单请求整文件直传(回归 1.1.2 语义): 整文件就是"最大的分片", 无分片/账本/
    断点状态, 因此没有可调的分片常数。服务端 /api/upload_progress、/api/upload_cancel
    仅保留用于 v1.1.5-1.1.7 旧版 .ccpart 断点的查询与清理(常量在 config.rs UPLOAD_PART_*);
@@ -48,6 +48,7 @@ export const API = {
     `/api/upload_cancel?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
   del: (name) => `/api/delete/${encPath(name)}`,
   chat: "/api/chat",
+  chatDelete: (id) => `/api/chat/${encodeURIComponent(id)}`,
   info: "/api/info",
   logs: "/api/control/logs",
   logsClear: "/api/control/logs/clear",
@@ -74,9 +75,12 @@ export const AVATAR_POOL = [
 export const DEFAULT_NICK = "匿名用户";   // 启动兜底; /api/info 下发 defaultNick 覆盖(config.rs DEFAULT_NICK)
 
 /* ---------- 话术模板 ---------- */
-export const TIP_SHARE = "\n🔔 温馨提示：请在同一 Wi-Fi 下打开；文件请尽快下载到本地，共享文件不保证长期有效。";
-export const TIP_COPY_URL = "\n\n🔔 温馨提示：请确保分享方和接收方在同一 Wi-Fi 下打开（不要使用魔法哦～）"
-  + "\n👀 一定要看：文件请尽快下载到本地，共享文件不保证长期有效。";
+export const TIP_SHARE = "\n\n💡 温馨提示\n"
+  + "· 请在同一 Wi-Fi 下打开\n"
+  + "· 文件请尽快下载到本地，共享文件不保证长期有效。";
+export const TIP_COPY_URL = "\n\n💡 温馨提示\n"
+  + "· 请确保分享方和接收方在同一 Wi-Fi 下打开（不要使用魔法哦～）\n"
+  + "· 文件请尽快下载到本地，共享文件不保证长期有效。";
 export const TIP_QR = "🔔 请确保在同一 Wi-Fi 下打开；文件请尽快下载到本地";
 
 /* ---------- 页脚 ---------- */
@@ -85,13 +89,18 @@ export const FOOTER_TEXT = "Copyright © 2026-Present 李航坤. All Rights Rese
 /* ---------- 主题迁移(v1.1.6: 皮肤 9 套精简为 6 套) ---------- */
 /* main.js(挂载前预上色)与 App.vue(选择器高亮)都要用 —— 求值顺序是 App.vue 先于
    main.js 本体, 两端各自应用才能保证首启高亮与视觉一致 */
-export const THEME_MIGRATE = { aurora: "default", mist: "graphite", eye: "mint" };
+export const THEME_MIGRATE = {
+  aurora: "default", mist: "rose", eye: "mint",
+  wechat: "default", graphite: "rose",   // v1.2.2 精简配色: 微信绿→深空蓝, 石墨灰→石墨玫瑰
+};
 
 /* ---------- 版本更新(桌面端, GitHub Releases) ---------- */
 export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
-export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+// 用列表而不是 /latest: 缺签名 Secrets 时 Release 会被标为 prerelease,
+// /latest 不返回预发布版, 更新检查会永远收不到新版本。
+export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
-export const APP_VERSION_FALLBACK = "1.2.1";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
+export const APP_VERSION_FALLBACK = "1.2.2";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次
 export const UPDATE_CHECK_TIMEOUT_MS = 8000;             // 请求超时; 任何失败一律静默

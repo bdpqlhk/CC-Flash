@@ -37,6 +37,17 @@ fi
 [ -z "$VERSION" ] && { echo "用法: $0 <版本号 X.Y.Z 或 X.Y.Z.W> [提交信息]"; exit 1; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "✘ 版本号需为 X.Y.Z 或 X.Y.Z.W 格式: $VERSION"; exit 1; }
 command -v gh >/dev/null 2>&1 || { echo "✘ 缺少 gh CLI (https://cli.github.com)"; exit 1; }
+# 远端已有同名 tag 时默认拒绝: 重发会覆盖已公开 Release 的资产指向,
+# 造成"Release 资产 ≠ tag 代码"。确认安全后用 FORCE_REPUBLISH=1 显式放行。
+remote_tag=$(git ls-remote --tags origin "refs/tags/v$TAG_VERSION" 2>/dev/null || true)
+if [ -n "$remote_tag" ]; then
+  if [ "${FORCE_REPUBLISH:-0}" != "1" ]; then
+    echo "✘ 远端已存在 tag v$TAG_VERSION"
+    echo "  重发会覆盖已发布产物；确认该 tag 尚无公开 Release 后可设置 FORCE_REPUBLISH=1 重跑。"
+    exit 1
+  fi
+  echo "⚠ FORCE_REPUBLISH=1: 允许重发 v$TAG_VERSION"
+fi
 
 BRANCH="$(git branch --show-current)"
 [ "$BRANCH" = "main" ] || echo "⚠ 当前分支是 $BRANCH (推荐在 main 上发版)"
@@ -52,7 +63,30 @@ CUR=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/[^0-9.]//g' || true)
 if [ "$TAG_VERSION" = "$CUR" ]; then echo "✘ 版本号未变化(仍是 $CUR), 请传新版本号"; exit 1; fi
 echo "应用版本: $CUR → ${APP_VERSION}, tag: v$TAG_VERSION"
 
+# 失败回滚: 版本文件改完但尚未提交时出错(缺 cargo/hook 拒绝/网络中断), 恢复原版本,
+# 否则工作区停在"已改版未提交", 重跑会因"版本号未变化"直接退出, 发版流程卡死
+ORIG_VERSION="$CUR"
+VERSION_CHANGED=0
+COMMITTED=0
+restore_on_fail() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "$VERSION_CHANGED" = "1" ] && [ "$COMMITTED" = "0" ]; then
+    echo "↩ 发版中断, 回滚版本文件到 $ORIG_VERSION"
+    sed -i.bak "s/^version = \".*\"/version = \"$ORIG_VERSION\"/" src-tauri/Cargo.toml && rm -f src-tauri/Cargo.toml.bak
+    sed -i.bak "s/APP_VERSION_FALLBACK = \".*\"/APP_VERSION_FALLBACK = \"$ORIG_VERSION\"/" src/config.js && rm -f src/config.js.bak
+    sed -i.bak "s/\"version\": \".*\"/\"version\": \"$ORIG_VERSION\"/" package.json && rm -f package.json.bak
+    if [ -n "${OLD_VCODE:-}" ]; then
+      node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$OLD_VCODE" || true
+    fi
+  fi
+  return $rc
+}
+trap restore_on_fail EXIT
+
 # ---------- 1) 升版本 ----------
+OLD_VCODE=$(node -e "try{const j=require('./src-tauri/tauri.conf.json');console.log(j.bundle&&j.bundle.android&&j.bundle.android.versionCode||'')}catch(e){}" 2>/dev/null || true)
+# 一旦开始改版本文件, 后续任何失败(缺 cargo/hook 拒绝/网络中断)都由 trap 回滚
+VERSION_CHANGED=1
 # -i.bak 双平台兼容(macOS BSD sed 需后缀参数, GNU sed 同样接受)
 sed -i.bak "s/^version = \".*\"/version = \"$APP_VERSION\"/" src-tauri/Cargo.toml
 rm -f src-tauri/Cargo.toml.bak
@@ -63,6 +97,12 @@ rm -f src/config.js.bak
 # package.json 仅一处 "version"(无 dependencies 内嵌同名字段), 全局替换安全且 BSD/GNU sed 通用
 sed -i.bak "s/\"version\": \".*\"/\"version\": \"$APP_VERSION\"/" package.json
 rm -f package.json.bak
+# Android versionCode: 四段迭代(z 段)必须递增, 否则系统/市场把新包当同版本拒绝覆盖。
+# 映射 major*1e7 + minor*1e5 + patch*1e2 + build, 上限 2.1e9。
+IFS=. read -r vM vN vP vB <<< "$VERSION"
+vB=${vB:-0}
+NEW_VCODE=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
+node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$NEW_VCODE"
 # 同步 package-lock 根 version(两处): 勿用全局 sed(lock 里有几千行依赖 version 字段)
 npm install --package-lock-only >/dev/null 2>&1 || echo "⚠ package-lock 同步失败(不阻断发版, CI 用 npm install)"
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null  # 刷新 Cargo.lock
@@ -70,16 +110,22 @@ echo "Cargo.toml → $(grep -m1 '^version' src-tauri/Cargo.toml)"
 echo "config.js  → $(grep -m1 'APP_VERSION_FALLBACK' src/config.js)"
 
 # ---------- 2) 提交 ----------
-[ -z "$MSG" ] && MSG="release: v$TAG_VERSION"
+[ -z "$MSG" ] && MSG="release: v$VERSION"
+# 未跟踪清单必须在 git add -A 之前取: add 之后 ls-files --others 必为空
+untracked=$(git ls-files --others --exclude-standard)
+if [ -n "$untracked" ]; then
+  echo "⚠ 以下未跟踪文件将一并提交:"
+  echo "$untracked" | sed 's/^/    /'
+fi
 git add -A
 # 私钥守卫: 仓库为 Public, keystore 入库即泄露(任何人可签冒名更新包)。
 # 先把清单落到变量再 grep(不带 -q): grep -q 命中大列表开头即关管道,
 # git diff 吃 SIGPIPE 以 141 退出, pipefail 下整条 if 为假 —— 守卫恰好在
 # "发版夹带大量改动+私钥"这种该触发的场景被绕过(已实测复现)
 staged_files=$(git diff --cached --name-only)
-if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision)$' >/dev/null; then
-  echo "✘ 暂存区含签名私钥文件, 已中止(请移出仓库目录并从暂存区移除)"
-  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision)$'
+if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64)$|(^|/)\.env($|\.)' >/dev/null; then
+  echo "✘ 暂存区含签名私钥/环境密钥文件, 已中止(请移出仓库目录并从暂存区移除)"
+  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64)$|(^|/)\.env($|\.)'
   exit 1
 fi
 # 私钥内容守卫: 改扩展名(如把 keystore 命名成 .txt)可绕过上面的文件名检查。
@@ -89,13 +135,31 @@ if git grep --cached -IlE 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' >/dev/nul
   git grep --cached -IlE 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' || true
   exit 1
 fi
-# 发版提交会带走全部改动(git add -A): 明示数量并列出未跟踪文件, 避免"一锅端"夹带
+# 二进制 keystore 守卫: JKS 魔数 FE ED FE ED / PKCS12 DER 30 82 / base64 证书 MII
+# (git grep -I 会跳过二进制, 旧守卫对改名 keystore / base64 .b64 完全无效)
+# 读取前几个字节必然让 git show 收到 SIGPIPE; pipefail 下会把整个发版误判为失败,
+# 这里临时关闭 pipefail, 循环结束再恢复。
+set +o pipefail
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  magic=$(git show ":$f" 2>/dev/null | head -c 4 | od -An -tx1 | tr -d ' \n')
+  case "$magic" in
+    feedfeed|3082*)
+      echo "✘ 暂存文件 $f 是二进制 keystore/证书(PKCS12/JKS 魔数), 已中止"
+      exit 1
+      ;;
+  esac
+  first=$(git show ":$f" 2>/dev/null | head -c 8)
+  case "$first" in
+    MII*)
+      echo "✘ 暂存文件 $f 以 MII 开头, 疑似 base64 证书/keystore, 已中止"
+      exit 1
+      ;;
+  esac
+done <<< "$staged_files"
+set -o pipefail
+# 发版提交会带走全部改动(git add -A): 明示数量, 避免"一锅端"夹带
 echo "暂存文件: $(echo "$staged_files" | grep -c . || true) 个"
-untracked=$(git ls-files --others --exclude-standard)
-if [ -n "$untracked" ]; then
-  echo "⚠ 以下未跟踪文件将一并提交:"
-  echo "$untracked" | sed 's/^/    /'
-fi
 # 注意: workflow 改动必须经由本脚本提交进 tag —— 手打 tag 会用旧版工作流构建
 if git diff --cached --quiet; then
   echo "⚠ 暂无改动可提交(检查版本号是否真的变了)"
@@ -104,8 +168,11 @@ fi
 # commit 失败必须立即退出: 否则后续会把新版本 tag 打在旧代码上发出去
 if ! git commit -m "$MSG"; then
   echo "✘ git commit 失败(检查 identity 配置/hook), 已中止 —— 不给旧代码打新版本标签"
+  # 注意: 此处 COMMITTED 仍为 0, EXIT trap 会回滚版本文件, 可直接重跑
+
   exit 1
 fi
+COMMITTED=1   # 已提交: 后续失败不再回滚版本文件(否则工作区与 HEAD 不一致)
 
 # ---------- 3) 打标签 ----------
 git tag -d "v$TAG_VERSION" >/dev/null 2>&1 || true   # 清理同名本地标签(重发场景; 不存在属正常)
@@ -134,16 +201,13 @@ push_retry "$BRANCH" || { echo "✘ $BRANCH 推送失败, 网络恢复后手动�
 if push_retry "v$TAG_VERSION"; then
   echo "✔ 标签已推送, 应已触发构建"
 else
-  echo "git 通道失败 → 清理远程旧标签后重推 / 再不行走 API 建引用(等效触发)..."
-  gh api -X DELETE "repos/$REPO/git/refs/tags/v$TAG_VERSION" >/dev/null 2>&1 || true  # 远端无同名 tag 属正常
-  if git push origin "v$TAG_VERSION" 2>&1; then
-    echo "✔ 清理后重推成功"
-  else
-    SHA=$(git rev-parse "v$TAG_VERSION")
-    gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/v$TAG_VERSION" -f sha="$SHA" >/dev/null \
-      && echo "✔ 已通过 API 创建远程标签引用" \
-      || { echo "✘ 全部通道失败, 网络恢复后手动: git push origin v$TAG_VERSION"; exit 1; }
-  fi
+  # 不再自动删除远端 tag: 已发布 Release 的资产可能仍指向旧提交, 删 tag 重推
+  # 会造成"资产 ≠ tag 代码"。改为尝试直接创建引用; 已存在则明确失败。
+  echo "git 通道失败 → 不删除远端旧标签, 尝试创建远程引用..."
+  SHA=$(git rev-parse "v$TAG_VERSION")
+  gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/v$TAG_VERSION" -f sha="$SHA" >/dev/null \
+    && echo "✔ 已通过 API 创建远程标签引用" \
+    || { echo "✘ 标签创建失败(可能已存在)。为避免覆盖已发布 Release, 未删除远端标签。网络恢复后手动: git push origin v$TAG_VERSION"; exit 1; }
 fi
 
 # ---------- 5) 验证 Actions 触发 ----------

@@ -13,6 +13,35 @@ use tauri_plugin_notification::NotificationExt;
 mod config;
 mod server;
 
+/// Windows 下载落盘文件名消毒: 保留设备名/盘符/尾点空格/控制字符都会导致
+/// 写入设备、写到 CWD 或失败但 Finished success=true。
+#[cfg(windows)]
+fn sanitize_windows_filename(name: &str) -> String {
+    let invalid = |c: char| c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*');
+    let mut s: String = name.chars().map(|c| if invalid(c) { '_' } else { c }).collect();
+    while s.ends_with('.') || s.ends_with(' ') {
+        s.pop();
+    }
+    let stem = s
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches(' ')
+        .to_ascii_uppercase();
+    let reserved = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+            | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
+            | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+    );
+    if s.is_empty() || reserved {
+        "download".to_string()
+    } else {
+        s
+    }
+}
+
 #[cfg(desktop)]
 static TRAY_TIP_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// 主窗是否已经"被要求显示/已显示"过: 托盘唤窗、单实例、main://ready 与 2s 兜底共用，
@@ -120,7 +149,14 @@ pub mod commands {
             return serde_json::json!({ "ok": false, "error": "悬浮码尚未完成落位" });
         }
         if let Some(pet) = app.get_webview_window("qr-pet") {
-            if show { let _ = pet.show(); } else { let _ = pet.hide(); }
+            if show {
+                // 仅在当前不可见时 show: 主窗状态轮询每 2.5s 会调用本命令做"误隐藏自愈",
+                // 而 macOS 的 show() 走 makeKeyAndOrderFront —— 已可见时反复调用会把
+                // 第一响应者从主窗抢走, 表现为输入框光标几秒后消失、打字被打断。
+                if !pet.is_visible().unwrap_or(false) { let _ = pet.show(); }
+            } else {
+                let _ = pet.hide();
+            }
             serde_json::json!({ "ok": true })
         } else {
             serde_json::json!({ "ok": false, "error": "Pet 窗口不存在" })
@@ -243,6 +279,7 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             server::control_status_cmd,
             server::control_start_cmd,
@@ -300,7 +337,8 @@ pub fn run() {
     #[cfg(desktop)]
     {
         let show_qr = std::env::args().any(|a| a == "--show-qr");
-        let qr = tauri::WebviewWindowBuilder::new(
+        // 悬浮码是可选功能: 创建失败只禁用悬浮码, 绝不能拖垮主窗启动
+        if let Ok(qr) = tauri::WebviewWindowBuilder::new(
             app_handle,
             "qr-pet",
             WebviewUrl::App("index.html?view=qr-pet".into()),
@@ -322,7 +360,7 @@ pub fn run() {
         // 导致 Pet 的拖动/点按/按钮全部失灵 —— 必须开启首点穿透
         .accept_first_mouse(true)
         .visible(show_qr)
-        .build()?;
+        .build() {
         qr.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -342,6 +380,9 @@ pub fn run() {
         if show_qr {
             let _ = qr.show();
             let _ = qr.set_focus();
+        }
+        } else {
+            eprintln!("[CC-Flash] 悬浮码窗口创建失败，已禁用悬浮码（不影响主功能）");
         }
     }
             tauri::WebviewWindowBuilder::new(app_handle, "main", WebviewUrl::App("index.html".into()))
@@ -376,6 +417,10 @@ pub fn run() {
                         } else {
                             fname
                         };
+                        // Windows 保留设备名/盘符/非法字符: 直接 join 会写到 AUX 设备或
+                        // 下载目录之外(C:foo), 并与 Finished success=true 形成假成功
+                        #[cfg(windows)]
+                        let fname = sanitize_windows_filename(&fname);
                         let dir = match webview.app_handle().path().download_dir() {
                             Ok(d) => d,
                             // 移动端无系统下载目录概念时退回应用专属目录
@@ -420,6 +465,9 @@ pub fn run() {
             #[cfg(desktop)]
             {
             // ---- 托盘:显示主窗口 / 启停服务 / 打开网页 / 退出 ----
+            // 托盘初始化失败(Linux 无 StatusNotifier、DBus 异常、图标缺失)不能拖垮
+            // 主窗与局域网服务: 包成独立 Result, 失败只记录并继续。
+            let tray_result: tauri::Result<()> = (|| {
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let toggle = MenuItem::with_id(app, "toggle", "启动/停止服务", true, None::<&str>)?;
             let web = MenuItem::with_id(app, "web", "打开网页", true, None::<&str>)?;
@@ -446,13 +494,17 @@ pub fn run() {
                     "quit" => app.exit(0),
                     "show" => show_main_window(app),
                     "toggle" => {
-                        if server::is_running() {
-                            server::stop();
-                        } else {
-                            // 回放用户最近指定的端口: start(None) 会漂移回默认 1688,
-                            // 已复制给手机的地址/二维码静默失效
-                            let _ = server::start(server::last_preferred_port());
-                        }
+                        // 托盘回调运行在事件循环线程: start/stop 可能阻塞数秒,
+                        // 必须放到工作线程, 否则整个托盘/窗口无响应
+                        std::thread::spawn(|| {
+                            if server::is_running() {
+                                server::stop();
+                            } else {
+                                // 回放用户最近指定的端口: start(None) 会漂移回默认 1688,
+                                // 已复制给手机的地址/二维码静默失效
+                                let _ = server::start(server::last_preferred_port());
+                            }
+                        });
                     }
                     "web" => {
                         let (running, port, ip) = server::status();
@@ -467,6 +519,11 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            Ok(())
+            })();
+            if let Err(e) = tray_result {
+                eprintln!("[wft] 托盘初始化失败(不影响文件服务): {e}");
+            }
 
             // ---- 主窗口:关窗收到托盘 ----
             if let Some(w) = app.get_webview_window("main") {
@@ -525,10 +582,14 @@ pub fn run() {
             // Android/iOS 壳只是“访问电脑服务”的客户端形态，不应把手机本机目录
             // 暴露到所属 Wi-Fi。服务托管与共享目录控制只在真实桌面启用。
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            match server::autostart() {
-                Ok(port) => eprintln!("[wft] 服务已启动: http://{}:{port}", server::lan_ip()),
-                Err(e) => eprintln!("[wft] 服务启动失败: {e}"),
-            }
+            std::thread::spawn(|| {
+                // 放到工作线程: 共享目录在休眠外接盘/不可达 SMB 时, 启动扫描可能阻塞
+                // 数秒; 在主线程 setup 里会拖住窗口事件循环与首帧显示。
+                match server::autostart() {
+                    Ok(port) => eprintln!("[wft] 服务已启动: http://{}:{port}", server::lan_ip()),
+                    Err(e) => eprintln!("[wft] 服务启动失败: {e}"),
+                }
+            });
             #[cfg(any(target_os = "android", target_os = "ios"))]
             eprintln!("[wft] 移动壳模式：本机局域网服务保持关闭");
             Ok(())
