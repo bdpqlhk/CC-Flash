@@ -111,6 +111,39 @@ jobs:
       - name: 安装前端依赖
         run: npm install
 
+      # Tauri 把"存在但为空"的 APPLE_CERTIFICATE 也当作待导入证书, 空 Secret 会直接
+      # 报 Unable to decode; 这里只在证书非空时写入 GITHUB_ENV, 未配置就走未签名包。
+      - name: 准备可选 macOS 签名环境
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "::notice::未配置 Apple 签名证书 Secrets，本次生成未签名/未公证的 macOS 包"
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE<<CC_EOF"
+            printf '%s\n' "$APPLE_CERTIFICATE"
+            echo "CC_EOF"
+            echo "APPLE_CERTIFICATE_PASSWORD<<CC_EOF"
+            printf '%s\n' "$APPLE_CERTIFICATE_PASSWORD"
+            echo "CC_EOF"
+          } >> "$GITHUB_ENV"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+          echo "已注入 Apple 签名/公证环境"
+
       # tauri-action: vite build → cargo build --release → 打包 → 上传到 Release
       # tagName 对应已推送的标签, Release 不存在则自动创建(草稿)。
       # 一律先传草稿, 由末尾 publish job 在 desktop+android 全绿后统一发布 ——
@@ -120,14 +153,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 应用内展示/更新比较使用完整四段版本(本地构建回退 Cargo 三段)
           CCFLASH_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
-          # 可选签名/公证: Secrets 未配置时为空, 行为与未签名一致;
-          # 配好 Developer ID / Apple ID / Windows 证书后无需改 workflow 即启用
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Apple 签名/公证变量由上方步骤按需注入 GITHUB_ENV, 不直接传空 Secret
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
