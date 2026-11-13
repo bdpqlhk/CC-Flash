@@ -60,7 +60,10 @@ CUR=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/[^0-9.]//g' || true)
 [ -n "$CUR" ] || { echo "✘ 无法从 Cargo.toml 读取版本号"; exit 1; }
 # 只拦"连 tag 都没变"的三段写法; 四段 tag(如 1.2.1.1)可以复用当前应用版本,
 # 但此时必须有代码改动可供提交(下面 staged 为空会中止), 避免打空标签。
-if [ "$TAG_VERSION" = "$CUR" ]; then echo "✘ 版本号未变化(仍是 $CUR), 请传新版本号"; exit 1; fi
+if [ "$TAG_VERSION" = "$CUR" ] && [ "${FORCE_REPUBLISH:-0}" != "1" ]; then
+  echo "✘ 版本号未变化(仍是 $CUR), 请传新版本号；重发同一版本请设置 FORCE_REPUBLISH=1"
+  exit 1
+fi
 echo "应用版本: $CUR → ${APP_VERSION}, tag: v$TAG_VERSION"
 
 # 失败回滚: 版本文件改完但尚未提交时出错(缺 cargo/hook 拒绝/网络中断), 恢复原版本,

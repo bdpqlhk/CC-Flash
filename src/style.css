@@ -268,18 +268,18 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
   .qr-pet-shell { transition: none; }
   .qr-pet:not(.expanded):hover .qr-pet-shell { transform: none; }
 }
-.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-top: 1px solid var(--card-border); }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px 10px 12px; border-top: 1px solid var(--card-border); }
 .side-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text2); }
 .side-status .d { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); }
 .side-status.on .d { background: var(--success); box-shadow: 0 0 6px var(--success); }
 .side-status.on { color: var(--success); }
-.side-ver { font-size: 11px; color: var(--text3); }
+.side-ver { text-align: center; font-size: 10.5px; letter-spacing: .3px; color: var(--text3); opacity: .9; }
 /* 展开/收起按钮(侧边栏底部) */
 .collapse-btn {
     display: flex; align-items: center; justify-content: center; gap: 6px;
-    width: 100%; padding: 7px 8px; margin-top: 2px;
-    border-radius: 8px; border: 1px solid var(--card-border);
-    background: rgba(255,255,255,0.03); color: var(--text2);
+    width: 100%; height: 34px; padding: 0 10px; margin-top: 2px;
+    border-radius: 9px; border: 1px solid var(--card-border);
+    background: var(--bg2); color: var(--text2);
     font-size: 12px; font-family: inherit; cursor: pointer;
     transition: all var(--transition);
 }
@@ -298,11 +298,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .sidebar.collapsed .nav-label { display: none; }
 .sidebar.collapsed .nav-badge { position: absolute; top: 2px; right: 2px; margin-left: 0; }
 .sidebar.collapsed .side-foot { padding: 10px 0; align-items: center; }
-.sidebar.collapsed .side-status { justify-content: center; }
-.sidebar.collapsed .side-status-text,
 .sidebar.collapsed .side-ver,
 .sidebar.collapsed .collapse-txt { display: none; }
-.sidebar.collapsed .collapse-btn { padding: 7px 0; }
+.sidebar.collapsed .collapse-btn { width: 32px; height: 32px; padding: 0; margin: 0 auto; }
 
 /* ===== 主区 ===== */
 .main { flex: 1; overflow-y: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; }
@@ -331,16 +329,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .url-box:focus-within { border-color: var(--accent); }
 .url-box .protocol { color: var(--text3); font-size: 12px; font-family: monospace; }
 /* 运行状态内嵌地址栏左侧: 去掉独立胶囊, 整条地址栏更紧凑; 窄屏只留呼吸点 */
-.topbar-url .url-box { padding: 0 14px 0 0; flex: 0 1 auto; }
-.topbar-url .url-box .protocol,
-.topbar-url .url-box .url-text { padding: 8px 0; }
-.topbar-url .url-box .url-text { flex: 0 1 auto; width: var(--url-w); }
-/* 窄窗口(地址组换行后)撑满整行, 避免右边再空一截 */
-@media (max-width: 900px) {
-    .topbar-url { flex: 1 1 100%; }
-    .topbar-url .url-box { flex: 1 1 auto; }
-    .topbar-url .url-box .url-text { flex: 1 1 auto; width: auto; }
-}
+/* 只保留运行状态: 去掉地址栏后收成紧凑胶囊, 复制/二维码/浏览器按钮仍可用 */
+.topbar-url .url-box { padding: 0 12px; flex: 0 0 auto; min-height: 36px; }
+.topbar-url .url-state { padding: 0; margin: 0; border-right: none; }
 .url-state {
     align-self: stretch; display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
     padding: 0 11px 0 13px; margin-right: 2px; border-right: 1px solid var(--card-border);
@@ -672,13 +663,12 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     .web-head-act .chip { padding: 3px 10px; font-size: 11.5px; }
     .web-head-act .icon-btn { width: 32px; height: 32px; }
     .lh-right { flex-wrap: wrap; row-gap: 6px; }
-    /* 窄屏地址行(仅桌面壳顶栏): 状态徽标+按钮一行, 地址栏独占下一行, 保证 IP 完整展示 */
-    .topbar-url { flex-wrap: wrap; row-gap: 8px; }
-    .topbar-url .chip { order: 1; }
-    .topbar-url .icon-btn { order: 2; }
-    .topbar-url .icon-btn:first-of-type { margin-left: auto; }
-    .topbar-url .url-box { order: 3; flex: 1 1 100%; }
-    .topbar-url .url-text { font-size: 13px; }
+    /* 窄屏顶栏: 状态+复制/二维码/浏览器按钮与主标题同一行, 靠右; 标题区可收缩 */
+    .topbar { flex-wrap: nowrap; }
+    .topbar-head { flex: 1 1 auto; min-width: 0; }
+    .topbar .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .topbar-url { flex: 0 0 auto; margin-left: auto; justify-content: flex-end; }
+    .topbar-url .url-box { flex: 0 0 auto; }
     /* 窄屏聊天面板: 清空数据放右侧第二行, 关闭钮独占右上角 */
     .chat-card.in-sheet .chat-head-right .btn { grid-column: 3; grid-row: 1; align-self: center; justify-self: end; height: 30px; padding: 0 10px; font-size: 12px; }
 }
@@ -786,9 +776,7 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     .nav { flex-direction: row; flex: 1; }
     .nav-item { width: auto; padding: 8px 12px; white-space: nowrap; }
     .nav-item.active { box-shadow: none; }
-    .side-foot { margin: 0 0 0 auto; padding: 0; border: none; flex-direction: row; align-items: center; }
-    .side-ver { display: none; }
-    .collapse-btn { display: none; }
+    .side-foot { display: none; }
     .sidebar.collapsed { width: 100%; padding: 10px 14px; }
     .sidebar.collapsed .brand { justify-content: flex-start; padding: 0 8px 0 0; }
     .sidebar.collapsed .intro-entry { display: inline-flex; }
@@ -1339,8 +1327,10 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-col { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: min(72%, 560px); }
 /* row-reverse 已把整行靠右; 这里不能再 margin-left:auto, 否则底行会被推到聊天区最左 */
 .tx-msg.out .tx-col { align-items: flex-end; }
-.tx-name { font-size: 11px; color: var(--text3); margin: 0 0 3px 2px; }
-.tx-msg.out .tx-name { text-align: right; margin: 0 2px 3px 0; }
+.tx-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11px; margin: 0 0 3px 2px; }
+.tx-name .nm { color: var(--text2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-name .tm { color: var(--text3); font-size: 10px; font-family: "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; flex-shrink: 0; }
+.tx-msg.out .tx-name, .tx-file.out .tx-name { flex-direction: row-reverse; margin: 0 2px 3px 0; }
 /* 聊天气泡统一浅底黑字: 深色主题下也保证正文可读, 发送方用强调色浅色调区分 */
 .tx-bubble {
     background: #fff; border: 1px solid rgba(0,0,0,0.08);
@@ -1385,7 +1375,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 气泡下方一行: 时间靠头像侧, 三个操作图标靠另一侧(微信式) */
 .tx-foot { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; }
 .tx-msg.out .tx-foot { flex-direction: row-reverse; }
-.tx-time { font-size: 10px; color: var(--text3); white-space: nowrap; flex-shrink: 0; }
 /* 气泡引用块: 与正文同处 v-html, 左侧竖线 + 单行省略 */
 .tx-quote { border-left: 2px solid currentColor; opacity: .75; padding: 1px 0 1px 8px; margin-bottom: 6px; font-size: 11.5px; line-height: 1.45; max-width: 100%; overflow: hidden; }
 .tx-quote b { display: block; font-size: 10.5px; font-weight: 600; margin-bottom: 1px; }
@@ -1429,7 +1418,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-quoting button { border: none; background: none; color: var(--text3); cursor: pointer; font-size: 13px; padding: 0 2px; }
 .tx-quoting button:hover { color: var(--danger); }
 .tx-composer.has-quote { border-top: none; }
-.tx-msg.out .tx-time { text-align: right; }
 
 /* 文件卡片 */
 .tx-file { display: flex; gap: 8px; margin: 11px 0; align-items: flex-start; }
@@ -1438,7 +1426,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 文件消息与文本消息一致: 昵称在卡片上方, 头像在另一侧 */
 .tx-file-col { display: flex; flex-direction: column; min-width: 0; max-width: calc(100% - 44px); }
 .tx-file.out .tx-file-col { align-items: flex-end; }
-.tx-file.out .tx-file-col .tx-name { text-align: right; margin: 0 2px 3px 0; }
 .tx-filecard {
     width: min(320px, 100%); background: var(--card);
     border: 1px solid var(--card-border); border-radius: 10px; padding: 10px;
@@ -1471,7 +1458,7 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-fx.tx-retry { width: auto; padding: 0 4px; font-size: 11px; color: var(--accent-text); }
 .tx-progress { height: 3px; border-radius: 2px; background: var(--bg2); margin-top: 8px; overflow: hidden; }
 .tx-progress i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .15s linear; }
-.tx-file-actions { display: flex; gap: 16px; border-top: 1px solid var(--card-border); margin-top: 8px; padding-top: 7px; }
+.tx-file-actions { display: flex; align-items: center; gap: 16px; border-top: 1px solid var(--card-border); margin-top: 8px; padding-top: 7px; }
 .tx-file-actions button { border: none; background: none; color: var(--accent-text); font-size: 11px; cursor: pointer; padding: 0; }
 .tx-file-actions button:hover { text-decoration: underline; }
 .tx-file-actions button.danger { color: var(--danger); }
@@ -1584,8 +1571,14 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-files-head b { font-size: 14px; color: var(--text); }
 .tx-count { font-size: 11px; font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--bg2); color: var(--text2); border-radius: 9px; padding: 2px 6px; }
 /* 共享文件有新内容但抽屉关闭时的提示点 */
-.tx-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent); vertical-align: middle; }
-.tx-files-close { margin-left: auto; border: none; background: none; color: var(--text3); font-size: 18px; cursor: pointer; padding: 0 4px; }
+.tx-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 24%, transparent); vertical-align: middle; }
+.tx-files-head-acts { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.tx-files-open {
+    border: none; background: none; color: var(--text3); cursor: pointer;
+    padding: 3px 5px; border-radius: 5px; display: inline-flex; align-items: center;
+}
+.tx-files-open:hover { color: var(--accent-text); background: var(--accent-bg); }
+.tx-files-close { margin-left: 0; border: none; background: none; color: var(--text3); font-size: 18px; cursor: pointer; padding: 0 4px; }
 .tx-files-tools { display: flex; align-items: center; gap: 6px; padding: 7px 12px 7px 9px; border-bottom: 1px solid var(--card-border); }
 .tx-sort { display: flex; gap: 2px; }
 .tx-sort button { border: none; background: none; color: var(--text2); font-size: 13px; padding: 4px 9px; border-radius: 5px; cursor: pointer; }
@@ -1593,17 +1586,24 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-selall { display: flex; align-items: center; gap: 5px; margin-left: auto; font-size: 13px; color: var(--text3); cursor: pointer; white-space: nowrap; }
 .tx-mini { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card); color: var(--text2); cursor: pointer; font-size: 13px; display: grid; place-items: center; }
 .tx-mini.spinning { animation: btnSpin .55s linear infinite; }
-.tx-files-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 10px 4px 6px; }
+.tx-files-list {
+    flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+    /* 行高随窗口高度适度伸缩: 矮窗口紧凑, 高窗口舒展;
+       底部预留一行高度, 列表末尾不贴死在分页栏上 */
+    --frow-thumb: clamp(28px, 4.6vh, 40px);
+    --frow-pad: clamp(6px, 1.05vh, 12px);
+    padding: 4px 10px calc(var(--frow-thumb) + var(--frow-pad) * 2 + 7px) 6px;
+}
 .tx-frow {
-    display: grid; grid-template-columns: 14px 30px minmax(0, 1fr) auto;
-    gap: 7px; align-items: center; padding: 7px 5px; border-radius: 7px;
+    display: grid; grid-template-columns: 14px var(--frow-thumb) minmax(0, 1fr) auto;
+    gap: 7px; align-items: center; padding: var(--frow-pad) 5px; border-radius: 7px;
 }
 .tx-frow:hover, .tx-frow.located { background: var(--card-hover); }
 .tx-frow.located { outline: 1px solid var(--accent); outline-offset: -1px; }
 .tx-check { display: flex; align-items: center; justify-content: center; }
 .tx-check input { width: 13px; height: 13px; accent-color: var(--accent); }
 .tx-thumb {
-    width: 30px; height: 30px; border-radius: 6px; position: relative; overflow: hidden;
+    width: var(--frow-thumb); height: var(--frow-thumb); border-radius: 6px; position: relative; overflow: hidden;
     display: grid; place-items: center; color: #fff; flex-shrink: 0;
     font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 6.5px; font-weight: 800;
 }
@@ -1717,7 +1717,7 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     .svc-input, .cg-row input, .connect-card input { font-size: 16px; }
     .tx-file-actions button { font-size: 12.5px; padding: 7px 5px; }
     .tx-check input { width: 16px; height: 16px; }
-    .tx-frow { grid-template-columns: 18px 30px minmax(0, 1fr) auto; }
+    .tx-frow { grid-template-columns: 18px var(--frow-thumb) minmax(0, 1fr) auto; }
     .tx-pg button { min-width: 28px; height: 28px; font-size: 13px; }
 }
 @media (max-width: 560px) {

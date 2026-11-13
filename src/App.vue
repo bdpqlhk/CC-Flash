@@ -1394,8 +1394,6 @@ function copyText(text, okMsg) {
 }
 const shareUrl = computed(() => `http://${lanIp.value}:${port.value}`);
 /* 地址栏宽度贴合内容: 宽屏不留大片空白; 窄屏(换行后)由 CSS 改为撑满整行 */
-const urlText = computed(() => running.value ? shareUrl.value : "服务未启动");
-const urlWidth = computed(() => (running.value ? shareUrl.value.length + 1 : 11) + "ch");
 // 地址(ip:端口)或运行状态一变就重生成二维码(覆盖 IP 变化/端口顺延/手动改端口/启停全场景);
 // 停服清空避免残留旧码; await 结果落地前校验地址未再变, 丢弃乱序的过期结果
 async function syncQr() {
@@ -2344,11 +2342,6 @@ function locateFile(name) {
 function locateUpload(u) { locateFile(uploadName(u)); }
 function openFileMenu(name) { blurMobileKeyboard(); fileMenuName.value = name; }
 function isMine(m) { return (m.nickname || "") === curNick.value; }
-function fmtClock(ts) {
-  try {
-    return new Date(ts * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  } catch (e) { return ""; }
-}
 const uploadCount = computed(() => uploads.value.filter(u => u.status === "waiting" || u.status === "uploading").length);
 const uploadAvgPct = computed(() => {
   const active = uploads.value.filter(u => u.status === "waiting" || u.status === "uploading");
@@ -2394,6 +2387,21 @@ const timelineItems = computed(() => {
   items.sort((a, b) => (a.ts || 0) - (b.ts || 0));
   return items;
 });
+/* 日期分隔: 按消息实际日期显示「月-日」, 不再用相对"今天" */
+function fmtDay(ts) {
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  const md = `${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}-${md}`;
+}
+function dayKey(ts) {
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function showDayDivider(i) {
+  const arr = timelineItems.value;
+  return i === 0 || dayKey(arr[i].ts) !== dayKey(arr[i - 1].ts);
+}
 function onTimelineScroll(e) {
   const el = e.target;
   if (!el) return;
@@ -3085,6 +3093,15 @@ onMounted(() => {
   }
   document.addEventListener("paste", onPaste);
   document.addEventListener("click", onDocChatClick);
+  // 点击 ＋ 面板以外的空白区域也收起(面板内按钮与 ＋ 自身除外)
+  const onDocClosePlus = (e) => {
+    if (!plusOpen.value) return;
+    const t = e.target;
+    if (t && t.closest && t.closest(".tx-plus-panel, .tx-plus")) return;
+    plusOpen.value = false;
+  };
+  document.addEventListener("click", onDocClosePlus);
+  onMountedCleanup(() => document.removeEventListener("click", onDocClosePlus));
   // 合并页未读：回到窗口/标签页时，若传输页可见则立即追平已读
   const onSeenSignal = () => {
     markChatSeen();
@@ -3598,9 +3615,6 @@ async function refreshStatus() {
         </button>
       </nav>
       <div class="side-foot">
-        <div class="side-status" :class="{ on: running }" :title="running ? `运行中 :${port}` : '已停止'">
-          <span class="d"></span><span class="side-status-text">{{ running ? `运行中 :${port}` : "已停止" }}</span>
-        </div>
         <div class="side-ver">{{ appVersion ? "v" + appVersion + " · Tauri" : "Tauri" }}</div>
         <button class="collapse-btn" :class="{ open: sidebarCollapsed }"
                 :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
@@ -3617,15 +3631,13 @@ async function refreshStatus() {
       <div v-if="isRealDesktop" class="topbar">
         <div class="topbar-head">
           <h2>{{ VIEW_TITLES[view] || VIEW_TITLES.transfer }}</h2>
-          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备用浏览器访问下方地址即可使用" : "服务未启动 —— 到「服务中心」页启动" }}</div>
+          <div class="sub">{{ running ? "同一 Wi-Fi 下的设备扫码或复制地址即可访问" : "服务未启动 —— 到「服务中心」页启动" }}</div>
         </div>
         <div class="topbar-url">
           <div class="url-box">
             <span class="url-state" :class="running ? 'run' : 'stop'" :title="running ? '服务运行中' : '服务已停止'">
               <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b>{{ running ? "运行中" : "已停止" }}</b>
             </span>
-            <span class="protocol">HTTP</span>
-            <input class="url-text" :value="urlText" :style="{ '--url-w': urlWidth }" readonly @click="$event.target.select()" />
           </div>
           <button class="icon-btn" :class="{ 'icon-ok': copied }" :title="copied ? '已复制' : '复制链接'"
                   aria-label="复制链接" @click="copied || copyUrl()">
@@ -3698,7 +3710,7 @@ async function refreshStatus() {
             <div v-if="moreOpen" class="tx-menu-backdrop" @click="moreOpen = false"></div>
 
             <div class="tx-list" ref="chatBox" @scroll="onTimelineScroll" @click.self="activeMsgKey = ''">
-              <div class="tx-date">{{ running ? "今天" : "服务已停止" }}</div>
+              <div v-if="!timelineItems.length" class="tx-date">{{ running ? fmtDay(Date.now() / 1000) : "服务已停止" }}</div>
               <div v-if="!timelineItems.length" class="tx-empty">
                 <div class="tx-empty-ic">📁</div>
                 <h3>还没有内容</h3>
@@ -3709,14 +3721,14 @@ async function refreshStatus() {
                 </div>
               </div>
 
-              <template v-for="it in timelineItems" :key="it.key">
+              <template v-for="(it, i) in timelineItems" :key="it.key">
+                <div v-if="showDayDivider(i)" class="tx-date">{{ fmtDay(it.ts) }}</div>
                 <div v-if="it.kind === 'msg'" class="tx-msg" :class="{ out: isMine(it.msg), active: activeMsgKey === it.key }" @click="onMsgClick(it)">
                   <span class="tx-ava">{{ avatarFor(it.msg.nickname) }}</span>
                   <div class="tx-col">
-                    <div class="tx-name">{{ it.msg.nickname }}</div>
+                    <div class="tx-name"><span class="nm">{{ it.msg.nickname }}</span><span class="tm">{{ fmtTime(it.msg.timestamp) }}</span></div>
                     <div class="tx-bubble" v-html="it.html"></div>
                     <div class="tx-foot">
-                      <span class="tx-time">{{ fmtClock(it.msg.timestamp) }}</span>
                       <div class="tx-msg-acts" @click.stop>
                         <button class="danger" title="删除" aria-label="删除消息" @click="deleteMessage(it.msg)">
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
@@ -3735,7 +3747,7 @@ async function refreshStatus() {
                 <div v-else-if="it.kind === 'remote'" class="tx-file">
                   <span class="tx-ava" :title="it.r.uploader ? '上传者：' + it.r.uploader : '来自其他设备'">{{ avatarFor(it.r.uploader || '共享文件') }}</span>
                   <div class="tx-file-col">
-                    <div class="tx-name">{{ it.r.uploader || "其他设备" }}</div>
+                    <div class="tx-name"><span class="nm">{{ it.r.uploader || "其他设备" }}</span><span class="tm">{{ fmtTime(it.r.modified || it.r.ts) }}</span></div>
                     <div class="tx-filecard">
                       <div class="tx-file-main">
                         <span class="tx-ficon clickable" :class="'tone-' + fileTone(it.r.name)"
@@ -3764,7 +3776,7 @@ async function refreshStatus() {
 
                 <div v-else-if="it.kind === 'file'" class="tx-file out">
                   <div class="tx-file-col">
-                    <div class="tx-name">{{ curNick }}</div>
+                    <div class="tx-name"><span class="nm">{{ curNick }}</span><span class="tm">{{ fmtTime(it.u.doneAt ? it.u.doneAt / 1000 : it.u.t0) }}</span></div>
                     <div class="tx-filecard">
                       <div class="tx-file-main">
                         <span class="tx-ficon" :class="['tone-' + fileTone(it.u.name), { clickable: it.u.status === 'done' }]"
@@ -3801,7 +3813,7 @@ async function refreshStatus() {
 
                 <div v-else-if="it.kind === 'group'" class="tx-file out">
                   <div class="tx-file-col">
-                    <div class="tx-name">{{ curNick }}</div>
+                    <div class="tx-name"><span class="nm">{{ curNick }}</span><span class="tm">{{ fmtTime(it.ts) }}</span></div>
                     <div class="tx-groupcard">
                       <div class="tx-group-head" @click="toggleGroup(it.batch)">
                         <span class="tx-gicon" :class="'tone-' + fileTone(it.items[0] && it.items[0].name)">{{ iconFor(it.items[0] && it.items[0].name) }}</span>
@@ -3873,7 +3885,12 @@ async function refreshStatus() {
             <div class="tx-grab" @click="fileSheetOpen = false"><i></i></div>
             <div class="tx-files-head">
               <b>共享文件</b><span class="tx-count">{{ stats.count }}</span>
-              <button class="tx-files-close" :title="isNarrow ? '关闭' : '收起'" @click="isNarrow ? fileSheetOpen = false : drawerCollapsed = true">{{ isNarrow ? "完成" : "›" }}</button>
+              <span class="tx-files-head-acts">
+                <button v-if="isRealDesktop" class="tx-files-open" title="打开共享目录" aria-label="打开共享目录" @click="openShareDir">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V6a2 2 0 012-2h4l2 2h7a2 2 0 012 2v2"/><path d="M4 19h14.5a2 2 0 001.94-1.5L22 9H7.5a2 2 0 00-1.94 1.5z"/></svg>
+                </button>
+                <button class="tx-files-close" :title="isNarrow ? '关闭' : '收起'" @click="isNarrow ? fileSheetOpen = false : drawerCollapsed = true">{{ isNarrow ? "完成" : "›" }}</button>
+              </span>
             </div>
             <div class="tx-files-tools">
               <div class="tx-sort">
@@ -3911,7 +3928,7 @@ async function refreshStatus() {
                   <template v-else>
                     <template v-if="isRealDesktop">
                       <button title="打开" aria-label="打开" @click="openFile(f.name)">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
                       </button>
                       <button title="复制到剪贴板" aria-label="复制到剪贴板" @click="copyFileToClipboard(f.name)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
