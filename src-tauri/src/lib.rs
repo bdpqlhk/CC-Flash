@@ -44,6 +44,10 @@ fn sanitize_windows_filename(name: &str) -> String {
 
 #[cfg(desktop)]
 static TRAY_TIP_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 托盘是否真正创建成功。Linux 无 StatusNotifier/DBus 异常时托盘会失败,
+/// 此时"关窗收托盘"等于把窗口永久藏起来(没有图标可点回), 必须改为直接退出。
+#[cfg(desktop)]
+static TRAY_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// 主窗是否已经"被要求显示/已显示"过: 托盘唤窗、单实例、main://ready 与 2s 兜底共用，
 /// 防止用户在前 2 秒内主动收进托盘后又被兜底重新弹出
 #[cfg(desktop)]
@@ -107,6 +111,17 @@ fn emit_main_window_state(app: &tauri::AppHandle) {
 #[cfg(desktop)]
 fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) {
     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        // 托盘创建失败(常见于无 StatusNotifier 的 Linux 桌面)时不能收窗:
+        // 窗口藏起来后既没有托盘图标也没有退出入口, 用户只能杀进程。
+        // 注意不能只 return 放行关闭: 隐藏的 qr-pet 窗口仍在 Tauri 的窗口表里,
+        // 主窗销毁后进程/服务/端口会继续常驻, 而单实例唤窗又找不到 main。
+        // 直接 prevent + exit, 让服务与进程一起收尾。
+        #[cfg(target_os = "linux")]
+        if !TRAY_OK.load(std::sync::atomic::Ordering::Relaxed) {
+            api.prevent_close();
+            window.app_handle().exit(0);
+            return;
+        }
         api.prevent_close();
         let _ = window.hide();
         emit_main_window_state(window.app_handle());
@@ -313,15 +328,11 @@ pub fn run() {
             // 显式标注参数类型, 避免移动端编译时推断失败(E0282)
             #[cfg(not(desktop))]
             let _ = app;
-            // Android: 注入 app 专属目录作默认共享目录 —— 应用进程 $HOME 无效,
-            // 走 $HOME/CC-Flash 会落到 /CC-Flash 直接 EACCES, 服务启动即失败;
-            // app 专属外部存储免权限可读写, 且经 HTTP 对外提供不受影响
-            #[cfg(target_os = "android")]
+            // Android/iOS: 注入 app 专属目录作本地服务共享目录 —— 移动进程 $HOME 无效;
+            // 注入的是 app_data_dir(父目录): share=父/CC-Flash, pref=父/.ccflash-*
+            #[cfg(any(target_os = "android", target_os = "ios"))]
             {
                 use tauri::Manager;
-                // 注入的是 app_data_dir 本身(父目录): 共享目录与目录偏好文件分置其下
-                // (share=父/CC-Flash, pref=父/.ccflash-share)。若直接注入 share,
-                // 偏好文件会落进共享目录内部, 被 HTTP 列表当普通文件展示/下载/删除
                 if let Ok(dir) = app.path().app_data_dir() {
                     let _ = std::fs::create_dir_all(dir.join(config::SHARE_DIR_NAME));
                     server::set_platform_default_dir(dir.to_string_lossy().to_string());
@@ -519,6 +530,7 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            TRAY_OK.store(true, std::sync::atomic::Ordering::Relaxed);
             Ok(())
             })();
             if let Err(e) = tray_result {
@@ -590,8 +602,13 @@ pub fn run() {
                     Err(e) => eprintln!("[wft] 服务启动失败: {e}"),
                 }
             });
+            // 移动端也作为独立节点启动本地 HTTP 服务 + UDP 发现:
+            // 手机可被桌面/其他手机发现, 也能作为共享文件/聊天的本机端点。
             #[cfg(any(target_os = "android", target_os = "ios"))]
-            eprintln!("[wft] 移动壳模式：本机局域网服务保持关闭");
+            std::thread::spawn(|| match server::autostart() {
+                Ok(port) => eprintln!("[wft] 移动端本地服务已启动: http://127.0.0.1:{port}"),
+                Err(e) => eprintln!("[wft] 移动端本地服务启动失败: {e}"),
+            });
             Ok(())
         })
         .build(tauri::generate_context!())

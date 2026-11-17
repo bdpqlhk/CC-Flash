@@ -18,3 +18,10 @@ try {
 } catch (e) {}
 
 createApp(App).mount("#app");
+
+// PWA 仅浏览器端注册: 桌面/移动壳已有原生 App, 不需要 Service Worker
+if (!("__TAURI_INTERNALS__" in window) && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

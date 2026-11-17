@@ -609,8 +609,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .switch.on .knob { transform: translateX(20px); }
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 失联全屏: 电视"无信号"测试卡(网页端专用, 电脑/手机浏览器表现一致); 层级低于 toast, 高于其余全部 */
-.nosignal-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+.nosignal-overlay { position: fixed; inset: 0; z-index: 1002; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
 /* 移动壳连接门: 未配置电脑地址时的全屏引导(压过一切页面内容, 高于 nosignal) */
+.cg-loading { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-bg); animation: dotWave 1.2s ease-in-out infinite; }
 .connect-gate { position: fixed; inset: 0; z-index: 1005; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .connect-card { max-width: 420px; width: 100%; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 26px 24px; box-shadow: var(--shadow-lg); }
 .connect-card h3 { margin-bottom: 10px; font-size: 17px; }
@@ -686,7 +687,8 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     .web-head .sub { display: none; }
 }
 /* Toast / 弹窗 */
-.toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column-reverse; gap: 8px; z-index: 1001; max-width: 360px; }
+/* toast 必须高于所有弹层/启动门, 否则"启动失败/配对失败"提示会被遮罩吞掉 */
+.toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column-reverse; gap: 8px; z-index: 1010; max-width: 360px; }
 .toast-msg { padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease; border: 1px solid var(--card-border); border-left-width: 3px; display: flex; align-items: center; gap: 12px; }
 /* Toast 内操作(撤销): 文本色按钮, 不抢提示本身 */
 .toast-act { flex-shrink: 0; padding: 2px 6px; border: none; border-radius: 5px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 700; cursor: pointer; }
@@ -698,9 +700,20 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 }
 .toast-success { background: rgba(52,201,124,0.2); color: #5de8a0; }
 .toast-error { background: rgba(242,89,107,0.2); color: #f57483; }
+/* 点对点发送弹框 */
+.peer-send-mask { position: fixed; inset: 0; z-index: 1003; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: calc(18px + env(safe-area-inset-top, 0px)) 18px calc(18px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+.peer-hint { margin: -4px 0 10px !important; color: var(--text3) !important; font-size: 11px !important; line-height: 1.55; }
+.peer-send-box { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--card-border); border-radius: 16px; box-shadow: var(--shadow-lg); padding: 20px; }
+.peer-send-box h4 { margin: 0 0 4px; font-size: 16px; }
+.peer-send-box > p { margin: 0 0 12px; color: var(--text3); font-size: 11px; }
+.peer-send-box textarea { width: 100%; min-height: 86px; resize: vertical; border: 1px solid var(--card-border); background: var(--card); color: var(--text); border-radius: 9px; padding: 10px 11px; font: inherit; font-size: 13px; outline: none; }
+.peer-send-box textarea:focus { border-color: var(--accent); }
+.peer-send-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.peer-send-actions .btn { flex: 1; min-width: 88px; }
+
 /* ===== 应用内文件预览: 全屏层 + 顶部关闭按钮(关闭即回聊天) ===== */
 .pv-overlay {
-    position: fixed; inset: 0; z-index: 1000;
+    position: fixed; inset: 0; z-index: 1004;
     display: flex; flex-direction: column;
     background: rgba(8, 10, 15, .96);
     backdrop-filter: blur(10px);
@@ -741,7 +754,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 /* 弹层允许滚动: iOS 键盘弹出/横屏矮视口时按钮不能被挤出屏幕 */
 .dialog-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 998;
+    /* 配对/删除/二维码/昵称等模态必须高于预览与附近设备层: 401 时配对框不能被
+       预览层(1004)或 peer 层(1003)盖住, 否则用户只看到"加载失败"却找不到输入框 */
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1008;
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(3px); overflow-y: auto; overscroll-behavior: contain;
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
@@ -1196,9 +1211,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 [data-mode="light"] .toast-error { background: rgba(242,89,107,0.12); color: #c0263d; }
 
 /* 主题模式分段选择(皮肤设置卡): 与文件页排序器同款的分段控制器, 不再是三块独立大按钮 */
-.mode-row { display: flex; gap: 2px; width: fit-content; background: rgba(255,255,255,0.04); border: 1px solid var(--card-border); border-radius: var(--radius-xs); padding: 2px; }
+.mode-row { display: flex; gap: 2px; width: fit-content; flex-shrink: 0; background: rgba(255,255,255,0.04); border: 1px solid var(--card-border); border-radius: var(--radius-xs); padding: 2px; }
 .mode-btn { display: flex; align-items: center; gap: 6px; padding: 6px 18px; border: none; border-radius: 4px;
-    background: transparent; color: var(--text3); cursor: pointer; font-size: 12.5px; font-family: inherit; transition: all var(--transition); }
+    background: transparent; color: var(--text3); cursor: pointer; font-size: 12.5px; font-family: inherit; white-space: nowrap; transition: background-color .15s ease, color .15s ease; }
 .mode-btn:hover { color: var(--text2); }
 .mode-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
 
@@ -1238,6 +1253,16 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-head.slim { height: 50px; padding: 0 12px; }
 /* 桌面壳工具条左侧的轻量状态提示: 填充空白, 不抢视觉 */
 .tx-room-brief { display: flex; align-items: center; font-size: 12.5px; color: var(--text3); white-space: nowrap; }
+/* 附近设备(最小实现): 已连接/最近活跃的局域网设备 */
+.tx-peers { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--card-border); background: var(--panel); overflow-x: auto; }
+.tx-peers-label { flex-shrink: 0; font-size: 10px; color: var(--text3); padding-right: 7px; border-right: 1px solid var(--card-border); white-space: nowrap; }
+.tx-peer { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--card); color: var(--text2); font-size: 10.5px; cursor: pointer; white-space: nowrap; }
+.tx-peer:hover { border-color: var(--accent); color: var(--accent-text); }
+.tx-peer .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
+.tx-peer.busy .dot { background: var(--warning); }
+.tx-peer .nm { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.tx-peer .pf { color: var(--text3); font-size: 10px; margin-left: 2px; }
+.tx-peer .pf.on { color: var(--warning); }
 .tx-head.slim .tx-more { top: 44px; }
 .tx-room {
     width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
@@ -1397,10 +1422,11 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .tx-bubble .chat-hr { border: none; border-top: 1px solid var(--card-border); margin: 8px 0; }
 /* 消息操作: 桌面端悬停出现, 浏览器/触屏点击气泡出现(active);
    线性图标 + 26px 热区, 图标之间留 4px, 比文字按钮更好点按 */
-.tx-msg-acts { display: flex; gap: 0; flex-shrink: 0; opacity: 0; transition: opacity .15s; }
+/* opacity:0 的按钮仍可点击 —— 触屏上会误触隐藏的复制/引用/删除, 必须同时禁用命中 */
+.tx-msg-acts { display: flex; gap: 0; flex-shrink: 0; opacity: 0; pointer-events: none; transition: opacity .15s; }
 /* 发送方(自己)镜像: 复制·引用·删除; 接收方(他人): 删除·引用·复制 */
 .tx-msg.out .tx-msg-acts { flex-direction: row-reverse; }
-.tx-msg:hover .tx-msg-acts, .tx-msg.active .tx-msg-acts, .tx-msg:focus-within .tx-msg-acts { opacity: 1; }
+.tx-msg:hover .tx-msg-acts, .tx-msg.active .tx-msg-acts, .tx-msg:focus-within .tx-msg-acts { opacity: 1; pointer-events: auto; }
 .tx-msg-acts button {
     width: 24px; height: 26px; padding: 0; border: none; background: none; color: var(--text2);
     border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
@@ -1667,6 +1693,16 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     .tx-clear-btn { display: none; }
     .app-foot { font-size: 10.5px; padding: 6px 0; }
     .tx-me { width: 27px; height: 27px; font-size: 14px; }
+    /* 移动 App 适配: 刘海/状态栏/横屏安全区 + 触控热区 */
+    .tx-head { height: calc(52px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); padding-left: max(11px, env(safe-area-inset-left, 0px)); padding-right: max(11px, env(safe-area-inset-right, 0px)); }
+    .tx-hbtn { min-height: 30px; }
+    .tx-list { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+    .tx-composer { padding-left: max(10px, env(safe-area-inset-left, 0px)); padding-right: max(10px, env(safe-area-inset-right, 0px)); }
+    .tx-mobile-viewhead { padding-top: calc(10px + env(safe-area-inset-top, 0px)); padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+    .tx-files-head { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+    .tx-files-tools { padding-left: max(9px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+    .tx-files-list { padding-left: max(6px, env(safe-area-inset-left, 0px)); padding-right: max(10px, env(safe-area-inset-right, 0px)); }
+    .tx-empty-actions .btn { min-height: 34px; }
     .tx-list { padding: 10px 12px 4px; }
     .tx-msg .tx-ava, .tx-file .tx-ava { width: 28px; height: 28px; font-size: 14px; }
     .tx-bubble { font-size: 13.5px; padding: 8px 10px; }
@@ -1720,8 +1756,16 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     .tx-frow { grid-template-columns: 18px var(--frow-thumb) minmax(0, 1fr) auto; }
     .tx-pg button { min-width: 28px; height: 28px; font-size: 13px; }
 }
+/* 横屏/矮屏: 收起空态插画, 文件面板略高, 把高度让给列表 */
+@media (max-width: 980px) and (max-height: 500px) {
+    .tx-files { height: 92dvh; }
+    .tx-head { height: calc(46px + env(safe-area-inset-top, 0px)); }
+    .tx-empty .tx-empty-ic { display: none; }
+    .tx-list { padding-top: 6px; }
+}
+
 @media (max-width: 560px) {
-    .tx-me { display: none; }
+    /* 昵称头像就是唯一的改昵称入口, 手机端不能隐藏 */
     /* 微信内置浏览器底部有"网页由 IP 提供"提示条, 会盖住输入区 —— 留出安全高度 */
     .shell.has-wx-banner .tx-composer { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px) + 32px); }
 }
@@ -1729,3 +1773,138 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 微信桌面客户端: 横幅必须是独立整行, 否则会变成左侧竖列压窄主区 */
 .shell.has-wx-banner { flex-wrap: wrap; }
 .shell.has-wx-banner > .wx-banner { flex: 0 0 auto; width: 100%; }
+
+/* 桌面壳传输页高度只认窗口视口: --app-vh 是移动端 visualViewport 变量,
+   首次安装/窗口尚未就绪时可能小于实际高度, 导致输入框下方留白 */
+.shell.real-desktop.transfer-active { height: 100vh; }
+
+/* ============================================================
+ * iOS / 触屏体验优化
+ * - 关闭移动端 backdrop-filter(滚动/键盘动画时重绘代价高)
+ * - 减少 transition:all 与滚动容器内的无谓重绘
+ * - 加大附近设备/头按钮的触控热区(Snapdrop 式大目标)
+ * ============================================================ */
+html { -webkit-text-size-adjust: 100%; }
+button, a, [role="button"], .tx-peer, .tx-frow, .tx-hbtn {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+.tx-list { -webkit-overflow-scrolling: touch; }
+.tx-peers { -webkit-overflow-scrolling: touch; touch-action: pan-x; }
+.tx-more-hint {
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--text3);
+    padding: 8px 0 2px;
+}
+@media (max-width: 980px) {
+    /* 全屏遮罩/预览层在 iOS 上 blur 很贵, 背景本身已足够不透明 */
+    .peer-send-mask, .dialog-overlay, .sheet-backdrop, .pv-overlay {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+    .peer-send-mask { background: rgba(0, 0, 0, .62); }
+    .dialog-overlay { background: rgba(0, 0, 0, .68); }
+    .sheet-backdrop { background: rgba(0, 0, 0, .6); }
+    /* 高频交互元素只过渡真正变化的属性 */
+    .btn, .tx-hbtn, .tx-peer, .tx-frow, .tx-send, .tx-act-btn {
+        transition: background-color .15s ease, color .15s ease,
+                    border-color .15s ease, transform .15s ease;
+    }
+    /* 触控热区: 设备条与头部按钮不小于 32/34px */
+    .tx-peer { height: 32px; padding: 0 10px; font-size: 12px; }
+    .tx-peer .nm { max-width: 132px; }
+    .tx-hbtn { min-height: 34px; }
+    .tx-more-hint { padding-top: 6px; }
+}
+
+/* 视口基准: 主壳是 position:fixed, body 高度为 0 时 iOS WebKit 的滚动/地址栏行为会异常 */
+html, body { height: 100%; }
+
+/* ============================================================
+ * 移动端安全区修正(横屏刘海/竖屏 Home 条)
+ * 原媒体查询里后置的 padding shorthand 会把 left/right 的 safe-area 覆盖掉;
+ * 这里用完整四边 padding 重新落地, 并修正菜单/跳转按钮的定位。
+ * ============================================================ */
+@media (max-width: 980px) {
+    .tx-list {
+        padding: 10px max(12px, env(safe-area-inset-right, 0px)) 4px max(12px, env(safe-area-inset-left, 0px));
+    }
+    .tx-composer {
+        padding: 8px max(10px, env(safe-area-inset-right, 0px))
+                 calc(8px + env(safe-area-inset-bottom, 0px))
+                 max(10px, env(safe-area-inset-left, 0px));
+    }
+    .tx-more {
+        top: calc(48px + env(safe-area-inset-top, 0px));
+        right: max(8px, env(safe-area-inset-right, 0px));
+    }
+    .tx-peers {
+        padding-left: max(12px, env(safe-area-inset-left, 0px));
+        padding-right: max(12px, env(safe-area-inset-right, 0px));
+        scrollbar-width: none;
+    }
+    .tx-peers::-webkit-scrollbar { display: none; }
+    .tx-jump { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
+    /* iOS 聚焦 < 16px 输入框会自动放大整页 */
+    .peer-send-box textarea { font-size: 16px; }
+}
+/* 320px 超窄屏: 皮肤模式按钮允许换行, 不再被卡片裁切 */
+@media (max-width: 360px) {
+    .mode-row { flex-wrap: wrap; }
+    .mode-btn { flex: 1 1 auto; }
+}
+
+/* 移动端“加载更早的消息” */
+.tx-more-btn {
+    border: 1px solid var(--card-border);
+    background: var(--card);
+    color: var(--accent-text);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.tx-more-btn:active { transform: scale(.98); }
+
+/* 附近设备: 对方配对码输入 */
+.peer-pin-row { margin: 0 0 10px; }
+.peer-pin-row input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 11px;
+    font-size: 16px;
+    font-family: inherit;
+    letter-spacing: 2px;
+    text-align: center;
+    border: 1px solid var(--card-border);
+    border-radius: 9px;
+    background: var(--card);
+    color: var(--text);
+    outline: none;
+}
+.peer-pin-row input:focus { border-color: var(--accent); }
+
+/* 触屏点击后不常驻焦点环; 键盘导航仍保留可见焦点 */
+button:focus:not(:focus-visible) { outline: none; }
+button:focus-visible, [role="button"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* 超窄屏(≤380): 头部信息过密, 状态胶囊只留呼吸点, 隐藏副标题, 标题不再被截断 */
+@media (max-width: 380px) {
+    .tx-head .tx-room-title p { display: none; }
+    .tx-head .chip .chip-label { display: none; }
+    .tx-head .chip { padding: 4px 8px; }
+}
+/* 桌面壳窄窗: 顶栏副标题与房间头 brief 重复, 只留顶栏 */
+@media (max-width: 980px) {
+    .tx-room-brief { display: none; }
+}
+
+/* 桌面壳窄窗: 顶栏副标题与主区标题重复, 隐藏以把高度让给时间线 */
+@media (max-width: 980px) {
+    .topbar .sub { display: none; }
+}

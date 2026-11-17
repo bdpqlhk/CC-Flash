@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CC-Flash · 借鉴 Snapdrop / LocalSend 的最小改动落地方案</title>
+<style>
+  :root {
+    --bg: #0b1210;
+    --panel: #101a15;
+    --card: #16231c;
+    --card2: #1b2c23;
+    --line: rgba(150, 230, 190, .12);
+    --line2: rgba(150, 230, 190, .24);
+    --text: #e6f2ea;
+    --text2: #a8c3b5;
+    --text3: #6f8c7c;
+    --accent: #35c299;
+    --accent2: #6ed4b6;
+    --accentBg: rgba(53, 194, 153, .12);
+    --danger: #f2596b;
+    --warning: #e9a93c;
+    --shadow: 0 18px 60px rgba(0, 0, 0, .4);
+    --radius: 16px;
+  }
+  [data-theme="light"] {
+    --bg: #f2f7f4;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --card2: #f5faf7;
+    --line: rgba(18, 70, 48, .12);
+    --line2: rgba(18, 70, 48, .24);
+    --text: #172a21;
+    --text2: #506b5e;
+    --text3: #8aa296;
+    --accent: #14936f;
+    --accent2: #35b98e;
+    --accentBg: rgba(20, 147, 111, .10);
+    --shadow: 0 18px 60px rgba(28, 70, 50, .14);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 480px at 10% -10%, rgba(53,194,153,.15), transparent 60%),
+      radial-gradient(760px 440px at 100% 0%, rgba(110,212,182,.10), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; }
+  .page { max-width: 1500px; margin: 0 auto; padding: 30px 22px 60px; }
+
+  /* ---------- 页头 ---------- */
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 26px; margin-bottom: 22px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: 1.5px; color: var(--accent2); font-weight: 700; }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accentBg); }
+  .hero h1 { font-size: clamp(24px, 3vw, 36px); letter-spacing: -.7px; line-height: 1.2; margin: 10px 0 8px; }
+  .hero h1 em { color: var(--accent2); font-style: normal; }
+  .hero p { margin: 0; max-width: 860px; color: var(--text2); font-size: 13.5px; line-height: 1.8; }
+  .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .toggle-btn {
+    height: 34px; padding: 0 13px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text2); font-size: 11.5px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .toggle-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .toggle-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  body.hide-changes .toggle-btn .dot { background: var(--text3); }
+
+  /* ---------- 舞台 ---------- */
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 306px; gap: 20px; align-items: start; }
+
+  /* ---------- 应用窗口 ---------- */
+  .app {
+    display: flex; min-width: 0; height: 690px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .side {
+    width: 198px; flex-shrink: 0; padding: 16px 12px 10px; border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; background: var(--panel);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 4px 4px 16px; font-weight: 800; letter-spacing: -.2px; }
+  .brand .mark { width: 32px; height: 32px; border-radius: 9px; background: var(--accentBg); border: 1px solid var(--line2); display: grid; place-items: center; color: var(--accent2); }
+  .nav { display: flex; flex-direction: column; gap: 3px; }
+  .nav a { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 8px; color: var(--text2); font-size: 12.5px; text-decoration: none; }
+  .nav a.on { background: var(--accentBg); color: var(--accent2); font-weight: 600; }
+  .nav a svg { opacity: .9; }
+  .side-foot { margin-top: auto; padding: 10px 4px 0; border-top: 1px solid var(--line); color: var(--text3); font-size: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .side-foot .ver { text-align: center; }
+  .side-foot .collapse { height: 28px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--text3); font-size: 10.5px; cursor: pointer; }
+
+  .main { min-width: 0; flex: 1; display: flex; flex-direction: column; background: var(--bg); }
+  .topbar { flex-shrink: 0; padding: 14px 16px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+  .title h2 { margin: 0; font-size: 21px; letter-spacing: -.3px; }
+  .title .sub { margin-top: 4px; color: var(--text2); font-size: 11.5px; }
+  .top-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+  .pill { height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--card); color: var(--text3); font-size: 11px; display: inline-flex; align-items: center; gap: 6px; }
+  .pill.run { color: var(--accent2); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accentBg); }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px var(--accentBg); }
+  .icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text2); display: grid; place-items: center; cursor: pointer; }
+  .icon-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .install-btn { height: 34px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text2); font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .install-btn:hover { border-color: var(--accent); color: var(--accent2); }
+
+  .roomhead { flex-shrink: 0; margin: 12px 16px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); display: flex; align-items: center; gap: 8px; }
+  .roomhead .brief { flex: 1; min-width: 0; color: var(--text3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hbtn { height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text2); font-size: 10.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+  .hbtn:hover { border-color: var(--accent); color: var(--accent2); }
+  .ava { width: 26px; height: 26px; border-radius: 50%; background: var(--accentBg); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; }
+
+  /* 新增：附近设备条 */
+  .peers { flex-shrink: 0; margin: 8px 16px 0; padding: 8px 10px; border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--line)); border-radius: 10px; background: var(--accentBg); display: flex; align-items: center; gap: 7px; overflow-x: auto; }
+  .peers-label { flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding-right: 8px; border-right: 1px solid var(--line); }
+  .peers-label b { font-size: 10.5px; color: var(--accent2); white-space: nowrap; }
+  .peers-label small { font-size: 9px; color: var(--text3); white-space: nowrap; }
+  .peer { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--text2); font-size: 10.5px; cursor: pointer; white-space: nowrap; }
+  .peer:hover { border-color: var(--accent); }
+  .peer .pdot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .peer.busy .pdot { background: var(--warning); }
+  .peer .star { color: var(--text3); font-size: 10px; cursor: pointer; }
+  .peer .star.on { color: var(--warning); }
+  .cnew { display: inline-flex; align-items: center; gap: 3px; font-size: 8.5px; padding: 2px 5px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 700; flex-shrink: 0; }
+  body.hide-changes [data-change] { display: none !important; }
+
+  .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 16px 0; }
+  .date { text-align: center; color: var(--text3); font-size: 10px; margin: 4px 0 10px; }
+  .empty { margin: auto; text-align: center; color: var(--text3); font-size: 11.5px; }
+  .empty .ic { font-size: 30px; margin-bottom: 6px; opacity: .8; }
+  .empty b { display: block; color: var(--text2); font-size: 13px; margin-bottom: 4px; }
+  .empty .acts { display: flex; gap: 7px; justify-content: center; margin-top: 12px; }
+  .empty .acts button { height: 28px; padding: 0 12px; border-radius: 7px; font-size: 10.5px; cursor: pointer; }
+
+  .plus-panel { flex-shrink: 0; display: none; margin: 0 16px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); gap: 8px; }
+  .plus-panel.on { display: flex; }
+  .plus-item { flex: 1; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 7px 6px; color: var(--text2); font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .plus-item:hover { border-color: var(--accent); color: var(--accent2); }
+  .composer { flex-shrink: 0; padding: 9px 12px 10px; display: flex; align-items: flex-end; gap: 8px; }
+  .plus { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--text2); font-size: 17px; cursor: pointer; flex-shrink: 0; }
+  .plus.on { background: var(--accentBg); border-color: var(--accent); color: var(--accent2); transform: rotate(45deg); }
+  .input { flex: 1; min-width: 0; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 0 12px; font: inherit; font-size: 12px; outline: none; }
+  .input:focus { border-color: var(--accent); }
+  .send { height: 38px; padding: 0 17px; border-radius: 10px; border: none; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+
+  /* 右侧共享文件抽屉 */
+  .drawer { width: 346px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
+  .dhead { height: 54px; flex-shrink: 0; padding: 0 12px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--line); }
+  .dhead b { font-size: 13px; }
+  .dcount { font-size: 9.5px; color: var(--text2); background: var(--bg2, var(--card2)); border-radius: 8px; padding: 2px 6px; }
+  .dacts { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .dtools { display: flex; align-items: center; gap: 4px; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+  .sort { display: flex; gap: 2px; }
+  .sort button { border: none; background: none; color: var(--text3); font-size: 11px; padding: 4px 7px; border-radius: 5px; cursor: pointer; }
+  .sort button.on { background: var(--accentBg); color: var(--accent2); font-weight: 600; }
+  .selall { margin-left: auto; color: var(--text3); font-size: 10.5px; display: flex; align-items: center; gap: 4px; }
+  .selall input { accent-color: var(--accent); }
+  .dlist { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 4px 5px; }
+  .frow { display: grid; grid-template-columns: 13px 30px minmax(0,1fr) auto; gap: 7px; align-items: center; padding: 7px 5px; border-radius: 7px; }
+  .frow:hover { background: var(--card2); }
+  .frow input { accent-color: var(--accent); }
+  .thumb { width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; color: #fff; font-size: 6.5px; font-weight: 800; font-family: "SF Mono", Menlo, monospace; }
+  .t-pdf { background: linear-gradient(135deg,#e25757,#c73d3d); }
+  .t-jpg { background: linear-gradient(135deg,#4f8af7,#3468c9); }
+  .t-zip { background: linear-gradient(135deg,#3ddc97,#23a874); }
+  .t-csv { background: linear-gradient(135deg,#2fbf8f,#1c8f68); }
+  .frow > span:nth-child(3) { min-width: 0; display: block; }
+  .fname { display: block; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fmeta { display: block; font-size: 9px; color: var(--text3); margin-top: 2px; font-family: "SF Mono", Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .frowacts { display: flex; gap: 1px; }
+  .frowacts button { width: 24px; height: 24px; border: none; background: none; color: var(--text3); border-radius: 6px; cursor: pointer; display: grid; place-items: center; }
+  .frowacts button:hover { background: var(--accentBg); color: var(--accent2); }
+  .frowacts button.danger:hover { background: rgba(242,89,107,.1); color: var(--danger); }
+  .dfoot { flex-shrink: 0; border-top: 1px solid var(--line); padding: 7px 9px; display: flex; align-items: center; gap: 6px; color: var(--text3); font-size: 10px; }
+  .pager { margin-left: auto; display: flex; gap: 2px; }
+  .pager button { min-width: 22px; height: 22px; border: none; background: none; color: var(--text2); border-radius: 5px; font-size: 10.5px; cursor: pointer; }
+  .pager button.on { background: var(--accent); color: #fff; }
+
+  /* P1 接收确认卡片 */
+  .pending { margin: 8px; padding: 9px 10px; border: 1px dashed color-mix(in srgb, var(--warning) 55%, var(--line)); border-radius: 9px; background: rgba(233,169,60,.08); }
+  .pending .ptop { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text2); }
+  .pending .ptop b { color: var(--text); }
+  .pending p { margin: 5px 0 7px; color: var(--text3); font-size: 9.5px; line-height: 1.55; }
+  .pending .trustline { display: flex; align-items: center; gap: 5px; color: var(--text3); font-size: 9.5px; margin: 0 0 8px; }
+  .pending .trustline input { accent-color: var(--accent); }
+  .pending .pacts { display: flex; gap: 5px; }
+  .pending .pacts button { flex: 1; height: 25px; border-radius: 6px; font-size: 10px; cursor: pointer; }
+  /* 最近传输 / 分享入口 */
+  .recent-mini { margin: 8px; padding: 8px 9px; border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 9px; background: var(--accentBg); }
+  .rm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+  .rm-head b { font-size: 10.5px; color: var(--accent2); }
+  .rm-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px dashed var(--line); font-size: 9.5px; color: var(--text3); }
+  .rm-item:first-of-type { border-top: none; }
+  .rm-ic { width: 18px; height: 18px; border-radius: 4px; display: grid; place-items: center; color: #fff; font-size: 5.5px; font-weight: 800; flex-shrink: 0; }
+  .rm-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text2); }
+  .rm-item em { font-style: normal; font-size: 9px; }
+  .rm-item em.ok { color: var(--accent2); }
+  .rm-item em.bad { color: var(--danger); }
+  .rm-item button { border: none; background: none; color: var(--accent2); font-size: 9px; cursor: pointer; padding: 0; }
+  .share-mini { margin: 0 8px 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); display: flex; align-items: center; gap: 7px; }
+  .sqr { width: 26px; height: 26px; border-radius: 6px; background: #fff; color: #16231c; display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
+  .smt { min-width: 0; flex: 1; }
+  .smt b { display: block; font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .smt small { display: block; color: var(--text3); font-size: 8.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .share-mini button { border: 1px solid var(--line); background: var(--panel); color: var(--text2); font-size: 9px; padding: 4px 7px; border-radius: 5px; cursor: pointer; flex-shrink: 0; }
+  .share-mini button:hover { border-color: var(--accent); color: var(--accent2); }
+  .mini { border: 1px solid var(--line); background: var(--card); color: var(--text2); }
+  .mini.pri { border: none; background: var(--accent); color: #fff; font-weight: 600; }
+
+  /* ---------- 右侧说明 ---------- */
+  .notes-side { display: flex; flex-direction: column; gap: 12px; }
+  .ncard { border: 1px solid var(--line); background: var(--panel); border-radius: 14px; padding: 14px; }
+  .ncard h3 { margin: 0 0 4px; font-size: 13px; }
+  .ncard .sub { color: var(--text3); font-size: 10.5px; line-height: 1.6; margin: 0 0 10px; }
+  .change-item { display: flex; gap: 8px; padding: 8px 0; border-top: 1px dashed var(--line); }
+  .change-item:first-of-type { border-top: none; padding-top: 0; }
+  .num { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 800; display: grid; place-items: center; flex-shrink: 0; margin-top: 1px; }
+  .change-item .txt b { display: block; font-size: 11.5px; }
+  .change-item .txt p { margin: 3px 0 0; color: var(--text3); font-size: 10px; line-height: 1.6; }
+  .change-item .txt .meta { color: var(--accent2); font-size: 9.5px; margin-top: 3px; display: block; }
+  .tag { display: inline-flex; align-items: center; font-size: 8.5px; padding: 2px 5px; border-radius: 999px; border: 1px solid var(--line); color: var(--text3); margin-left: 4px; }
+  .tag.p0 { color: var(--accent2); border-color: rgba(53,194,153,.35); }
+  .tag.p1 { color: var(--warning); border-color: rgba(233,169,60,.35); }
+  .ncard ul { margin: 6px 0 0; padding-left: 16px; color: var(--text3); font-size: 10.5px; line-height: 1.75; }
+  .ncard ul li { margin: 3px 0; }
+  .pwa-mini { display: flex; align-items: center; gap: 6px; margin-top: 7px; padding: 6px 7px; border: 1px dashed var(--line); border-radius: 7px; background: var(--card); }
+  .pwa-mini > span:first-child { font-size: 14px; }
+  .pwa-mini b { display: block; font-size: 9.5px; color: var(--text2); }
+  .pwa-mini small { display: block; font-size: 8.5px; color: var(--text3); margin-top: 1px; }
+  .ncard .no { color: var(--danger); }
+  .ncard .yes { color: var(--accent2); }
+
+  /* 底部对照 */
+  .bottom-notes { margin-top: 26px; }
+  .bottom-notes h2 { font-size: 19px; margin: 0 0 4px; letter-spacing: -.3px; }
+  .bottom-notes > p { margin: 0 0 12px; color: var(--text3); font-size: 11.5px; }
+  .table {
+    width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; overflow: hidden; font-size: 11.5px;
+  }
+  .table th, .table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .table th { color: var(--text3); font-weight: 600; font-size: 10.5px; background: var(--card); }
+  .table tr:last-child td { border-bottom: none; }
+  .table td b { color: var(--text); }
+  .table .stars { color: var(--accent2); font-size: 10px; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 12px); opacity: 0; background: var(--text); color: var(--bg); font-size: 11.5px; font-weight: 600; padding: 8px 14px; border-radius: 999px; pointer-events: none; transition: .2s; z-index: 99; }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 1250px) {
+    .stage { grid-template-columns: 1fr; }
+    .notes-side { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+  @media (max-width: 1040px) {
+    .app { height: auto; min-height: 650px; }
+    .drawer { width: 310px; }
+    .notes-side { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 860px) {
+    .page { padding: 20px 12px 40px; }
+    .hero { display: block; }
+    .hero-actions { justify-content: flex-start; margin-top: 12px; }
+    .app { flex-direction: column; height: auto; }
+    .side { width: 100%; border-right: none; border-bottom: 1px solid var(--line); flex-direction: row; align-items: center; padding: 10px 12px; }
+    .brand { padding: 0 8px 0 0; }
+    .nav { flex-direction: row; flex: 1; overflow-x: auto; }
+    .nav a { padding: 7px 9px; white-space: nowrap; }
+    .nav a span { display: none; }
+    .side-foot { display: none; }
+    .main { min-height: 560px; }
+    .drawer { width: 100%; border-left: none; border-top: 1px solid var(--line); max-height: 420px; }
+    .topbar { padding: 12px 12px 0; flex-wrap: wrap; }
+    .title { flex: 1 1 100%; min-width: 0; }
+    .top-actions { width: 100%; flex-wrap: wrap; }
+    .roomhead, .peers { margin-left: 12px; margin-right: 12px; }
+    .peers { overflow-x: auto; }
+    .peers-label { display: none; }
+    .chat { padding-left: 12px; padding-right: 12px; }
+    .table { display: block; overflow-x: auto; }
+  }
+</style>
+</head>
+<body data-theme="dark">
+<div class="page">
+  <header class="hero">
+    <div>
+      <span class="eyebrow"><i></i> 最小改动落地 · Snapdrop / LocalSend</span>
+      <h1>不推翻现有界面，<em>只加几块</em>。</h1>
+      <p>保留 CC-Flash 当前的侧边栏、消息发送页、共享文件抽屉和输入栏。设备发现、PWA、粘贴文本、分享入口都以“增量区块”接入；接收确认标记为 P1，需设备会话协议，不放进首版。</p>
+      <p style="margin-top:10px;padding:10px 14px;border-radius:10px;background:rgba(53,194,153,.08);border:1px solid rgba(53,194,153,.22);font-size:13px;line-height:1.7">实现状态（v1.2.2）：UDP 多播/广播发现、设备条与收藏、忙碌状态、点对点投递、失联引导已落地；PWA 仅在 https/localhost 可安装（局域网 http 只能添加主屏幕快捷方式）；接收确认/最近传输仍为规划项。</p>
+    </div>
+    <div class="hero-actions">
+      <button class="toggle-btn" onclick="toggleChanges()"><span class="dot"></span><span id="changeLabel">隐藏新增改动</span></button>
+      <button class="toggle-btn" onclick="toggleTheme()">切换深/浅色</button>
+    </div>
+  </header>
+
+  <div class="stage">
+    <!-- 现有界面 + 增量 -->
+    <div class="app" id="appWindow">
+      <aside class="side">
+        <div class="brand">
+          <span class="mark">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+          </span>
+          CC-Flash
+        </div>
+        <nav class="nav">
+          <a class="on" href="#" onclick="return false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+            <span>消息发送</span>
+          </a>
+          <a href="#" onclick="return false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg>
+            <span>服务中心</span>
+          </a>
+          <a href="#" onclick="return false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            <span>CC设置</span>
+          </a>
+        </nav>
+        <div class="side-foot">
+          <div class="ver">v1.2.2 · Tauri</div>
+          <button class="collapse">‹ 收起</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="topbar">
+          <div class="title">
+            <h2>消息发送</h2>
+            <div class="sub">同一 Wi-Fi 下的设备扫码或复制地址即可访问</div>
+          </div>
+          <div class="top-actions">
+            <span class="pill run"><span class="dot"></span>运行中</span>
+            <button class="icon-btn" title="复制地址" onclick="toast('已复制地址')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+            <button class="icon-btn" title="显示二维码" onclick="toast('已打开二维码')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+            </button>
+            <button class="icon-btn" title="在浏览器打开" onclick="toast('已在系统浏览器打开')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 014 9 15 15 0 01-4 9 15 15 0 01-4-9 15 15 0 014-9z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="roomhead">
+          <span class="brief">同一 Wi-Fi · 局域网实时互通</span>
+          <button class="hbtn" onclick="toast('已清空本窗口消息显示')">清空消息</button>
+          <button class="hbtn" onclick="toast('已打开共享文件')">▢ 17</button>
+          <span class="ava">🐻</span>
+        </div>
+
+        <!-- 新增 1：附近设备 -->
+        <div class="peers" data-change="1">
+          <div class="peers-label"><b>附近设备 · 自动发现</b><small>UDP 多播 / 手动 IP 兜底</small></div>
+          <span class="cnew">新增 1</span>
+          <button class="peer" onclick="toast('已选择 iPhone 15')"><span class="pdot"></span>iPhone 15<span class="star on" onclick="toggleStar(event,this)">★</span></button>
+          <button class="peer" onclick="toast('已选择 iPad Pro')"><span class="pdot"></span>iPad Pro<span class="star" onclick="toggleStar(event,this)">★</span></button>
+          <button class="peer busy" onclick="toast('客厅电脑正在传输，稍后再试')"><span class="pdot"></span>客厅电脑 · 忙碌</button>
+        </div>
+
+        <div class="chat">
+          <div class="date">11-16</div>
+          <div class="empty">
+            <div class="ic">📁</div>
+            <b>还没有内容</b>
+            拖个文件进来，或说句话。
+            <div class="acts">
+              <button class="send" onclick="toast('选择文件')">上传文件</button>
+              <button class="hbtn" onclick="toast('打开共享文件')">共享文件</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="plus-panel" id="plusPanel">
+          <button class="plus-item" onclick="toast('选择文件')">📄 文件</button>
+          <button class="plus-item" onclick="toast('选择文件夹')">🗂 文件夹</button>
+          <button class="plus-item" data-change="1" onclick="pasteText()">📋 粘贴文本 / 剪贴板 <span class="cnew">新增 3</span></button>
+          <button class="plus-item" onclick="toast('打开共享文件')">📁 共享文件</button>
+        </div>
+
+        <div class="composer">
+          <button class="plus" id="plusBtn" onclick="togglePlus()">＋</button>
+          <input class="input" id="chatInput" placeholder="说点什么…（回车发送，Shift+回车换行）" />
+          <button class="send" onclick="toast('已发送')">发送</button>
+        </div>
+      </main>
+
+      <aside class="drawer">
+        <div class="dhead">
+          <b>共享文件</b><span class="dcount">17</span>
+          <div class="dacts">
+            <button class="icon-btn" style="width:28px;height:28px" title="打开共享目录" onclick="toast('已打开共享目录')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19V6a2 2 0 012-2h4l2 2h7a2 2 0 012 2v2"/><path d="M4 19h14.5a2 2 0 001.94-1.5L22 9H7.5a2 2 0 00-1.94 1.5z"/></svg>
+            </button>
+            <button class="icon-btn" style="width:28px;height:28px" title="收起" onclick="toast('已收起共享文件')">›</button>
+          </div>
+        </div>
+
+        <!-- 新增 4（P1）：接收确认 -->
+        <div class="pending" data-change="1" id="pendingCard">
+          <div class="ptop"><span>📱</span><b>iPhone 15</b> 请求发送 <span class="cnew" style="background:var(--warning)">P1</span></div>
+          <p>陌生设备首次发送。接收后文件进入共享目录；可勾选信任，后续自动接收。</p>
+          <label class="trustline"><input type="checkbox" id="trustChk" checked /> 信任此设备，以后自动接收</label>
+          <div class="pacts">
+            <button class="mini" onclick="rejectPending()">拒绝</button>
+            <button class="mini pri" onclick="acceptPending()">接收</button>
+          </div>
+        </div>
+
+        <div class="dtools">
+          <div class="sort">
+            <button class="on">最新</button><button>名称</button><button>大小</button>
+          </div>
+          <label class="selall"><input type="checkbox" />全选</label>
+          <button class="icon-btn" style="width:26px;height:26px" title="刷新" onclick="toast('已刷新')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 11-2.6-6.4"/><polyline points="21 3 21 9 15 9"/></svg>
+          </button>
+        </div>
+
+        <div class="dlist">
+          <div class="frow">
+            <input type="checkbox" />
+            <span class="thumb t-pdf">PDF</span>
+            <span><span class="fname">需求评审纪要.pdf</span><span class="fmeta">2.4 MB · 11-16 10:20</span></span>
+            <span class="frowacts">
+              <button title="打开文件"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+              <button title="分享" onclick="toast('已复制分享链接')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg></button>
+              <button class="danger" title="删除" onclick="toast('请确认删除')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+            </span>
+          </div>
+          <div class="frow">
+            <input type="checkbox" />
+            <span class="thumb t-jpg">JPG</span>
+            <span><span class="fname">现场照片_01.jpg</span><span class="fmeta">5.1 MB · 11-16 10:18</span></span>
+            <span class="frowacts">
+              <button title="打开文件"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+              <button title="分享" onclick="toast('已复制分享链接')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg></button>
+              <button class="danger" title="删除" onclick="toast('请确认删除')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+            </span>
+          </div>
+          <div class="frow">
+            <input type="checkbox" />
+            <span class="thumb t-zip">ZIP</span>
+            <span><span class="fname">release-build.zip</span><span class="fmeta">128.0 MB · 11-16 09:42</span></span>
+            <span class="frowacts">
+              <button title="打开文件"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+              <button title="分享" onclick="toast('已复制分享链接')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg></button>
+              <button class="danger" title="删除" onclick="toast('请确认删除')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+            </span>
+          </div>
+          <div class="frow">
+            <input type="checkbox" />
+            <span class="thumb t-csv">CSV</span>
+            <span><span class="fname">aibug_sync_result.csv</span><span class="fmeta">158 B · 11-15 18:36</span></span>
+            <span class="frowacts">
+              <button title="打开文件"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+              <button title="分享" onclick="toast('已复制分享链接')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg></button>
+              <button class="danger" title="删除" onclick="toast('请确认删除')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+            </span>
+          </div>
+        </div>
+        <!-- 新增 4：最近传输 / 收藏（P0） -->
+        <div class="recent-mini" data-change="1">
+          <div class="rm-head"><b>最近传输</b><span class="cnew">P0</span></div>
+          <div class="rm-item">
+            <span class="rm-ic t-pdf">PDF</span><span class="rm-name">需求评审纪要.pdf</span>
+            <em class="ok">完成</em><button onclick="toast('已重新发送')">重发</button>
+          </div>
+          <div class="rm-item">
+            <span class="rm-ic t-zip">ZIP</span><span class="rm-name">release-build.zip</span>
+            <em class="bad">失败</em><button onclick="toast('已重新发送')">重发</button>
+          </div>
+        </div>
+
+        <!-- 新增 5：分享给没有打开页面的设备（已具备能力，新增入口） -->
+        <div class="share-mini" data-change="1">
+          <span class="sqr">▦</span>
+          <span class="smt"><b>分享给没有打开页面的设备</b><small>浏览器打开即接收 · 复用现有 PIN / 一次性票据</small></span>
+          <button onclick="copyShare()">复制链接</button>
+        </div>
+
+        <div class="dfoot">
+          分享链接与二维码已具备，无需改动
+          <div class="pager"><button>‹</button><button class="on">1</button><button>2</button><button>›</button></div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 右侧：最小改动说明 -->
+    <aside class="notes-side">
+      <div class="ncard">
+        <h3>最小改动清单</h3>
+        <p class="sub">不改信息架构，只在现有房间里加块；复用已有 PIN、票据、二维码、共享目录。</p>
+        <div class="change-item">
+          <span class="num">1</span>
+          <div class="txt"><b>附近设备条 <span class="tag p0">P0</span></b>
+            <p>在房间头下方加一条设备胶囊；只展示在线/忙碌/收藏，点击复制地址或打开其页面，不改传输模型。</p>
+            <span class="meta">server UDP + /api/devices · 约 160 行</span>
+          </div>
+        </div>
+        <div class="change-item">
+          <span class="num">2</span>
+          <div class="txt"><b>PWA 安装 <span class="tag p0">P0</span></b>
+            <p>仅在浏览器/手机端显示安装提示；桌面壳已有原生 App，不出现安装按钮。manifest/service worker 复用现有 logo 与主题色。</p>
+            <span class="meta">2 个静态文件 + 约 80 行 · 桌面端隐藏</span>
+            <div class="pwa-mini"><span>📲</span><span><b>仅浏览器 / 手机端</b><small>桌面壳不显示 PWA 安装提示</small></span></div>
+          </div>
+        </div>
+        <div class="change-item">
+          <span class="num">3</span>
+          <div class="txt"><b>粘贴文本 <span class="tag p0">P0</span></b>
+            <p>现有 ＋ 面板的「粘贴」扩展：有文本就填入输入框，有文件就走原上传逻辑。</p>
+            <span class="meta">约 10 行 · 复用现有 composer</span>
+          </div>
+        </div>
+        <div class="change-item">
+          <span class="num">4</span>
+          <div class="txt"><b>最近传输 / 收藏 <span class="tag p0">P0</span></b>
+            <p>抽屉底部加最近传输（成功/失败 + 重发）；设备条星标收藏，收藏设备置顶。</p>
+            <span class="meta">约 30 行 · 复用现有文件列表 / localStorage</span>
+          </div>
+        </div>
+        <div class="change-item">
+          <span class="num">5</span>
+          <div class="txt"><b>接收确认 + 信任 <span class="tag p1">P1</span></b>
+            <p>陌生设备首次发送时，在共享文件抽屉顶部出现待接收卡；可勾选信任，后续自动接收。需新增设备会话/待确认队列，不建议首版。</p>
+            <span class="meta">约 150 行协议 + UI · 单独迭代</span>
+          </div>
+        </div>
+        <div class="change-item">
+          <span class="num">✓</span>
+          <div class="txt"><b>分享链接 / 二维码 <span class="tag">已具备</span></b>
+            <p>现有复制地址、二维码、分享票据直接复用；本次零改动。</p>
+            <span class="meta">0 行 · 保持现状</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ncard">
+        <h3>复用与边界</h3>
+        <ul>
+          <li><span class="yes">复用</span> 当前房间头、共享文件抽屉、输入栏、＋面板</li>
+          <li><span class="yes">复用</span> PIN、一次性票据、二维码、共享目录</li>
+          <li><span class="yes">复用</span> 现有 HTTP REST，不引入 WebRTC</li>
+          <li><span class="no">不做</span> 极简首屏重构，避免大改</li>
+          <li><span class="no">不做</span> 云端中继、持续同步、通知遥控</li>
+        </ul>
+      </div>
+
+      <div class="ncard">
+        <h3>为什么这样最省</h3>
+        <p class="sub">Snapdrop/PairDrop 的“打开即用”不一定要重做首页；在现有页面上加一条附近设备 + 一个安装入口，就能把最短路径从「扫码 → 找地址」缩短到「看到设备 → 点击」。</p>
+        <p class="sub">LocalSend 的接收确认依赖设备会话，属于协议层改动；先用 P1 标注，避免把首版拖成重构。</p>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 代码落点表 -->
+  <section class="bottom-notes">
+    <h2>代码落点与改动量</h2>
+    <p>以当前工作区代码为基线；“约”为含样式与边界的估算，不含测试。</p>
+    <table class="table">
+      <thead><tr><th>改动</th><th>落点</th><th>新增/复用</th><th>估算</th><th>优先级</th></tr></thead>
+      <tbody>
+        <tr><td><b>附近设备条</b></td><td><code>src-tauri/src/server.rs</code>、<code>src/App.vue</code>、<code>src/style.css</code></td><td>新增 UDP 发现 + <code>/api/devices</code> + <code>.tx-peers</code>；复用房间头</td><td>约 160 行</td><td class="stars">P0</td></tr>
+        <tr><td><b>PWA 安装</b></td><td><code>public/manifest.webmanifest</code>、<code>public/sw.js</code>、<code>index.html</code></td><td>新增静态文件与注册；<b>仅浏览器/手机端</b>显示安装提示，桌面壳隐藏；复用现有图标/主题色</td><td>约 80 行</td><td class="stars">P0</td></tr>
+        <tr><td><b>粘贴文本</b></td><td><code>src/App.vue</code> 的 <code>pasteFromClipboard</code></td><td>文本填入 <code>chatInput</code>；文件走原上传</td><td>约 10 行</td><td class="stars">P0</td></tr>
+        <tr><td><b>分享链接/二维码</b></td><td>现有分享票据与二维码</td><td>零改动</td><td>0 行</td><td>已有</td></tr>
+        <tr><td><b>最近传输 / 收藏 / 忙碌</b></td><td>抽屉底部 + 设备条 + <code>localStorage</code></td><td>最近成功/失败记录与重发；星标收藏置顶；忙碌状态点</td><td>约 30 行</td><td class="stars">P0</td></tr>
+        <tr><td><b>接收确认/信任</b></td><td>服务端设备会话 + 抽屉待接收卡</td><td>新增待确认队列、信任列表、接收 UI</td><td>约 150 行</td><td>P1</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('on');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('on'), 1700);
+  }
+
+  function toggleChanges() {
+    document.body.classList.toggle('hide-changes');
+    const hidden = document.body.classList.contains('hide-changes');
+    document.getElementById('changeLabel').textContent = hidden ? '显示新增改动' : '隐藏新增改动';
+    toast(hidden ? '已回到当前界面（新增块隐藏）' : '已显示新增改动');
+  }
+
+  function toggleTheme() {
+    document.body.setAttribute('data-theme', document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  }
+
+  function togglePlus() {
+    const panel = document.getElementById('plusPanel');
+    const btn = document.getElementById('plusBtn');
+    panel.classList.toggle('on');
+    btn.classList.toggle('on');
+  }
+
+  function pasteText() {
+    const input = document.getElementById('chatInput');
+    input.value = 'http://10.161.118.251:6688';
+    input.focus();
+    toast('已粘贴文本到输入框');
+  }
+
+  function toggleStar(e, el) {
+    e.stopPropagation();
+    el.classList.toggle('on');
+    toast(el.classList.contains('on') ? '已收藏该设备' : '已取消收藏');
+  }
+
+  function copyShare() {
+    toast('已复制分享链接（复用 PIN / 一次性票据）');
+  }
+
+  function acceptPending() {
+    const trusted = document.getElementById('trustChk').checked;
+    document.getElementById('pendingCard').style.display = 'none';
+    toast(trusted ? '已接收并信任 iPhone 15，后续自动接收' : '已接收本次文件');
+  }
+
+  function rejectPending() {
+    document.getElementById('pendingCard').style.display = 'none';
+    toast('已拒绝本次接收');
+  }
+
+  document.addEventListener('click', (e) => {
+    const panel = document.getElementById('plusPanel');
+    if (!panel.classList.contains('on')) return;
+    if (e.target.closest('#plusPanel, #plusBtn')) return;
+    panel.classList.remove('on');
+    document.getElementById('plusBtn').classList.remove('on');
+  });
+</script>
+</body>
+</html>

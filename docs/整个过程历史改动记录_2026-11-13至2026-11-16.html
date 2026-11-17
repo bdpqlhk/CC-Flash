@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC-Flash · 整个过程历史改动记录（2026-11-13 至 2026-11-16）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC-Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-11-13 至 2026-11-16</b> · 版本：<b>v1.2.2</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="callout"><b>阅读说明</b>本文记录 v1.2.2 的实际改动。历史文档保留当时原貌，行为以最新《技术实现文档》与 README 为准。</div>
+
+<h2>一、移动端：从纯客户端改为独立节点</h2>
+<ul>
+<li><b>本机服务</b>：Android/iOS App 启动 Rust 侧本地 HTTP 服务与聊天，前端自动连 <code>127.0.0.1</code>；启动门在失败时提供「重新启动本机服务」，并自动重探端口。</li>
+<li><b>默认安全模式</b>：移动端 <code>open_lan</code> 默认关闭，只监听回环；CC设置新增「局域网访问 / 访问令牌 / 重启服务」；修改后需重启服务生效。</li>
+<li><b>连接电脑双模式</b>：CC设置可填电脑地址，切回「本机节点」一键恢复；地址持久化在 localStorage + Rust pref（WKWebView localStorage 可能不落盘）。</li>
+<li><b>Android 保活</b>：新增 <code>LocalServerService</code> 前台服务（dataSync）、<code>POST_NOTIFICATIONS</code>、<code>ACCESS_WIFI_STATE</code>、<code>allowBackup=false</code>；<code>MainActivity</code> 持有 <code>MulticastLock</code> 以接收 UDP 多播。</li>
+<li><b>iOS</b>：仍无 <code>gen/apple</code> 工程与签名，未交付；macOS 增加 <code>Info.plist</code> 的 <code>NSLocalNetworkUsageDescription</code>。</li>
+</ul>
+
+<h2>二、附近设备（UDP 发现）</h2>
+<ul>
+<li>多播组 <code>239.255.42.99:53318</code> + 广播兜底，节点每 5s 广播昵称/端口/忙碌状态；peers 上限 64、TTL 120s。</li>
+<li><code>/api/devices</code> 只返回多播发现的真实节点；<code>/api/hello</code> 不再把浏览器登记为可发送目标（无监听端口）。</li>
+<li>前端顶部设备条：收藏置顶、忙碌点、点击投递消息/文件；只允许向私网 IP 投递，头字段统一 <code>encodeURIComponent</code>，消息回执不记录正文。</li>
+<li>跨源：服务端放行"两侧都是私网 IP"的 Origin（PIN 校验仍在），浏览器端可跨设备投递。</li>
+</ul>
+
+<h2>三、数据完整性</h2>
+<ul>
+<li><b>上传清理</b>：<code>abort_upload</code> 与启动清理改为"成品确认删除成功/NotFound 才删标记"；Windows 句柄占用时保留标记等下次启动，半截文件不会以真实名可下载。</li>
+<li><b>下载</b>：响应增加强 <code>ETag</code>（size+mtime）；<code>If-Range</code> 不匹配时忽略 Range 回 200 全量，避免同名文件被替换后续传拼坏。</li>
+<li><b>分享票据</b>：绑定文件 size/ETag，文件删除/同名重传后立即失效；满 2048 拒绝新票而非随机驱逐；<code>delete_file</code> 同步清理该文件票据。</li>
+<li><b>聊天</b>：id 改为进程内单调计数器，删除最新消息后不复用；Windows 持久化移除 <code>remove → rename</code> 窗口，直接原子替换；历史保留最近 200 条。</li>
+<li><b>用户 .ccup</b>：只有内容为系统令牌/空/ok 的标记才视为上传中；用户自建同后缀文件正常列出、下载、删除。</li>
+</ul>
+
+<h2>四、安全加固</h2>
+<ul>
+<li>访问令牌：公网来源新增全局失败预算（60 次/10 分钟），防止轮换 IPv6 前缀或分布式 IPv4 爆破；私网/本机不受影响。</li>
+<li>控制接口：拒绝 <code>Sec-Fetch-Site: cross-site/same-site</code>，堵住 <code>&lt;a ping&gt;</code> 停服/清日志。</li>
+<li>静态 fallback 移入中间件之前，Host/Origin 校验与请求日志重新覆盖；静态响应补 <code>X-Content-Type-Options</code>、<code>X-Frame-Options</code>、<code>Referrer-Policy</code>、<code>frame-ancestors 'self'</code>。</li>
+<li><code>is_lan_peer</code> 纳入 <code>100.64.0.0/10</code>（CGNAT / Tailscale）；删除三份平台 conf 中重复覆盖的 CSP，统一由基础配置继承。</li>
+<li>移动端文件选择/复制/拖拽等既有防线保持不变。</li>
+</ul>
+
+<h2>五、前端体验与构建</h2>
+<ul>
+<li>修复：启动门死锁、点对点文件头未编码、下载 blob 无超时/空 URL、上传 401 误清新 PIN、聊天响应体无超时、状态轮询无互斥、失败上传保留 File 无上限、手机无法改昵称、触屏误触隐藏操作条、日志全量渲染（现只渲染最近 300 行）、弹层层级与 Esc 关闭。</li>
+<li>PWA：HTTP 局域网地址下明确提示"只能添加主屏幕快捷方式"，不再假装可安装。</li>
+<li>CI：<code>npm ci</code>；发布前校验 tag 与 Cargo.toml / package.json / config.js / Android versionCode 四处一致。</li>
+<li>macOS 最低系统版本提升到 11.0（前端 ES2021 需要 Safari 14+）。</li>
+</ul>
+
+<h2>六、构建产物瘦身（v1.2.2 同批）</h2>
+<ul>
+<li><b>前端</b>：失联提示图由 PNG(133 KB) 改为 JPEG(59 KB) 并以内联 base64 使用；关闭 Vue Options API 与生产 devtools（全项目只用 <code>&lt;script setup&gt;</code>）；QRCode 改为命名导入。JS <b>436.4 KB → 328.9 KB</b>（gzip 232.8 → 143.4 KB），dist 700 KB → 540 KB。</li>
+<li><b>图标</b>：<code>icon.icns</code> 631 → 225 KB、<code>icon.ico</code> 91 → 35 KB、<code>icon.png</code> 86 → 37 KB、<code>public/icon-512.png</code> 91 → 37 KB（无损调色板化，逐像素回验一致）；全部 PNG 再做 zlib level 9 无损重压缩（iOS/Windows 磁贴等共减约 60 KB）。</li>
+<li><b>Rust</b>：沿用 <code>strip + LTO + codegen-units=1 + opt-level=z + panic=abort</code>，二进制 <b>4.3 → 4.0 MB</b>。</li>
+<li><b>实测</b>：macOS aarch64 dmg <b>3.8 MB → 2.7 MB（-29%）</b>；Windows/Android 未在本机构建，共享同一套资源/前端瘦身。</li>
+</ul>
+
+<h2>七、UDP 附近设备自测与修复</h2>
+<ul>
+<li><b>自测</b>：新增 4 个测试覆盖报文过滤（非 ccflash / 自身 id / 0、80、1023、70000 端口）、昵称控制字符与 RTL 剥离、同 IP 换 id 去重、64 条上限、120s TTL、<code>ip:port</code> 快照去重，以及“UDP 报文 → 登记 → <code>/api/devices</code>”端到端链路；含原有 6 个测试共 10 个全部通过。</li>
+<li><b>修复</b>：设备 id 持久化到 <code>discovery-id</code>（重启后收藏稳定、列表不再出现同一设备两条）；安全模式（仅 127.0.0.1）不再广播本机（避免别人看到手机却连不上）；端口下限提到 1024（减少把发送方指向内网系统服务的 SSRF 面）；同 IP 只保留最新 id、满额时同 IP 换 id 允许替换（不会先删后拒导致设备消失）；设备快照按 <code>ip:port</code> 去重；发现端口被占用导致首次启动失败后，下次启服务可重试；服务停止后监听线程不再刷新设备表。</li>
+</ul>
+
+<h2>八、iOS Safari 体验优化（参考 Snapdrop 交互）</h2>
+<ul>
+<li><b>布局基准</b>：主壳是 <code>position:fixed</code>，<code>body</code> 高度为 0 会让 iOS WebKit 的滚动/地址栏/截图行为异常 —— 补 <code>html, body { height:100% }</code>；手机浏览器隐藏底部版权条，把高度留给聊天区与输入栏。</li>
+<li><b>滚动性能</b>：移动端时间线只渲染最近 140 条（聊天 200 + 远端 100 + 上传 200 可达 500 条复杂 DOM，Safari 会掉帧），桌面仍全量；消息 Markdown HTML 按 <code>id:timestamp</code> 缓存，不再每轮重算 200 条。</li>
+<li><b>事件合并</b>：滚动监听、<code>visualViewport</code> 高度/偏移、输入框自增高全部用 <code>requestAnimationFrame</code> 合并，CSS 变量仅在值真正变化时写，避免 iOS 键盘/地址栏动画期间整页重排。</li>
+<li><b>渲染开销</b>：移动端关闭 <code>backdrop-filter</code>、高频元素不再 <code>transition:all</code>；<code>-webkit-tap-highlight-color: transparent</code>、<code>touch-action: manipulation</code>、<code>-webkit-overflow-scrolling: touch</code>；附近设备条与头部按钮触控热区加大到 32/34px。</li>
+<li><b>交互细节</b>：附近设备弹窗主按钮改为「发送文件」（Snapdrop 式“点设备主要就是发文件”），缩略图 <code>decoding="async"</code>。</li>
+<li><b>加载速度</b>：<code>/assets/</code> 构建产物（文件名带 hash）改为一年 <code>immutable</code> 长缓存，<code>index.html</code> 保持 <code>no-store</code> —— iOS 二次打开/切回页面不再重新下载 300KB+ JS。</li>
+</ul>
+
+<h2>九、全量复审与修复（第二轮）</h2>
+<ul>
+<li><b>安全</b>：私网 Origin 只允许“跨设备、非 loopback、IP 不同”，且无访问令牌时直接拒绝（防恶意局域网页面借同机浏览器绕 AP 隔离）；跨设备请求不再享受本机 PIN 豁免。</li>
+<li><b>上传完整性</b>：系统 <code>.ccup</code> 标记不可经 API 删除；上传成功删标记前校验会话 token（防同名新上传的 marker 被旧会话拆掉）；启动清理与上传“占位→标记→登记”共用 <code>file_op_lock</code>；上传拿锁后复检 STOPPING；旧版裸 16hex 标记重新识别；用户/二进制 <code>.ccup</code> 不再误隐藏成品，读取限制 128 字节。</li>
+<li><b>下载</b>：open 后用文件句柄取 metadata，避免 stat/open 之间被替换导致 Content-Length 与字节不一致。</li>
+<li><b>状态与限流</b>：新增 <code>LAN_ACTIVE</code>（实际绑定）并与偏好分离，二维码/分享/广播按实际判断；票据开票每 IP 60 张/分钟；PIN 与聊天历史文件权限 0600；UDP 监听线程每 30s 重新 join 当前网卡。</li>
+<li><b>跨平台</b>：Linux 托盘失败关窗直接退出（不再僵尸进程）；Android dataSync 前台服务补 <code>onTimeout</code>、单色通知图标、MulticastLock 下沉到 Service、声明 <code>ACCESS_LOCAL_NETWORK</code>；PWA 图标去掉 maskable 标记。</li>
+<li><b>前端</b>：移动壳本机节点改走 Tauri 状态命令（修复 PIN 码值被轮询清空）；启动失败/无信号提供“改用连接电脑/修改电脑地址”出口；连接电脑模式隐藏手机本机设置并停服收回局域网开放；失联文案区分本机/电脑；切回本机前清理旧电脑状态；刘海屏 more 菜单与横屏左右安全区修正；peer 输入框 16px、设备条隐藏滚动条、回到底部按钮避让 Home 条。</li>
+</ul>
+
+<h2>十、第二轮复审修复（跨源投递/票据/代际/历史）</h2>
+<ul>
+<li><b>跨源</b>：无访问令牌时，局域网跨设备 Origin 只允许 <code>POST /api/upload</code> 与 <code>/api/chat</code> 投递；读列表、下载、删除、生成分享票据一律拒绝。移动端禁用 HTTP <code>/api/control/*</code>（只走应用内 Tauri 命令，避免同机 App 停服/读日志）。</li>
+<li><b>票据</b>：已消费票据在 10 分钟内、同来源 IP、同文件且内容未变时，允许后续 <code>Range</code> 请求（Safari 分段预览/断点续传不再 401）；无 Range 的第二次整包下载仍一次性失效。ETag 混入 inode（Unix）/创建时间（其他平台），降低粗粒度 mtime 文件系统的碰撞。</li>
+<li><b>限流</b>：聊天 60 条/分钟/IP；票据开票 60 张/分钟/IP；PIN 公网全局预算成功时清零、窗口缩短到 5 分钟，合法用户可从 DoS 中恢复。</li>
+<li><b>PIN 策略</b>：浏览器跨设备投递弹窗新增“对方配对码”（按 `ip:port` 记忆，请求带 `X-Access-Pin`，401 时明确提示）；移动端开启访问令牌后 loopback 不再豁免，App 通过 Tauri 命令自动取码，同机其他 App 拿不到码。</li>
+<li><b>前端</b>：切换电脑/地址增加会话代际，旧请求的迟到响应不再覆盖新列表/聊天/状态；移动端时间线改为“窗口起点 + 加载更早”，上翻时新消息不再裁切顶部造成跳动，历史不再静默丢失；移动壳日志轮询不再打 HTTP 控制接口。</li>
+</ul>
+
+<h2>十一、全量自测、体验优化与产物瘦身（2026-11-17）</h2>
+<ul>
+<li><b>P0 修复</b>：移动端时间线窗口的 <code>watch</code> 在 setup 阶段提前求值 <code>timelineItems</code>，其依赖 <code>chatMsgs</code>/<code>clearedTs</code> 尚未初始化 → TDZ 整页白屏。已移到 <code>onMounted</code> 后注册。</li>
+<li><b>全量自测</b>：Playwright 覆盖桌面浏览器 / 手机浏览器 / 移动壳 / 桌面壳，48 项断言全部通过；320 / 375 / 390 / 430 与横屏均无横向溢出。上传、下载、预览、分享、删除确认、聊天、附近设备（含对方配对码）、设置（局域网/令牌/主题/重启）、二维码、连接电脑、切回本机、失联出路均通过。</li>
+<li><b>体验</b>：≤380 头部只留呼吸点并隐藏副标题（标题不再截断）；桌面壳窄窗隐藏与顶栏重复的副标题；点击不再常驻焦点环（键盘导航保留）；外观模式按钮不再折行；Esc 关闭共享文件面板；附近设备空消息给出提示；收藏星标可键盘操作；移动壳说明文案精简。</li>
+<li><b>瘦身</b>：失联图改为 JPEG q60（59→51 KB，内联 base64 减约 11 KB）；前端 JS 333.6→323.4 KB（gzip 145→138.9 KB）、CSS 94.9 KB（gzip 17.9 KB）；macOS release 二进制 4.0 MB、dmg 2.7 MB（首轮 4.3 MB / 3.8 MB，累计 -7% / -29%）。</li>
+</ul>
+
+<p class="small">CC-Flash · 历史改动记录 · 2026-11-17</p>
+</body>
+</html>

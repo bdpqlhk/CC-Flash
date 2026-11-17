@@ -491,7 +491,7 @@
   <!-- ============ 左侧目录 ============ -->
   <aside class="rail" aria-label="目录">
     <div class="rail-brand"><span class="rail-ring">CC</span> CC-Flash</div>
-    <div class="rail-sub">MERGE NOTE<br>2026-11 / v1.2.1 实现对齐</div>
+    <div class="rail-sub">MERGE NOTE<br>2026-11 / v1.2.2 实现对齐</div>
     <nav class="rail-nav">
       <a class="on" href="#decision"><span class="n">01</span>结论</a>
       <a href="#principles"><span class="n">02</span>设计原则</a>
@@ -522,7 +522,7 @@
           <span class="b">对话时间线 + 文件抽屉</span>
           <span class="g">0 功能删减</span>
           <span class="b">≥980px 对话 + 抽屉 / &lt;980px 单列 + 面板</span>
-          <span class="g">v1.2.1 已落地</span>
+          <span class="g">v1.2.2 已落地</span>
         </div>
         <p class="small ix-note" style="margin-top:18px">
           <b>落地状态</b>：本页最初提出的是「左文件、右对话」双栏与移动端「文件 / 消息」分段。
@@ -639,7 +639,7 @@
         <div>
           <h2>桌面：从双栏到「对话 + 文件抽屉」。</h2>
           <p class="sec-intro">
-            当前实现（v1.2.1）在宽度 ≥980px 时，主区是一条完整的对话时间线，右侧是共享文件抽屉：
+            当前实现（v1.2.2）在宽度 ≥980px 时，主区是一条完整的对话时间线，右侧是共享文件抽屉：
             时间线可以有消息、文件卡片、文件组与在途上传；抽屉负责排序、分页、批量删除与分享。
             两区各自滚动，页面本身不滚；没有可拖动接缝，抽屉宽度为 <span class="mono">clamp(340px,30vw,400px)</span>，点顶部文件夹按钮收起 / 展开。
           </p>
@@ -677,7 +677,7 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                 CC设置
               </div>
-              <div class="m-side-foot"><b>● 运行中 :1688</b>v1.2.1 · Tauri</div>
+              <div class="m-side-foot"><b>● 运行中 :1688</b>v1.2.2 · Tauri</div>
             </aside>
 
             <!-- 主区 -->
@@ -934,7 +934,7 @@
         <li><span class="mk">D</span><span><b>状态保留</b>：面板开关不重建时间线，文件分页 / 选中、聊天滚动与草稿都不丢。</span></li>
         <li><span class="mk">E</span><span><b>移除悬浮球与分段</b>：入口不再重复；未读由侧栏 / 标题 / 页面胶囊承担，新文件只在文件按钮点绿点。</span></li>
       </ul>
-      <p class="small" style="margin-top:14px">桌面窄窗与手机浏览器共用同一形态；Android/iOS 壳同样受益（客户端模式不变）。微信内置浏览器顶部只保留一条引导条，≤980px 不再占满整屏。</p>
+      <p class="small" style="margin-top:14px">桌面窄窗与手机浏览器共用同一形态；Android/iOS 壳同样受益（v1.2.2 起默认本机节点，也可切换连接电脑）。微信内置浏览器顶部只保留一条引导条，≤980px 不再占满整屏。</p>
     </section>
 
     <!-- ============ 05 关键交互 ============ -->
@@ -1004,7 +1004,7 @@
         <div class="card">
           <div class="ic-k"><span class="dot"></span><h3>服务状态只有一处</h3></div>
           <p>服务停止时，合并页顶部只出现一条内联提示「服务未启动 · 去启动」，上传区禁用；不再两个页面各提示一次。失联仍走整页「无信号」。</p>
-          <p class="small" style="margin-top:6px">移动壳失联页的「重新设置电脑地址」保持原样。</p>
+          <p class="small" style="margin-top:6px">移动壳失联页在 v1.2.2 改为「重新启动本机服务」（连电脑模式可回到本机节点，也可到 CC设置改地址）。</p>
         </div>
 
         <div class="card wide">
@@ -1190,7 +1190,7 @@
     </section>
 
     <footer class="foot">
-      <div><b>CC-Flash · 文件与消息合并入口</b><br>设计方案 v1.2.1 · 2026-11 · 已落地</div>
+      <div><b>CC-Flash · 文件与消息合并入口</b><br>设计方案 v1.2.2 · 2026-11 · 已落地</div>
       <div>与《微信版设计方案》《全端整体设计方案》对照阅读<br>与《需求设计文档》《技术实现文档》配套阅读</div>
     </footer>
   </main>

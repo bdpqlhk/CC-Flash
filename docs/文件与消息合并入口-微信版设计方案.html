@@ -480,7 +480,7 @@
 <div class="page">
   <aside class="rail" aria-label="目录">
     <div class="rail-brand"><span class="rail-ring">CC</span> CC-Flash</div>
-    <div class="rail-sub">WECHAT-STYLE NOTE<br>2026-11 / v1.2.1 已落地</div>
+    <div class="rail-sub">WECHAT-STYLE NOTE<br>2026-11 / v1.2.2 已落地</div>
     <nav class="rail-thread">
       <a class="on" href="#decision"><span class="n">01</span>结论</a>
       <a href="#why"><span class="n">02</span>为什么是微信式</a>
@@ -514,7 +514,7 @@
             <span>文件即消息</span>
             <span class="c">共享文件抽屉 340–400px</span>
             <span>微信式输入栏</span>
-            <span>v1.2.1 已落地</span>
+            <span>v1.2.2 已落地</span>
           </div>
         </div>
 
@@ -556,7 +556,7 @@
           <p class="sec-intro">
             不再把「文件」和「消息」当成两个页面：上传的文件直接成为对话里的文件卡片，文字仍是文字气泡。
             文件管理不消失，而是收进一个随时可打开的共享文件抽屉（桌面 340–400px / 移动 86dvh 底部面板）。
-            这样既保留微信式的熟悉感，也不牺牲批量管理能力。当前 v1.2.1 已按此结构落地，导航名称为「消息发送」。
+            这样既保留微信式的熟悉感，也不牺牲批量管理能力。当前 v1.2.2 已按此结构落地，导航名称为「消息发送」。
           </p>
         </div>
       </div>
@@ -654,7 +654,7 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                 CC设置
               </div>
-              <div class="wx-side-foot"><b>● 运行中 :1688</b>v1.2.1 · Tauri</div>
+              <div class="wx-side-foot"><b>● 运行中 :1688</b>v1.2.2 · Tauri</div>
             </aside>
 
             <!-- 主区 -->
@@ -1183,7 +1183,7 @@
         <div class="card">
           <div class="ic-k"><span class="dot"></span><h3>空状态与服务状态</h3></div>
           <p>空会话：一句「拖个文件，或说句话」+ 两个按钮（上传文件 / 打开共享文件）。服务停止：输入栏上方一条内联提示「服务未启动 · 去启动」，上传与发送禁用。</p>
-          <p class="small" style="margin-top:6px">失联仍走整页「无信号」；移动壳的「重新设置电脑地址」保持。</p>
+          <p class="small" style="margin-top:6px">失联仍走整页「无信号」；移动壳在 v1.2.2 改为「重新启动本机服务」（连电脑模式可回到本机节点，也可到 CC设置改地址）。</p>
         </div>
       </div>
       <p class="small ix-note" style="margin-top:12px;padding:11px 14px;border-radius:10px;background:var(--white);border:1px solid var(--line)"><b>键盘与可达性</b>：Enter 发送、Shift 不换行（与现版一致）；F5 刷新文件；Tab 顺序为 时间线 → 输入栏 → 抽屉；触屏无 hover 时动作按钮常显；<span class="mono">prefers-reduced-motion</span> 下禁用过渡。</p>
@@ -1231,7 +1231,7 @@
         <div class="sec-no">09<br><span>IMPLEMENTATION</span></div>
         <div>
           <h2>把时间线作为新的主干。</h2>
-          <p class="sec-intro">现有 <span class="mono">App.vue</span> 里聊天与上传是两套数据；微信版需要在它们之上加一层时间线，而不是重写底层上传与聊天。v1.2.1 仍保持单文件区块实现，未拆分为独立组件文件。</p>
+          <p class="sec-intro">现有 <span class="mono">App.vue</span> 里聊天与上传是两套数据；微信版需要在它们之上加一层时间线，而不是重写底层上传与聊天。v1.2.2 仍保持单文件区块实现，未拆分为独立组件文件。</p>
         </div>
       </div>
       <div class="impl">
@@ -1297,7 +1297,7 @@
         <div class="sec-no">10<br><span>TRADE-OFFS</span></div>
         <div>
           <h2>微信版 vs 双栏版：最终选择了微信版。</h2>
-          <p class="sec-intro">上一版「一页双栏」把文件与聊天并排；这一版把文件放进对话。v1.2.1 已落地微信式结构，双栏提案保留作对照。</p>
+          <p class="sec-intro">上一版「一页双栏」把文件与聊天并排；这一版把文件放进对话。v1.2.2 已落地微信式结构，双栏提案保留作对照。</p>
         </div>
       </div>
       <div class="tbl-wrap">
@@ -1317,7 +1317,7 @@
         <div class="card">
           <div class="c-k">RECOMMEND / A</div>
           <h3>手机优先 → 微信版（已落地）</h3>
-          <p>如果主要场景是手机 ↔ 电脑互传、临时发文件，微信版更顺手；文件管理收进抽屉后仍然完整。v1.2.1 已按此方案实现。</p>
+          <p>如果主要场景是手机 ↔ 电脑互传、临时发文件，微信版更顺手；文件管理收进抽屉后仍然完整。v1.2.2 已按此方案实现。</p>
         </div>
         <div class="card">
           <div class="c-k">RECOMMEND / B</div>
@@ -1361,7 +1361,7 @@
     </section>
 
     <footer class="foot">
-      <div><b>CC-Flash · 微信式合并入口</b><br>设计方案 v1.2.1 · 2026-11 · 已落地</div>
+      <div><b>CC-Flash · 微信式合并入口</b><br>设计方案 v1.2.2 · 2026-11 · 已落地</div>
       <div>与《文件与消息合并入口-设计方案》对照阅读<br>与《全端整体设计方案》《技术实现文档》配套阅读</div>
     </footer>
   </main>

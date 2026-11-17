@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CC-Flash · 保姆级使用说明（PixPin 官网风格版）</title>
+<meta name="description" content="CC-Flash 局域网文件互传保姆级使用说明（PixPin 官网风格版，适用于 v1.2.2）：三步上手、桌面端与手机端全攻略、附近设备、访问令牌、常见问题与安全须知。">
+<style>
+/* ============ PixPin 风格设计令牌 ============ */
+:root{
+  --bg:#f8f9fa; --bg2:#f3f4f6; --card:#ffffff;
+  --line:#e9ecef; --line2:#dee2e6;
+  --text:#212529; --text2:#495057; --muted:#868e96;
+  --brand:#3388ff; --brand-strong:#1f6bf0; --brand-deep:#164fce;
+  --brand-soft:#e3eeff; --brand-soft2:#f1f6ff;
+  --purple:#7c4dff; --purple-soft:#f0ebff;
+  --yellow:#f6bd16; --yellow-soft:#fff8e1;
+  --green:#2fbf83; --green-soft:#e7f8f0;
+  --pink:#ff6b81; --pink-soft:#ffecef;
+  --radius:16px; --radius-sm:10px; --radius-xs:8px;
+  --shadow:0 10px 30px rgba(33,37,41,.08);
+  --shadow-lg:0 24px 64px rgba(33,37,41,.13);
+  --max:1160px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --mono:"SF Mono",Menlo,Consolas,"Cascadia Code",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+a{color:var(--brand-strong);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.87em;background:#eef1f5;border:1px solid #e3e7ed;border-radius:6px;padding:1px 6px;color:#c7254e;white-space:nowrap}
+kbd{font-family:var(--font);font-size:.82em;background:#fff;border:1px solid #cfd6df;border-bottom-width:2px;border-radius:6px;padding:1px 7px;color:var(--text2);white-space:nowrap}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+.small{font-size:13px;color:var(--muted)}
+.mono{font-family:var(--mono)}
+
+/* ============ 导航 ============ */
+.nav{position:sticky;top:0;z-index:50;background:rgba(248,249,250,.86);backdrop-filter:saturate(180%) blur(14px);border-bottom:1px solid var(--line)}
+.nav-in{max-width:var(--max);margin:0 auto;padding:0 24px;height:62px;display:flex;align-items:center;gap:26px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;color:var(--text);letter-spacing:-.2px}
+.brand:hover{text-decoration:none}
+.brand-mark{width:28px;height:28px;border-radius:9px;background:linear-gradient(145deg,#4a92ff,#1f6bf0);display:grid;place-items:center;box-shadow:0 4px 12px rgba(47,123,255,.28)}
+.brand-mark svg{width:16px;height:16px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.nav-links{display:flex;align-items:center;gap:22px;margin-left:6px}
+.nav-links a{color:var(--text2);font-size:14px;font-weight:500;padding:6px 2px;border-radius:6px}
+.nav-links a:hover{color:var(--brand-strong);text-decoration:none}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:none;cursor:pointer;font-family:inherit;font-weight:600;border-radius:var(--radius-sm);padding:10px 18px;font-size:14px;line-height:1.2;transition:transform .16s ease,box-shadow .16s ease,background .16s ease;white-space:nowrap}
+.btn:hover{text-decoration:none;transform:translateY(-1px)}
+.btn-primary{background:linear-gradient(180deg,#4a92ff,#1f6bf0);color:#fff;box-shadow:0 6px 18px rgba(47,123,255,.28)}
+.btn-primary:hover{box-shadow:0 9px 24px rgba(47,123,255,.36)}
+.btn-ghost{background:#fff;color:var(--text2);border:1px solid var(--line2)}
+.btn-ghost:hover{color:var(--brand-strong);border-color:#bcd3ff}
+.btn-light{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.4)}
+.btn-light:hover{background:rgba(255,255,255,.24)}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.mobile-menu{display:none;margin-left:auto}
+.mobile-menu summary{list-style:none;cursor:pointer;width:38px;height:38px;border:1px solid var(--line2);border-radius:10px;display:grid;place-items:center;background:#fff}
+.mobile-menu summary::-webkit-details-marker{display:none}
+.mobile-menu summary svg{width:18px;height:18px;stroke:var(--text2);stroke-width:2.2;fill:none;stroke-linecap:round}
+.mobile-menu .panel{position:absolute;left:16px;right:16px;top:66px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-lg);padding:10px;display:grid;gap:2px}
+.mobile-menu .panel a{padding:11px 12px;border-radius:9px;color:var(--text2);font-size:14px}
+.mobile-menu .panel a:hover{background:var(--brand-soft);color:var(--brand-strong);text-decoration:none}
+
+/* ============ Hero ============ */
+.hero{position:relative;overflow:hidden;padding:76px 0 68px;background:
+  radial-gradient(920px 460px at 88% -14%,rgba(51,136,255,.17),transparent 62%),
+  radial-gradient(680px 380px at 2% 6%,rgba(124,77,255,.10),transparent 62%),
+  var(--bg)}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:
+  linear-gradient(90deg,rgba(33,37,41,.045) 1px,transparent 1px),
+  linear-gradient(rgba(33,37,41,.045) 1px,transparent 1px);
+  background-size:38px 38px;-webkit-mask-image:linear-gradient(#000,transparent 88%);mask-image:linear-gradient(#000,transparent 88%)}
+.hero-in{position:relative;display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,.98fr);gap:54px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line2);border-radius:999px;padding:6px 13px;font-size:12.5px;color:var(--text2);box-shadow:0 3px 10px rgba(33,37,41,.05)}
+.chip i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(47,191,131,.14)}
+.hero h1{font-size:clamp(34px,4.4vw,52px);line-height:1.16;letter-spacing:-1.4px;font-weight:800;margin:20px 0 16px}
+.hero h1 .hl{color:var(--brand-strong);position:relative;isolation:isolate;white-space:nowrap}
+.hero h1 .hl::after{content:"";position:absolute;left:0;right:0;bottom:4px;height:10px;background:linear-gradient(90deg,rgba(246,189,22,.42),rgba(246,189,22,.12));border-radius:4px;z-index:-1}
+.hero .lead{font-size:16.5px;color:var(--text2);max-width:520px}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+.hero-feats{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.feat-pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text2);background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+.feat-pill svg{width:13px;height:13px;stroke:var(--green);stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* Hero 产品示意 */
+.mock{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow-lg);overflow:hidden;transform:rotate(.4deg)}
+.mock-bar{height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;background:#fbfcfd;border-bottom:1px solid var(--line)}
+.mock-bar i{width:9px;height:9px;border-radius:50%;background:#e3e7ed}
+.mock-bar i:nth-child(1){background:#ff6b6b}.mock-bar i:nth-child(2){background:#f6bd16}.mock-bar i:nth-child(3){background:#5ad8a6}
+.mock-url{margin-left:9px;flex:1;height:22px;border-radius:999px;background:#f1f3f5;border:1px solid #e9ecef;display:flex;align-items:center;padding:0 10px;font-family:var(--mono);font-size:10.5px;color:#868e96;overflow:hidden;white-space:nowrap}
+.mock-live{font-size:10px;color:#2fbf83;background:#e7f8f0;border-radius:999px;padding:2px 8px;font-weight:600}
+.mock-body{display:grid;grid-template-columns:132px 1fr;gap:14px;padding:16px}
+.qr-card{background:linear-gradient(180deg,#f7faff,#fff);border:1px solid #e3eeff;border-radius:14px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.qr-card svg{width:88px;height:88px;display:block}
+.qr-cap{font-size:10px;color:#868e96;letter-spacing:.5px}
+.mock-files{display:flex;flex-direction:column;gap:9px;min-width:0}
+.mf{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:9px 10px;background:#fff}
+.mf .fi{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:#fff;font-size:10px;font-weight:700;flex-shrink:0}
+.mf .meta{min-width:0;flex:1}
+.mf .fn{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mf .fs{font-size:9.5px;color:#adb5bd;margin-top:1px}
+.mf .pct{font-size:10px;font-weight:700;color:var(--brand-strong)}
+.mf .bar{height:4px;border-radius:99px;background:#eef1f5;margin-top:6px;overflow:hidden}
+.mf .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#4a92ff,#1f6bf0)}
+.mock-note{grid-column:1 / -1;display:flex;align-items:center;gap:7px;font-size:10.5px;color:#868e96;border-top:1px dashed var(--line2);padding-top:10px}
+.mock-note b{color:var(--text2)}
+
+/* ============ 通用 section ============ */
+.sec{padding:74px 0}
+.sec.alt{background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.sec-head{max-width:760px;margin-bottom:34px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:2.4px;color:var(--brand-strong);text-transform:uppercase}
+.eyebrow::before{content:"";width:18px;height:2px;border-radius:2px;background:var(--brand)}
+.sec h2{font-size:clamp(24px,3vw,34px);line-height:1.25;letter-spacing:-.8px;margin:12px 0 10px}
+.sec .sub{color:var(--muted);font-size:15px}
+.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:0 3px 14px rgba(33,37,41,.04);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:#d7e5ff}
+.card .ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;margin-bottom:14px}
+.card .ico svg{width:21px;height:21px;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ico-blue{background:var(--brand-soft);color:var(--brand-strong);stroke:var(--brand-strong)}
+.ico-purple{background:var(--purple-soft);stroke:var(--purple)}
+.ico-yellow{background:var(--yellow-soft);stroke:#d99a00}
+.ico-green{background:var(--green-soft);stroke:#16855a}
+.ico-pink{background:var(--pink-soft);stroke:#e14b62}
+.card h3{font-size:16.5px;margin-bottom:8px;letter-spacing:-.2px}
+.card p{font-size:13.5px;color:var(--text2)}
+.card .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.tag{font-size:11px;color:var(--text2);background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+
+/* 三步 */
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;counter-reset:step}
+.step{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px 22px 22px;overflow:hidden}
+.step::after{counter-increment:step;content:"0" counter(step);position:absolute;right:14px;top:2px;font-size:64px;font-weight:800;color:var(--brand-soft);letter-spacing:-4px;line-height:1}
+.step h3{font-size:16px;margin:0 0 8px;position:relative}
+.step p{font-size:13.5px;color:var(--text2);position:relative}
+.step .k{display:inline-block;margin-bottom:12px;font-size:11px;font-weight:700;letter-spacing:1.4px;color:var(--brand-strong);background:var(--brand-soft);border-radius:999px;padding:3px 9px;position:relative}
+.tip-band{display:flex;align-items:flex-start;gap:10px;margin-top:18px;background:var(--brand-soft2);border:1px solid #d8e7ff;border-radius:12px;padding:13px 16px;font-size:13.5px;color:#1d4fb8}
+.tip-band svg{width:17px;height:17px;flex-shrink:0;stroke:#1d4fb8;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+
+/* 表格 */
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:#fff}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px}
+th{background:#f8f9fb;text-align:left;padding:11px 14px;color:var(--text2);font-weight:700;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid #f1f3f5;vertical-align:top;color:var(--text2)}
+tr:last-child td{border-bottom:none}
+td b{color:var(--text)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.dot-g{background:var(--green)}.dot-y{background:var(--yellow)}.dot-b{background:var(--brand)}.dot-p{background:var(--pink)}
+
+/* callout */
+.callout{display:flex;gap:12px;border-radius:14px;padding:15px 18px;font-size:13.5px;line-height:1.7;border:1px solid;margin:14px 0}
+.callout .ci{flex-shrink:0;width:30px;height:30px;border-radius:9px;display:grid;place-items:center}
+.callout .ci svg{width:16px;height:16px;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.callout b{display:block;margin-bottom:3px}
+.c-info{background:var(--brand-soft2);border-color:#d8e7ff;color:#1d4fb8}
+.c-info .ci{background:#fff;color:#1d4fb8;stroke:#1d4fb8}
+.c-tip{background:var(--green-soft);border-color:#c9eedd;color:#116b48}
+.c-tip .ci{background:#fff;color:#116b48;stroke:#116b48}
+.c-warn{background:var(--yellow-soft);border-color:#f4e4b0;color:#8a6100}
+.c-warn .ci{background:#fff;color:#8a6100;stroke:#8a6100}
+.c-danger{background:var(--pink-soft);border-color:#ffd3da;color:#a52d40}
+.c-danger .ci{background:#fff;color:#a52d40;stroke:#a52d40}
+
+/* 平台 */
+.platforms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.plat{border:1px solid var(--line);border-radius:14px;background:#fff;padding:18px;display:flex;flex-direction:column;gap:6px}
+.plat .pi{width:34px;height:34px;border-radius:10px;background:var(--bg2);display:grid;place-items:center;margin-bottom:4px}
+.plat .pi svg{width:18px;height:18px;stroke:var(--text2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.plat h3{font-size:14.5px}
+.plat p{font-size:12.5px;color:var(--muted)}
+
+/* FAQ */
+.faq-list{display:grid;gap:10px;max-width:900px}
+details.faq{background:#fff;border:1px solid var(--line);border-radius:13px;overflow:hidden}
+details.faq[open]{border-color:#cfe0ff;box-shadow:0 6px 20px rgba(47,123,255,.08)}
+details.faq summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:16px 18px;font-weight:600;font-size:14.5px;color:var(--text)}
+details.faq summary::-webkit-details-marker{display:none}
+details.faq summary .plus{margin-left:auto;width:22px;height:22px;border-radius:50%;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center;font-size:15px;font-weight:700;flex-shrink:0;transition:transform .2s ease}
+details.faq[open] summary .plus{transform:rotate(45deg)}
+details.faq .a{padding:0 18px 17px;color:var(--text2);font-size:13.5px;line-height:1.75}
+details.faq .a b{color:var(--text)}
+
+/* CTA */
+.cta{padding:20px 0 84px}
+.cta-box{position:relative;overflow:hidden;border-radius:24px;background:linear-gradient(135deg,#2f7bff 0%,#1f5be0 58%,#3a3fd0 100%);padding:52px 40px;color:#fff;box-shadow:0 26px 60px rgba(31,91,224,.28)}
+.cta-box::before{content:"";position:absolute;inset:0;background-image:
+  linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px),
+  linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px);
+  background-size:34px 34px;-webkit-mask-image:radial-gradient(600px 260px at 82% 20%,#000,transparent 75%);mask-image:radial-gradient(600px 260px at 82% 20%,#000,transparent 75%)}
+.cta-box h2{font-size:clamp(24px,3vw,34px);letter-spacing:-.8px;margin-bottom:10px;position:relative}
+.cta-box p{color:rgba(255,255,255,.82);font-size:14.5px;max-width:560px;position:relative}
+.cta-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px;position:relative}
+.cta-actions .btn{background:#fff;color:var(--brand-deep)}
+.cta-actions .btn-ghost-out{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.45)}
+
+/* 页脚 */
+.foot{background:#fff;border-top:1px solid var(--line);padding:46px 0 30px}
+.foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:28px}
+.foot h4{font-size:12px;letter-spacing:2px;color:var(--muted);margin-bottom:12px;font-weight:700}
+.foot a{display:block;color:var(--text2);font-size:13.5px;padding:4px 0}
+.foot a:hover{color:var(--brand-strong)}
+.foot-brand p{font-size:13px;color:var(--muted);max-width:320px;margin-top:10px}
+.foot-bottom{max-width:var(--max);margin:30px auto 0;padding:18px 24px 0;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+.foot-bottom .ver{font-family:var(--mono);font-size:11.5px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+
+/* 目录锚点小节标题 */
+.mini-title{display:flex;align-items:center;gap:10px;margin:34px 0 14px;font-size:17px;letter-spacing:-.2px}
+.mini-title .n{width:26px;height:26px;border-radius:8px;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center;font-size:12.5px;font-weight:800}
+.mini-title:first-child{margin-top:0}
+.list{display:grid;gap:8px;margin:10px 0 0;padding-left:0;list-style:none}
+.list li{position:relative;padding-left:20px;font-size:13.5px;color:var(--text2)}
+.list li::before{content:"";position:absolute;left:3px;top:.68em;width:6px;height:6px;border-radius:50%;background:#bcd3ff}
+.list li b{color:var(--text)}
+ol.steps-5{counter-reset:s5;display:grid;gap:9px;margin:12px 0 0;padding:0;list-style:none}
+ol.steps-5 li{counter-increment:s5;position:relative;padding-left:34px;font-size:13.5px;color:var(--text2)}
+ol.steps-5 li::before{content:counter(s5);position:absolute;left:0;top:1px;width:23px;height:23px;border-radius:50%;background:var(--brand-soft);color:var(--brand-strong);font-size:11.5px;font-weight:800;display:grid;place-items:center}
+ol.steps-5 li b{color:var(--text)}
+
+@media (max-width:980px){
+  .hero-in{grid-template-columns:1fr;gap:34px}
+  .hero{padding:56px 0 48px}
+  .mock{transform:none;max-width:620px}
+  .grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .platforms{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .foot-grid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:720px){
+  .nav-links,.nav-right{display:none}
+  .mobile-menu{display:block}
+  .wrap,.nav-in{padding-left:16px;padding-right:16px}
+  .sec{padding:52px 0}
+  .steps,.grid-3,.grid-2{grid-template-columns:1fr}
+  .hero h1{letter-spacing:-.8px}
+  .hero .lead{font-size:15px}
+  .mock-body{grid-template-columns:1fr}
+  .qr-card{flex-direction:row;justify-content:center}
+  .cta-box{padding:36px 22px;border-radius:18px}
+  .foot-grid{grid-template-columns:1fr 1fr;gap:20px}
+  .qa{font-size:13px}
+}
+@media (max-width:520px){
+  .platforms{grid-template-columns:1fr}
+  .hero h1{font-size:32px;letter-spacing:-.6px}
+  code{white-space:normal;overflow-wrap:anywhere}
+  .hero-feats{gap:6px}
+  .feat-pill{font-size:11.5px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= 导航 ================= -->
+<header class="nav">
+  <div class="nav-in">
+    <a class="brand" href="#top" aria-label="CC-Flash 首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><path d="M17 14l3 3-3 3"/></svg>
+      </span>
+      CC-Flash
+    </a>
+    <nav class="nav-links" aria-label="主导航">
+      <a href="#quick">快速开始</a>
+      <a href="#features">功能</a>
+      <a href="#desktop">桌面端</a>
+      <a href="#mobile">手机端</a>
+      <a href="#security">安全</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn btn-ghost" href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+        下载 CC-Flash
+      </a>
+    </div>
+    <details class="mobile-menu">
+      <summary aria-label="打开菜单"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></summary>
+      <div class="panel">
+        <a href="#quick">快速开始</a>
+        <a href="#features">功能</a>
+        <a href="#desktop">桌面端</a>
+        <a href="#mobile">手机端</a>
+        <a href="#security">安全</a>
+        <a href="#faq">常见问题</a>
+        <a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载安装包 ↗</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= Hero ================= -->
+<section class="hero">
+  <div class="wrap hero-in">
+    <div>
+      <span class="chip"><i></i> 局域网直传 · 零登录 · 零公网 · v1.2.2</span>
+      <h1>文件传过去，<br><span class="hl">同一个 Wi-Fi</span> 就够了。</h1>
+      <p class="lead">电脑开机当服务器，手机、平板、同事的电脑扫码即用。文件、消息、附近设备，都收在同一条时间线里 —— 不上云、不注册、不走外网。</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#quick">
+          三步上手
+          <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+        </a>
+        <a class="btn btn-ghost" href="#desktop">查看完整说明</a>
+      </div>
+      <div class="hero-feats">
+        <span class="feat-pill"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>手机免装 App</span>
+        <span class="feat-pill"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>大文件流式直传</span>
+        <span class="feat-pill"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>附近设备发现</span>
+        <span class="feat-pill"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>访问令牌保护</span>
+      </div>
+    </div>
+
+    <!-- 产品示意 -->
+    <div class="mock" role="img" aria-label="CC-Flash 界面示意：二维码、文件卡片与传输状态">
+      <div class="mock-bar">
+        <i></i><i></i><i></i>
+        <span class="mock-url">http://192.168.1.8:1688</span>
+        <span class="mock-live">● 运行中</span>
+      </div>
+      <div class="mock-body">
+        <div class="qr-card">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <rect width="64" height="64" rx="6" fill="#fff"/>
+            <g fill="#212529">
+              <rect x="6" y="6" width="16" height="16" rx="2"/><rect x="10" y="10" width="8" height="8" fill="#fff"/>
+              <rect x="42" y="6" width="16" height="16" rx="2"/><rect x="46" y="10" width="8" height="8" fill="#fff"/>
+              <rect x="6" y="42" width="16" height="16" rx="2"/><rect x="10" y="46" width="8" height="8" fill="#fff"/>
+              <rect x="26" y="6" width="4" height="4"/><rect x="26" y="14" width="4" height="4"/><rect x="34" y="10" width="4" height="4"/>
+              <rect x="26" y="26" width="4" height="4"/><rect x="34" y="26" width="4" height="4"/><rect x="42" y="26" width="4" height="4"/>
+              <rect x="50" y="26" width="8" height="4"/><rect x="26" y="34" width="8" height="4"/><rect x="38" y="34" width="4" height="4"/>
+              <rect x="46" y="34" width="4" height="4"/><rect x="54" y="34" width="4" height="8"/><rect x="26" y="42" width="4" height="8"/>
+              <rect x="34" y="46" width="8" height="4"/><rect x="46" y="46" width="4" height="8"/><rect x="54" y="46" width="4" height="4"/>
+              <rect x="30" y="54" width="4" height="4"/><rect x="38" y="54" width="8" height="4"/><rect x="50" y="54" width="4" height="4"/>
+            </g>
+            <rect x="20" y="26" width="4" height="4" fill="#3388ff"/><rect x="38" y="42" width="4" height="4" fill="#3388ff"/>
+          </svg>
+          <span class="qr-cap">浏览器扫一扫</span>
+        </div>
+        <div class="mock-files">
+          <div class="mf">
+            <span class="fi" style="background:linear-gradient(135deg,#ff8a65,#e64a19)">PDF</span>
+            <div class="meta"><div class="fn">需求评审纪要.pdf</div><div class="fs">2.4 MB · 电脑 → 手机</div></div>
+            <span class="pct">100%</span>
+          </div>
+          <div class="mf">
+            <span class="fi" style="background:linear-gradient(135deg,#4dabf7,#1971c2)">JPG</span>
+            <div class="meta"><div class="fn">现场照片_01.jpg</div><div class="fs">5.1 MB · 手机 → 电脑</div></div>
+            <span class="pct">100%</span>
+          </div>
+          <div class="mf">
+            <span class="fi" style="background:linear-gradient(135deg,#51cf66,#2b8a3e)">ZIP</span>
+            <div class="meta"><div class="fn">release-build.zip</div><div class="fs">128 MB · 传输中</div><div class="bar"><i style="width:76%"></i></div></div>
+            <span class="pct">76%</span>
+          </div>
+          <div class="mock-note">
+            <b>附近设备</b> · MacBook、iPhone 已发现 &nbsp;|&nbsp; 服务日志实时滚动
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 三步上手 ================= -->
+<section class="sec" id="quick">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">快速开始</span>
+      <h2>三步，把内容交给对方。</h2>
+      <p class="sub">无需注册、无需配置网络、无需数据线。装好打开就能用。</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="k">STEP 01</span>
+        <h3>电脑启动服务</h3>
+        <p>打开 CC-Flash，服务自动启动。窗口右上角显示「● 运行中」和一行地址（默认 <code>http://电脑IP:1688</code>，端口被占用会自动顺延）。</p>
+      </div>
+      <div class="step">
+        <span class="k">STEP 02</span>
+        <h3>手机扫码或输地址</h3>
+        <p>手机连同一个 Wi-Fi，用相机扫二维码，或直接在浏览器输入窗口里的地址。Android 也可以安装 APK 使用。</p>
+      </div>
+      <div class="step">
+        <span class="k">STEP 03</span>
+        <h3>开始互传</h3>
+        <p>拖文件、点上传、发消息都行。文件会以卡片出现在对话里，完整共享文件收在「共享文件」抽屉 / 面板里。</p>
+      </div>
+    </div>
+    <div class="tip-band">
+      <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 00-4 12.7V17a2 2 0 002 2h4a2 2 0 002-2v-2.3A7 7 0 0012 2z"/><path d="M9 22h6"/></svg>
+      <span><b>一句话记住：</b>电脑是驿站，浏览器是取件码，地址 + 端口就是一切。手机和电脑必须在同一个 Wi-Fi / 同一个路由器下。</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 功能 ================= -->
+<section class="sec alt" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">不止传文件</span>
+      <h2>一个入口，把日常协作都装下。</h2>
+      <p class="sub">文件、消息、预览、附近设备、悬浮码与安全保护，全部围绕同一条时间线。</p>
+    </div>
+    <div class="grid-3">
+      <article class="card">
+        <span class="ico ico-blue"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>
+        <h3>文件与消息，一条时间线</h3>
+        <p>上传即出现文件卡片（等待 / 进度 / 完成 / 失败），批量上传自动合并成文件组；文字支持昵称、头像与轻量 Markdown（标题、列表、引用、代码块、粗体、链接）。</p>
+        <div class="tags"><span class="tag">文件即消息</span><span class="tag">Markdown</span><span class="tag">多行输入</span></div>
+      </article>
+      <article class="card">
+        <span class="ico ico-purple"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <h3>应用内直接预览</h3>
+        <p>图片、PDF、纯文本（txt/md/log/csv）与音视频点开即看，右上角关闭或按 Esc 回到聊天。html / svg / xml 不会以网页形式内联，避免同源脚本。</p>
+        <div class="tags"><span class="tag">图片 / PDF</span><span class="tag">音视频</span><span class="tag">文本</span></div>
+      </article>
+      <article class="card">
+        <span class="ico ico-green"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+        <h3>附近设备，点一下就发</h3>
+        <p>同一 Wi-Fi 下运行的 CC-Flash 节点通过 UDP 多播 / 广播自动发现；点击设备即可把消息或文件投递过去，常用设备可收藏置顶。</p>
+        <div class="tags"><span class="tag">自动发现</span><span class="tag">点对点投递</span><span class="tag">收藏</span></div>
+      </article>
+      <article class="card">
+        <span class="ico ico-yellow"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM19 19h2v2h-2z"/></svg></span>
+        <h3>桌面悬浮二维码</h3>
+        <p>贴边呼吸球吸附屏幕边缘，鼠标停留 1.5 秒滑出扫码卡；外圈呼吸 = 服务运行中，绿点 = 有新文件或新消息。支持拖拽换边、扩展屏记忆与 Windows 混合 DPI。</p>
+        <div class="tags"><span class="tag">贴边呼吸球</span><span class="tag">扩展屏</span><span class="tag">新消息提醒</span></div>
+      </article>
+      <article class="card">
+        <span class="ico ico-pink"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+        <h3>手机 App，双模式</h3>
+        <p>Android App 默认作为本机独立节点（只监听 127.0.0.1，安全模式），可在 CC设置 开启局域网访问，也可切换「连接电脑」浏览电脑共享文件，随时切回本机。</p>
+        <div class="tags"><span class="tag">独立节点</span><span class="tag">连接电脑</span><span class="tag">前台保活</span></div>
+      </article>
+      <article class="card">
+        <span class="ico ico-blue"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></span>
+        <h3>访问令牌与一次性票据</h3>
+        <p>可选 6 位配对码，单 IP 指数退避 + 公网全局失败预算防爆破；分享链接为一次性票据（绑定文件大小 / ETag，10 分钟有效，删除或同名重传即失效）。</p>
+        <div class="tags"><span class="tag">6 位配对码</span><span class="tag">一次性链接</span><span class="tag">防爆破</span></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 桌面端 ================= -->
+<section class="sec" id="desktop">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">桌面端</span>
+      <h2>电脑上的完整操作台。</h2>
+      <p class="sub">macOS 11+ / Windows；Linux 可从源码构建。以下操作在桌面壳内完成。</p>
+    </div>
+
+    <h3 class="mini-title"><span class="n">1</span>安装与首次打开</h3>
+    <ul class="list">
+      <li><b>macOS</b>：Apple Silicon 选 <code>_aarch64.dmg</code>，Intel 选 <code>_x64.dmg</code>，拖入「应用程序」。首次若提示无法验证开发者，右键 →「打开」→ 再点「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」。</li>
+      <li><b>Windows</b>：运行 <code>.exe</code> / <code>.msi</code>。若 SmartScreen 提示「已保护你的电脑」，点「更多信息」→「仍要运行」。首次启动允许<strong>专用网络</strong>防火墙授权，否则手机连不上。</li>
+      <li><b>Linux</b>：<code>npm install &amp;&amp; npm run tauri build</code> 从源码构建。</li>
+    </ul>
+
+    <h3 class="mini-title"><span class="n">2</span>上传文件的 5 种方式</h3>
+    <ol class="steps-5">
+      <li><b>＋ 面板</b>：点输入栏左侧「＋」→「文件」，可多选。</li>
+      <li><b>拖拽</b>：把文件或整个文件夹从访达 / 资源管理器拖到页面任意位置，松手即传（保持目录结构）。</li>
+      <li><b>选择文件夹</b>：「＋」→「文件夹」；iOS Safari 不支持选文件夹，入口会自动隐藏。</li>
+      <li><b>粘贴</b>：截图后直接 <kbd>Cmd/Ctrl</kbd> + <kbd>V</kbd>。</li>
+      <li><b>手机上传</b>：手机打开页面点「＋」上传。</li>
+    </ol>
+    <p class="small" style="margin-top:10px">上传为单请求整文件直传，流式落盘、零内存占用；同名文件永不覆盖，自动顺延为 <code>报告(1).zip</code>；中断的半截文件会被服务端即时清理，Windows 句柄占用时会保留标记等下次启动清理。</p>
+
+    <h3 class="mini-title"><span class="n">3</span>文件卡片与共享文件抽屉</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>状态 / 控件</th><th>能看到什么、能做什么</th></tr></thead>
+        <tbody>
+          <tr><td><span class="dot dot-y"></span>等待中</td><td>排队位置；点 ✕ 取消。最多同时传 3 个，其余自动排队。</td></tr>
+          <tr><td><span class="dot dot-b"></span>上传中</td><td>进度条 + 百分比 + 实时速率；底部显示「正在上传 N 个」。</td></tr>
+          <tr><td><span class="dot dot-g"></span>完成</td><td>打开 / 预览 / 下载、分享、在共享文件抽屉中定位；同名改名时提示「已存为 …」。</td></tr>
+          <tr><td><span class="dot dot-p"></span>失败</td><td>显示原因，可重试或取消；服务端已回滚半截文件。</td></tr>
+          <tr><td>文件组卡</td><td>一次超过 3 个文件自动合并，显示数量 / 总大小 / 状态，点「展开」看每个文件。</td></tr>
+          <tr><td>共享文件抽屉</td><td>房间头文件夹按钮打开；排序（最新 / 名称 / 大小）、分页（每页 10 条）、全选、批量删除、缩略图 / 预览。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="mini-title"><span class="n">4</span>每个操作按钮</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>按钮</th><th>作用</th><th>点完会发生什么</th></tr></thead>
+        <tbody>
+          <tr><td>📂 打开</td><td>用系统默认程序打开文件</td><td>立即打开（图片进看图、文档进办公软件）</td></tr>
+          <tr><td>📋 复制</td><td>把<strong>文件本体</strong>复制到剪贴板</td><td>去访达 / 资源管理器 <kbd>Cmd/Ctrl</kbd> + <kbd>V</kbd> 直接粘贴出文件</td></tr>
+          <tr><td>🔗 分享</td><td>复制该文件的下载链接</td><td>链接自带温馨提示；开启令牌时仅授权这一个文件、10 分钟有效、下载一次即失效，对方免输码</td></tr>
+          <tr><td>🗑 删除</td><td>删除文件</td><td>弹确认框，确认后从共享目录移除（不可撤销）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="mini-title"><span class="n">5</span>消息、昵称与未读</h3>
+    <ul class="list">
+      <li>同一 Wi-Fi 下打开页面的人都在同一间「消息发送」房间，消息 WebSocket 实时推送，断线自动降级为约 3 秒轮询兜底。</li>
+      <li><b>改昵称</b>：点房间头右侧头像，保存后立即生效；不改会按设备自动起名（如「Mac Chrome-2569」）。</li>
+      <li><b>Markdown</b>：标题、列表、引用、分割线、代码块、行内代码、粗体、斜体、删除线、<code>[文字](链接)</code> 与裸链接。</li>
+      <li><b>多行输入</b>：桌面 <kbd>Enter</kbd> 发送、<kbd>Shift</kbd>+<kbd>Enter</kbd> 换行；手机 <kbd>Enter</kbd> 换行、点发送提交。中文输入法组字时不会误发。</li>
+      <li><b>未读</b>：页面在前台且窗口有焦点时自动已读；上翻历史时底部浮出「N 条新消息 · 回到底部」。</li>
+      <li>聊天记录服务端保留最近 200 条（会持久化到本地），定位是临时接力；「清空消息」只清本窗口显示。</li>
+    </ul>
+
+    <h3 class="mini-title"><span class="n">6</span>服务中心与 CC设置</h3>
+    <div class="grid-2" style="margin-top:12px">
+      <div class="card" style="box-shadow:none">
+        <h3>服务中心</h3>
+        <p>启停服务、端口（默认 1688，被占自动顺延）、共享目录（打开 / 选择；运行中切换会自动「停止 → 切换 → 重启」）、磁盘可用空间、loguru 风格实时日志（INFO / SUCCESS / WARNING / ERROR 着色，来源 文件:行号）。</p>
+      </div>
+      <div class="card" style="box-shadow:none">
+        <h3>CC设置</h3>
+        <p>开机自动启动（默认关闭）、局域网访问、访问令牌、悬浮二维码、皮肤（亮 / 暗 / 跟随系统 × 五套配色）、检查更新。移动 App 还多出「重启服务 / 连接电脑 / 切回本机节点」。</p>
+      </div>
+    </div>
+
+    <h3 class="mini-title"><span class="n">7</span>悬浮二维码与托盘</h3>
+    <ul class="list">
+      <li><b>悬浮码</b>：贴边呼吸球默认在左侧中部，鼠标停 1.5 秒滑出扫码卡；按住可拖到任意边缘并自动吸附，支持扩展屏与 Windows 混合 DPI；外圈呼吸 = 运行中、静止 = 已停止，绿点 = 有新文件 / 新消息；开关在「CC设置 → 悬浮二维码」。</li>
+      <li><b>关窗 ≠ 退出</b>：点关闭按钮收进系统托盘，服务继续运行；左键托盘图标唤出主窗，右键菜单可启停服务、打开网页或退出。</li>
+      <li><b>单实例</b>：重复双击只会唤起已有窗口，不会堆积托盘图标。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= 手机端 ================= -->
+<section class="sec alt" id="mobile">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">手机端</span>
+      <h2>浏览器免安装，App 更完整。</h2>
+      <p class="sub">手机浏览器扫码即用；Android App 默认独立节点，也可连接电脑。</p>
+    </div>
+
+    <div class="grid-2">
+      <article class="card">
+        <span class="ico ico-blue"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+        <h3>手机浏览器（免安装）</h3>
+        <ul class="list" style="margin-top:8px">
+          <li>相机扫码，或输入 <code>http://电脑IP:端口</code>。</li>
+          <li>顶部：房间名 / 清空消息 / 文件夹（共享文件数）/ ⋯ 更多。</li>
+          <li>上传：＋ → 文件 / 文件夹 / 粘贴；下载：文件卡片「下载」或共享面板「⋯ → 下载」。</li>
+          <li>≤50MB 走内存 blob（有完成提示），更大的交浏览器原生流式下载。</li>
+          <li>微信内置浏览器会提示点右上角 <b>⋯ → 在浏览器打开</b>，否则下载可能被拦截。</li>
+          <li>HTTP 局域网地址下浏览器不支持 PWA 离线安装，只能「添加到主屏幕」创建快捷方式。</li>
+        </ul>
+      </article>
+      <article class="card">
+        <span class="ico ico-green"><svg viewBox="0 0 24 24"><path d="M7 2l1.5 3.5A7 7 0 0112 5a7 7 0 013.5.5L17 2"/><path d="M5 9a7 7 0 0014 0v5a7 7 0 01-14 0z"/><path d="M9 11h.01M15 11h.01"/></svg></span>
+        <h3>Android App（推荐）</h3>
+        <ul class="list" style="margin-top:8px">
+          <li>Releases 按 CPU 选 <code>arm64-v8a</code>（绝大多数）/ <code>armeabi-v7a</code> / <code>x86</code> / <code>x86_64</code> APK。</li>
+          <li><b>默认独立节点</b>：手机本机运行文件服务与聊天，只监听 <code>127.0.0.1</code>（安全模式），其他设备访问不到。</li>
+          <li>要让其他设备访问手机共享目录：CC设置 → 开启「局域网访问」（建议同时开访问令牌）→ 点「重启服务」。</li>
+          <li>要浏览电脑文件：CC设置 →「连接电脑」填电脑地址；随时点「切回本机节点」。</li>
+          <li>Android 用前台服务通知保活；附近设备发现会持有 MulticastLock。</li>
+        </ul>
+      </article>
+    </div>
+
+    <h3 class="mini-title"><span class="n">8</span>附近设备怎么用</h3>
+    <ul class="list">
+      <li>同一 Wi-Fi 下运行 CC-Flash 的电脑 / 手机 App 会自动出现在顶部「附近设备」条，显示在线 / 忙碌状态。</li>
+      <li>点设备 → 输入消息或选择文件 → 发送。内容会投递到对方的公共聊天与共享目录，<b>同网段设备可见，请勿发送敏感内容</b>。</li>
+      <li>纯浏览器页面没有自己的监听端口，不会出现在可发送列表里，避免「点得到、连不上」。</li>
+      <li>星标可收藏常用设备并置顶。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= 平台 ================= -->
+<section class="sec" id="platforms">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">平台与下载</span>
+      <h2>你手里的设备，基本都能用。</h2>
+      <p class="sub">安装包与源码都在 GitHub Releases；版本以 Release 页为准。</p>
+    </div>
+    <div class="platforms">
+      <div class="plat">
+        <span class="pi"><svg viewBox="0 0 24 24"><path d="M16 3H8a2 2 0 00-2 2v14a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2z"/><path d="M2 9h2M2 13h2M20 9h2M20 13h2"/></svg></span>
+        <h3>macOS 11+</h3>
+        <p><code>_aarch64.dmg</code>（Apple Silicon）/ <code>_x64.dmg</code>（Intel）</p>
+      </div>
+      <div class="plat">
+        <span class="pi"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span>
+        <h3>Windows 10/11</h3>
+        <p><code>.exe</code> / <code>.msi</code>；首次允许专用网络防火墙</p>
+      </div>
+      <div class="plat">
+        <span class="pi"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+        <h3>Android</h3>
+        <p>按 CPU 选 APK；默认独立节点，可连接电脑</p>
+      </div>
+      <div class="plat">
+        <span class="pi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 014 10 15 15 0 01-4 10 15 15 0 01-4-10 15 15 0 014-10z"/></svg></span>
+        <h3>浏览器 / iOS</h3>
+        <p>同一 Wi-Fi 扫码即用；iOS 用 Safari 打开电脑地址</p>
+      </div>
+    </div>
+    <div class="callout c-info" style="margin-top:20px">
+      <span class="ci"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+      <div><b>Linux 与 iOS 说明</b>Linux 可从源码构建（<code>npm run tauri build</code>）；iOS 暂不提供安装包，请直接用 Safari 打开电脑端地址使用网页版。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 安全 ================= -->
+<section class="sec alt" id="security">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">安全须知</span>
+      <h2>传得快，也要传得安心。</h2>
+      <p class="sub">面向可信局域网设计；半可信网络请开启访问令牌，移动端默认只监听本机。</p>
+    </div>
+    <div class="grid-2">
+      <div>
+        <div class="callout c-tip">
+          <span class="ci"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div><b>数据不出局域网</b>不上云、无账号体系、不经过任何第三方服务器。拔掉外网，功能照常。上传 / 下载 / WebSocket 分别有 16 / 32 / 64 并发闸，停服时在途上传会回滚半截文件。</div>
+        </div>
+        <div class="callout c-info">
+          <span class="ci"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          <div><b>访问令牌（可选）</b>6 位配对码走请求头，本机免输；连续输错按来源 IP 指数退避，IPv6 再按 /64 聚合，公网来源还有全局失败预算。分享链接为一次性票据，绑定文件大小 / ETag，10 分钟有效，删除或同名重传后立即失效。</div>
+        </div>
+        <div class="callout c-warn">
+          <span class="ci"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></span>
+          <div><b>请勿在公共 Wi-Fi 裸奔</b>默认同一网络的任何人都能查看 / 下载 / 删除共享文件、发言。公共或半可信网络请开启访问令牌；手机 App 默认只监听 127.0.0.1，需要被访问时再手动开启局域网并重启服务。</div>
+        </div>
+      </div>
+      <div>
+        <div class="callout c-info">
+          <span class="ci"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/></svg></span>
+          <div><b>VPN / 远程组网视为局域网</b><code>10/8</code>、<code>172.16/12</code>、<code>192.168/16</code>、<code>100.64/10</code>（运营商 NAT / Tailscale）与 IPv6 ULA / link-local 都按私网处理。连着公司 VPN 或共享 Tailscale 网络时，请确认网段内其他主机可信。</div>
+        </div>
+        <div class="callout c-warn">
+          <span class="ci"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M4.9 4.9l14.2 14.2"/></svg></span>
+          <div><b>控制接口只限本机</b>启停服务、清空日志等接口仅回环可访问，并拒绝跨站简单请求；静态页面补了防点击劫持与 MIME 嗅探头。Windows 首次监听时请允许「专用网络」，否则手机连不上。</div>
+        </div>
+        <div class="callout c-tip">
+          <span class="ci"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span>
+          <div><b>重要文件及时取走</b>默认共享目录是 <code>~/CC-Flash</code>；卸载软件前先把需要的文件取走。删除不可撤销，分享链接也会随文件删除立即失效。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section class="sec" id="faq">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">常见问题</span>
+      <h2>开始之前，了解这些。</h2>
+      <p class="sub">点开每一条查看答案；更多细节见文末的完整文档。</p>
+    </div>
+    <div class="faq-list">
+      <details class="faq" open>
+        <summary>手机打开地址一直转圈 / 提示连接超时？<span class="plus">+</span></summary>
+        <div class="a">① 确认手机和电脑连的是<b>同一个 Wi-Fi</b>；② 电脑换过网络后 IP 会变，看桌面端提示的新地址；③ 在电脑浏览器打开该地址自检；④ 公司网络可能开了 AP 隔离，换个热点试；⑤ Windows 首次启动时若拒绝了防火墙授权，到「Windows Defender 防火墙 → 允许应用通过」勾选 CC-Flash 的「专用网络」。</div>
+      </details>
+      <details class="faq">
+        <summary>窗口点了 ×，手机还能用吗？<span class="plus">+</span></summary>
+        <div class="a">能。关窗只是把窗口收进系统托盘，服务继续运行，手机照样访问。彻底退出请用托盘菜单里的「退出」。</div>
+      </details>
+      <details class="faq">
+        <summary>启动提示端口被占用怎么办？<span class="plus">+</span></summary>
+        <div class="a">无需处理：会自动顺延到下一个可用端口，地址栏里的端口号同步变化。也可以停止服务后手动指定端口再启动。</div>
+      </details>
+      <details class="faq">
+        <summary>上传到一半断了，文件会坏吗？<span class="plus">+</span></summary>
+        <div class="a">不会。中断的半截文件会被服务端即时清理（少数 Windows 句柄占用场景会保留上传标记，下次启动再清理），目录里不会出现可下载的残缺文件；重新上传即为完整重传。上传期间手机屏幕会自动保持常亮。</div>
+      </details>
+      <details class="faq">
+        <summary>上传的文件和目录里已有文件重名？<span class="plus">+</span></summary>
+        <div class="a">不会被覆盖：自动改名为 <code>xxx(1).zip</code>、(2)、(3) 依次顺延，原文件保留；完成后会提示实际保存的名字。</div>
+      </details>
+      <details class="faq">
+        <summary>访问令牌、分享链接安全吗？<span class="plus">+</span></summary>
+        <div class="a">访问令牌是 6 位配对码，本机免输；连续输错按来源 IP 指数退避，公网来源还有全局失败预算。开启后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效，且绑定文件大小 / ETag —— 文件被删除或同名重传后旧链接立即失效。关闭令牌或切换共享目录时所有未使用链接同步作废。</div>
+      </details>
+      <details class="faq">
+        <summary>电脑换了 IP 或换了另一台电脑？<span class="plus">+</span></summary>
+        <div class="a">手机浏览器直接打开电脑端显示的新地址即可。Android App：连本机模式会自动重新探测端口；连接电脑模式到「CC设置 → 连接电脑」填新地址，或点「切回本机节点」。地址只支持 IP / localhost（<code>xxx.local</code> 会被拒绝，防 DNS 重绑定）。</div>
+      </details>
+      <details class="faq">
+        <summary>Android 手机怎么装？装完为什么看不到电脑文件？<span class="plus">+</span></summary>
+        <div class="a">到 Releases 按 CPU 选 APK（多数手机用 <code>arm64-v8a</code>），允许「未知来源」安装。App 默认是本机独立节点，看不到电脑文件是正常的：到「CC设置 → 连接电脑」填电脑地址即可；要让其他设备访问手机共享目录，则开启「局域网访问」并重启服务（建议同时开访问令牌）。</div>
+      </details>
+      <details class="faq">
+        <summary>「附近设备」里为什么没有某台设备？<span class="plus">+</span></summary>
+        <div class="a">附近设备只显示运行 CC-Flash 的电脑 / 手机 App（通过 IPv4 UDP 多播 <code>239.255.42.99:53318</code> + 广播发现）；纯浏览器页面没有监听端口，不会出现。确认双方在同一 Wi-Fi、都开启了服务；手机 App 默认安全模式（仅 127.0.0.1）不会广播，需在 CC设置 开启「局域网访问」并重启服务；Windows 还需在防火墙放行 UDP 53318。部分 Android 网络会过滤多播，广播兜底可能需要几秒。注意：纯浏览器页面向另一台设备投递时，目标设备未开启访问令牌则只允许发消息/文件（读取、删除、生成分享票据会被拒绝）；桌面 / 手机 App 客户端不受此限制；对方开启访问令牌时，在投递弹窗里填写对方配对码即可（会按设备记住）。</div>
+      </details>
+      <details class="faq">
+        <summary>macOS 提示「已损坏，无法打开」/ Windows 提示 SmartScreen？<span class="plus">+</span></summary>
+        <div class="a">安装包未做付费代码签名，属正常现象。macOS：右键 →「打开」→「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」；仍不行可在终端执行 <code>xattr -dr com.apple.quarantine /Applications/CC-Flash.app</code>。Windows：点「更多信息」→「仍要运行」。请只从官方 Releases 下载。</div>
+      </details>
+      <details class="faq">
+        <summary>屏幕边缘的呼吸小球不见了 / 想关掉？<span class="plus">+</span></summary>
+        <div class="a">开关在「CC设置 → 悬浮二维码」（唯一关闭入口），关闭后立即消失且重启保持；重新打开会恢复上次拖到的位置。鼠标停 1.5 秒出码，按住可拖到任意边缘，支持扩展屏与 Windows 混合 DPI。</div>
+      </details>
+      <details class="faq">
+        <summary>手机浏览器能「安装」成应用吗？<span class="plus">+</span></summary>
+        <div class="a">通过 https 或 localhost 访问时可以安装为 PWA 并离线缓存壳；通过 <code>http://局域网IP</code> 访问时浏览器不提供安装能力，只能「添加到主屏幕」创建快捷方式（不缓存离线）。桌面端与 Android 建议直接用原生安装包。</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CTA ================= -->
+<section class="cta">
+  <div class="wrap">
+    <div class="cta-box">
+      <h2>现在，把文件交给下一个设备。</h2>
+      <p>下载桌面端，打开服务，手机扫码。剩下的交给同一个 Wi-Fi。</p>
+      <div class="cta-actions">
+        <a class="btn" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+          前往 Releases 下载
+        </a>
+        <a class="btn btn-ghost-out" href="保姆级使用说明.html">查看完整版说明</a>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ================= 页脚 ================= -->
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><path d="M17 14l3 3-3 3"/></svg>
+          </span>
+          CC-Flash
+        </a>
+        <p>局域网高速文件互传与消息。电脑当服务器，手机扫码即用 —— 不上云、无账号、零配置。</p>
+      </div>
+      <div>
+        <h4>产品</h4>
+        <a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载</a>
+        <a href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">反馈问题</a>
+      </div>
+      <div>
+        <h4>文档</h4>
+        <a href="保姆级使用说明.html">保姆级使用说明</a>
+        <a href="技术实现文档.html">技术实现文档</a>
+        <a href="需求设计文档.html">需求设计文档</a>
+        <a href="软件介绍页设计稿.html">软件介绍页</a>
+      </div>
+      <div>
+        <h4>其他</h4>
+        <a href="后期规划.html">后期规划</a>
+        <a href="整个过程历史改动记录_2026-11-13至2026-11-16.html">最新改动记录</a>
+        <a href="https://github.com/bdpqlhk/CC-Flash#readme" target="_blank" rel="noopener">README</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Copyright © 2026-Present 李航坤. All Rights Reserved.</span>
+      <span class="ver">CC-Flash · 保姆级使用说明 · v1.2.2 (v1.2.2.1) · 2026-11-16</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* 移动端菜单点击后自动收起 */
+document.querySelectorAll('.mobile-menu .panel a').forEach(function (a) {
+  a.addEventListener('click', function () {
+    var d = a.closest('details');
+    if (d) d.open = false;
+  });
+});
+/* FAQ：同时只展开一条（更接近官网体验；保留原生 details 无障碍） */
+document.querySelectorAll('details.faq').forEach(function (d) {
+  d.addEventListener('toggle', function () {
+    if (!d.open) return;
+    document.querySelectorAll('details.faq[open]').forEach(function (other) {
+      if (other !== d) other.open = false;
+    });
+  });
+});
+</script>
+</body>
+</html>

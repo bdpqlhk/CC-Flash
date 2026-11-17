@@ -428,7 +428,7 @@
 <div class="page">
   <aside class="rail" aria-label="目录">
     <div class="rail-brand"><span class="rail-ring">CC</span> CC-Flash</div>
-    <div class="rail-sub">MASTER DESIGN<br>2026-11 / v1.2.1 已落地</div>
+    <div class="rail-sub">MASTER DESIGN<br>2026-11 / v1.2.2 已落地</div>
     <nav class="rail-thread">
       <a class="on" href="#decision"><span class="n">01</span>采纳结论</a>
       <a href="#ia"><span class="n">02</span>信息架构</a>
@@ -462,7 +462,7 @@
           <span class="b">4 种运行形态</span>
           <span>1 套结构</span>
           <span class="c">0 功能删减</span>
-          <span class="a">v1.2.1 已落地</span>
+          <span class="a">v1.2.2 已落地</span>
         </div>
 
         <p class="ctx-hint">← 左右滑动查看四种形态 →</p>
@@ -530,7 +530,7 @@
           <p class="sec-intro">
             这不是“给四端各做一套”，而是<b>一套产品、四种外壳</b>。对话时间线、文件卡片、共享文件抽屉、
             ＋面板与输入栏是共同区块；桌面壳多一个侧栏、托盘与悬浮码，浏览器多一个地址与标题，
-            手机多一层键盘与安全区，手机 App 多一个“连接电脑”的客户端门。
+            手机多一层键盘与安全区，手机 App 多一个"本机节点 / 连接电脑"的模式切换（默认本机安全模式）。
           </p>
         </div>
       </div>
@@ -598,7 +598,7 @@
             <tr><td>桌面壳</td><td>侧栏：消息发送 / 服务中心 / CC设置</td><td>右侧抽屉 340–400px，可收起</td><td>侧栏「消息发送」角标 + 文件绿点</td><td>托管服务、托盘、悬浮码、自启、更新</td></tr>
             <tr><td>电脑浏览器</td><td>浏览器标签 + 房间头</td><td>右侧抽屉 340–400px，可收起</td><td>标签标题 + 房间头角标</td><td>不托管；地址/二维码/复制；浏览器下载</td></tr>
             <tr><td>手机浏览器</td><td>地址栏 + 房间头</td><td>底部面板 86dvh</td><td>页面内「N 条新消息」胶囊 + 文件绿点</td><td>不托管；浏览器下载 / 微信引导</td></tr>
-            <tr><td>手机端 App</td><td>原生状态栏 + 房间头</td><td>底部面板 86dvh</td><td>页面内胶囊 / 文件夹绿点</td><td>纯客户端；首次连接电脑；系统浏览器下载</td></tr>
+            <tr><td>手机端 App</td><td>原生状态栏 + 房间头</td><td>底部面板 86dvh</td><td>页面内胶囊 / 文件夹绿点</td><td>本机节点（默认 127.0.0.1）/ 连接电脑双模式；附近设备；系统浏览器下载</td></tr>
           </tbody>
         </table>
       </div>
@@ -743,7 +743,7 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                   CC设置
                 </div>
-                <div class="shell-foot"><b>● 运行中 :1688</b>v1.2.1 · Tauri</div>
+                <div class="shell-foot"><b>● 运行中 :1688</b>v1.2.2 · Tauri</div>
               </aside>
 
               <div class="shell-main">
@@ -1056,10 +1056,11 @@
       <div class="sec-head">
         <div class="sec-no">07<br><span>MOBILE APP</span></div>
         <div>
-          <h2>手机端 App：先连电脑，再进对话。</h2>
+          <h2>手机端 App：本机节点，或连接电脑。</h2>
           <p class="sec-intro">
-            Android / iOS 壳是纯客户端：服务跑在电脑上。首次打开先填电脑地址，连上后进入同一条时间线；
-            手机端不托管服务、不显示托盘，下载交给系统浏览器。iOS 当前不提供安装包。
+            v1.2.2 起 Android / iOS App 默认作为<b>独立节点</b>：手机本机运行文件服务与聊天，只监听 127.0.0.1（安全模式），
+            需要被访问时在 CC设置 开启「局域网访问」并建议同时开访问令牌；也可切换到「连接电脑」浏览电脑共享文件。
+            手机端不显示托盘，下载交给系统浏览器。iOS 当前不提供安装包。
           </p>
         </div>
       </div>
@@ -1092,23 +1093,20 @@
 
         <div class="detail-col">
           <div class="inset">
-            <div class="i-k">FIRST RUN / CONNECT</div>
-            <h4>首次打开：连接电脑</h4>
-            <p>输入电脑端「服务中心」顶部显示的地址；只支持 IP / localhost，不接受 <span class="mono">xxx.local</span>。</p>
-            <div class="field">192.168.1.8:1688</div>
-            <div class="btn">连接</div>
-            <div class="hint">连上后地址写入本地偏好文件，重启不再重填。</div>
+            <div class="i-k">FIRST RUN / LOCAL NODE</div>
+            <h4>首次打开：本机安全模式</h4>
+            <p>App 自动拉起本机服务并连 127.0.0.1，无需输入电脑地址；网关页失败可点「重新启动本机服务」。只监听回环，同 Wi-Fi 设备访问不到。</p>
           </div>
           <div class="inset">
-            <div class="i-k">CLIENT MODE</div>
-            <h4>纯客户端，不托管服务</h4>
-            <p>手机上不启动局域网服务、不显示托盘与服务启停；Rust 命令层直接拒绝托管请求。下载通过系统浏览器打开，失败复制链接。</p>
+            <div class="i-k">DUAL MODE</div>
+            <h4>本机节点 / 连接电脑</h4>
+            <p>CC设置 → 本机服务 可开启「局域网访问」、访问令牌并重启服务；也可填电脑地址切到「连接电脑」浏览电脑共享文件，随时「切回本机节点」。下载通过系统浏览器打开，失败复制链接。</p>
           </div>
           <div class="inset">
             <div class="i-k">NO SIGNAL / RESET</div>
-            <h4>失联：重新设置地址</h4>
-            <p>电脑换 IP / 换电脑后，无信号页点「重新设置电脑地址」回到连接页；也可在 CC设置 → 连接电脑 修改。</p>
-            <div class="btn" style="background:var(--ink-2)">重新设置电脑地址</div>
+            <h4>失联：自动重探或切回本机</h4>
+            <p>连本机时服务重启换端口会自动重新探测；连电脑模式下无信号页点「重新启动本机服务」回到本机节点，也可在 CC设置 → 连接电脑 改地址。</p>
+            <div class="btn" style="background:var(--ink-2)">重新启动本机服务</div>
           </div>
         </div>
       </div>
@@ -1150,7 +1148,7 @@
         <table>
           <thead><tr><th style="width:130px">能力</th><th>桌面壳</th><th>电脑浏览器</th><th>手机浏览器</th><th>手机端 App</th></tr></thead>
           <tbody>
-            <tr><td>托管服务</td><td><span class="tag ok">支持</span></td><td>不支持（访问电脑）</td><td>不支持（访问电脑）</td><td>不支持（纯客户端）</td></tr>
+            <tr><td>托管服务</td><td><span class="tag ok">支持</span></td><td>不支持（访问电脑）</td><td>不支持（访问电脑）</td><td><span class="tag ok">支持</span>（默认 127.0.0.1，可在 CC设置 开局域网）</td></tr>
             <tr><td>入口</td><td>侧栏「消息发送」</td><td>房间头</td><td>房间头</td><td>房间头</td></tr>
             <tr><td>文件管理</td><td>右侧抽屉 340–400px</td><td>右侧抽屉 340–400px</td><td>底部面板 86dvh</td><td>底部面板 86dvh</td></tr>
             <tr><td>上传</td><td>＋面板 / 拖拽 / 粘贴</td><td>＋面板 / 拖拽 / 粘贴</td><td>＋面板 / 粘贴</td><td>＋面板 / 粘贴</td></tr>
@@ -1223,7 +1221,7 @@
             <tr><td>服务状态</td><td>停止：输入栏上方一条内联提示 + 上传/发送禁用；失联：整页「无信号」；手机端额外给「重新设置地址」。</td></tr>
             <tr><td>预览</td><td>浏览器 / 移动端：图片 / PDF / 纯文本 / 音视频应用内全屏层，右上角关闭 / Esc；真实桌面：系统程序打开，PDF 交系统浏览器；Office / 压缩包下载；html / svg / xml 不内联。</td></tr>
             <tr><td>主题</td><td>5 套配色 × 亮 / 暗 / 跟随系统；桌面壳气泡跟随主题变量，浏览器 / 移动端气泡保持浅底黑字。</td></tr>
-            <tr><td>安全</td><td>Host 仅 IP / localhost；6 位 PIN 配对（本机豁免，按 IP 退避）；分享一次性票据（10 分钟、单文件、一次）；客户端上传并发 3、服务端上传 16 / 下载 32；CSP 放行 <span class="mono">media-src http: blob:</span>；手机端命令层拒绝托管服务。</td></tr>
+            <tr><td>安全</td><td>Host 仅 IP / localhost；6 位 PIN 配对（本机豁免，按 IP 退避 + 公网全局预算）；分享一次性票据（10 分钟、单文件、一次、绑定 ETag）；客户端上传并发 3、服务端上传 16 / 下载 32；CSP 放行 <span class="mono">media-src http: blob:</span>；控制接口拒绝跨站；手机端默认安全模式（仅 127.0.0.1），需在 CC设置 开启局域网访问。</td></tr>
             <tr><td>可访问性</td><td>焦点环、键盘顺序、触屏无 hover 时动作常显、reduced-motion 四端一致。</td></tr>
           </tbody>
         </table>
@@ -1334,7 +1332,7 @@
         <div class="check"><span class="bx">✓</span><span>桌面壳托盘 / 悬浮码 / 服务中心 / 设置无回归。</span></div>
         <div class="check"><span class="bx">✓</span><span>电脑浏览器标签标题未读正确，离开页面恢复原标题。</span></div>
         <div class="check"><span class="bx">✓</span><span>手机浏览器微信引导条只占一行（≤980px 不占满整屏），下载策略、安全区正常。</span></div>
-        <div class="check"><span class="bx">✓</span><span>手机 App 首次连接、失联重置、纯客户端门控正确。</span></div>
+        <div class="check"><span class="bx">✓</span><span>手机 App 本机节点启动、连接电脑/切回本机、失联自动重探与局域网默认关闭均正确。</span></div>
         <div class="check"><span class="bx">✓</span><span>560 / 900 / 980 / 1280px 与手机 320–430 无横向溢出。</span></div>
         <div class="check"><span class="bx">✓</span><span>服务停止 / 失联 / 配对 / 票据 / 并发闸四端口径一致；CSP 放行媒体。</span></div>
         <div class="check"><span class="bx">✓</span><span>5 套配色 × 亮 / 暗 / 跟随系统切换后组件结构不塌；桌面气泡跟随主题。</span></div>

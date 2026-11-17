@@ -413,7 +413,7 @@ a { color: inherit; text-decoration: none; }
             </nav>
             <div class="side-foot">
                 <div class="side-status"><span class="d"></span>运行中 :1688</div>
-                <div class="side-ver">v1.2.1 · Tauri</div>
+                <div class="side-ver">v1.2.2 · Tauri</div>
             </div>
         </div>
 
@@ -538,6 +538,12 @@ a { color: inherit; text-decoration: none; }
                 <p>开机自动启动可按需开启（在 CC设置 中打开开关），登录电脑服务就在；关窗收进托盘、服务保持运行。一键检查更新，新版本发布即刻知晓。</p>
                 <div class="tags"><span class="tag">开机自启</span><span class="tag">托盘常驻</span><span class="tag">检查更新</span></div>
             </div>
+            <div class="card">
+                <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></div>
+                <h3>附近设备</h3>
+                <p>同一 Wi-Fi 下运行的 CC-Flash 节点（电脑、移动 App）通过 UDP 多播/广播自动出现，点一下即可把消息或文件投递到对方节点，常用设备可收藏置顶。纯浏览器页面没有自己的监听端口，不会出现在可发送列表里，避免“点得到、连不上”。</p>
+                <div class="tags"><span class="tag">自动发现</span><span class="tag">点对点投递</span><span class="tag">设备收藏</span></div>
+            </div>
         </div>
     </section>
 
@@ -588,8 +594,8 @@ a { color: inherit; text-decoration: none; }
             </div>
             <div class="pt">
                 <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
-                <h3>三平台覆盖</h3>
-                <p>桌面端支持 macOS 与 Windows（Linux 可源码构建）；手机端浏览器免安装即可用，Android 另提供可直接安装的 APK；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
+                <h3>多端覆盖</h3>
+                <p>桌面端支持 macOS（11.0+）与 Windows（Linux 可源码构建）；手机浏览器免安装即可用；Android App 默认作为独立节点，也可切换为连接电脑；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
             </div>
         </div>
         <div class="codes">
@@ -622,7 +628,7 @@ npm run tauri build</div>
         <div class="faq">
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">手机需要安装 App 吗？<span class="pm">+</span></button>
-                <div class="faq-a"><p>不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户如果想要原生体验，也可以直接安装我们提供的 APK。</p></div>
+                <div class="faq-a"><p>不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户也可以安装 APK：App 默认作为独立节点运行本机文件服务，并在「CC设置」里提供「连接电脑」输入框，可直接浏览电脑上的共享文件；两种模式随时切换。</p></div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">屏幕边缘的呼吸小球是什么？<span class="pm">+</span></button>
@@ -654,15 +660,23 @@ npm run tauri build</div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">支持哪些平台？<span class="pm">+</span></button>
-                <div class="faq-a"><p>桌面端提供 macOS 与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
+                <div class="faq-a"><p>桌面端提供 macOS（11.0+）与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK（默认独立节点，可切换连接电脑）。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">电脑换了 IP 或换了另一台电脑怎么办？<span class="pm">+</span></button>
-                <div class="faq-a"><p>手机浏览器直接打开电脑端显示的新地址即可。Android 应用是纯客户端：若已保存的地址失效，在「无信号」页面点「重新设置电脑地址」，回到连接引导页填入新地址；也可以在「CC设置 → 连接电脑」里修改。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。</p></div>
+                <div class="faq-a"><p>手机浏览器直接打开电脑端显示的新地址即可。Android App：若当前处于「连接电脑」模式且地址失效，在「无信号」页面点「重新启动本机服务」会回到本机节点，或到「CC设置 → 连接电脑」重新填写地址；也可点「切回本机节点」。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。</p></div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">访问令牌和分享链接安全吗？<span class="pm">+</span></button>
-                <div class="faq-a"><p>访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，IPv6 下再按 /64 网段聚合（单窗上限 10 分钟），锁定期间正确码也会被拒，稍等即可。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。服务端另有上传 / 下载 / WebSocket 并发闸，CSP 只放行局域网媒体与 PDF 内嵌。</p></div>
+                <div class="faq-a"><p>访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，IPv6 下再按 /64 网段聚合（单窗上限 10 分钟），公网来源还有全局失败预算，锁定期间正确码也会被拒。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；文件删除或同名重传后旧链接立即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。服务端另有上传 / 下载 / WebSocket 并发闸，控制接口拒绝跨站请求，静态页面带防点击劫持头。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">「附近设备」是什么？<span class="pm">+</span></button>
+                <div class="faq-a"><p>同一 Wi-Fi 下运行的 CC-Flash 节点（电脑端、移动 App）会通过 UDP 多播/广播互相发现，顶部出现的设备可直接投递消息或文件。投递内容会进入对方的公共聊天与共享目录，同网段设备可见，请勿发送敏感内容。纯浏览器页面没有监听端口，因此不会出现在可发送列表里。</p></div>
+            </div>
+            <div class="faq-item">
+                <button class="faq-q" onclick="toggleFaq(this)">手机 App 会把我的文件暴露到 Wi-Fi 吗？<span class="pm">+</span></button>
+                <div class="faq-a"><p>默认不会：移动端首次启动是「安全模式」，只监听 127.0.0.1。需要手机被其他设备访问时，到「CC设置 → 本机服务」手动开启「局域网访问」，并建议同时开启访问令牌；开关修改后点「重启服务」生效。Android 会用前台服务通知保持传输不被系统冻结。</p></div>
             </div>
         </div>
     </section>

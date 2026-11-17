@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  与 Tauri 生成的默认 Info.plist 合并(不会覆盖 CFBundle* 等必需键)。
+  macOS 15 (Sequoia) 起访问本地网络需要隐私授权并展示此用途说明;
+  缺少该键时首次局域网监听/多播可能被系统拦截或提示文案为空。
+-->
+<plist version="1.0">
+<dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>CC-Flash 需要访问本地网络，以便同一 Wi-Fi 下的手机、平板和电脑发现并连接本机的文件传输服务。</string>
+</dict>
+</plist>

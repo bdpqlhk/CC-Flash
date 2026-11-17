@@ -46,7 +46,23 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME 与 Cargo.toml version $ver 不一致（四段 tag 前三位应等于应用版本）"
             exit 1
           fi
-          echo "版本校验通过: $GITHUB_REF_NAME (应用版本 $ver)"
+          # 三处版本声明必须一致(Cargo 唯一来源; 前端兜底/package.json 由 release.sh 同步)
+          pkg=$(node -p "require('./package.json').version")
+          fallback=$(grep -m1 'APP_VERSION_FALLBACK' src/config.js | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$pkg" != "$ver" ] || [ "$fallback" != "$ver" ]; then
+            echo "::error::版本不一致: Cargo=$ver package.json=$pkg config.js=$fallback"
+            exit 1
+          fi
+          # Android versionCode 必须与 tag 同步: 手工打 tag 时防止发布"新版本名 + 旧版本码"的 APK
+          IFS=. read -r vM vN vP vB <<< "$tag"
+          vB=${vB:-0}
+          expected=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
+          actual=$(node -p "require('./src-tauri/tauri.conf.json').bundle.android.versionCode")
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Android versionCode 不一致: 期望 $expected, tauri.conf.json 为 $actual（请先跑 scripts/release.sh）"
+            exit 1
+          fi
+          echo "版本校验通过: $GITHUB_REF_NAME (应用版本 $ver, versionCode $actual)"
           echo "version=$tag" >> "$GITHUB_OUTPUT"
       - name: 创建/确认草稿 Release
         env:
@@ -109,7 +125,7 @@ jobs:
           key: ${{ matrix.os }}-${{ matrix.arch }}
 
       - name: 安装前端依赖
-        run: npm install
+        run: npm ci
 
       # Tauri 把"存在但为空"的 APPLE_CERTIFICATE 也当作待导入证书, 空 Secret 会直接
       # 报 Unable to decode; 这里只在证书非空时写入 GITHUB_ENV, 未配置就走未签名包。
@@ -207,7 +223,7 @@ jobs:
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
       - name: 安装前端依赖
-        run: npm install
+        run: npm ci
 
       - name: 初始化 Android 工程(首次)
         if: ${{ ! hashFiles('src-tauri/gen/android/**') }}
@@ -311,7 +327,7 @@ jobs:
   #       with:
   #         targets: aarch64-apple-ios
   #     - uses: Swatinem/rust-cache@v2
-  #     - run: npm install
+  #     - run: npm ci
   #     - run: npm run tauri ios build -- --target aarch64-apple-ios
   #     - uses: softprops/action-gh-release@v2
   #       with:

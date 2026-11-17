@@ -18,8 +18,12 @@
   },
   "bundle": {
     "active": true,
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "infoPlist": "Info.plist"
+    },
     "android": {
-      "versionCode": 10200200
+      "versionCode": 10200300
     },
     "windows": {
       "webviewInstallMode": {

@@ -4,6 +4,15 @@ import vue from "@vitejs/plugin-vue";
 export default defineConfig({
   plugins: [vue()],
   clearScreen: false,
+  // 全项目只用 <script setup> 组合式 API: 关掉 Options API 与 devtools 后
+  // Vue 运行时可被 tree-shake 掉一整块(实测 bundle 再减十几 KB)。
+  define: {
+    __VUE_OPTIONS_API__: false,
+    __VUE_PROD_DEVTOOLS__: false,
+  },
+  esbuild: {
+    legalComments: "none",
+  },
   server: {
     port: 5173,
     // Tauri devUrl 固定 5173: 端口被占时不得静默换端口(换了 dev 窗口会白屏且难定位)
