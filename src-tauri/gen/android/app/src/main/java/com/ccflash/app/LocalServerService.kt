@@ -64,7 +64,22 @@ class LocalServerService : Service() {
   @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
   override fun onTimeout(startId: Int) {
     // Android 15+ 对 dataSync 前台服务有 6h/24h 配额, 到点后系统要求主动停止。
-    // 这里正常收尾; 用户下次回到前台时 Activity 会再次 startForegroundService。
+    // 静默 stopSelf 会让用户完全无感(其他设备再也发现/连不上手机), 这里先发一条
+    // 普通通知说明原因, 用户重新打开 App 时 onResume 会再次拉起前台服务。
+    try {
+      val nm = getSystemService(NotificationManager::class.java)
+      val ch = NotificationChannel(ALERT_CHANNEL_ID, "服务提醒", NotificationManager.IMPORTANCE_DEFAULT)
+      nm.createNotificationChannel(ch)
+      val n = Notification.Builder(this, ALERT_CHANNEL_ID)
+        .setContentTitle("CC Flash 后台保活已到系统时限")
+        .setContentText("本机文件服务与附近设备发现已暂停，请重新打开 App 恢复")
+        .setSmallIcon(R.drawable.ic_stat_ccflash)
+        .setAutoCancel(true)
+        .build()
+      nm.notify(ALERT_NOTIF_ID, n)
+    } catch (_: Throwable) {
+      // 通知权限被拒/渠道异常: 不影响正常收尾
+    }
     stopSelf(startId)
   }
 
@@ -81,5 +96,7 @@ class LocalServerService : Service() {
   companion object {
     private const val CHANNEL_ID = "ccflash-service"
     private const val NOTIF_ID = 1001
+    private const val ALERT_CHANNEL_ID = "ccflash-alert"
+    private const val ALERT_NOTIF_ID = 1002
   }
 }

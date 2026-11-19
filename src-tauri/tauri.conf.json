@@ -23,11 +23,12 @@
       "infoPlist": "Info.plist"
     },
     "android": {
-      "versionCode": 10200300
+      "versionCode": 10200400
     },
     "windows": {
       "webviewInstallMode": {
-        "type": "embedBootstrapper"
+        "type": "downloadBootstrapper",
+        "silent": true
       }
     },
     "icon": [

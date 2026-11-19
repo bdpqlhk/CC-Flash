@@ -1,8 +1,10 @@
 # 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
-# 覆盖: macOS 分架构双包(aarch64 + x64 的 .app/.dmg) · Windows(.msi/.exe)
-#       · Android(--split-per-abi 按 4 个 ABI 分包出 .apk,
-#       flavor 名映射为标准 ABI 名; 必须配置 ANDROID_KEYSTORE_* 走 release 签名,
-#       缺 Secrets 直接失败 —— 正式 Release 绝不允许 debug 包混入)
+# 覆盖: macOS 分架构双包(aarch64 dmg + x64 dmg) · Windows 单包 .msi
+#       · Android 单包 arm64-v8a .apk(覆盖 Android 5+ 主流 64 位机型)
+#       macOS 保持轻量双包(单架构安装包约为 universal 的一半);
+#       Windows / Android 各一个包, 减少 Release 文件数量与用户选择成本;
+#       必须配置 ANDROID_KEYSTORE_* 走 release 签名, 缺 Secrets 直接失败 ——
+#       正式 Release 绝不允许 debug 包混入
 # iOS: 当前未交付 —— 除 Apple 开发者账号签名外, 还需先生成 gen/apple 工程、补充本地网络权限
 # (NSLocalNetworkUsageDescription/Bonjour)并适配 open_url 等壳能力; 下方 job 仅为模板
 name: Release 构建
@@ -89,10 +91,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 分架构双包(取代 universal 单包): universal 把 arm64+x86_64 两份代码 lipo 在
-          # 一起, 体积近乎双倍 —— 拆分后 Apple Silicon 用户 dmg 约减半(命名沿用 v1.1.2 先例:
-          # CC-Flash_x.y.z_aarch64.dmg / CC-Flash_x.y.z_x64.dmg)。代价仅是 Release 多一个
-          # 文件, 与 Android 按 ABI 分包同款逻辑; 两腿 fail-fast:false 互不连坐
+          # macOS 保持分架构双包: _aarch64.dmg(Apple Silicon) / _x64.dmg(Intel),
+          # 单包体积约为 universal 的一半。Windows 只发 msi(不再同时发 nsis .exe)。
           - os: macos-latest
             args: --target aarch64-apple-darwin
             arch: aarch64
@@ -100,7 +100,7 @@ jobs:
             args: --target x86_64-apple-darwin
             arch: x64
           - os: windows-latest
-            args: ""
+            args: --bundles msi
             arch: x64-win
     runs-on: ${{ matrix.os }}
     steps:
@@ -114,8 +114,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: 安装 macOS 目标三元组(macOS)
-        # 两个 mac 腿各自只构一个架构, 但把两个目标都装上保持幂等:
-        # aarch64 是 runner 宿主(默认已有), x86_64 必须显式安装
+        # 两条 mac 腿各自只构建一个架构, 两个目标都装上保持幂等
         if: runner.os == 'macOS'
         run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
@@ -160,6 +159,29 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "已注入 Apple 签名/公证环境"
 
+      # Windows 签名变量同样只在非空时注入: Tauri 对"存在但为空"的证书变量
+      # 可能按待导入处理并报 Unable to decode, 与 Apple 的空值规避保持一致
+      - name: 准备可选 Windows 签名环境
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          set -e
+          if [ -z "${WINDOWS_CERTIFICATE:-}" ]; then
+            echo "::notice::未配置 Windows 签名证书 Secrets，本次生成未签名 MSI"
+            exit 0
+          fi
+          {
+            echo "WINDOWS_CERTIFICATE<<CC_EOF"
+            printf '%s\n' "$WINDOWS_CERTIFICATE"
+            echo "CC_EOF"
+            echo "WINDOWS_CERTIFICATE_PASSWORD<<CC_EOF"
+            printf '%s\n' "$WINDOWS_CERTIFICATE_PASSWORD"
+            echo "CC_EOF"
+          } >> "$GITHUB_ENV"
+
       # tauri-action: vite build → cargo build --release → 打包 → 上传到 Release
       # tagName 对应已推送的标签, Release 不存在则自动创建(草稿)。
       # 一律先传草稿, 由末尾 publish job 在 desktop+android 全绿后统一发布 ——
@@ -169,21 +191,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 应用内展示/更新比较使用完整四段版本(本地构建回退 Cargo 三段)
           CCFLASH_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
-          # Apple 签名/公证变量由上方步骤按需注入 GITHUB_ENV, 不直接传空 Secret
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # Apple/Windows 签名变量均由上方步骤按需注入 GITHUB_ENV, 不直接传空 Secret
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "CC-Flash ${{ github.ref_name }}"
           releaseBody: "对应标签 ${{ github.ref_name }} 的自动构建产物。更新说明见 Release 描述。"
           releaseDraft: true
           prerelease: false
-          # 三腿并发 getOrCreateRelease 竞态兜底: 两个 mac 腿几乎同时完成时可能都"没查到
+          # 桌面矩阵并发 getOrCreateRelease 竞态兜底: 两腿几乎同时完成时可能都"没查到
           # draft 就去创建" → 422 或拆成两个 draft; 重试会重新 list 找到已建好的 draft
           retryAttempts: 3
           args: ${{ matrix.args }}
 
-  # ---- Android: 全架构 APK(必须用发布证书 Secrets 走 release 签名; 缺失则 job 失败) ----
+  # ---- Android: arm64-v8a 单包(必须用发布证书 Secrets 走 release 签名; 缺失则 job 失败) ----
   android:
     needs: [prepare, desktop]   # 草稿已由 prepare 串行建好, 再追加 APK 资产
     # desktop 任一平台失败不连坐 APK 发布; prepare 失败则不再上传; 用户手动取消时不跑
@@ -204,7 +224,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
 
@@ -247,8 +267,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -e
-          # --split-per-abi: 不带该 flag 时 tauri 只构建 universal flavor(单包),
-          # 重命名步骤的 flavor→ABI 映射与"按机型分架构下载"的契约会落空。
+          # 单包 arm64-v8a: 覆盖 Android 5+ 主流 64 位机型, 不再发 4 个 ABI 分包。
           # 正式 Release 一律拒绝 debug 兜底: debug 包 debuggable、每次签名不同无法覆盖升级,
           # 一旦以 --debug 混进公开 Release 就是用户装不上的"正式版"。缺 Secrets 直接失败。
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KS_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
@@ -260,12 +279,10 @@ jobs:
           export CC_KEYSTORE_PASSWORD="$KS_PASSWORD"
           export CC_KEY_ALIAS="$KEY_ALIAS"
           export CC_KEY_PASSWORD="$KEY_PASSWORD"
-          npx tauri android build --apk --split-per-abi
+          npx tauri android build --apk --target aarch64
 
-      # --split-per-abi 构建 4 个 ABI flavor(universal 不参与 split), 见 gen/android 的 RustPlugin.kt;
-      # 文件名把 flavor 名映射成标准 ABI 名 —— 用户按机型选 arm64-v8a(绝大多数)/armeabi-v7a,
-      # 避免只发一个包时随机落到 x86 装到 ARM 手机上报 NO_MATCHING_ABIS
-      - name: 重命名产物(flavor 名映射为标准 ABI 名)
+      # 只构建 arm64-v8a 一个 flavor; 文件名仍映射为标准 ABI 名, 方便用户确认机型
+      - name: 重命名产物(arm64-v8a)
         run: |
           set -e
           OUT_DIR=src-tauri/gen/android/app/build/outputs/apk
@@ -359,16 +376,16 @@ jobs:
           # 精确断言完整资产集: 只要求"至少一个"时, 部分架构/ABI 构建失败也会把残缺版本公开
           dmg_count=$(printf '%s\n' "$assets" | grep -cE '\.dmg$' || true)
           [ "$dmg_count" -ge 2 ] || { echo "::error::Release 缺少完整 macOS 双架构 dmg(当前 $dmg_count 个)"; exit 1; }
-          printf '%s\n' "$assets" | grep -qE '\.(exe|msi)$' || { echo "::error::Release 缺少 Windows 安装包"; exit 1; }
+          printf '%s\n' "$assets" | grep -qE '\.msi$' || { echo "::error::Release 缺少 Windows msi"; exit 1; }
           apk_count=$(printf '%s\n' "$assets" | grep -cE 'android-.*\.apk$' || true)
-          [ "$apk_count" -ge 4 ] || { echo "::error::Release 缺少完整 Android 4 ABI APK(当前 $apk_count 个)"; exit 1; }
-          # 未签名/未公证的包不得作为正式版公开: macOS Gatekeeper 会直接拦截,
-          # Windows SmartScreen 也会警告。缺签名 Secrets 时只发布为预发布。
+          [ "$apk_count" -ge 1 ] || { echo "::error::Release 缺少 Android arm64 APK(当前 $apk_count 个)"; exit 1; }
+          # 未签名/未公证的包不得公开: macOS Gatekeeper 会直接拦截, Windows SmartScreen
+          # 也会警告; 且应用内更新检查会把 prerelease 也当新版本推给用户, 等于把
+          # "下载后打不开"的包推给全量用户。缺签名时保持草稿并让 job 失败(明确可见),
+          # 由维护者补齐 Secrets 后重跑。
           if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$WINDOWS_CERTIFICATE" ]; then
-            echo "::warning::签名 Secrets 不完整(APPLE_CERTIFICATE/WINDOWS_CERTIFICATE), 本次以预发布(prerelease)公开"
-            gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --prerelease
-            echo "✔ ${{ github.ref_name }} 已发布为预发布(未签名)"
-            exit 0
+            echo "::error::签名 Secrets 不完整(APPLE_CERTIFICATE/WINDOWS_CERTIFICATE)，Release 保持草稿不公开（未签名产物无法安装，也不能进入更新通道）"
+            exit 1
           fi
           gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
           echo "✔ ${{ github.ref_name }} 已发布"

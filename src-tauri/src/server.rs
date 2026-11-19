@@ -12,8 +12,9 @@
 //!                                写首字节前落 .{名}.ccup 完整性标记, 成功即删、启动见标记清半截
 //!   GET  /api/upload_progress → 断点查询(整文件直传下恒返回 0; 兼容遗留 .ccpart 断点)
 //!   GET  /api/chat            → 聊天记录(保留最近 200 条)
-//!   POST /api/chat            → 昵称截 20 字、消息截 2000 字(可带 quote 引用快照)
+//!   POST /api/chat            → 昵称截 20 字、消息上限 20 万字(超限 400, 可带 quote 引用快照)
 //!   DELETE /api/chat/{id}     → 删除单条消息
+//!   GET/POST/DELETE /api/clipboard → 同一服务下所有设备共用的文本剪贴板(2 万字上限)
 //!   DELETE /api/delete/*name  → 删除文件(支持子目录)
 //!   GET  /api/info            → { ip, port, running, version, config }
 //!   GET/POST /api/control/*   → 桌面端服务启停/状态/日志(仅桌面壳使用)
@@ -24,7 +25,7 @@
 
 use axum::{
     body::Body,
-    extract::{Path as AxPath, State},
+    extract::{DefaultBodyLimit, Path as AxPath, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -41,12 +42,13 @@ use std::{
     sync::{atomic::Ordering, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU16};
 use tokio::sync::{broadcast, oneshot};
 
 use crate::config::{
-    APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHUNK_HINT, DEFAULT_NICK, DEFAULT_PORT,
-    FILES_LIST_MAX, LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS, PIN_PREF_FILE,
+    APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHAT_TOTAL_MAX_CHARS, CHUNK_HINT, DEFAULT_NICK,
+    DEFAULT_PORT, FILES_LIST_MAX, LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS,
+    PIN_PREF_FILE,
     POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, PORT_PREF_FILE, PORT_PROBE_EXTRA,
     PORT_RANGE_END, REQ_LOG_MAX,
     SHARE_DIR_NAME, SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, TICKET_FAIL_FREE,
@@ -92,26 +94,75 @@ fn chat_history_file() -> Option<PathBuf> {
 
 fn load_chat_history() -> VecDeque<ChatMsg> {
     let Some(path) = chat_history_file() else { return VecDeque::new(); };
-    let Ok(raw) = std::fs::read_to_string(path) else { return VecDeque::new(); };
-    let mut q: VecDeque<ChatMsg> = serde_json::from_str(&raw).unwrap_or_default();
-    while q.len() > CHAT_MAX {
-        q.pop_front();
+    let Ok(raw) = std::fs::read_to_string(&path) else { return VecDeque::new(); };
+    let mut q: VecDeque<ChatMsg> = match serde_json::from_str(&raw) {
+        Ok(q) => q,
+        Err(e) => {
+            // 损坏时不能直接按空历史继续: 下一条消息会用新队列覆盖原文件, 旧记录
+            // 永久消失。把原文件改名保留(用户/开发者还可人工恢复), 再以空历史启动。
+            let stamp = now_f64().trunc() as u64;
+            let bad = path.with_file_name(format!("chat-history.json.bad-{stamp}"));
+            let kept = std::fs::rename(&path, &bad).is_ok();
+            push_log_warn(if kept {
+                format!(
+                    "聊天历史解析失败({e})，原文件已保留为 {}",
+                    bad.file_name().and_then(|s| s.to_str()).unwrap_or("chat-history.json.bad")
+                )
+            } else {
+                format!("聊天历史解析失败({e})，原文件保留失败，请手动备份后再继续")
+            });
+            VecDeque::new()
+        }
+    };
+    let mut total = chat_history_chars(&q);
+    while q.len() > CHAT_MAX || total > CHAT_TOTAL_MAX_CHARS {
+        let Some(old) = q.pop_front() else { break };
+        total = total.saturating_sub(chat_msg_chars(&old));
     }
     q
 }
 
-fn save_chat_history(q: &VecDeque<ChatMsg>) {
-    let Some(path) = chat_history_file() else { return; };
+/// 聊天历史落盘串行化: 调用方在锁内只做内存序列化, 慢磁盘 IO 交给 spawn_blocking。
+/// 序号保证"较新的快照不会被迟到的旧写覆盖"; 固定 tmp 名由保存锁串行化, 不会互相踩踏。
+static CHAT_SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CHAT_SAVED_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn chat_save_lock() -> &'static Mutex<()> {
+    static L: OnceLock<Mutex<()>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(()))
+}
+
+fn chat_history_json(q: &VecDeque<ChatMsg>) -> Option<Vec<u8>> {
+    serde_json::to_vec(q).ok()
+}
+
+fn write_chat_history_bytes(path: &Path, json: &[u8]) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let Ok(json) = serde_json::to_string(q) else { return; };
-    // 先写临时文件再原子替换, 避免掉电/崩溃留下半截 JSON 把历史整段读空。
-    // Windows 的 fs::rename 同样会替换已存在文件, 不再先 remove —— 旧实现
-    // 在 remove 与 rename 之间崩溃会丢掉整段历史。
-    let tmp = path.with_file_name("chat-history.json.tmp");
-    if write_secret(&tmp, json.as_bytes()).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
+    // 内部已是"临时文件 + fsync + 原子 rename", 掉电不会留下半截 JSON
+    let _ = write_secret_atomic(path, json);
+}
+
+/// 异步落盘: 聊天 handler 不再在 async 上下文里做磁盘 IO(共享目录/磁盘忙时
+/// 会阻塞 tokio worker, 拖慢 WS 心跳与所有 API)。首次调用后按序号串行写。
+fn schedule_chat_save(json: Option<Vec<u8>>) {
+    let (Some(path), Some(json)) = (chat_history_file(), json) else { return };
+    let seq = CHAT_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let task = move || {
+        // 300ms 合并窗口: 连续发送/粘贴时只落最新快照(序号检查会跳过旧任务),
+        // 避免 20 万字消息配合大历史时每条都整段重写 + fsync。
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _g = chat_save_lock().lock().unwrap_or_else(|e| e.into_inner());
+        if seq <= CHAT_SAVED_SEQ.load(Ordering::SeqCst) {
+            return; // 已有更新的快照落盘
+        }
+        write_chat_history_bytes(&path, &json);
+        CHAT_SAVED_SEQ.store(seq, Ordering::SeqCst);
+    };
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let _ = handle.spawn_blocking(task);
+    } else {
+        task();
     }
 }
 
@@ -121,6 +172,19 @@ static NEXT_CHAT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 
 fn next_chat_id() -> u64 {
     NEXT_CHAT_ID.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// 单条消息计入历史预算的字符数(昵称 + 正文 + 引用快照)。
+fn chat_msg_chars(m: &ChatMsg) -> usize {
+    m.nickname.chars().count()
+        + m.message.chars().count()
+        + m.quote
+            .as_ref()
+            .map(|q| q.nickname.chars().count() + q.message.chars().count())
+            .unwrap_or(0)
+}
+fn chat_history_chars(q: &VecDeque<ChatMsg>) -> usize {
+    q.iter().map(chat_msg_chars).sum()
 }
 
 fn chat_log() -> &'static Mutex<VecDeque<ChatMsg>> {
@@ -138,7 +202,7 @@ fn chat_log() -> &'static Mutex<VecDeque<ChatMsg>> {
 // 不引入 UDP/mDNS, 复用现有 HTTP/WS; 浏览器端仍以扫码/手动地址作为入口兜底
 // ---------------------------------------------------------------- //
 
-const DEVICE_TTL_SECS: f64 = 120.0;
+const DEVICE_TTL_SECS: f64 = 15.0;
 
 #[derive(Clone, Serialize, Debug)]
 pub struct DeviceInfo {
@@ -164,8 +228,21 @@ const DISCOVERY_PEERS_MAX: usize = 64;
 // 真正的局域网多播发现: 桌面实例每 5s 向 239.255.42.99:53318 广播自身,
 // 同时监听其他实例; 浏览器/手机无法主动多播, 仍复用 HTTP hello 上报。
 const DISCOVERY_GROUP: Ipv4Addr = Ipv4Addr::new(239, 255, 42, 99);
+/// IPv6 link-local 多播组(自定义 group id, ff02::/16 内有效)
+const DISCOVERY_GROUP_V6: std::net::Ipv6Addr =
+    std::net::Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xccf1);
 const DISCOVERY_PORT: u16 = 53318;
+/// 发现端口顺延范围: 53318 被占用时依次尝试后续端口; 发送端向整个范围广播,
+/// 因此不同实例即使因冲突落在不同端口也能互相发现。
+const DISCOVERY_PORT_LAST: u16 = 53321;
 const DISCOVERY_APP: &str = "ccflash";
+static DISCOVERY_ACTIVE_PORT: AtomicU16 = AtomicU16::new(0);
+fn discovery_active_port() -> u16 {
+    match DISCOVERY_ACTIVE_PORT.load(Ordering::Relaxed) {
+        0 => DISCOVERY_PORT,
+        p => p,
+    }
+}
 
 fn multicast_peers() -> &'static Mutex<HashMap<String, DeviceInfo>> {
     static PEERS: OnceLock<Mutex<HashMap<String, DeviceInfo>>> = OnceLock::new();
@@ -207,6 +284,42 @@ fn discovery_id() -> &'static str {
     })
 }
 
+/// 最近发现过的设备 IP(最多 32): 多播被企业/路由器过滤时, 启动和手动刷新
+/// 会直接向这些地址发单播 probe, 不再依赖组播能否通过。
+fn peer_cache_file() -> Option<PathBuf> {
+    if cfg!(test) { return None; }
+    ui_pref_dir().map(|d| d.join("peer-cache.json"))
+}
+
+fn peer_cache() -> &'static Mutex<Vec<String>> {
+    static CACHE: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let saved = peer_cache_file()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .unwrap_or_default();
+        Mutex::new(saved.into_iter().filter(|s| !s.trim().is_empty()).take(32).collect())
+    })
+}
+
+fn cached_peer_ips() -> Vec<String> {
+    peer_cache().lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+fn remember_peer_ip(ip: &str) {
+    let ip = ip.trim();
+    if ip.is_empty() { return; }
+    let mut cache = peer_cache().lock().unwrap_or_else(|e| e.into_inner());
+    if cache.iter().any(|x| x == ip) { return; }
+    cache.push(ip.to_string());
+    if cache.len() > 32 { cache.remove(0); }
+    if let Some(path) = peer_cache_file() {
+        if let Ok(json) = serde_json::to_string(&*cache) {
+            let _ = write_secret_atomic(&path, json.as_bytes());
+        }
+    }
+}
+
 fn local_name_slot() -> &'static Mutex<String> {
     static NAME: OnceLock<Mutex<String>> = OnceLock::new();
     NAME.get_or_init(|| Mutex::new(String::new()))
@@ -226,14 +339,25 @@ fn local_name() -> String {
         .map(|s| s.trim().to_string())
         .ok()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "CC-Flash 电脑".into())
+        .unwrap_or_else(|| "CC Flash 电脑".into())
 }
 
-/// 解析并登记一条发现报文。返回 true = 首次出现的设备(用于广播 devices:changed)。
+#[derive(Default, Clone, Copy)]
+struct IngestResult {
+    new_device: bool,
+    changed: bool,
+}
+
+/// 解析并登记一条发现报文。返回是否首次出现/状态变化(用于广播 devices:changed)。
 /// 独立成函数以便直接跑单测, 不依赖真实网卡 / 端口 / 等待 5s 广播周期。
-fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
+fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> IngestResult {
     if v.get("app").and_then(|x| x.as_str()) != Some(DISCOVERY_APP) {
-        return false;
+        return IngestResult::default();
+    }
+    // 只接受私网/链路本地/回环之外的公网来源一律丢弃: 发现目标是局域网设备,
+    // 公网地址既点不通也不该出现在「附近设备」里(前端还有一道 isLanHost 兜底)。
+    if !is_lan_peer(src.ip()) {
+        return IngestResult::default();
     }
     let id = v
         .get("id")
@@ -243,13 +367,13 @@ fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
         .to_string();
     // 自身包(多播 loop)与异常 id 直接丢弃
     if id.is_empty() || id.len() > 64 || id == discovery_id() {
-        return false;
+        return IngestResult::default();
     }
     let port = v.get("port").and_then(|x| x.as_u64()).unwrap_or(0);
     // 系统端口(1-1023)不可能是 CC-Flash 服务: 拒绝可减少"伪造包把发送方
     // 指向内网其他服务"的 SSRF 面; 0/超界同样拒绝。
     if !(1024..=u16::MAX as u64).contains(&port) {
-        return false;
+        return IngestResult::default();
     }
     let clean = |s: &str| {
         s.chars()
@@ -257,7 +381,7 @@ fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
             .take(24)
             .collect::<String>()
     };
-    let nickname = clean(v.get("name").and_then(|x| x.as_str()).unwrap_or("CC-Flash 电脑"));
+    let nickname = clean(v.get("name").and_then(|x| x.as_str()).unwrap_or("CC Flash 电脑"));
     let nickname = if nickname.is_empty() {
         "未命名设备".into()
     } else {
@@ -265,24 +389,40 @@ fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
     };
     let platform = clean(v.get("platform").and_then(|x| x.as_str()).unwrap_or(""));
     let busy = v.get("busy").and_then(|x| x.as_bool()).unwrap_or(false);
-    let ip = src_ip.to_string();
+    let ip = source_ip_string(src);
     let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
     let known = map.contains_key(&id);
+    let previous = map.get(&id).cloned();
+    // 已登记设备 id 只允许从原 IP 续期: id 是明文广播的, 否则同网段任意主机
+    // 可用"已知 id + 自己的 IP"覆盖目标条目(列表显示真设备名, 发送却落到攻击者)。
+    // 真实设备换 IP(DHCP)时最多等旧条目 TTL(120s)自然过期后重新登记。
+    if let Some(prev) = &previous {
+        if prev.ip != ip {
+            return IngestResult::default();
+        }
+    }
     let same_ip_other = map.values().any(|d| d.ip == ip && d.id != id);
     // 同 IP 换 id 是"替换"而非新增, 不占新容量; 否则满额时会先把旧条目删掉、
     // 再把新条目拒掉, 设备会凭空从列表消失。
     if !known && !same_ip_other && map.len() >= DISCOVERY_PEERS_MAX {
-        return false;
+        return IngestResult::default();
     }
     // 同一源 IP 只保留最新 id: 设备重启换 id 时不堆重复项, 也挡住单 IP 用
     // 随机 id 洪泛占满 64 条上限(不同 IP 的伪造仍受上限约束)。
     map.retain(|_, d| d.ip != ip);
     let is_new = !known;
+    let changed = previous.map(|old| {
+        old.port != port as u16
+            || old.nickname != nickname
+            || old.busy != busy
+            || old.platform != platform
+            || old.ip != ip
+    }).unwrap_or(false);
     map.insert(
         id.clone(),
         DeviceInfo {
             id,
-            ip,
+            ip: ip.clone(),
             port: port as u16,
             nickname,
             platform,
@@ -290,7 +430,15 @@ fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
             last_seen: now_f64(),
         },
     );
-    is_new
+    drop(map);
+    remember_peer_ip(&ip);
+    IngestResult { new_device: is_new, changed: is_new || changed }
+}
+
+/// 单测兼容: 只关心是否首次出现
+#[cfg(test)]
+fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
+    ingest_peer_packet_ex(v, std::net::SocketAddr::new(src_ip, 0)).new_device
 }
 
 /// 设备列表快照: 剔除 120s 未更新的条目, 按最后活跃排序, 同一 ip:port 只留最新一条。
@@ -318,20 +466,492 @@ fn broadcast_allowed(running: bool, lan_active: bool, port: u16) -> bool {
 /// 用 AtomicBool 而不是 OnceLock: 首次 bind 失败(端口被别的程序占用)时可复位,
 /// 下次启动服务时重试, 不需要重启整个 App。
 static DISCOVERY_STARTED: AtomicBool = AtomicBool::new(false);
+static DISCOVERY_JOINED: AtomicBool = AtomicBool::new(false);
+static DISCOVERY_V6_JOINED: AtomicBool = AtomicBool::new(false);
+
+/// 发现不可用时给前端的可读原因: 只展示"多播端口被占用/加入组播失败"这类
+/// 用户能动手解决的情况, 不要把底层错误码直接抛给手机页面。
+fn discovery_error() -> &'static Mutex<String> {
+    static E: OnceLock<Mutex<String>> = OnceLock::new();
+    E.get_or_init(|| Mutex::new(String::new()))
+}
+
+fn set_discovery_error(msg: impl Into<String>) {
+    *discovery_error().lock().unwrap_or_else(|e| e.into_inner()) = msg.into();
+}
+
+/// 附近设备接口附带发现诊断: 前端在"设备为空"时据此给出本地网络权限/防火墙指引。
+fn discovery_status_json() -> serde_json::Value {
+    serde_json::json!({
+        "started": DISCOVERY_STARTED.load(Ordering::SeqCst),
+        "joined": DISCOVERY_JOINED.load(Ordering::SeqCst),
+        "ipv6": DISCOVERY_V6_JOINED.load(Ordering::SeqCst),
+        "error": discovery_error().lock().unwrap_or_else(|e| e.into_inner()).clone(),
+        "port": discovery_active_port(),
+        "portRange": [DISCOVERY_PORT, DISCOVERY_PORT_LAST],
+    })
+}
+
+/// 本机当前应当广播的发现报文。返回 None = 服务未在局域网监听, 不应对外宣告。
+fn announce_packet_bytes() -> Option<Vec<u8>> {
+    let port = PORT.load(Ordering::Relaxed);
+    // 看"实际绑定"而不是偏好: 用户刚拨开开关但没重启服务时监听仍是 127.0.0.1,
+    // 此时广播出去只会让别的设备看到一台连不上的机器。
+    if !broadcast_allowed(is_running(), LAN_ACTIVE.load(Ordering::Relaxed), port) {
+        return None;
+    }
+    let busy = active_uploads()
+        .lock()
+        .map(|m| m.values().any(|v| *v > 0))
+        .unwrap_or(false);
+    let packet = serde_json::json!({
+        "app": DISCOVERY_APP,
+        "id": discovery_id(),
+        "name": local_name(),
+        "port": port,
+        "platform": std::env::consts::OS,
+        "busy": busy,
+        "dport": discovery_active_port(),
+        "ts": now_f64(),
+    });
+    Some(packet.to_string().into_bytes())
+}
+
+/// 主动探测包: 不登记为设备, 只让收到包的对端立即单播回自己的宣告。
+fn probe_packet_bytes() -> Option<Vec<u8>> {
+    if !broadcast_allowed(is_running(), LAN_ACTIVE.load(Ordering::Relaxed), PORT.load(Ordering::Relaxed)) {
+        return None;
+    }
+    Some(
+        serde_json::json!({
+            "app": DISCOVERY_APP,
+            "t": "probe",
+            "id": discovery_id(),
+            "dport": discovery_active_port(),
+        })
+        .to_string()
+        .into_bytes(),
+    )
+}
+
+/// 正常退出时宣告离线; 对端立即移除, 不必等 TTL。
+fn bye_packet_bytes() -> Option<Vec<u8>> {
+    if !LAN_ACTIVE.load(Ordering::Relaxed) || PORT.load(Ordering::Relaxed) == 0 {
+        return None;
+    }
+    Some(
+        serde_json::json!({
+            "app": DISCOVERY_APP,
+            "t": "bye",
+            "id": discovery_id(),
+            "dport": discovery_active_port(),
+        })
+        .to_string()
+        .into_bytes(),
+    )
+}
+
+fn reply_port(v: &serde_json::Value) -> u16 {
+    v.get("dport")
+        .and_then(|x| x.as_u64())
+        // 只允许回到发现端口范围, 不能被伪造包引去打任意 UDP 端口
+        .filter(|p| (DISCOVERY_PORT as u64..=DISCOVERY_PORT_LAST as u64).contains(p))
+        .unwrap_or(DISCOVERY_PORT as u64) as u16
+}
+
+fn send_discovery_packet(packet: &[u8]) {
+    for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+        let per_iface = send_announcement_on_all_interfaces(packet, port);
+        let _v6 = send_announcement_on_all_interfaces_v6(packet, port);
+        // v4 多播成功的场景仍补一次全局广播, 覆盖 Android/路由器过滤组播的接收端
+        if per_iface {
+            if let Ok(s) = UdpSocket::bind(("0.0.0.0", 0)) {
+                let _ = s.set_broadcast(true);
+                let _ = s.send_to(packet, (Ipv4Addr::new(255, 255, 255, 255), port));
+            }
+        }
+    }
+}
+
+fn send_discovery_announce() {
+    if let Some(packet) = announce_packet_bytes() {
+        send_discovery_packet(&packet);
+    }
+}
+
+fn send_discovery_probe() {
+    if let Some(packet) = probe_packet_bytes() {
+        send_discovery_packet(&packet);
+    }
+    send_unicast_probes();
+}
+
+fn send_discovery_bye() {
+    if let Some(packet) = bye_packet_bytes() {
+        send_discovery_packet(&packet);
+    }
+}
+
+/// 向历史设备地址发单播 probe: 发送到整个发现端口范围, 兼容对方端口顺延。
+fn send_unicast_probes() {
+    let Some(packet) = probe_packet_bytes() else { return };
+    for raw in cached_peer_ips() {
+        let (host, zone) = raw.split_once('%').unwrap_or((raw.as_str(), ""));
+        if let Ok(v4) = host.parse::<std::net::Ipv4Addr>() {
+            if v4.is_loopback() { continue; }
+            if let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) {
+                for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                    let _ = sock.send_to(&packet, (v4, port));
+                }
+            }
+        } else if let Ok(v6) = host.parse::<std::net::Ipv6Addr>() {
+            if v6.is_loopback() { continue; }
+            let idx = if zone.is_empty() { 0 } else { iface_index(zone).unwrap_or(0) };
+            // link-local 没有 zone 时无法路由, 跳过而不是发一个必然失败的包
+            if v6.is_unicast_link_local() && idx == 0 { continue; }
+            if let Ok(sock) = UdpSocket::bind(("::", 0)) {
+                for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                    let dst = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(v6, port, 0, idx));
+                    let _ = sock.send_to(&packet, dst);
+                }
+            }
+        }
+    }
+}
+
+/// 发现报文不走的接口: VPN/隧道/虚拟网卡; bridge 热点保留。
+fn discovery_iface_skipped(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("utun")
+        || name.starts_with("tun")
+        || name.starts_with("tap")
+        || name.starts_with("ppp")
+        || name.starts_with("ipsec")
+        || name.starts_with("awdl")
+        || name.starts_with("llw")
+        || name.starts_with("docker")
+        || name.starts_with("vboxnet")
+        || name.starts_with("vmnet")
+        || name.starts_with("tailscale")
+        || name.contains("vpn")
+}
+
+/// 从每个真实网卡各发一份: 绑定到该网卡地址并显式设置 IP_MULTICAST_IF。
+/// 单靠 0.0.0.0 的默认路由在"Wi-Fi + VPN/虚拟网卡"机器上会把多播/广播发到
+/// 错误的接口 —— 表现为桌面端明明开着服务, 却永远发现不了同一 Wi-Fi 的手机。
+/// 同时补发子网定向广播(如 10.1.2.255), 某些路由器/Android 过滤组播但放行广播。
+fn send_announcement_on_all_interfaces(packet: &[u8], dest_port: u16) -> bool {
+    let Ok(ifaces) = if_addrs::get_if_addrs() else { return false };
+    let mut sent_iface = false;
+    for it in ifaces {
+        // 跳过 VPN / 虚拟网卡: 宣告只应留在真实局域网
+        if discovery_iface_skipped(&it.name) {
+            continue;
+        }
+        let if_addrs::IfAddr::V4(v4) = it.addr else { continue };
+        if v4.ip.is_loopback() { continue; }
+        let sk = match socket2::Socket::new(
+            socket2::Domain::IPV4,
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        ) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let _ = sk.set_broadcast(true);
+        let _ = sk.set_multicast_ttl_v4(1);
+        // 关键: 显式把多播出口钉在这块网卡上
+        let _ = sk.set_multicast_if_v4(&v4.ip);
+        let _ = sk.bind(&std::net::SocketAddr::from((v4.ip, 0)).into());
+        let group = socket2::SockAddr::from(std::net::SocketAddr::from((DISCOVERY_GROUP, dest_port)));
+        if sk.send_to(packet, &group).is_ok() {
+            sent_iface = true;
+        }
+        let bcast = v4.broadcast.unwrap_or_else(|| {
+            Ipv4Addr::from(u32::from(v4.ip) | !u32::from(v4.netmask))
+        });
+        if bcast != v4.ip {
+            let dst = socket2::SockAddr::from(std::net::SocketAddr::from((bcast, dest_port)));
+            let _ = sk.send_to(packet, &dst);
+        }
+    }
+    // 没有成功发出任何逐网卡多播(极端环境)时, 退回系统默认路由;
+    // 正常情况由调用方只补一次 255.255.255.255 广播, 不再重复发多播。
+    if !sent_iface {
+        if let Ok(s) = UdpSocket::bind(("0.0.0.0", 0)) {
+            let _ = s.set_broadcast(true);
+            let _ = s.set_multicast_ttl_v4(1);
+            let _ = s.send_to(packet, (DISCOVERY_GROUP, dest_port));
+            let _ = s.send_to(packet, (Ipv4Addr::new(255, 255, 255, 255), dest_port));
+        }
+    }
+    sent_iface
+}
+
+/// 网卡名 → 系统 interface index: IPv6 多播必须按 index 指定出口。
+#[cfg(unix)]
+fn iface_index(name: &str) -> Option<u32> {
+    let c = std::ffi::CString::new(name).ok()?;
+    let idx = unsafe { libc::if_nametoindex(c.as_ptr()) };
+    (idx > 0).then_some(idx)
+}
+
+#[cfg(windows)]
+fn iface_index(name: &str) -> Option<u32> {
+    let c = std::ffi::CString::new(name).ok()?;
+    let idx = unsafe {
+        windows_sys::Win32::NetworkManagement::IpHelper::if_nametoindex(c.as_ptr() as *const u8)
+    };
+    (idx > 0).then_some(idx)
+}
+
+/// interface index → 网卡名: 链路本地 IPv6 的 URL 必须带 zone(%en0 / %25en0)
+#[cfg(unix)]
+fn iface_name(index: u32) -> Option<String> {
+    let mut buf = [0i8; 128];
+    let p = unsafe { libc::if_indextoname(index, buf.as_mut_ptr()) };
+    if p.is_null() {
+        return None;
+    }
+    let c = unsafe { std::ffi::CStr::from_ptr(p) };
+    c.to_str().ok().map(|s| s.to_string())
+}
+
+#[cfg(windows)]
+fn iface_name(index: u32) -> Option<String> {
+    let mut buf = [0u8; 256];
+    let p = unsafe {
+        windows_sys::Win32::NetworkManagement::IpHelper::if_indextoname(
+            index,
+            buf.as_mut_ptr() as *mut u8,
+        )
+    };
+    if p.is_null() {
+        return None;
+    }
+    let c = unsafe { std::ffi::CStr::from_ptr(p as *const std::ffi::c_char) };
+    c.to_str().ok().map(|s| s.to_string())
+}
+
+/// 设备 URL 用的地址: IPv6 link-local 带 `%zone`, 否则浏览器无法路由。
+fn source_ip_string(src: std::net::SocketAddr) -> String {
+    if let std::net::SocketAddr::V6(v6) = src {
+        if v6.ip().is_unicast_link_local() && v6.scope_id() != 0 {
+            if let Some(name) = iface_name(v6.scope_id()) {
+                return format!("{}%{}", v6.ip(), name);
+            }
+        }
+    }
+    src.ip().to_string()
+}
+
+/// 从每个 IPv6 网卡各发一份到 link-local 多播组。
+fn send_announcement_on_all_interfaces_v6(packet: &[u8], dest_port: u16) -> bool {
+    let Ok(ifaces) = if_addrs::get_if_addrs() else { return false };
+    let mut sent = false;
+    for it in ifaces {
+        let if_addrs::IfAddr::V6(v6) = it.addr else { continue };
+        if v6.ip.is_loopback() {
+            continue;
+        }
+        // VPN/虚拟网卡与 v4 保持同样的隔离策略
+        if discovery_iface_skipped(&it.name) {
+            continue;
+        }
+        let Some(idx) = iface_index(&it.name) else { continue };
+        let Ok(sk) = socket2::Socket::new(
+            socket2::Domain::IPV6,
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        ) else {
+            continue;
+        };
+        let _ = sk.set_only_v6(true);
+        let _ = sk.set_multicast_if_v6(idx);
+        let _ = sk.set_multicast_loop_v6(true);
+        if sk.bind(&std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)).into()).is_err() {
+            continue;
+        }
+        let dst = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+            DISCOVERY_GROUP_V6,
+            dest_port,
+            0,
+            idx,
+        ));
+        if sk.send_to(packet, &socket2::SockAddr::from(dst)).is_ok() {
+            sent = true;
+        }
+    }
+    sent
+}
+
+/// IPv6 监听: 与 v4 同端口但 v6only, 加入 link-local 自定义多播组。
+/// 没有 IPv6 / 端口被占用时静默降级, 不影响 v4 发现。
+fn ensure_discovery_v6(port: u16) {
+    let sk = match socket2::Socket::new(
+        socket2::Domain::IPV6,
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    ) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let _ = sk.set_only_v6(true);
+    let _ = sk.set_reuse_address(true);
+    let _ = sk.set_multicast_loop_v6(true);
+    if sk
+        .bind(&std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, port)).into())
+        .is_err()
+    {
+        return;
+    }
+    let sock: UdpSocket = sk.into();
+    let _ = sock.set_read_timeout(Some(Duration::from_secs(1)));
+    let mut joined = false;
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for it in ifaces {
+            let if_addrs::IfAddr::V6(v6) = it.addr else { continue };
+            if v6.ip.is_loopback() || discovery_iface_skipped(&it.name) {
+                continue;
+            }
+            if let Some(idx) = iface_index(&it.name) {
+                if sock.join_multicast_v6(&DISCOVERY_GROUP_V6, idx).is_ok() {
+                    joined = true;
+                }
+            }
+        }
+    }
+    DISCOVERY_V6_JOINED.store(joined, Ordering::SeqCst);
+    let listener = match sock.try_clone() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let reply_sock = sock.try_clone().ok();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 2048];
+        let mut last_rescan = std::time::Instant::now();
+        let mut last_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
+        let mut last_probe_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
+        loop {
+            if last_rescan.elapsed() >= Duration::from_secs(30) {
+                last_rescan = std::time::Instant::now();
+                let mut any = false;
+                if let Ok(ifs) = if_addrs::get_if_addrs() {
+                    for it in ifs {
+                        let if_addrs::IfAddr::V6(v6) = it.addr else { continue };
+                        if v6.ip.is_loopback() || discovery_iface_skipped(&it.name) {
+                            continue;
+                        }
+                        if let Some(idx) = iface_index(&it.name) {
+                            if listener.join_multicast_v6(&DISCOVERY_GROUP_V6, idx).is_ok() {
+                                any = true;
+                            }
+                        }
+                    }
+                }
+                if any {
+                    DISCOVERY_V6_JOINED.store(true, Ordering::SeqCst);
+                }
+            }
+            let Ok((n, src)) = listener.recv_from(&mut buf) else { continue };
+            if src.ip().is_loopback() || !is_running() || !discovery_packet_admit(src.ip()) {
+                continue;
+            }
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) else { continue };
+            let t = v.get("t").and_then(|x| x.as_str()).unwrap_or("announce");
+            if t == "probe" {
+                if is_lan_peer(src.ip())
+                    && v.get("app").and_then(|x| x.as_str()) == Some(DISCOVERY_APP)
+                    && v.get("id").and_then(|x| x.as_str()) != Some(discovery_id())
+                {
+                    let due = last_probe_reply
+                        .get(&src.ip())
+                        .map(|at| at.elapsed() >= Duration::from_millis(500))
+                        .unwrap_or(true);
+                    if due {
+                        if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes()) {
+                            // 必须保留 src 的 scope id: fe80:: 目标没有 scope 时 send 直接失败
+                            let mut dst = src;
+                            dst.set_port(reply_port(&v));
+                            let _ = s.send_to(&pkt, dst);
+                            last_probe_reply.insert(src.ip(), std::time::Instant::now());
+                            if last_probe_reply.len() > 128 {
+                                last_probe_reply.clear();
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if t == "bye" {
+                let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                if is_lan_peer(src.ip()) && !id.is_empty() && id != discovery_id() {
+                    let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
+                    let same = map.get(id).map(|d| d.ip == source_ip_string(src)).unwrap_or(false);
+                    if same && map.remove(id).is_some() {
+                        drop(map);
+                        broadcast_event("devices:changed");
+                    }
+                }
+                continue;
+            }
+            let res = ingest_peer_packet_ex(&v, src);
+            if res.new_device || res.changed {
+                broadcast_event("devices:changed");
+            }
+            if !is_lan_peer(src.ip()) {
+                continue;
+            }
+            let due = last_reply
+                .get(&src.ip())
+                .map(|at| at.elapsed() >= Duration::from_secs(15))
+                .unwrap_or(true);
+            if due {
+                if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes()) {
+                    let mut dst = src;
+                    dst.set_port(reply_port(&v));
+                    let _ = s.send_to(&pkt, dst);
+                    last_reply.insert(src.ip(), std::time::Instant::now());
+                    if last_reply.len() > 128 {
+                        last_reply.clear();
+                    }
+                }
+            }
+        }
+    });
+}
 
 fn ensure_discovery() {
     if DISCOVERY_STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    {
-        let sock = match UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) {
-            Ok(s) => s,
-            Err(e) => {
-                DISCOVERY_STARTED.store(false, Ordering::SeqCst);
-                push_log_warn(format!("局域网多播发现不可用(端口 {}): {e}", DISCOVERY_PORT));
-                return;
+    // 端口顺延: 53318 被占用时依次尝试 53319..53321; 每个实例只绑一个接收端口,
+    // 发送端向整个范围发, 因此同机多实例/端口冲突时仍能互相发现。
+    let mut picked: Option<(UdpSocket, u16)> = None;
+    let mut last_err = String::new();
+    for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+        match UdpSocket::bind(("0.0.0.0", port)) {
+            Ok(s) => {
+                picked = Some((s, port));
+                break;
             }
-        };
+            Err(e) => last_err = format!("{e}"),
+        }
+    }
+    let Some((sock, active_port)) = picked else {
+        DISCOVERY_STARTED.store(false, Ordering::SeqCst);
+        set_discovery_error(format!(
+            "发现端口 {DISCOVERY_PORT}-{DISCOVERY_PORT_LAST} 均被占用或不可用: {last_err}"
+        ));
+        push_log_warn(format!(
+            "局域网多播发现不可用(端口 {DISCOVERY_PORT}-{DISCOVERY_PORT_LAST}): {last_err}"
+        ));
+        return;
+    };
+    DISCOVERY_ACTIVE_PORT.store(active_port, Ordering::Relaxed);
+    push_log(format!("设备发现监听 UDP {active_port}（可用顺延范围 {DISCOVERY_PORT}-{DISCOVERY_PORT_LAST}）"));
+    ensure_discovery_v6(active_port);
+    {
         let _ = sock.set_multicast_loop_v4(true);   // 同机多实例测试; 自身包会按 id 忽略
         let _ = sock.set_multicast_ttl_v4(1);       // 只留在局域网
         let _ = sock.set_broadcast(true);           // Android 过滤组播时的广播兜底
@@ -351,35 +971,53 @@ fn ensure_discovery() {
         if !joined {
             joined = sock.join_multicast_v4(&DISCOVERY_GROUP, &Ipv4Addr::UNSPECIFIED).is_ok();
         }
+        DISCOVERY_JOINED.store(joined, Ordering::SeqCst);
         if !joined {
-            push_log_warn("局域网多播发现加入组播组失败，其他 CC-Flash 设备可能无法自动出现".into());
+            set_discovery_error("加入局域网多播组失败，其他 CC Flash 设备可能无法自动出现");
+            push_log_warn("局域网多播发现加入组播组失败，其他 CC Flash 设备可能无法自动出现".into());
         }
 
         let listener = match sock.try_clone() {
             Ok(s) => s,
             Err(e) => {
                 DISCOVERY_STARTED.store(false, Ordering::SeqCst);
+                set_discovery_error(format!("多播监听初始化失败: {e}"));
                 push_log_warn(format!("局域网多播监听初始化失败: {e}"));
                 return;
             }
         };
+        // 单播回包用的发送端: 收到谁的报文就回谁一份自己的宣告。
+        // 只靠多播时, 某些 AP 隔离/防火墙存在"对方能收到我、我收不到对方"的单向
+        // 通路; 单播回包让双方都能在 5s 内补齐设备表。
+        let reply_sock = sock.try_clone().ok();
 
         std::thread::spawn(move || {
             let mut buf = [0u8; 2048];
             let mut last_rescan = std::time::Instant::now();
+            // 每个来源的单播回包节流: 同一设备最多 15s 回一次, 避免 N 台设备
+            // 互发宣告形成无谓的 N² 流量。
+            let mut last_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
+            let mut last_probe_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
             loop {
                 // 切 Wi-Fi / 插拔网卡后, 新接口需要重新 join 组播组, 否则只能发广播、
-                // 收不到别人(设备列表 120s 后清空, 直到重启 App)。每 30s 幂等 rejoin。
+                // 收不到别人(设备列表 15s 后清空, 直到重启 App)。每 30s 幂等 rejoin。
                 if last_rescan.elapsed() >= Duration::from_secs(30) {
                     last_rescan = std::time::Instant::now();
+                    let mut any = false;
                     if let Ok(ifs) = if_addrs::get_if_addrs() {
                         for it in ifs {
                             if let if_addrs::IfAddr::V4(v4) = it.addr {
-                                if !v4.ip.is_loopback() {
-                                    let _ = listener.join_multicast_v4(&DISCOVERY_GROUP, &v4.ip);
+                                if !v4.ip.is_loopback()
+                                    && listener.join_multicast_v4(&DISCOVERY_GROUP, &v4.ip).is_ok()
+                                {
+                                    any = true;
                                 }
                             }
                         }
+                    }
+                    if any {
+                        DISCOVERY_JOINED.store(true, Ordering::SeqCst);
+                        set_discovery_error("");
                     }
                 }
                 let (n, src) = match listener.recv_from(&mut buf) {
@@ -388,39 +1026,94 @@ fn ensure_discovery() {
                 };
                 if src.ip().is_loopback() { continue; }
                 // 服务已停止时不再刷新设备表(广播线程同样会停)
-                if !is_running() { continue; }
+                if !is_running() || !discovery_packet_admit(src.ip()) {
+                    continue;
+                }
                 let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) else { continue };
-                if ingest_peer_packet(&v, src.ip()) {
+                let t = v.get("t").and_then(|x| x.as_str()).unwrap_or("announce");
+                // 主动探测: 立即单播回自己的宣告(1s/来源限流), 不再等 15s 常规回包节流
+                if t == "probe" {
+                    if is_lan_peer(src.ip())
+                        && v.get("app").and_then(|x| x.as_str()) == Some(DISCOVERY_APP)
+                        && v.get("id").and_then(|x| x.as_str()) != Some(discovery_id())
+                    {
+                        let due = last_probe_reply
+                            .get(&src.ip())
+                            .map(|at| at.elapsed() >= Duration::from_millis(500))
+                            .unwrap_or(true);
+                        if due {
+                            if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes()) {
+                                let mut dst = src;
+                                dst.set_port(reply_port(&v));
+                                let _ = s.send_to(&pkt, dst);
+                                last_probe_reply.insert(src.ip(), std::time::Instant::now());
+                                if last_probe_reply.len() > 128 {
+                                    last_probe_reply.clear();
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+                // 正常退出: 同 IP 同 id 才能移除, 防止伪造 bye 清掉别人
+                if t == "bye" {
+                    let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    if is_lan_peer(src.ip()) && !id.is_empty() && id != discovery_id() {
+                        let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
+                        let same = map.get(id).map(|d| d.ip == source_ip_string(src)).unwrap_or(false);
+                        if same && map.remove(id).is_some() {
+                            drop(map);
+                            broadcast_event("devices:changed");
+                        }
+                    }
+                    continue;
+                }
+                let res = ingest_peer_packet_ex(&v, src);
+                if res.new_device || res.changed {
                     broadcast_event("devices:changed");
+                }
+                // 单播回包只发给局域网来源: 公网伪造包不回, 避免把本机信息发到外网。
+                if !is_lan_peer(src.ip()) { continue; }
+                // 单播回包: 新增来源立即回, 已知来源 15s 一次。reply_sock 绑定在
+                // 0.0.0.0:DISCOVERY_PORT, 对端按来源端口 53318 接收。
+                let due = last_reply
+                    .get(&src.ip())
+                    .map(|t| t.elapsed() >= Duration::from_secs(15))
+                    .unwrap_or(true);
+                if due {
+                    if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes()) {
+                        let _ = s.send_to(&pkt, (src.ip(), reply_port(&v)));
+                        last_reply.insert(src.ip(), std::time::Instant::now());
+                        if last_reply.len() > 128 {
+                            last_reply.clear();   // 防止大量伪造源地址把表撑大
+                        }
+                    }
                 }
             }
         });
 
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(5));
+        std::thread::spawn(move || {
+            let mut last_unicast = std::time::Instant::now();
+            loop {
             // 移动端默认安全模式(仅 127.0.0.1): 不广播本机 —— 否则其他设备会在
             // 列表里看到手机、点进去却连不上。用户开启局域网访问并重启服务后才广播。
-            let port = PORT.load(Ordering::Relaxed);
-            // 看"实际绑定"而不是偏好: 用户刚拨开开关但没重启服务时监听仍是 127.0.0.1,
-            // 此时广播出去只会让别的设备看到一台连不上的机器。
-            if !broadcast_allowed(is_running(), LAN_ACTIVE.load(Ordering::Relaxed), port) { continue; }
-            let busy = active_uploads()
-                .lock()
-                .map(|m| m.values().any(|v| *v > 0))
-                .unwrap_or(false);
-            let packet = serde_json::json!({
-                "app": DISCOVERY_APP,
-                "id": discovery_id(),
-                "name": local_name(),
-                "port": port,
-                "platform": std::env::consts::OS,
-                "busy": busy,
-                "ts": now_f64(),
-            });
-            let bytes = packet.to_string().into_bytes();
-            let _ = sock.send_to(&bytes, (DISCOVERY_GROUP, DISCOVERY_PORT));
-            // 广播兜底: 部分 Android 网络默认过滤组播, 广播在多数家用路由器仍可达
-            let _ = sock.send_to(&bytes, (Ipv4Addr::new(255, 255, 255, 255), DISCOVERY_PORT));
+            if let Some(bytes) = announce_packet_bytes() {
+                for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                    // 逐网卡显式指定出口, 避免 Wi-Fi + VPN/虚拟网卡时走错接口
+                    let per_iface = send_announcement_on_all_interfaces(&bytes, port);
+                    if !per_iface {
+                        let _ = sock.send_to(&bytes, (DISCOVERY_GROUP, port));
+                    }
+                    // 广播兜底: 部分 Android 网络默认过滤组播, 广播在多数家用路由器仍可达
+                    let _ = sock.send_to(&bytes, (Ipv4Addr::new(255, 255, 255, 255), port));
+                }
+            }
+            if last_unicast.elapsed() >= Duration::from_secs(30) {
+                last_unicast = std::time::Instant::now();
+                send_unicast_probes();
+            }
+            std::thread::sleep(Duration::from_secs(3));
+            }
         });
     }
 }
@@ -449,7 +1142,80 @@ async fn device_hello(
 
 async fn device_list() -> Response {
     let list = device_snapshot(now_f64());
-    Json(serde_json::json!({ "devices": list })).into_response()
+    Json(serde_json::json!({
+        "devices": list,
+        "discovery": discovery_status_json(),
+    }))
+    .into_response()
+}
+
+/// 单来源发现包准入: 正常设备每 5s 一包, 50 包/秒足够; 挡住 UDP 洪泛占锁/刷列表。
+const DISCOVERY_PACKETS_PER_SEC: u32 = 50;
+fn discovery_packet_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static RATE: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    RATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn discovery_packet_admit(peer: std::net::IpAddr) -> bool {
+    let now = std::time::Instant::now();
+    let mut m = discovery_packet_rate().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 256 {
+        m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 2);
+    }
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    if now.duration_since(e.1).as_millis() >= 1000 {
+        *e = (0, now);
+    }
+    if e.0 >= DISCOVERY_PACKETS_PER_SEC {
+        return false;
+    }
+    e.0 = e.0.saturating_add(1);
+    true
+}
+
+/// 限流键: IPv6 按 /64 聚合 —— 同一网段内轮换接口地址(隐私扩展)不能刷新配额。
+/// v4(mapped 已折回)无轮换诉求, 仍按单地址计。
+fn rate_key(peer: std::net::IpAddr) -> std::net::IpAddr {
+    pin_prefix6(peer).unwrap_or(peer)
+}
+
+const DISCOVERY_PROBE_PER_MIN: u32 = 30;
+fn discovery_probe_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static RATE: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    RATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn discovery_probe_allow(peer: std::net::IpAddr) -> bool {
+    let now = std::time::Instant::now();
+    let mut m = discovery_probe_rate().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 256 {
+        m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
+    }
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    // 固定窗口: e.1 是窗口起点, 只有窗口过期才重置。旧实现每次成功都刷新 e.1,
+    // 结果不是"N 次/分钟", 而是"突发 N 次后整窗封禁"(额度耗尽后要等最后一次成功满 60s)。
+    if now.duration_since(e.1).as_secs() >= 60 {
+        *e = (0, now);
+    }
+    if e.0 >= DISCOVERY_PROBE_PER_MIN {
+        return false;
+    }
+    e.0 = e.0.saturating_add(1);
+    true
+}
+
+async fn discovery_probe(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+) -> Response {
+    let peer = normalize_peer(addr.ip());
+    if !discovery_probe_allow(peer) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "扫描过于频繁，请稍后再试");
+    }
+    // UDP 发送很快; 直接在当前线程执行, 避免为一个 probe 再起任务
+    tokio::task::spawn_blocking(send_discovery_probe)
+        .await
+        .ok();
+    Json(serde_json::json!({ "ok": true, "port": discovery_active_port() })).into_response()
 }
 
 /// 文件 → 上传者昵称(相对路径为键)。内存态: 服务重启后丢失, 列表回落为通用头像。
@@ -519,6 +1285,33 @@ fn push_log_warn(line: String) {
     push_log_lvl("warn", line);
 }
 
+/// 审计日志准入: 每个来源 IPv4/IPv6-/64 每分钟最多记 60 条失败请求。
+/// 未认证的局域网设备可以用 2000+ 次 404 把 PIN 锁定、删除、上传完成等安全事件
+/// 挤出环形队列(审计规避); 限流后只保留有代表性的失败行。安全事件(锁定告警等)
+/// 走 push_log_warn 直接入队, 不经此准入。
+const LOG_FAILS_PER_MIN: u32 = 60;
+fn log_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static RATE: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    RATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn log_admit(peer: std::net::IpAddr) -> bool {
+    let now = std::time::Instant::now();
+    let mut m = log_rate().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 1024 {
+        m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
+    }
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    if now.duration_since(e.1).as_secs() >= 60 {
+        *e = (0, now);
+    }
+    if e.0 >= LOG_FAILS_PER_MIN {
+        return false;
+    }
+    e.0 = e.0.saturating_add(1);
+    true
+}
+
 // ---- WebSocket 事件总线: 聊天/列表/状态变化即时推送, 前端轮询降级为兜底 ---- //
 
 fn event_bus() -> &'static broadcast::Sender<String> {
@@ -543,6 +1336,49 @@ fn upload_permits() -> &'static tokio::sync::Semaphore {
 fn download_permits() -> &'static tokio::sync::Semaphore {
     static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     S.get_or_init(|| tokio::sync::Semaphore::new(32))
+}
+
+/// 单来源并发槽位(IPv6 按 /64 聚合)。全局闸之外再做一层公平性限制:
+/// 否则一台设备就能占满 16 个上传/32 个下载许可, 把所有其他设备挡在 429 外。
+fn peer_slots() -> &'static Mutex<HashMap<std::net::IpAddr, usize>> {
+    static SLOTS: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
+    SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn peer_slot_try_acquire(peer: std::net::IpAddr, max: usize) -> Option<PeerSlot> {
+    let key = rate_key(peer);
+    let mut m = peer_slots().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 1024 {
+        m.retain(|_, n| *n > 0);
+    }
+    let n = m.entry(key).or_insert(0);
+    if *n >= max {
+        return None;
+    }
+    *n += 1;
+    Some(PeerSlot { key })
+}
+/// 下载流的存活标记: 流被 drop(正常读完/客户端断开/看门狗 abort)时置位,
+/// 让看门狗任务及时退出, 不必等到 45s 静默窗口。
+struct DownloadAlive(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for DownloadAlive {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+struct PeerSlot {
+    key: std::net::IpAddr,
+}
+impl Drop for PeerSlot {
+    fn drop(&mut self) {
+        let mut m = peer_slots().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = m.get_mut(&self.key) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                m.remove(&self.key);
+            }
+        }
+    }
 }
 
 /// 广播事件给所有已连接的 WebSocket 客户端(失败静默: 无人在线属正常)
@@ -617,8 +1453,17 @@ fn default_share_dir() -> PathBuf {
     // 品牌更名迁移: 旧目录存在且新目录不存在时整体改名, 保证用户文件不"消失"
     let old = Path::new(&home).join(SHARE_DIR_NAME_LEGACY);
     if !new.exists() && old.is_dir() {
-        if std::fs::rename(&old, &new).is_ok() {
-            push_log(format!("已将共享目录 {} 迁移为 {}", old.display(), new.display()));
+        match std::fs::rename(&old, &new) {
+            Ok(()) => push_log(format!("已将共享目录 {} 迁移为 {}", old.display(), new.display())),
+            Err(e) => {
+                // 迁移失败绝不能静默用新空目录: 用户升级后会看到"共享文件全没了"。
+                // 直接继续使用旧目录, 文件仍在列表里, 下次启动再尝试迁移。
+                push_log_warn(format!(
+                    "共享目录迁移失败({e})，继续使用旧目录 {}；请关闭占用该目录的程序后重启",
+                    old.display()
+                ));
+                return old;
+            }
         }
     }
     new
@@ -647,7 +1492,11 @@ pub fn share_dir() -> PathBuf { share_slot().lock().unwrap_or_else(|e| e.into_in
 /// 更换共享目录(与 PyQt 版一致: 运行中锁定, 停止后下次启动生效); 同步持久化选择
 pub fn set_share_dir(p: PathBuf) {
     *share_slot().lock().unwrap_or_else(|e| e.into_inner()) = p.clone();
-    let _ = std::fs::write(share_pref_file(), p.to_string_lossy().as_bytes());
+    // 原子写: 掉电落在 truncate 与写完之间会留下空文件 → 下次启动回落默认目录,
+    // 用户会以为共享文件全部消失
+    if let Err(e) = write_secret_atomic(&share_pref_file(), p.to_string_lossy().as_bytes()) {
+        push_log_warn(format!("共享目录偏好保存失败(重启后可能回落默认目录): {e}"));
+    }
     // 换目录后旧票据按同名可能解析到新目录的文件, 必须全部作废
     clear_share_tickets();
 }
@@ -765,38 +1614,77 @@ pub fn lan_ip() -> String {
             s.local_addr().ok()
         })
         .map(|a| a.ip().to_string());
-    const TUNNEL_PREFIXES: &[&str] = &["utun", "tun", "tap", "wg", "ppp", "vethernet", "docker", "vmnet", "virbr"];
+    // 隧道/虚拟网卡: 前缀 + 包含式关键词双保险。Windows 的适配器名是友好名
+    // ("VirtualBox Host-Only Network"/"WireGuard Tunnel"/"ZeroTier One"), 只按前缀会漏,
+    // 一旦枚举顺序靠前就会把二维码指向手机不可达的虚拟地址。
+    const TUNNEL_PREFIXES: &[&str] = &[
+        "utun", "tun", "tap", "wg", "ppp", "vethernet", "docker", "vmnet", "virbr",
+        "tailscale", "zerotier", "zt", "wireguard", "vboxnet", "ham", "br-", "cni",
+        "flannel", "kube", "orbstack", "colima", "lima", "multipass",
+    ];
+    const VIRTUAL_KEYWORDS: &[&str] = &[
+        "virtualbox", "vmware", "hyper-v", "tailscale", "zerotier", "wireguard",
+        "openvpn", "hamachi", "wsl", "docker", "veth", "virtual adapter",
+    ];
     let is_tunnel = |name: &str| {
         let n = name.to_ascii_lowercase();
         TUNNEL_PREFIXES.iter().any(|p| n.starts_with(p))
+            || VIRTUAL_KEYWORDS.iter().any(|k| n.contains(k))
     };
     // bridge*(macOS 互联网共享/热点)不硬过滤: 手机直连 Mac 热点时唯一可达地址就是它,
     // 但普通场景它只是冗余 —— 降为末位候选(真实网卡/探测都失效时才取)
     let is_bridge = |name: &str| name.to_ascii_lowercase().starts_with("bridge");
-    let is_private = |ip: &std::net::Ipv4Addr| {
-        ip.is_private() || ip.is_link_local()
+    let is_cgnat = |ip: &std::net::Ipv4Addr| {
+        // 100.64.0.0/10: 运营商级 NAT / Tailscale 等, 不作为首选局域网地址
+        let o = ip.octets();
+        o[0] == 100 && (o[1] & 0xc0) == 0x40
     };
     let mut private: Vec<String> = Vec::new();
+    let mut cgnat: Vec<String> = Vec::new();
     let mut other: Vec<String> = Vec::new();
+    let mut linklocal: Vec<String> = Vec::new();
+    let mut v6_ula: Vec<String> = Vec::new();
+    let mut v6_global: Vec<String> = Vec::new();
     let mut bridge_last: Option<String> = None;
     if let Ok(ifaces) = if_addrs::get_if_addrs() {
         for iface in ifaces {
             if is_tunnel(&iface.name) {
                 continue;
             }
-            if let if_addrs::IfAddr::V4(v4) = iface.addr {
-                if v4.ip.is_loopback() {
-                    continue;
-                }
-                let s = v4.ip.to_string();
-                if is_bridge(&iface.name) {
-                    if bridge_last.is_none() {
-                        bridge_last = Some(s);
+            match iface.addr {
+                if_addrs::IfAddr::V4(v4) => {
+                    if v4.ip.is_loopback() {
+                        continue;
                     }
-                } else if is_private(&v4.ip) && !private.contains(&s) {
-                    private.push(s);
-                } else if !other.contains(&s) {
-                    other.push(s);
+                    let s = v4.ip.to_string();
+                    if is_bridge(&iface.name) {
+                        if bridge_last.is_none() {
+                            bridge_last = Some(s);
+                        }
+                    } else if v4.ip.is_link_local() {
+                        // 169.254/16: 只有在没有更好地址时才用(直连网线等)
+                        if !linklocal.contains(&s) { linklocal.push(s); }
+                    } else if v4.ip.is_private() {
+                        if !private.contains(&s) { private.push(s); }
+                    } else if is_cgnat(&v4.ip) {
+                        if !cgnat.contains(&s) { cgnat.push(s); }
+                    } else if !other.contains(&s) {
+                        other.push(s);
+                    }
+                }
+                if_addrs::IfAddr::V6(v6) => {
+                    // 链路本地(fe80::/10)需要 %网卡 作用域, 跨设备 URL 不可达, 跳过;
+                    // 优先 ULA(fc00::/7), 其次全局 IPv6。IPv6-only 网络至少能出可打开的二维码。
+                    let ip = v6.ip;
+                    if ip.is_loopback() || (ip.segments()[0] & 0xffc0) == 0xfe80 {
+                        continue;
+                    }
+                    let s = ip.to_string();
+                    if (ip.segments()[0] & 0xfe00) == 0xfc00 {
+                        if !v6_ula.contains(&s) { v6_ula.push(s); }
+                    } else if !v6_global.contains(&s) {
+                        v6_global.push(s);
+                    }
                 }
             }
         }
@@ -810,11 +1698,23 @@ pub fn lan_ip() -> String {
     if let Some(first) = private.first() {
         return first.clone();
     }
+    if let Some(first) = cgnat.first() {
+        return first.clone();
+    }
     if let Some(first) = other.first() {
         return first.clone();
     }
     if let Some(b) = bridge_last {
         return b; // macOS 互联网共享场景: 手机直连热点时唯一可达地址
+    }
+    if let Some(first) = linklocal.first() {
+        return first.clone();
+    }
+    if let Some(first) = v6_ula.first() {
+        return first.clone();
+    }
+    if let Some(first) = v6_global.first() {
+        return first.clone();
     }
     // 全部失败才回落探测值/回环(此时二维码应配合 UI 提示"未检测到局域网地址")
     probe.unwrap_or_else(|| "127.0.0.1".into())
@@ -981,7 +1881,8 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         // 绑定成功才落盘偏好, 且写**实际生效端口**(含被占顺延): 重启后回放的就是
         // 手机上还能打开的那个地址, 而不是曾被占用过的首选值
         if preferred.is_some() {
-            let _ = std::fs::write(port_pref_file(), port.to_string());
+            // 原子写: 半截端口("16")会让下次启动回放错误端口, 已分享的地址静默失效
+            let _ = write_secret_atomic(&port_pref_file(), port.to_string().as_bytes());
         }
         push_log_ok(format!("服务已启动 端口 {port} 目录 {}", share.display()));
         if preferred.is_some() && preferred != Some(port) {
@@ -1002,6 +1903,9 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         *running_slot().lock().unwrap_or_else(|e| e.into_inner()) =
             Some(ServerHandle { port, shutdown: tx, task });
         broadcast_event("status:up");
+        // 启动即宣告 + 主动探测, 不等 5s 周期; 同网段已有设备会立即回包。
+        send_discovery_announce();
+        send_discovery_probe();
         Ok(port)
     })
 }
@@ -1189,6 +2093,37 @@ fn clean_incomplete_uploads(share: &Path) {
                 }
                 continue;
             }
+            // 无声明大小(客户端未发 X-File-Size): 无法区分"半截"与"已完整落盘但标记未删"。
+            // 绝不能按"判定不了就删"处理 —— 崩溃窗口前用户可能已把文件换成自己的完整文件。
+            // 非破坏性做法: 把成品改名保留(.incomplete 后缀), 清标记让用户在列表里看到并自行判断。
+            if declared.is_none() {
+                match std::fs::metadata(&final_path) {
+                    Ok(md) if md.is_file() => {
+                        let mut alt = dir.join(format!("{final_name}.incomplete"));
+                        let mut variant = 1u32;
+                        while alt.exists() && variant < 1000 {
+                            alt = dir.join(format!("{final_name}.incomplete-{variant}"));
+                            variant += 1;
+                        }
+                        match std::fs::rename(&final_path, &alt) {
+                            Ok(()) => {
+                                let _ = std::fs::remove_file(&p);
+                                push_log_warn(format!(
+                                    "发现无大小声明的上传残留 {final_name}，已改名保留为 {}（请人工确认完整性）",
+                                    alt.file_name().and_then(|s| s.to_str()).unwrap_or("*.incomplete")
+                                ));
+                            }
+                            Err(e) => push_log_warn(format!(
+                                "无大小声明的上传残留 {final_name} 改名失败({e})，保留原标记等待下次启动"
+                            )),
+                        }
+                    }
+                    _ => {
+                        let _ = std::fs::remove_file(&p);
+                    }
+                }
+                continue;
+            }
             // 声明大小吻合 = 崩溃发生在"成品已完整落盘、标记尚未删除"的窗口:
             // 保留成品, 只清标记(旧实现会把完整文件当半截删掉)
             let complete = declared.map_or(false, |d| {
@@ -1266,10 +2201,34 @@ pub fn stop() -> bool {
     // 入口即置位: 必须先于抢生命周期锁 —— 否则 start 在"检查通过后、stop 开始前"
     // 的空档拿到锁直接 bind, 仍会与在途优雅关闭抢端口(地址漂移窗口没关死)
     STOPPING.store(true, Ordering::SeqCst);
-    // 生命周期锁与 start 互斥; running_slot 锁只保护 handle 的接管
-    let lifecycle = lifecycle_lock().lock().unwrap_or_else(|e| e.into_inner());
+    // 生命周期锁与 start 互斥; running_slot 锁只保护 handle 的接管。
+    // start 会在持锁期间扫描共享目录, 网络盘/休眠外接盘上一次 read_dir 可阻塞很久 ——
+    // 这里用带超时的 try_lock, 避免托盘/HTTP 控制面跟着永久挂起。
+    let lifecycle = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match lifecycle_lock().try_lock() {
+                Ok(g) => break g,
+                Err(std::sync::TryLockError::Poisoned(p)) => break p.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    if std::time::Instant::now() >= deadline {
+                        push_log_warn(
+                            "停止服务超时：启动清理仍在等待共享目录响应（可能是已断开的网络盘），请稍后重试"
+                                .into(),
+                        );
+                        STOPPING.store(false, Ordering::SeqCst);
+                        STOP_IN_FLIGHT.store(false, Ordering::SeqCst);
+                        return false;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
+        }
+    };
     let mut lock = running_slot().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(h) = lock.take() {
+        // 正常停止时发 bye, 对端立刻移除; 异常断电仍由 30s TTL 兜底。
+        send_discovery_bye();
         push_log("服务已停止".into());
         broadcast_event("status:down");
         let _ = ws_kick().send(());
@@ -1332,7 +2291,10 @@ const OPEN_LAN_PREF_FILE: &str = "open_lan_pref";
 fn open_lan_pref_file() -> PathBuf { port_pref_file().with_file_name(OPEN_LAN_PREF_FILE) }
 
 fn open_lan() -> bool {
-    // 首次使用时从偏好文件恢复; 运行中切换监听地址需要重绑, 由下次 start 生效
+    // 首次使用时从偏好文件恢复; 运行中切换监听地址需要重绑, 由下次 start 生效。
+    // 默认值: 桌面 true(产品定位就是同 Wi-Fi 互传), 移动端 false(公共 Wi-Fi 安全模式)。
+    // 桌面设置页已移除开关, 但**仍尊重历史偏好**: 曾显式关闭过的用户升级后不会
+    // 被静默重新暴露到局域网; 发现页会给出"仅本机模式"提示和一键恢复入口。
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
         if let Ok(s) = std::fs::read_to_string(open_lan_pref_file()) {
@@ -1344,7 +2306,9 @@ fn open_lan() -> bool {
 
 pub fn set_open_lan(open: bool) {
     OPEN_LAN.store(open, Ordering::Relaxed);
-    let _ = std::fs::write(open_lan_pref_file(), if open { "1" } else { "0" });
+    if let Err(e) = write_secret_atomic(open_lan_pref_file().as_path(), if open { b"1" } else { b"0" }) {
+        push_log_warn(format!("局域网访问偏好保存失败(重启后可能回落默认值): {e}"));
+    }
     push_log(if open {
         "已开放局域网访问（重启服务后生效）".into()
     } else {
@@ -1357,24 +2321,41 @@ pub fn status() -> (bool, u16, String) {
     (running, PORT.load(Ordering::Relaxed), lan_ip())
 }
 
+/// 托盘/外部打开网页用的地址: 安全模式只监听回环时不能给局域网 IP(必然打不开)。
+pub fn web_url() -> String {
+    let (running, port, _) = status();
+    if !running || port == 0 {
+        return String::new();
+    }
+    let host = if LAN_ACTIVE.load(Ordering::Relaxed) {
+        lan_ip()
+    } else {
+        "127.0.0.1".to_string()
+    };
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host
+    };
+    format!("http://{host}:{port}")
+}
+
 // ---------------------------------------------------------------- //
 // 路径安全 / 工具
 // ---------------------------------------------------------------- //
-
-const FRAGMENT: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
-    .add(b' ')
-    .add(b'"')
-    .add(b'%')
-    .add(b'<')
-    .add(b'>')
-    .add(b'`');
 
 /// 相对路径校验: 输入应为**已解码**字符串(axum Path/Query 提取器自带一次解码;
 /// X-Filename 请求头由 upload 处理解码一次后再传入)。逐段检查(拒绝空/./.. 与非法字符),
 /// 允许子目录(整目录上传), 段数上限与文件列表递归深度一致。
 /// 返回以 "/" 连接的相对路径; 保证 join 后不越出共享目录。
 fn safe_rel_path(raw: &str, for_upload: bool) -> Option<String> {
-    let norm = raw.replace('\\', "/");
+    // 只在 Windows 把 `\` 视作分隔符。Unix 的 `\` 是合法文件名字符: 全局归一化会让
+    // 列表里的 `a\b.txt` 与真实存在的 `a/b.txt` 指向同一路径(删除/下载串文件)。
+    let norm = if cfg!(windows) {
+        raw.replace('\\', "/")
+    } else {
+        raw.to_string()
+    };
     let mut parts: Vec<String> = Vec::new();
     for seg in norm.split('/') {
         if seg.is_empty() || seg == "." {
@@ -1417,7 +2398,10 @@ fn safe_rel_path(raw: &str, for_upload: bool) -> Option<String> {
                 stem.as_str(),
                 "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
                     | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
+                    // Windows 把上标数字 ¹²³ 也按设备号解析(COM¹ 等价 COM1)
+                    | "COM¹" | "COM²" | "COM³"
                     | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+                    | "LPT¹" | "LPT²" | "LPT³"
             ) {
                 return None;
             }
@@ -1633,9 +2617,9 @@ fn ccup_marker_token(s: &str) -> (&str, bool) {
 fn is_system_ccup(path: &Path) -> bool {
     let Some(s) = read_ccup_prefix(path, 128) else { return false; };
     let (t, legacy) = ccup_marker_token(&s);
-    // 二进制/非 UTF8 内容不再被当成系统标记: 用户自建的 .x.ccup 不应把同名
-    // 成品永久隐藏(旧实现 Err => true)。
-    t.is_empty() || t == "ok" || is_upload_token(t) || legacy
+    // 二进制/非 UTF8/空内容不再被当成系统标记: 用户自建的 .x.ccup(含 0 字节)
+    // 不应把同名成品永久隐藏/锁成"上传中"(旧实现 Err/空 => true)。
+    t == "ok" || is_upload_token(t) || legacy
 }
 
 /// 成品是否仍处于"上传中": 对应 .{名}.ccup 标记是系统标记且不是完成的 "ok"。
@@ -1646,7 +2630,7 @@ fn marker_is_incomplete(file: &Path) -> bool {
     let marker = dir.join(format!(".{base}.ccup"));
     let Some(s) = read_ccup_prefix(&marker, 128) else { return false };
     let (t, legacy) = ccup_marker_token(&s);
-    let system = t.is_empty() || t == "ok" || is_upload_token(t) || legacy;
+    let system = t == "ok" || is_upload_token(t) || legacy;
     if !system {
         return false; // 用户自建的同名 .ccup 不能把成品锁成"上传中"
     }
@@ -1720,7 +2704,8 @@ async fn abort_upload(path: &std::path::Path, marker: &std::path::Path, token: &
 /// 创建方是桌面壳(127.0.0.1)、接收方必然是局域网另一台设备, 校验 owner 会让分享永远失败。
 struct ShareTicket {
     name: String,
-    expires_at: SystemTime,
+    /// 用单调时钟: 系统时间回拨不会把 10 分钟有效期的分享链接无限延长
+    expires_at: std::time::Instant,
     /// 签发时的文件指纹: 文件被删除/同名重传后票据立即失效, 不能下载替换后的内容
     size: u64,
     etag: String,
@@ -1731,6 +2716,16 @@ fn ticket_file_matches(share: &Path, name: &str, size: u64, etag: &str) -> bool 
         .and_then(|p| p.metadata().ok())
         .filter(|m| m.is_file())
         .map(|m| m.len() == size && file_etag(&m) == etag)
+        .unwrap_or(false)
+}
+
+/// 票据文件指纹校验的 blocking 版本: middleware/下载链路不得直接做磁盘 IO
+async fn ticket_file_matches_async(share: &Path, name: &str, size: u64, etag: &str) -> bool {
+    let share = share.to_path_buf();
+    let name = name.to_string();
+    let etag = etag.to_string();
+    tokio::task::spawn_blocking(move || ticket_file_matches(&share, &name, size, &etag))
+        .await
         .unwrap_or(false)
 }
 
@@ -1751,7 +2746,7 @@ fn random_token() -> String {
 }
 
 fn prune_tickets_locked(tickets: &mut HashMap<String, ShareTicket>) {
-    let now = SystemTime::now();
+    let now = std::time::Instant::now();
     tickets.retain(|_, ticket| ticket.expires_at > now);
 }
 
@@ -1772,11 +2767,7 @@ async fn share_ticket(
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
     let share = share_dir();
-    let Some((size, etag)) = safe_join_existing(&share, &name)
-        .and_then(|p| p.metadata().ok())
-        .filter(|m| m.is_file())
-        .map(|m| (m.len(), file_etag(&m)))
-    else {
+    let Some((size, etag)) = file_fingerprint_async(&share, &name).await else {
         return err(StatusCode::NOT_FOUND, "文件不存在");
     };
     let ticket = {
@@ -1798,7 +2789,7 @@ async fn share_ticket(
             generated.clone(),
             ShareTicket {
                 name: name.clone(),
-                expires_at: SystemTime::now() + std::time::Duration::from_secs(SHARE_TICKET_TTL_SECS),
+                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(SHARE_TICKET_TTL_SECS),
                 size,
                 etag,
             },
@@ -1813,7 +2804,7 @@ async fn share_ticket(
 /// raw_path 是线上原始(百分号编码)形态: 逐段解码后再走安全校验 ——
 /// 票据创建时存的是解码后的文件名, 不解码则中文名票据永远匹配不上;
 /// 先解码后校验也保证 %2E%2E 等穿越形态仍被 safe_rel_path 拦下。
-fn valid_ticket(query: &str, raw_path: &str) -> Option<String> {
+async fn valid_ticket(query: &str, raw_path: &str) -> Option<String> {
     let ticket = query
         .split('&')
         .find_map(|kv| kv.strip_prefix("ticket="))
@@ -1834,12 +2825,12 @@ fn valid_ticket(query: &str, raw_path: &str) -> Option<String> {
         }
         (t.size, t.etag.clone())
     };
-    ticket_file_matches(&share_dir(), &name, size, &etag).then_some(ticket)
+    if ticket_file_matches_async(&share_dir(), &name, size, &etag).await { Some(ticket) } else { None }
 }
 
 /// 原子取出票据: 校验与移除在同一把锁内完成。
 /// 旧实现"peek 校验 → handler await → 事后移除"存在 TOCTOU, 并发请求都能通过校验并各下载一次。
-fn take_ticket(query: &str, raw_path: &str) -> Option<(String, ShareTicket)> {
+async fn take_ticket(query: &str, raw_path: &str) -> Option<(String, ShareTicket)> {
     let ticket = query
         .split('&')
         .find_map(|kv| kv.strip_prefix("ticket="))
@@ -1860,7 +2851,7 @@ fn take_ticket(query: &str, raw_path: &str) -> Option<(String, ShareTicket)> {
         (t.size, t.etag.clone())
     };
     // 文件已被删除或同名重传(内容变了) → 票据失效, 不再授权下载
-    if !ticket_file_matches(&share_dir(), &name, size, &etag) {
+    if !ticket_file_matches_async(&share_dir(), &name, size, &etag).await {
         return None;
     }
     share_tickets()
@@ -1937,15 +2928,19 @@ fn remember_ticket(id: &str, t: &ShareTicket, peer: std::net::IpAddr) {
 }
 
 /// 已消费票据的 Range 复用校验: 同票据 + 同来源 IP + 同文件 + 文件内容未变。
-fn recent_ticket_allows(id: &str, name: &str, peer: std::net::IpAddr) -> bool {
+async fn recent_ticket_allows(id: &str, name: &str, peer: std::net::IpAddr) -> bool {
     let now = std::time::Instant::now();
-    let mut m = recent_tickets().lock().unwrap_or_else(|e| e.into_inner());
-    m.retain(|_, r| now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS);
-    let Some(r) = m.get(id) else { return false; };
-    if r.peer != peer || r.name != name {
-        return false;
-    }
-    ticket_file_matches(&share_dir(), name, r.size, &r.etag)
+    // 锁守卫不能跨 await: 先取出指纹再释放锁, 否则中间件 future 不是 Send
+    let (size, etag) = {
+        let mut m = recent_tickets().lock().unwrap_or_else(|e| e.into_inner());
+        m.retain(|_, r| now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS);
+        let Some(r) = m.get(id) else { return false; };
+        if r.peer != peer || r.name != name {
+            return false;
+        }
+        (r.size, r.etag.clone())
+    };
+    ticket_file_matches_async(&share_dir(), name, size, &etag).await
 }
 
 /// 当前所有票据(轮换/关闭访问码时统一作废, 兑现日志里"旧分享链接随之失效"的承诺)
@@ -2002,7 +2997,8 @@ fn ticket_issue_allow(peer: std::net::IpAddr) -> bool {
     if m.len() > 1024 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
     }
-    let e = m.entry(peer).or_insert((0, now));
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    // 固定窗口(见 discovery_probe_allow 注释): 额度按窗口起点恢复, 不再被每次成功推后
     if now.duration_since(e.1).as_secs() >= 60 {
         *e = (0, now);
     }
@@ -2010,7 +3006,6 @@ fn ticket_issue_allow(peer: std::net::IpAddr) -> bool {
         return false;
     }
     e.0 = e.0.saturating_add(1);
-    e.1 = now;
     true
 }
 
@@ -2030,7 +3025,9 @@ fn chat_admit(peer: std::net::IpAddr) -> bool {
     if m.len() > 1024 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
     }
-    let e = m.entry(peer).or_insert((0, now));
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    // 固定窗口(见 discovery_probe_allow 注释): 60 条/分钟是持续速率, 不是
+    // "发满 60 条后静默禁言 60s" —— 后者在群聊里会误伤正常用户
     if now.duration_since(e.1).as_secs() >= 60 {
         *e = (0, now);
     }
@@ -2038,7 +3035,56 @@ fn chat_admit(peer: std::net::IpAddr) -> bool {
         return false;
     }
     e.0 = e.0.saturating_add(1);
-    e.1 = now;
+    true
+}
+
+/// 删除消息限流: 每次删除都会重写整段历史, 不限制时单来源可用 DELETE 洪水
+/// 持续占用磁盘 IO(移动端还有闪存磨损)。60 次/分钟对正常用户足够。
+const CHAT_DEL_PER_MIN: u32 = 60;
+fn chat_del_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static RATE: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    RATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn chat_del_admit(peer: std::net::IpAddr) -> bool {
+    let now = std::time::Instant::now();
+    let mut m = chat_del_rate().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 1024 {
+        m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
+    }
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    if now.duration_since(e.1).as_secs() >= 60 {
+        *e = (0, now);
+    }
+    if e.0 >= CHAT_DEL_PER_MIN {
+        return false;
+    }
+    e.0 = e.0.saturating_add(1);
+    true
+}
+
+/// 共享剪贴板写入限流: 内容可达 2 万字且每次附磁盘落盘, 不限制时可被高频 POST
+/// 拖慢磁盘/占满 worker。桌面/手机自动同步约 40 次/分钟, 240 次/分钟留足余量。
+const CLIP_PER_MIN: u32 = 240;
+fn clip_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static RATE: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
+        OnceLock::new();
+    RATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn clip_admit(peer: std::net::IpAddr) -> bool {
+    let now = std::time::Instant::now();
+    let mut m = clip_rate().lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 1024 {
+        m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
+    }
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
+    if now.duration_since(e.1).as_secs() >= 60 {
+        *e = (0, now);
+    }
+    if e.0 >= CLIP_PER_MIN {
+        return false;
+    }
+    e.0 = e.0.saturating_add(1);
     true
 }
 
@@ -2054,7 +3100,10 @@ fn write_secret(path: &Path, data: &[u8]) -> std::io::Result<()> {
             .truncate(true)
             .mode(0o600)
             .open(path)?;
-        f.write_all(data)
+        f.write_all(data)?;
+        // 落盘后再交给 rename: 掉电时避免"文件名已替换、内容仍在页缓存"变空文件
+        // (聊天历史/PIN/偏好都走这里, 一次延迟换来崩溃后可读)
+        f.sync_all()
     }
     #[cfg(not(unix))]
     {
@@ -2129,6 +3178,45 @@ fn safe_join_existing(share: &Path, name: &str) -> Option<PathBuf> {
     canon.starts_with(base).then_some(canon)
 }
 
+/// async handler 禁止直接 canonicalize/metadata/查盘: 慢盘/NFS 会阻塞 tokio worker
+async fn safe_join_existing_async(share: &Path, name: &str) -> Option<PathBuf> {
+    let share = share.to_path_buf();
+    let name = name.to_string();
+    tokio::task::spawn_blocking(move || safe_join_existing(&share, &name))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// 文件指纹(大小 + ETag), blocking 包装: 开票/下载校验不在 worker 上做磁盘 IO
+async fn file_fingerprint_async(share: &Path, name: &str) -> Option<(u64, String)> {
+    let share = share.to_path_buf();
+    let name = name.to_string();
+    tokio::task::spawn_blocking(move || {
+        safe_join_existing(&share, &name)
+            .and_then(|p| p.metadata().ok())
+            .filter(|m| m.is_file())
+            .map(|m| (m.len(), file_etag(&m)))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn available_space_async(path: PathBuf) -> Option<u64> {
+    tokio::task::spawn_blocking(move || fs2::available_space(&path).ok())
+        .await
+        .ok()
+        .flatten()
+}
+
+async fn dedup_rel_name_async(dir: PathBuf, rel: String) -> String {
+    let fallback = rel.clone();
+    tokio::task::spawn_blocking(move || dedup_rel_name(&dir, &rel))
+        .await
+        .unwrap_or(fallback)
+}
+
 /// 强 ETag: 大小 + mtime(纳秒)。同名文件被删除后重新上传会得到不同 ETag,
 /// 断点续传据此判断"是否还是同一份内容", 避免把旧前缀拼到新文件上。
 fn file_etag(meta: &std::fs::Metadata) -> String {
@@ -2156,7 +3244,12 @@ fn file_etag(meta: &std::fs::Metadata) -> String {
 }
 
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
-    (status, Json(serde_json::json!({ "error": msg.into() }))).into_response()
+    (
+        status,
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(serde_json::json!({ "error": msg.into() })),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------- //
@@ -2198,10 +3291,27 @@ fn static_headers(mime: &str, cache: &'static str) -> HeaderMap {
         HeaderName::from_static("referrer-policy"),
         HeaderValue::from_static("no-referrer"),
     );
-    // 只声明 frame-ancestors, 不限制页面自身资源(避免误伤内联样式/图片/媒体)
+    // 浏览器版没有 Tauri 注入的 CSP, 这里补齐脚本级防线:
+    // - 脚本只允许同源构建产物(无 eval/无内联);
+    // - 样式允许内联(Vue 动态 style / 主题变量);
+    // - 图片/媒体允许 data:/blob:(预览缩略图与下载 blob);
+    // - ws: 供同源 WebSocket 事件推送; 其余外连一律禁止(更新检查走 GitHub 的
+    //   connect-src 白名单, 由 Tauri 壳内的 CSP 管; 浏览器版更新检查在 fetchLatestRelease
+    //   里失败即静默, 不影响主功能)。
     h.insert(
         HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static("frame-ancestors 'self'"),
+        HeaderValue::from_static(
+            "default-src 'self'; \
+             script-src 'self'; \
+             style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data: blob:; \
+             media-src 'self' blob:; \
+             font-src 'self' data:; \
+             connect-src 'self' ws:; \
+             object-src 'none'; \
+             base-uri 'self'; \
+             frame-ancestors 'self'",
+        ),
     );
     h
 }
@@ -2223,11 +3333,20 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
     };
     match Frontend::get(path) {
         Some(f) => (static_headers(mime_for_path(Path::new(path)), cache), f.data).into_response(),
-        // SPA 兜底: 未知路径回 index.html
-        None => match Frontend::get("index.html") {
-            Some(f) => (static_headers("text/html; charset=utf-8", "no-store"), f.data).into_response(),
-            None => err(StatusCode::NOT_FOUND, "前端资源未构建(先执行 npm run build)"),
-        },
+        None => {
+            // 资源文件(带扩展名或 /assets/)缺失必须 404, 不能 SPA 兜底成 index.html:
+            // 升级后旧页面/Service Worker 请求已删除的 /assets/old-hash.js 会拿到
+            // text/html, <script type="module"> 解析失败 → 整页白屏, 且动态 import
+            // 会被永久缓存为 rejected。无扩展名的路径才回 SPA 首页。
+            let last = path.rsplit('/').next().unwrap_or("");
+            if path.starts_with("assets/") || last.contains('.') {
+                return err(StatusCode::NOT_FOUND, "Not Found");
+            }
+            match Frontend::get("index.html") {
+                Some(f) => (static_headers("text/html; charset=utf-8", "no-store"), f.data).into_response(),
+                None => err(StatusCode::NOT_FOUND, "前端资源未构建(先执行 npm run build)"),
+            }
+        }
     }
 }
 
@@ -2259,9 +3378,19 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
             return; // 超大目录不再无界遍历/序列化
         }
         let p = e.path();
+        // 先看自身类型再 follow: 指向目录的符号链接若先 metadata 会递归到共享目录之外
+        // (并可形成环); 列表/下载/删除的越界校验虽会拒绝，也不能把界外文件名/metadata 列出来。
+        let Ok(ft) = e.file_type() else { continue };
+        if ft.is_symlink() {
+            continue;
+        }
         let Ok(md) = e.metadata() else { continue };
         if md.is_dir() {
             collect_files(&p, base, depth + 1, out);
+            continue;
+        }
+        // FIFO/设备节点等非普通文件取不回也删不了，不进列表
+        if !md.is_file() {
             continue;
         }
         let fname = e.file_name().to_string_lossy().to_string();
@@ -2275,20 +3404,21 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
         if marker_is_incomplete(&p) {
             continue;
         }
-        if md.is_symlink() {
-            continue; // 符号链接不列(下载/删除的越界校验会拒绝, 列出只会 404)
-        }
         let modified = md
             .modified()
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs_f64())
             .unwrap_or(0.0);
-        let rel = p
+        let mut rel = p
             .strip_prefix(base)
             .unwrap_or(&p)
             .to_string_lossy()
-            .replace('\\', "/");
+            .to_string();
+        // 仅 Windows 归一化路径分隔符; Unix 反斜杠是文件名的一部分, 不能改写
+        if cfg!(windows) {
+            rel = rel.replace('\\', "/");
+        }
         out.push(FileEntry {
             name: rel,
             size: md.len(),
@@ -2335,16 +3465,20 @@ async fn download(
     AxPath(raw): AxPath<String>,
 ) -> Response {
     use tokio::io::AsyncSeekExt;
+    let peer = normalize_peer(addr.ip());
     // 并发闸: 超限立即 429, 不排队(每条下载固定占用一块流式缓冲)
     let Ok(download_permit) = download_permits().try_acquire() else {
         return err(StatusCode::TOO_MANY_REQUESTS, "下载并发过多，请稍后重试");
     };
-    let peer = normalize_peer(addr.ip());
+    // 单来源并发上限 8(总闸 32): 否则一台设备慢读 32 条即可让全员 429
+    let Some(download_slot) = peer_slot_try_acquire(peer, 8) else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "该设备下载并发过多，请稍后再试");
+    };
     // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验(读路径不拦保留设备名, 否则既有文件取不回)
     let Some(name) = safe_rel_path(raw.trim_start_matches('/'), false) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
-    let Some(path) = safe_join_existing(&share, &name) else {
+    let Some(path) = safe_join_existing_async(&share, &name).await else {
         push_log_err(format!("下载失败 {name}: 文件不存在 ← {}", peer));
         return err(StatusCode::NOT_FOUND, "文件不存在");
     };
@@ -2463,14 +3597,79 @@ async fn download(
     // 超过已声明的 Content-Length, 破坏 HTTP 分帧
     let bounded = tokio::io::AsyncReadExt::take(tokio_file, if is_partial { end_excl - start } else { size });
     let reader = tokio::io::BufReader::with_capacity(CHUNK_HINT, bounded);
-    let stream = tokio_util::io::ReaderStream::with_capacity(reader, CHUNK_HINT);
-    // handler 返回后响应体仍由 hyper 驱动: 局部 permit 会先于 body 结束被 drop,
-    // 必须把许可移进流的闭包, 让它活到读完/客户端断开, 闸门才真正生效。
-    use futures_util::StreamExt;
-    let stream = stream.map(move |chunk| {
-        let _keep = &download_permit;
-        chunk
-    });
+    // 下载空闲/慢读看门狗: 上传侧有 120s 空闲闸, 下载侧旧实现完全没有 —— 慢读或
+    // 干脆不读的客户端会让 hyper 停止轮询响应体, 许可与单来源槽位被永久占住。
+    // 每块数据产出时累加进度; 独立任务每 5s 检查, 45s 无进展(或总时长超 2h)就
+    // abort 流(AbortHandle 会唤醒并结束响应体), 随流 drop 归还 permit/槽位。
+    use tokio::io::AsyncReadExt;
+    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (abort_tx, abort_rx) = futures_util::future::AbortHandle::new_pair();
+    let base = futures_util::stream::unfold(
+        (reader, download_permit, download_slot, DownloadAlive(alive.clone()), false),
+        {
+            let progress = progress.clone();
+            move |(mut r, permit, slot, guard, done)| {
+                let progress = progress.clone();
+                async move {
+                    if done {
+                        return None;
+                    }
+                    let mut buf = vec![0u8; 64 * 1024];
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(45),
+                        r.read(&mut buf),
+                    )
+                    .await
+                    {
+                        Ok(Ok(0)) => None,
+                        Ok(Ok(n)) => {
+                            progress.fetch_add(n as u64, Ordering::Relaxed);
+                            buf.truncate(n);
+                            Some((
+                                Ok(axum::body::Bytes::from(buf)),
+                                (r, permit, slot, guard, false),
+                            ))
+                        }
+                        Ok(Err(e)) => Some((Err(e), (r, permit, slot, guard, true))),
+                        Err(_) => Some((
+                            Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "download idle timeout",
+                            )),
+                            (r, permit, slot, guard, true),
+                        )),
+                    }
+                }
+            }
+        },
+    );
+    {
+        let progress = progress.clone();
+        let alive = alive.clone();
+        tokio::spawn(async move {
+            let started = std::time::Instant::now();
+            let mut last_bytes = 0u64;
+            let mut last_at = std::time::Instant::now();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if alive.load(Ordering::Relaxed) {
+                    break;
+                }
+                let cur = progress.load(Ordering::Relaxed);
+                if cur != last_bytes {
+                    last_bytes = cur;
+                    last_at = std::time::Instant::now();
+                } else if last_at.elapsed() >= std::time::Duration::from_secs(45)
+                    || started.elapsed() >= std::time::Duration::from_secs(2 * 3600)
+                {
+                    abort_tx.abort();
+                    break;
+                }
+            }
+        });
+    }
+    let stream = futures_util::future::Abortable::new(base, abort_rx);
     push_log(format!(
         "下载 {name} ({}) ← {}{}",
         humans(if is_partial { end_excl - start } else { size }),
@@ -2478,7 +3677,11 @@ async fn download(
         if is_partial { format!(" · 续传自 {start}") } else { String::new() }
     ));
     let mime = mime_for_path(&path);
-    let enc = percent_encoding::utf8_percent_encode(&name, FRAGMENT);
+    // filename* 只能是文件名(不能带子目录), 且必须做完整百分号编码:
+    // 旧实现用自定义 set 漏了 `/`、`'`, 浏览器会把 RFC 5987 值判为非法并忽略,
+    // 分享链接直接下载时保存的文件名可能变成 URL 末段或乱码。
+    let base_name = name.rsplit('/').next().unwrap_or(&name);
+    let enc = percent_encoding::utf8_percent_encode(base_name, percent_encoding::NON_ALPHANUMERIC);
     let mut rh = HeaderMap::new();
     rh.insert(header::CONTENT_TYPE, mime.parse().unwrap());
     rh.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
@@ -2524,11 +3727,15 @@ async fn upload(
     body: Body,
 ) -> Response {
     use tokio::io::AsyncWriteExt;
+    let peer = normalize_peer(addr.ip());
     // 并发闸: 超限立即 429, 不排队(排队会放大内存/连接占用)
     let Ok(_upload_permit) = upload_permits().try_acquire() else {
         return err(StatusCode::TOO_MANY_REQUESTS, "上传并发过多，请稍后重试");
     };
-    let peer = normalize_peer(addr.ip());
+    // 单来源最多占 4 条(总闸 16): 一台设备不能凭慢速上传饿死整个局域网
+    let Some(_peer_slot) = peer_slot_try_acquire(peer, 4) else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "该设备上传并发过多，请稍后再试");
+    };
     let raw = headers
         .get("X-Filename")
         .and_then(|v| v.to_str().ok())
@@ -2571,7 +3778,7 @@ async fn upload(
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     if size > 0 {
-        if let Ok(free) = fs2::available_space(&share) {
+        if let Some(free) = available_space_async(share.clone()).await {
             // 额外保留 256MB 安全余量: 不让一次上传把系统盘写到几近枯竭
             let need = size.saturating_add(UPLOAD_FREE_RESERVE_BYTES);
             if need > free {
@@ -2599,7 +3806,10 @@ async fn upload(
                 None => break,
             }
         }
-        let (Ok(base), Ok(probe_canon)) = (share.canonicalize(), probe.canonicalize()) else {
+        let (Ok(base), Ok(probe_canon)) = (
+            tokio::fs::canonicalize(&share).await,
+            tokio::fs::canonicalize(&probe).await,
+        ) else {
             return err(StatusCode::INTERNAL_SERVER_ERROR, "路径校验失败");
         };
         if !probe_canon.starts_with(&base) {
@@ -2610,7 +3820,10 @@ async fn upload(
             return err(StatusCode::INTERNAL_SERVER_ERROR, format!("创建目录失败: {e}"));
         }
         // 事后复验(TOCTOU 窗口): 发现越界回滚 —— 非递归删除, 此刻必为空目录
-        match (parent.canonicalize(), share.canonicalize()) {
+        match (
+            tokio::fs::canonicalize(parent).await,
+            tokio::fs::canonicalize(&share).await,
+        ) {
             (Ok(parent_canon), Ok(base)) if parent_canon.starts_with(&base) => {}
             (Ok(_), Ok(_)) => {
                 let _ = tokio::fs::remove_dir(parent).await;
@@ -2646,7 +3859,7 @@ async fn upload(
         {
             Ok(f) => break (p, f),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let next = dedup_rel_name(&share, &name);
+                let next = dedup_rel_name_async(share.clone(), name.clone()).await;
                 if next == final_name {
                     return err(StatusCode::INTERNAL_SERVER_ERROR, "同名文件名变体已用尽");
                 }
@@ -2823,7 +4036,7 @@ async fn upload(
         // 周期查盘(审查回归): size=0 与谎报 size 的请求体绕过了启动预检,
         // 每 64MB 复查一次, 低于安全余量即中止 —— 防灌满共享盘
         if written - last_check >= UPLOAD_FREE_CHECK_BYTES {
-            if let Ok(free) = fs2::available_space(&share) {
+            if let Some(free) = available_space_async(share.clone()).await {
                 if free < UPLOAD_FREE_RESERVE_BYTES {
                     drop(file);
                     upload_cleanup.armed = false;
@@ -2836,6 +4049,17 @@ async fn upload(
                 }
             }
             last_check = written;
+        }
+        // 声明大小是硬上限: 客户端多送字节时必须立即中止，不能先把超出部分写盘、
+        // 最后再以"声明/实际不符"拒绝 —— 否则谎报小 size 可绕过启动预检灌盘。
+        if size > 0 && written.saturating_add(c.len() as u64) > size {
+            drop(file);
+            upload_cleanup.armed = false;
+            abort_upload(&path, &marker, &token, &akey).await;
+            push_log_warn(format!(
+                "上传中止 {name}: 实际内容超过声明大小 {size} 字节，已清理半截文件 ← {peer}"
+            ));
+            return err(StatusCode::PAYLOAD_TOO_LARGE, "上传内容超过声明大小");
         }
         if let Err(e) = file.write_all(&c).await {
             drop(file);
@@ -3153,7 +4377,7 @@ async fn delete_file(
     let Some(name) = safe_rel_path(raw.trim_start_matches('/'), false) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
     };
-    let Some(path) = safe_join_existing(&share, &name) else {
+    let Some(path) = safe_join_existing_async(&share, &name).await else {
         return err(StatusCode::NOT_FOUND, "文件不存在");
     };
     // 复查与删除必须与上传的"占位→标记→登记"临界区互斥: 否则检查通过后上传刚完成登记,
@@ -3167,32 +4391,44 @@ async fn delete_file(
             return err(StatusCode::CONFLICT, "该文件正在上传中，请等上传完成后再删除");
         }
     }
+    // 标记检查涉及共享目录上的文件读取(可能是 NFS/休眠盘): 放进阻塞线程,
+    // 否则一次 DELETE 就能卡住一个 tokio worker, 连带冻结 WS 心跳与所有 API。
+    let (system_ccup, marker_token, marker_path) = {
+        let share2 = share.clone();
+        let name2 = name.clone();
+        tokio::task::spawn_blocking(move || {
+            let base = name2.rsplit('/').next().unwrap_or("").to_string();
+            let is_ccup = base.to_ascii_lowercase().ends_with(".ccup");
+            let system_ccup = is_ccup && is_system_ccup(&share2.join(&name2));
+            let (token, path) = match share2.join(&name2).parent() {
+                Some(parent) => {
+                    let marker = parent.join(format!(".{base}.ccup"));
+                    let tok = std::fs::read_to_string(&marker)
+                        .ok()
+                        .and_then(|c| c.lines().next().map(|t| t.trim().to_string()));
+                    (tok, Some(marker))
+                }
+                None => (None, None),
+            };
+            (system_ccup, token, path)
+        })
+        .await
+        .unwrap_or((false, None, None))
+    };
     // 系统上传标记不是用户数据: 删掉它会解除在途上传的保护, 半截成品随后会被
     // 当成完整文件列出/下载。用户自建的 .ccup(内容不是系统令牌)仍允许删除。
-    if name
-        .rsplit('/')
-        .next()
-        .map(|b| b.to_ascii_lowercase().ends_with(".ccup"))
-        .unwrap_or(false)
-        && is_system_ccup(&share.join(&name))
-    {
+    if system_ccup {
         return err(StatusCode::CONFLICT, "上传完整性标记不可删除");
     }
     // 只有"系统上传令牌"才代表正在写入。上传成功但标记删除失败会留下 "ok",
     // 用户自建的同名 .ccup 也不属于上传中 —— 二者都不应把文件永久锁成 409。
-    if let Some(parent) = share.join(&name).parent() {
-        if let Some(base) = Path::new(&name).file_name() {
-            let marker = parent.join(format!(".{}.ccup", base.to_string_lossy()));
-            let first = std::fs::read_to_string(&marker)
-                .ok()
-                .and_then(|c| c.lines().next().map(|t| t.trim().to_string()));
-            if let Some(t) = first {
-                if is_upload_token(&t) {
-                    return err(StatusCode::CONFLICT, "该文件正在上传中，请等上传完成后再删除");
-                }
-                if t == "ok" {
-                    let _ = std::fs::remove_file(&marker);   // 完成标记残留: 顺手回收
-                }
+    if let Some(t) = marker_token {
+        if is_upload_token(&t) {
+            return err(StatusCode::CONFLICT, "该文件正在上传中，请等上传完成后再删除");
+        }
+        if t == "ok" {
+            if let Some(marker) = marker_path {
+                let _ = tokio::fs::remove_file(marker).await;   // 完成标记残留: 顺手回收
             }
         }
     }
@@ -3286,7 +4522,17 @@ async fn chat_post(
         .take(NICK_MAX_CHARS)
         .collect::<String>();
     let nickname = if nickname.is_empty() { DEFAULT_NICK.into() } else { nickname };
-    let message = text.chars().take(MSG_MAX_CHARS).collect::<String>();
+    // 超限必须明确拒绝: 旧实现静默截断后仍回 ok, 发送方以为已发出、接收方只看到前半段。
+    let text_len = text.chars().count();
+    if text_len > MSG_MAX_CHARS {
+        return err(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "消息超过 {MSG_MAX_CHARS} 字符上限（当前 {text_len}），请删减后再发送"
+            ),
+        );
+    }
+    let message = text;
     // 引用快照同样消毒/截断: 内容来自客户端, 不能信任其长度
     let quote = body.quote.and_then(|q| {
         let qtext = q.message.unwrap_or_default().trim().chars()
@@ -3301,8 +4547,9 @@ async fn chat_post(
         })
     });
     // id 分配与入队必须在同一临界区: 分两段加锁时并发发送会算出重复 id,
-    // 前端 :key="m.id" 出现重复键导致列表渲染错乱
-    let msg = {
+    // 前端 :key="m.id" 出现重复键导致列表渲染错乱。
+    // 锁内只做内存序列化, 落盘交给 schedule_chat_save 的阻塞线程(见函数注释)。
+    let (msg, save) = {
         let mut q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
         let id = next_chat_id();
         let msg = ChatMsg {
@@ -3314,12 +4561,16 @@ async fn chat_post(
             quote,
         };
         q.push_back(msg.clone());
-        while q.len() > CHAT_MAX {
-            q.pop_front();
+        // 条数 + 总字符双上限: 20 万字 × 200 条可达数千万字符, 会拖垮内存、历史落盘
+        // 与全量拉取。正常 2 千字消息 200 条约 40 万字符, 不受影响。
+        let mut total = chat_history_chars(&q);
+        while q.len() > CHAT_MAX || total > CHAT_TOTAL_MAX_CHARS {
+            let Some(old) = q.pop_front() else { break };
+            total = total.saturating_sub(chat_msg_chars(&old));
         }
-        save_chat_history(&q);   // 锁内落盘, 保证并发发送时写入顺序与队列一致
-        msg
+        (msg, chat_history_json(&q))
     };
+    schedule_chat_save(save);
     let id = msg.id;
     let preview: String = msg.message.chars().take(CHAT_PREVIEW_CHARS).collect();
     let dots = if msg.message.chars().count() > CHAT_PREVIEW_CHARS { "…" } else { "" };
@@ -3330,17 +4581,27 @@ async fn chat_post(
 
 /// 删除单条聊天消息(局域网可信模型: 任何接入设备都可删)。
 /// 广播 chat:changed 让所有在线端重拉; 轮询端下一次 loadChat 自然收敛。
-async fn chat_delete(axum::extract::Path(id): axum::extract::Path<u64>) -> Response {
-    let removed = {
+async fn chat_delete(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    axum::extract::Path(id): axum::extract::Path<u64>,
+) -> Response {
+    let peer = normalize_peer(addr.ip());
+    // 删除同样会重写整段历史: 不限流时可用 DELETE 洪水持续消耗磁盘 IO
+    if !chat_del_admit(peer) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "删除操作过于频繁，请稍后再试");
+    }
+    let (removed, save) = {
         let mut q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(pos) = q.iter().position(|m| m.id == id) {
             q.remove(pos);
-            save_chat_history(&q);
-            true
+            (true, chat_history_json(&q))
         } else {
-            false
+            (false, None)
         }
     };
+    if removed {
+        schedule_chat_save(save);
+    }
     if !removed {
         return err(StatusCode::NOT_FOUND, "消息不存在");
     }
@@ -3350,8 +4611,160 @@ async fn chat_delete(axum::extract::Path(id): axum::extract::Path<u64>) -> Respo
 }
 
 // ---------------------------------------------------------------- //
+// 共享剪贴板: 同一服务下的所有设备共用一格文本
+//
+// 局域网页面通常走 http://IP (非安全上下文), 浏览器会禁用 navigator.clipboard,
+// 因此不能做"自动同步系统剪贴板"; 这里提供的是显式共享板:
+//   任一端把文本贴进面板 → 服务端保存并广播 → 其他端一键复制(execCommand 兜底)。
+// ---------------------------------------------------------------- //
+
+const CLIP_MAX_CHARS: usize = 20_000;
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct SharedClip {
+    text: String,
+    updated_at: f64,
+    from: String,
+}
+
+fn shared_clip_file() -> Option<PathBuf> {
+    // 单测共享进程/真实用户目录: 测试不落盘
+    if cfg!(test) { return None; }
+    ui_pref_dir().map(|d| d.join("shared-clipboard.json"))
+}
+
+fn shared_clip() -> &'static Mutex<SharedClip> {
+    static CLIP: OnceLock<Mutex<SharedClip>> = OnceLock::new();
+    CLIP.get_or_init(|| {
+        let saved = shared_clip_file()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str::<SharedClip>(&s).ok())
+            .unwrap_or_default();
+        Mutex::new(saved)
+    })
+}
+
+/// 剪贴板落盘串行化(与聊天历史同思路): 锁内只序列化, 慢 IO 走阻塞线程;
+/// 序号保证迟到的旧快照不会覆盖新内容。
+static CLIP_SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CLIP_SAVED_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn clip_save_lock() -> &'static Mutex<()> {
+    static L: OnceLock<Mutex<()>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(()))
+}
+fn schedule_clip_save(json: Option<Vec<u8>>) {
+    let (Some(path), Some(json)) = (shared_clip_file(), json) else { return };
+    let seq = CLIP_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let task = move || {
+        let _g = clip_save_lock().lock().unwrap_or_else(|e| e.into_inner());
+        if seq <= CLIP_SAVED_SEQ.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = write_secret_atomic(&path, &json);
+        CLIP_SAVED_SEQ.store(seq, Ordering::SeqCst);
+    };
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let _ = handle.spawn_blocking(task);
+    } else {
+        task();
+    }
+}
+
+async fn clipboard_get() -> Response {
+    let c = shared_clip().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Json(serde_json::json!({
+        "text": c.text,
+        "updatedAt": c.updated_at,
+        "from": c.from,
+        "maxChars": CLIP_MAX_CHARS,
+    }))
+    .into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct ClipIn {
+    text: Option<String>,
+    from: Option<String>,
+}
+
+async fn clipboard_post(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    Json(body): Json<ClipIn>,
+) -> Response {
+    let peer = normalize_peer(addr.ip());
+    // 剪贴板含最高 2 万字且每次落盘: 限流防止单设备高频 POST 拖慢磁盘/worker。
+    // 正常自动同步约 40 次/分钟, 240 次/分钟不会误伤。
+    if !clip_admit(peer) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "剪贴板更新过于频繁，请稍后再试");
+    }
+    // 与聊天一样剥 NUL 并截断: 内容来自客户端, 不能信任其长度/控制字符
+    let text = body
+        .text
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| *c != '\0')
+        .take(CLIP_MAX_CHARS)
+        .collect::<String>();
+    if text.trim().is_empty() {
+        return err(StatusCode::BAD_REQUEST, "剪贴板内容不能为空");
+    }
+    let from = body
+        .from
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .filter(|c| *c != '\0' && !c.is_control())
+        .take(NICK_MAX_CHARS)
+        .collect::<String>();
+    let (updated, save) = {
+        let mut c = shared_clip().lock().unwrap_or_else(|e| e.into_inner());
+        c.text = text.clone();
+        c.updated_at = now_f64();
+        c.from = if from.is_empty() { DEFAULT_NICK.into() } else { from };
+        // 锁内只序列化; 落盘交给阻塞线程
+        (c.updated_at, serde_json::to_vec(&*c).ok())
+    };
+    schedule_clip_save(save);
+    // 日志只记长度与来源, 不落内容 —— 共享剪贴板可能含密码/验证码
+    push_log(format!(
+        "共享剪贴板更新 {} 字 ← {}",
+        text.chars().count(),
+        peer
+    ));
+    broadcast_event("clipboard:changed");
+    Json(serde_json::json!({ "ok": true, "updatedAt": updated })).into_response()
+}
+
+async fn clipboard_delete() -> Response {
+    let save = {
+        let mut c = shared_clip().lock().unwrap_or_else(|e| e.into_inner());
+        *c = SharedClip::default();
+        serde_json::to_vec(&*c).ok()
+    };
+    schedule_clip_save(save);
+    push_log("共享剪贴板已清空".into());
+    broadcast_event("clipboard:changed");
+    Json(serde_json::json!({ "ok": true })).into_response()
+}
+
+// ---------------------------------------------------------------- //
 // WebSocket: 事件推送(聊天/列表/状态), 轮询为降级通道
 // ---------------------------------------------------------------- //
+
+/// WS 发送带超时: 慢客户端/半开连接不读数据时，send 会在内核缓冲上长时间挂起；
+/// 不设超时会被单个连接长期占用 WS 许可与任务，拖垮其他客户端。
+async fn ws_try_send(
+    socket: &mut axum::extract::ws::WebSocket,
+    msg: axum::extract::ws::Message,
+) -> bool {
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), socket.send(msg)).await,
+        Ok(Ok(()))
+    )
+}
 
 async fn ws_handler(
     ws: axum::extract::ws::WebSocketUpgrade,
@@ -3372,34 +4785,40 @@ async fn ws_handler(
         // 应用层心跳: 半开连接(漫游/AP 休眠)靠它暴露, 客户端看门狗据此强制重连
         let mut hb = tokio::time::interval(std::time::Duration::from_secs(15));
         loop {
+            // 停服信号存在订阅竞态(广播不重放): 在 kick 发出后才 subscribe 的连接
+            // 永远收不到, 会一直占着 ws 许可。每轮循环直接以运行状态兜底, 最迟
+            // 15s(心跳)退出, 反复启停不会再累积泄漏。
+            if !is_running() {
+                break;
+            }
             tokio::select! {
                 _ = kick.recv() => break, // 停服: 主动断开, 别让优雅关闭等挂起的连接
                 _ = hb.tick() => {
-                    if socket
-                        .send(axum::extract::ws::Message::Text(
-                            "{\"type\":\"hb\"}".into(),
-                        ))
-                        .await
-                        .is_err()
+                    if !ws_try_send(
+                        &mut socket,
+                        axum::extract::ws::Message::Text("{\"type\":\"hb\"}".into()),
+                    )
+                    .await
                     {
                         break;
                     }
                 }
                 ev = rx.recv() => match ev {
                     Ok(msg) => {
-                        if socket.send(axum::extract::ws::Message::Text(msg)).await.is_err() {
+                        if !ws_try_send(&mut socket, axum::extract::ws::Message::Text(msg)).await {
                             break;
                         }
                     }
                     // 慢消费者: 事件已丢, 明确通知客户端立即全量同步 —— WS 在线时
                     // 前端停掉了轮询, 静默跳过会让界面永久停在旧状态。
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        if socket
-                            .send(axum::extract::ws::Message::Text(
+                        if !ws_try_send(
+                            &mut socket,
+                            axum::extract::ws::Message::Text(
                                 "{\"type\":\"sync:needed\"}".into(),
-                            ))
-                            .await
-                            .is_err()
+                            ),
+                        )
+                        .await
                         {
                             break;
                         }
@@ -3408,7 +4827,7 @@ async fn ws_handler(
                 },
                 incoming = socket.recv() => match incoming {
                     Some(Ok(axum::extract::ws::Message::Ping(p))) => {
-                        if socket.send(axum::extract::ws::Message::Pong(p)).await.is_err() {
+                        if !ws_try_send(&mut socket, axum::extract::ws::Message::Pong(p)).await {
                             break;
                         }
                     }
@@ -3524,6 +4943,10 @@ pub fn disk_space() -> (Option<u64>, Option<u64>) {
 
 /// 访问码持久化文件(与目录/端口偏好同目录; Android 放 app 专属目录)
 fn pin_pref_file() -> PathBuf {
+    // 单测共享进程: 不读写真实用户的 PIN 文件
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!(".ccflash-pin-test-{}", std::process::id()));
+    }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     if let Some(d) = platform_default_dir() {
         return Path::new(d).join(PIN_PREF_FILE);
@@ -3537,29 +4960,103 @@ fn pin_pref_file() -> PathBuf {
 
 /// 访问码(可选): Some(pin) 时非回环的 API/WS 请求必须携带 ?pin= 或 X-Access-Pin。
 /// 状态持久化(重启回载, 保护不静默消失), HTTP /api/info 不下发码值; 回环(本机/桌面壳)豁免
+/// 6 位数字配对码生成: 时间纳秒 ^ 进程id ^ 自增序号, 经 splitmix64 扩散
+fn new_pin() -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut x = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ ((std::process::id() as u64) << 32)
+        ^ SEQ
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    format!("{:06}", 100000 + x % 900000)
+}
+
+/// 原子写敏感文件: 临时文件(0600) → rename, 掉电/截断不会留下半截 PIN
+fn write_secret_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("secret");
+    let tmp = path.with_file_name(format!(".{name}.tmp"));
+    write_secret(&tmp, data)?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        // Windows 目标已存在时部分环境 rename 不替换: 极小窗口内先删旧文件再重试
+        if cfg!(windows) && path.exists() {
+            let _ = std::fs::remove_file(path);
+            return std::fs::rename(&tmp, path);
+        }
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
 fn access_pin() -> &'static Mutex<Option<String>> {
     static PIN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
     PIN.get_or_init(|| {
+        // 单测不读写真实用户的 PIN 文件
+        if cfg!(test) {
+            return Mutex::new(None);
+        }
+        let path = pin_pref_file();
         // 启动回载: 文件存在且内容非空即视为开启(码值即文件内容)。
-        // "文件存在但读失败/为空" 不能静默降级为无保护 —— 用户会以为令牌仍然生效。
-        let saved = match std::fs::read_to_string(pin_pref_file()) {
+        // "文件存在但读失败/为空" 绝不能静默降级为无保护 —— 用户会以为令牌仍然生效。
+        // 这里按 fail-closed 处理: 重新生成一个临时令牌并尽量落盘, 服务继续要求配对。
+        let saved = match std::fs::read_to_string(&path) {
             Ok(s) => {
                 let s = s.trim().to_string();
-                if s.is_empty() {
-                    push_log_warn(
-                        "访问令牌文件为空，本次未启用保护；请在 CC设置 重新开启".into(),
-                    );
-                    None
-                } else {
+                if !s.is_empty() {
                     Some(s)
+                } else {
+                    let pin = new_pin();
+                    if let Err(e) = write_secret_atomic(&path, pin.as_bytes()) {
+                        push_log_err(format!(
+                            "访问令牌文件为空，已生成内存令牌但无法落盘（重启会再次轮换）: {e}"
+                        ));
+                    } else {
+                        push_log_warn(
+                            "访问令牌文件为空，已重新生成令牌；请在 CC设置 查看新配对码".into(),
+                        );
+                    }
+                    Some(pin)
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            // 移动端默认强制生成本机访问令牌: Android 的 127.0.0.1 不按应用隔离,
+            // 其他 App 能直连本机服务。不设令牌时, 默认配置下任意同机 App 都可
+            // 读写删共享目录与剪贴板(绕过应用沙箱)。桌面端保持零配置直连。
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if cfg!(any(target_os = "android", target_os = "ios")) {
+                    let pin = new_pin();
+                    if let Err(we) = write_secret_atomic(&path, pin.as_bytes()) {
+                        push_log_warn(format!(
+                            "移动端本机访问令牌无法落盘（本次运行仍生效，重启会轮换）: {we}"
+                        ));
+                    } else {
+                        push_log_warn(
+                            "移动端已自动生成本机访问令牌：同机其他 App 无法再直连本机服务"
+                                .into(),
+                        );
+                    }
+                    Some(pin)
+                } else {
+                    None
+                }
+            }
             Err(e) => {
-                push_log_warn(format!(
-                    "访问令牌文件读取失败，本次未启用保护（请检查文件权限）: {e}"
-                ));
-                None
+                let pin = new_pin();
+                if let Err(we) = write_secret_atomic(&path, pin.as_bytes()) {
+                    push_log_err(format!(
+                        "访问令牌文件读取失败，已生成内存令牌但无法落盘（请检查文件权限）: {e} / {we}"
+                    ));
+                } else {
+                    push_log_warn(format!(
+                        "访问令牌文件读取失败，已重新生成令牌；请在 CC设置 查看新配对码: {e}"
+                    ));
+                }
+                Some(pin)
             }
         };
         Mutex::new(saved)
@@ -3761,43 +5258,16 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
         push_log_warn("访问令牌已关闭 —— 局域网设备不再需要配对".into());
         return serde_json::json!({ "ok": true });
     }
-    // 6 位数字: 时间纳秒 ^ 进程id ^ 自增序号, 经 splitmix64 扩散 ——
-    // 避免纯时间戳类的可预测性(旁观者知道大概开启时刻也猜不中)
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let mut x = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-        ^ ((std::process::id() as u64) << 32)
-        ^ SEQ
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    x ^= x >> 33;
-    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
-    x ^= x >> 33;
-    let pin = format!("{:06}", 100000 + x % 900000);
+    let pin = new_pin();
     let path = pin_pref_file();
-    // 先落盘成功再改内存: 写失败必须回滚并报错 —— 否则 UI 显示"已开启"，
+    // 先原子落盘成功再改内存: 写失败必须报错 —— 否则 UI 显示"已开启"，
     // 重启后读不到文件，保护静默消失（比没有保护更危险）
-    if let Err(e) = write_secret(&path, pin.as_bytes()) {
+    if let Err(e) = write_secret_atomic(&path, pin.as_bytes()) {
         push_log_err(format!("访问令牌开启失败: 无法写入 {} ({e})", path.display()));
         return serde_json::json!({
             "ok": false,
             "error": format!("访问令牌保存失败（{}），保护未开启: {e}", path.display())
         });
-    }
-    // Unix 下收成 0600: 配对码不能对同机其他本地用户可读
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
-            let _ = std::fs::remove_file(&path);
-            push_log_err(format!("访问令牌开启失败: 无法设置文件权限 ({e})"));
-            return serde_json::json!({
-                "ok": false,
-                "error": format!("访问令牌文件权限设置失败，保护未开启: {e}")
-            });
-        }
     }
     *slot = Some(pin.clone());
     // 轮换配对码 = 旧凭证作废: 必须真的清掉票据, 否则日志宣称的"旧分享链接失效"是假的
@@ -3866,7 +5336,8 @@ pub fn control_clear_logs_cmd() -> serde_json::Value {
 #[tauri::command]
 pub fn set_open_lan_cmd(open: bool) -> serde_json::Value {
     set_open_lan(open);
-    serde_json::json!({ "ok": true, "openLan": open })
+    // 回报实际保存值(监听地址需下次 start 才切换)
+    serde_json::json!({ "ok": true, "openLan": open_lan() })
 }
 
 /// 高风险共享目录: 家目录本身 / 家目录的祖先(/Users、C:\Users 等) / 磁盘根。
@@ -3988,6 +5459,9 @@ fn copy_file_blocking(name: String) -> serde_json::Value {
         return serde_json::json!({ "ok": false, "error": "文件不存在" });
     }
     let p = path.to_string_lossy().to_string();
+    // 移动端没有系统剪贴板文件复制能力(下面直接返回 Unsupported), 仅消除未用警告
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let _ = &p;
     // Windows canonicalize 返回 \\?\verbatim 形态, 资源管理器 CF_HDROP 粘贴对
     // verbatim 路径兼容性差(可能粘出无效项) —— 校验已由 canonical 完成, 这里只剥展示形态
     #[cfg(windows)]
@@ -4336,6 +5810,18 @@ async fn log_middleware(
                 "公网地址访问需先在电脑端「CC设置」开启访问令牌",
             );
         }
+        // 共享剪贴板属于敏感数据(可能含密码/验证码): 非本机来源必须先开启访问令牌。
+        // 本机/壳内回环不受影响; 开令牌后由下面的 PIN 校验统一保护。
+        // 未开令牌时直接拒绝, 避免"零配置局域网"把系统剪贴板暴露给任意同网段设备。
+        if path == "/api/clipboard"
+            && !is_local_source(peer)
+            && access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_none()
+        {
+            return err(
+                StatusCode::FORBIDDEN,
+                "共享剪贴板需要先在电脑端「CC设置」开启访问令牌",
+            );
+        }
         // 分享票据先于访问码校验: 票据是一次性、绑定单文件的下载凭证 ——
         // 若放在 pin 之后, 开启访问码时仅带 ?ticket= 的分享链接会先吃 401,
         // 接收方被迫索要全站配对码, 与"链接仅授权下载该文件"的承诺矛盾
@@ -4346,14 +5832,14 @@ async fn log_middleware(
             // HEAD 只是预检, 不消费票据; GET 先原子取出票据再执行, 失败(4xx/5xx)放回。
             // 这样并发 GET 只有一个能拿到票据, 一次性承诺不再有 TOCTOU 窗口。
             if method == "HEAD" {
-                if valid_ticket(&query, raw_path).is_some() {
+                if valid_ticket(&query, raw_path).await.is_some() {
                     ticket_fails()
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .remove(&peer);
                     return next.run(req).await;
                 }
-            } else if let Some((id, ticket)) = take_ticket(&query, raw_path) {
+            } else if let Some((id, ticket)) = take_ticket(&query, raw_path).await {
                 ticket_fails()
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -4373,10 +5859,10 @@ async fn log_middleware(
                 && req.headers().get(header::RANGE).is_some()
                 && query.split('&').any(|kv| kv.starts_with("ticket="))
             {
-                let reusable = query_ticket_value(&query)
-                    .zip(ticket_path_name(raw_path))
-                    .map(|(id, name)| recent_ticket_allows(&id, &name, peer))
-                    .unwrap_or(false);
+                let reusable = match query_ticket_value(&query).zip(ticket_path_name(raw_path)) {
+                    Some((id, name)) => recent_ticket_allows(&id, &name, peer).await,
+                    None => false,
+                };
                 if reusable {
                     return next.run(req).await;
                 }
@@ -4524,9 +6010,14 @@ async fn log_middleware(
         // 静态资源/页面每开一次就十几条请求, 不进服务日志(只记 API/WS)
         || (!path.starts_with("/api") && path != "/ws")
         || path == "/favicon.ico"
+        // 附近设备心跳: 每个客户端每 12s 一次 POST, 逐条记会刷爆日志环
+        || (path == "/api/hello" && method == "POST")
         // 并行分片上传: 每个大文件几十个成功分片请求, 逐条记会把日志环冲爆;
         // 开始/完成/中断由 upload handler 自己记关键日志, 中间片仅失败时留痕
-        || (path == "/api/upload" && method == "POST" && res.status().is_success());
+        || (path == "/api/upload" && method == "POST" && res.status().is_success())
+        // 审计防洪水: 4xx 失败请求按来源限流(每 IPv4/IPv6-/64 每分钟 60 条),
+        // 否则未认证设备可用 2000+ 次 404 把 PIN 锁定/删除等安全事件挤出日志环
+        || (res.status().is_client_error() && !log_admit(peer));
     if !noisy {
         let ms = started.elapsed().as_millis();
         let size = res
@@ -4568,11 +6059,14 @@ fn router(share: PathBuf) -> Router {
         .route("/api/upload_progress", get(upload_progress))
         .route("/api/upload_cancel", post(upload_cancel))
         .route("/api/delete/*name", delete(delete_file))
-        .route("/api/chat", get(chat_get).post(chat_post))
+        // 单条消息上限 20 万字(UTF-8 最多 800KB) + 引用快照/JSON 转义余量 → 4MB
+        .route("/api/chat", get(chat_get).post(chat_post).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
         .route("/api/chat/:id", delete(chat_delete))
-        .route("/api/share-ticket", post(share_ticket))
-        .route("/api/hello", post(device_hello))
+        .route("/api/clipboard", get(clipboard_get).post(clipboard_post).delete(clipboard_delete).layer(DefaultBodyLimit::max(128 * 1024)))
+        .route("/api/share-ticket", post(share_ticket).layer(DefaultBodyLimit::max(16 * 1024)))
+        .route("/api/hello", post(device_hello).layer(DefaultBodyLimit::max(16 * 1024)))
         .route("/api/devices", get(device_list))
+        .route("/api/discovery/probe", post(discovery_probe))
         .route("/ws", get(ws_handler))
         .route("/api/info", get(info))
         .route("/api/control/status", get(ctrl_status))
@@ -4645,6 +6139,29 @@ mod tests {
     /// 用串行锁保证同一时刻只有一个测试在操作服务
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// 共享目录里的符号链接不能被递归进列表（否则可列出/遍历界外目录，甚至成环）。
+    #[cfg(unix)]
+    #[test]
+    fn collect_files_skips_symlinked_dirs() {
+        let root = std::env::temp_dir().join(format!("ccflash-symlink-test-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!("ccflash-symlink-outside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("real.txt"), b"ok").unwrap();
+        std::fs::write(outside.join("secret.txt"), b"no").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linked-dir")).unwrap();
+        let mut out = Vec::new();
+        collect_files(&root, &root, 0, &mut out);
+        let names: Vec<&str> = out.iter().map(|f| f.name.as_str()).collect();
+        assert!(names.contains(&"real.txt"), "{names:?}");
+        assert!(!names.iter().any(|n| n.contains("secret")), "{names:?}");
+        assert!(!names.iter().any(|n| n.contains("linked-dir")), "{names:?}");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
     /// 直接调用手机上行 handler，使用独立临时目录，不改用户共享目录或端口偏好。
     #[test]
     fn notification_events_cover_upload_delete_and_full_chat() {
@@ -4695,6 +6212,25 @@ mod tests {
             *log = saved;
         });
         std::fs::remove_dir_all(share).unwrap();
+    }
+
+    /// 超过单条消息上限必须明确拒绝(400), 不能静默截断后仍回 ok。
+    #[test]
+    fn chat_rejects_message_over_limit() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let peer = "192.168.1.51:43210".parse::<SocketAddr>().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+            let too_long = "x".repeat(MSG_MAX_CHARS + 1);
+            let response = chat_post(
+                axum::extract::ConnectInfo(peer),
+                Json(ChatIn { nickname: Some("test".into()), message: too_long, quote: None }),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        });
     }
 
     /// 上传一个分片: 返回 (状态码, JSON 响应)。sess = 会话 id(真实客户端按
@@ -4949,6 +6485,23 @@ mod tests {
         })
     }
 
+    /// 首次登记/重复包/忙碌变化的状态标记: 只有新增或字段变化才推 devices:changed。
+    #[test]
+    fn udp_ingest_reports_new_and_changed() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        let src: std::net::SocketAddr = "192.168.80.20:5000".parse().unwrap();
+        let mut p = udp_packet("state-device", 1688, "State");
+        let a = ingest_peer_packet_ex(&p, src);
+        assert!(a.new_device && a.changed, "首次登记应报告 new/changed");
+        let b = ingest_peer_packet_ex(&p, src);
+        assert!(!b.new_device && !b.changed, "重复同状态包不应推事件");
+        p["busy"] = serde_json::json!(true);
+        let c = ingest_peer_packet_ex(&p, src);
+        assert!(!c.new_device && c.changed, "忙碌变化应报告 changed");
+        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
     /// UDP 发现报文: 合法包登记, 自身/异常 app/系统端口/超界端口全部拒绝,
     /// 昵称里的控制字符与 RTL 覆写符被剥离。
     #[test]
@@ -5034,7 +6587,7 @@ mod tests {
         multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
-    /// 设备快照: 120s 未更新的条目被剔除; 同 ip:port 只保留最后活跃的一条。
+    /// 设备快照: 15s 未更新的条目被剔除; 同 ip:port 只保留最后活跃的一条。
     #[test]
     fn udp_device_snapshot_prunes_and_dedups_endpoint() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -5291,6 +6844,66 @@ mod tests {
         std::fs::write(&marker, [0xffu8, 0xfe, 0x00, 0x01]).unwrap();
         assert!(!is_system_ccup(&marker), "二进制 .ccup 不应算系统标记");
 
+        std::fs::write(&marker, b"").unwrap();
+        assert!(!is_system_ccup(&marker), "0 字节 .ccup 不应算系统标记");
+        assert!(!marker_is_incomplete(&final_file), "0 字节 .ccup 不应锁住成品");
+
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 共享剪贴板: POST 后 GET 能读回; 空内容 400; DELETE 清空。
+    #[test]
+    fn shared_clipboard_roundtrip_e2e() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let pref = port_pref_file();
+        let orig_pref = std::fs::read_to_string(&pref).ok();
+        let port = start(Some(17730)).expect("start server on 17730");
+        let text = "链接 https://example.com\n验证码 123456";
+        let body = serde_json::json!({ "text": text, "from": "测试设备" }).to_string();
+        let req = format!(
+            "POST /api/clipboard HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.as_bytes().len(),
+            body
+        );
+        let (st, _h, resp) = http_raw(port, &req);
+        assert_eq!(st, 200, "发布共享剪贴板应成功: {}", String::from_utf8_lossy(&resp));
+
+        let (st, _h, resp) = http_raw(
+            port,
+            &format!("GET /api/clipboard HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+        );
+        assert_eq!(st, 200);
+        let v: serde_json::Value = serde_json::from_slice(&resp).expect("JSON");
+        assert_eq!(v["text"], serde_json::json!(text));
+        assert_eq!(v["from"], serde_json::json!("测试设备"));
+
+        // 空文本拒绝(避免把别人的共享板清成空)
+        let empty = serde_json::json!({ "text": "   " }).to_string();
+        let req = format!(
+            "POST /api/clipboard HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            empty.as_bytes().len(),
+            empty
+        );
+        let (st, _h, _) = http_raw(port, &req);
+        assert_eq!(st, 400);
+
+        let (st, _h, _) = http_raw(
+            port,
+            &format!("DELETE /api/clipboard HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+        );
+        assert_eq!(st, 200);
+        let (st, _h, resp) = http_raw(
+            port,
+            &format!("GET /api/clipboard HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+        );
+        assert_eq!(st, 200);
+        let v: serde_json::Value = serde_json::from_slice(&resp).expect("JSON");
+        assert_eq!(v["text"], serde_json::json!(""));
+        let _ = stop();
+        // 恢复用户真实端口偏好: 测试端口不能落盘成下次启动的地址
+        match orig_pref {
+            Some(s) => { let _ = std::fs::write(&pref, s); }
+            None => { let _ = std::fs::remove_file(&pref); }
+        }
     }
 }

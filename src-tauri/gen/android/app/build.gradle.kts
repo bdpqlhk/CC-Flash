@@ -85,6 +85,11 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // APK 瘦身: 只保留中英文资源, 裁掉 AndroidX/Material 等依赖携带的其余语言
+    // (AGP 9 的 localeFilters; 若旧 AGP 报错请改为 defaultConfig.resourceConfigurations)
+    androidResources {
+        localeFilters += listOf("zh", "en")
+    }
 }
 
 kotlin {

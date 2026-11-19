@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CC Flash · 最小改动轻量化方案（图文版 · 基于 v1.2.3）</title>
+<style>
+  :root {
+    --bg: #f4f7f5;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --card2: #f7faf8;
+    --ink: #16241d;
+    --ink2: #4d6559;
+    --ink3: #82968c;
+    --line: rgba(22, 70, 48, .11);
+    --line2: rgba(22, 70, 48, .20);
+    --accent: #168f6c;
+    --accent2: #35b98e;
+    --accentBg: rgba(22, 143, 108, .09);
+    --accentSoft: rgba(22, 143, 108, .055);
+    --danger: #d64f5f;
+    --dangerBg: rgba(214, 79, 95, .09);
+    --warn: #c18419;
+    --warnBg: rgba(193, 132, 25, .10);
+    --blue: #3d6fd8;
+    --blueBg: rgba(61, 111, 216, .09);
+    --shadow: 0 18px 50px rgba(22, 70, 48, .09);
+    --radius: 18px;
+    --radius-sm: 12px;
+    --mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #0b1210;
+    --panel: #101a15;
+    --card: #16231c;
+    --card2: #1b2c23;
+    --ink: #e6f2ea;
+    --ink2: #a8c3b5;
+    --ink3: #6f8c7c;
+    --line: rgba(150, 230, 190, .12);
+    --line2: rgba(150, 230, 190, .22);
+    --accent: #35c299;
+    --accent2: #6ed4b6;
+    --accentBg: rgba(53, 194, 153, .12);
+    --accentSoft: rgba(53, 194, 153, .06);
+    --danger: #f2596b;
+    --dangerBg: rgba(242, 89, 107, .12);
+    --warn: #e9a93c;
+    --warnBg: rgba(233, 169, 60, .12);
+    --blue: #6ea8ff;
+    --blueBg: rgba(110, 168, 255, .12);
+    --shadow: 0 18px 60px rgba(0, 0, 0, .38);
+  }
+  * { box-sizing: border-box; }
+  .nb { white-space: nowrap; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 520px at 8% -12%, var(--accentSoft), transparent 62%),
+      radial-gradient(760px 480px at 100% 0%, rgba(61, 111, 216, .05), transparent 58%),
+      var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; }
+  code, .mono { font-family: var(--mono); }
+  .page { max-width: 1240px; margin: 0 auto; padding: 30px 22px 70px; }
+
+  /* ---------- 顶栏 ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(160%) blur(16px);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-in {
+    max-width: 1240px; margin: 0 auto; padding: 0 22px; height: 58px;
+    display: flex; align-items: center; gap: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -.2px; white-space: nowrap; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--accentBg); border: 1px solid var(--line2); color: var(--accent);
+  }
+  .brand small { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--ink3); text-transform: uppercase; }
+  .nav { display: flex; align-items: center; gap: 2px; margin-left: 8px; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { padding: 7px 10px; border-radius: 8px; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+  .nav a:hover { background: var(--card2); color: var(--ink); }
+  .nav a.on { color: var(--accent); background: var(--accentBg); font-weight: 600; }
+  .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .theme-btn {
+    height: 32px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink2); font-size: 11.5px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 44px 0 22px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: 1.8px;
+    color: var(--accent); font-weight: 800; text-transform: uppercase;
+  }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accentBg); }
+  h1 {
+    margin: 14px 0 12px; font-size: clamp(30px, 4.3vw, 50px);
+    line-height: 1.14; letter-spacing: -1.2px; font-weight: 800;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lead { margin: 0; max-width: 850px; color: var(--ink2); font-size: 15px; line-height: 1.85; }
+  .lead b { color: var(--ink); font-weight: 650; }
+  .hero-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink2); font-size: 11.5px; white-space: nowrap;
+  }
+  .pill b { color: var(--accent); font-weight: 650; }
+  .pill.red b { color: var(--danger); }
+  .pill.blue b { color: var(--blue); }
+
+  /* ---------- 指标卡 ---------- */
+  .metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 24px 0 8px; }
+  .metric {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 13px 13px 12px; box-shadow: var(--shadow);
+  }
+  .metric .k { font-size: 10px; color: var(--ink3); letter-spacing: .6px; text-transform: uppercase; font-weight: 700; }
+  .metric .v { margin-top: 6px; font-size: 19px; font-weight: 800; letter-spacing: -.5px; }
+  .metric .v span { font-size: 11px; color: var(--ink3); font-weight: 600; margin-left: 4px; }
+  .metric .sub { margin-top: 3px; font-size: 10.5px; color: var(--ink3); }
+  .metric .sub b { color: var(--accent); font-weight: 700; }
+
+  /* ---------- 通用区块 ---------- */
+  section { padding-top: 46px; }
+  .sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+  .sec-head .no { font-size: 10.5px; letter-spacing: 1.4px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .sec-head h2 { margin: 6px 0 0; font-size: clamp(22px, 2.4vw, 30px); letter-spacing: -.6px; line-height: 1.2; }
+  .sec-head p { margin: 0; max-width: 560px; color: var(--ink2); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+  .sec-head p code { white-space: normal; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 22px;
+  }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .callout {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--accentSoft); border-radius: 12px; padding: 13px 15px;
+    font-size: 13px; color: var(--ink2); line-height: 1.75;
+  }
+  .callout b { color: var(--ink); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warnBg); }
+  .callout.danger { border-left-color: var(--danger); background: var(--dangerBg); }
+
+  /* ---------- 现状/目标条形图 ---------- */
+  .bars { display: flex; flex-direction: column; gap: 13px; }
+  .bar-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 120px; align-items: center; gap: 12px; }
+  .bar-row .name { font-size: 12px; color: var(--ink2); font-weight: 600; }
+  .bar-track { height: 10px; border-radius: 6px; background: var(--card2); border: 1px solid var(--line); overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .bar-fill.old { background: color-mix(in srgb, var(--ink3) 30%, transparent); position: absolute; inset: 0; }
+  .bar-fill.new { position: relative; }
+  .bar-row .val { text-align: right; font-size: 11.5px; color: var(--ink3); font-family: var(--mono); }
+  .bar-row .val b { color: var(--accent); font-family: inherit; }
+
+  /* ---------- 表格 ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 12.5px; }
+  th { background: var(--card2); color: var(--ink3); font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; font-weight: 800; }
+  tr:last-child td { border-bottom: none; }
+  td b { font-weight: 650; }
+  td .muted { color: var(--ink3); font-size: 11.5px; }
+  code {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font-size: 11.5px; color: var(--ink); white-space: nowrap;
+  }
+  .tag {
+    display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 750; letter-spacing: .3px; white-space: nowrap;
+  }
+  .tag.keep { color: var(--accent); background: var(--accentBg); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+  .tag.remove { color: var(--danger); background: var(--dangerBg); border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line)); }
+  .tag.slim { color: var(--blue); background: var(--blueBg); border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line)); }
+  .tag.opt { color: var(--warn); background: var(--warnBg); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--line)); }
+
+  /* ---------- 架构图 ---------- */
+  .arch { display: grid; grid-template-columns: minmax(0, 1.15fr) 54px minmax(0, .85fr); gap: 14px; align-items: stretch; }
+  .arch-col { display: flex; flex-direction: column; gap: 10px; }
+  .node {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 13px 14px;
+  }
+  .node.main { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accentSoft); }
+  .node .node-k { font-size: 10px; letter-spacing: 1px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .node h4 { margin: 4px 0 8px; font-size: 14px; letter-spacing: -.2px; }
+  .node ul { margin: 0; padding-left: 16px; color: var(--ink2); font-size: 11.5px; line-height: 1.75; overflow-wrap: anywhere; }
+  .node ul code { white-space: normal; overflow-wrap: anywhere; }
+  .node ul li::marker { color: var(--accent); }
+  .arch-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--ink3); font-size: 10px; letter-spacing: .6px; }
+  .arch-mid .line { width: 1px; flex: 1; background: linear-gradient(var(--line2), transparent); }
+  .arch-mid .arrow { font-size: 16px; color: var(--accent); }
+  .arch-note { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .arch-note span { font-size: 10.5px; color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; background: var(--card); }
+
+  /* ---------- API ---------- */
+  .api-list { display: flex; flex-direction: column; gap: 7px; }
+  .api-row {
+    display: grid; grid-template-columns: 62px minmax(190px, 1fr) minmax(0, 1.3fr);
+    gap: 12px; align-items: center; padding: 9px 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); font-size: 12px;
+  }
+  .api-row .m { font-family: var(--mono); font-size: 10.5px; font-weight: 800; letter-spacing: .3px; }
+  .api-row .m.get { color: var(--blue); }
+  .api-row .m.post { color: var(--accent); }
+  .api-row .m.del { color: var(--danger); }
+  .api-row .p { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  .api-row .d { color: var(--ink2); font-size: 11.5px; }
+  .api-row.removed { opacity: .62; border-style: dashed; }
+  .api-row.removed .p { text-decoration: line-through; color: var(--ink3); }
+
+  /* ---------- 线框图 ---------- */
+  .wire-grid { display: grid; grid-template-columns: 1.15fr .85fr .85fr; gap: 16px; align-items: start; }
+  .wire { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+  .wire-top { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 11px; border-bottom: 1px solid var(--line); background: var(--card2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line2); }
+  .wire-title { margin-left: 6px; font-size: 10px; color: var(--ink3); letter-spacing: .5px; }
+  .wire-body { padding: 12px; min-height: 260px; }
+  .mini-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+  .mini-logo { width: 26px; height: 26px; border-radius: 8px; background: var(--accentBg); border: 1px solid var(--line2); display: grid; place-items: center; color: var(--accent); font-size: 9px; font-weight: 900; }
+  .mini-head b { font-size: 12px; }
+  .mini-head small { display: block; font-size: 9.5px; color: var(--ink3); }
+  .mini-status { margin-left: auto; font-size: 9.5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); background: var(--accentBg); border-radius: 999px; padding: 2px 7px; white-space: nowrap; }
+  .mini-card { border: 1px solid var(--line); background: var(--card2); border-radius: 11px; padding: 9px; margin-bottom: 8px; }
+  .mini-card .k { font-size: 9px; color: var(--ink3); letter-spacing: .6px; text-transform: uppercase; font-weight: 800; }
+  .mini-card .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .mini-file { width: 24px; height: 24px; border-radius: 6px; background: var(--accentBg); border: 1px solid var(--line); display: grid; place-items: center; font-size: 7px; font-weight: 900; color: var(--accent); }
+  .mini-lines { flex: 1; min-width: 0; }
+  .mini-lines i { display: block; height: 5px; border-radius: 3px; background: var(--line2); }
+  .mini-lines i + i { margin-top: 4px; width: 60%; opacity: .6; }
+  .mini-drop {
+    border: 1.5px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+    border-radius: 11px; padding: 14px 8px; text-align: center; background: var(--accentSoft); margin-bottom: 8px;
+  }
+  .mini-drop b { display: block; font-size: 10px; }
+  .mini-drop small { display: block; font-size: 8.5px; color: var(--ink3); margin-top: 2px; }
+  .mini-list { display: flex; flex-direction: column; gap: 5px; }
+  .mini-row { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 5px 7px; }
+  .mini-row .mini-file { width: 20px; height: 20px; font-size: 6px; }
+  .mini-row .mini-lines i { height: 4px; }
+  .mini-row .mini-lines i + i { width: 45%; }
+  .mini-tabs { display: flex; gap: 2px; margin-top: 9px; border-top: 1px solid var(--line); padding-top: 7px; }
+  .mini-tabs span { flex: 1; text-align: center; font-size: 8.5px; color: var(--ink3); padding: 3px 0; border-radius: 6px; }
+  .mini-tabs span.on { color: var(--accent); background: var(--accentBg); font-weight: 700; }
+  .mini-note { margin-top: 8px; font-size: 8.5px; color: var(--ink3); line-height: 1.55; }
+  .wire.color-browser .mini-tabs { display: none; }
+  .wire.color-browser .mini-drop { margin-top: 6px; }
+  .wire-badge { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 9px; color: var(--ink3); }
+
+  /* ---------- 路线图 ---------- */
+  .roadmap { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 92px 22px minmax(0, 1fr); gap: 12px; }
+  .step .when { text-align: right; font-size: 11px; color: var(--ink3); padding-top: 2px; font-family: var(--mono); }
+  .step .rail { position: relative; display: flex; justify-content: center; }
+  .step .rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line2); }
+  .step:last-child .rail::before { bottom: 50%; }
+  .step .rail i { position: relative; z-index: 1; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); margin-top: 3px; }
+  .step .body { padding-bottom: 18px; }
+  .step .body b { font-size: 13px; }
+  .step .body p { margin: 3px 0 0; font-size: 11.5px; color: var(--ink2); line-height: 1.7; }
+  .step .body .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+  .step .body .chips span { font-size: 9.5px; color: var(--ink3); border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 2px 7px; }
+
+  /* ---------- 验收 ---------- */
+  .accept { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .accept .item { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px; }
+  .accept .item .k { font-size: 9.5px; letter-spacing: .7px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .accept .item .v { margin-top: 5px; font-size: 16px; font-weight: 800; letter-spacing: -.4px; }
+  .accept .item .v em { font-style: normal; font-size: 10px; color: var(--ink3); font-weight: 600; }
+  .accept .item .d { margin-top: 3px; font-size: 10.5px; color: var(--ink3); line-height: 1.55; }
+
+  /* ---------- 风险 ---------- */
+  .risk { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .risk + .risk { margin-top: 8px; }
+  .risk .ic { flex-shrink: 0; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--warnBg); color: var(--warn); font-size: 12px; font-weight: 900; }
+  .risk b { font-size: 12.5px; }
+  .risk p { margin: 2px 0 0; font-size: 11.5px; color: var(--ink2); line-height: 1.7; }
+
+  /* ---------- 页脚 ---------- */
+  .foot { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; color: var(--ink3); font-size: 11px; }
+  .foot b { color: var(--ink2); }
+
+  @media (max-width: 1080px) {
+    .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .wire-grid { grid-template-columns: 1fr 1fr; }
+    .wire-grid .wire:first-child { grid-column: 1 / -1; }
+    .accept { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 780px) {
+    .page { padding: 22px 16px 56px; }
+    .nav { display: none; }
+    .hero { padding-top: 30px; }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid2, .grid3, .arch { grid-template-columns: 1fr; }
+    .arch-mid { flex-direction: row; padding: 4px 0; }
+    .arch-mid .line { width: auto; height: 1px; flex: 1; background: linear-gradient(90deg, var(--line2), transparent); }
+    .wire-grid { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 74px minmax(0, 1fr) 98px; }
+    .api-row { grid-template-columns: 54px minmax(0, 1fr); }
+    .api-row .d { grid-column: 1 / -1; padding-left: 0; }
+    .step { grid-template-columns: 70px 18px minmax(0, 1fr); }
+  }
+  @media (max-width: 480px) {
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .accept { grid-template-columns: 1fr; }
+    .sec-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .brand small { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+  @media print {
+    .topbar, .theme-btn { display: none; }
+    body { background: #fff; }
+    .panel, .metric, .wire, .table-wrap { box-shadow: none; }
+    section { break-inside: avoid; }
+  }
+
+  /* ---------- 图文版新增：桌面菜单模拟 / 菜单树 / 双向剪贴板 / 前后对比 ---------- */
+  .desk {
+    display: grid; grid-template-columns: 168px minmax(0, 1fr);
+    border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--card);
+    box-shadow: var(--shadow); min-height: 330px;
+  }
+  .desk-side { border-right: 1px solid var(--line); background: var(--card2); padding: 12px 10px; }
+  .desk-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 12px; padding: 3px 6px 12px; }
+  .desk-brand .mini-logo { width: 26px; height: 26px; border-radius: 8px; }
+  .desk-menu { display: flex; flex-direction: column; gap: 3px; }
+  .desk-menu span { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; font-size: 10.5px; color: var(--ink2); }
+  .desk-menu span.on { background: var(--accentBg); color: var(--accent); font-weight: 700; }
+  .desk-menu .mi { width: 15px; text-align: center; font-size: 10px; }
+  .desk-side-foot { margin-top: 18px; padding: 9px 6px 2px; border-top: 1px solid var(--line); color: var(--ink3); font-size: 9px; display: flex; align-items: center; justify-content: space-between; }
+  .desk-main { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .desk-top { display: flex; align-items: center; gap: 7px; }
+  .desk-top b { font-size: 12px; }
+  .desk-top .mini-status { margin-left: auto; }
+  .desk-tool { font-size: 8.5px; color: var(--ink3); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; white-space: nowrap; }
+  .desk-chat { flex: 1; min-height: 160px; border: 1px solid var(--line); border-radius: 10px; background: var(--card2); padding: 9px; display: flex; flex-direction: column; gap: 6px; }
+  .desk-msg { max-width: 78%; padding: 6px 8px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); font-size: 9px; line-height: 1.5; color: var(--ink2); }
+  .desk-msg.me { align-self: flex-end; background: var(--accentBg); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); color: var(--ink); }
+  .desk-composer { display: flex; gap: 6px; align-items: center; }
+  .desk-composer .box { flex: 1; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  .desk-composer .b { font-size: 8.5px; color: var(--accent); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; white-space: nowrap; }
+  .desk-legend { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .desk-legend span { font-size: 10px; color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; background: var(--card); }
+  .desk-legend b { color: var(--accent); }
+  .menu-tree { font-family: var(--mono); font-size: 11px; line-height: 1.95; color: var(--ink2); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; overflow-x: auto; }
+  .menu-tree b { color: var(--accent); }
+  .flow2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .lane { border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 14px; }
+  .lane h4 { margin: 0 0 8px; font-size: 13px; letter-spacing: -.1px; }
+  .lane.a { border-top: 3px solid var(--accent); }
+  .lane.b { border-top: 3px solid var(--blue); }
+  .lane .steps { display: flex; flex-direction: column; gap: 6px; }
+  .lane .st { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; color: var(--ink2); line-height: 1.65; }
+  .lane .st b { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accentBg); color: var(--accent); display: grid; place-items: center; font-size: 9px; }
+  .lane.b .st b { background: var(--blueBg); color: var(--blue); }
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .ba .wire-body { min-height: 230px; }
+  .ba .wire.new .mini-note { color: var(--accent); }
+  .no-switch {
+    display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-radius: 12px;
+    background: var(--warnBg); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--line));
+    color: var(--ink2); font-size: 11.5px; line-height: 1.6;
+  }
+  .no-switch b { color: var(--warn); flex-shrink: 0; }
+  .lane code, .desk code, .menu-tree code { white-space: normal; overflow-wrap: anywhere; }
+  @media (max-width: 980px) {
+    .flow2, .ba { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 780px) {
+    .desk { grid-template-columns: 1fr; }
+    .desk-side { display: none; }
+    .desk-main { padding: 11px; }
+  }
+
+</style>
+</head>
+
+<body>
+<div style="margin:0;padding:10px 18px;background:#3a2a12;color:#ffe9c7;border-bottom:1px solid #6b4d1f;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>实现更新 · 2026-11-19</b>　本文关于共享剪贴板「无开关 / 默认始终开启」的设计已调整：现为<b>默认关闭</b>，可在 CC设置「系统剪贴板自动同步」开启；访问令牌与配对码自动排除，跨设备读取需访问令牌。其余内容以《技术实现文档》《需求设计文档》为准。</div>
+
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#top">
+      <span class="mark">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+      </span>
+      CC-Flash <small>Minimal Change · Illustrated</small>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#menus">桌面菜单</a>
+      <a href="#scope">需求边界</a>
+      <a href="#baseline">基线</a>
+      <a href="#changes">改动</a>
+      <a href="#browser">浏览器</a>
+      <a href="#clipboard">双向剪贴板</a>
+      <a href="#ui">三端交互</a>
+      <a href="#roadmap">实施</a>
+      <a href="#acceptance">验收</a>
+    </nav>
+    <div class="top-actions">
+      <button class="theme-btn" id="themeBtn" type="button" aria-label="切换明暗">
+        <span id="themeIcon">☾</span><span id="themeText">暗色</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="page" id="top">
+  <section class="hero">
+    <span class="eyebrow"><i></i> Minimal Change · Illustrated · Based on v1.2.3</span>
+    <h1>保留聊天室，浏览器回原页，<br />剪贴板 <em>双向互通</em></h1>
+    <p class="lead">
+      桌面 App 菜单进一步收敛：侧栏不再保留「周边设备」独立入口，设备栏并入「消息发送」页；浏览器不再出现底部三标签（发现/发送/设置）与设置页，回到原来的聊天室单页；
+      共享剪贴板不建模块、<b>不加开关</b>，电脑复制手机能粘、手机复制电脑能粘，双向自动同步。
+      只同步文本，不改聊天、不改文件、Rust 后端 0 改动。
+    </p>
+    <div class="hero-badges">
+      <span class="pill"><b>保留</b> 桌面菜单 / 聊天室 / 文件</span>
+      <span class="pill red"><b>浏览器</b> 无三标签 / 无发现 / 无设置页</span>
+      <span class="pill blue"><b>剪贴板</b> 双向自动 · 无开关</span>
+      <span class="pill"><b>改动</b> 约 2.5–3.5 人日</span>
+    </div>
+  </section>
+
+  <div class="callout" style="margin-top:14px"><b>后续：</b>设备选择已并入消息发送页（见《CC-Flash-消息发送与周边设备整合方案.html》）；本文保留为最小改动基线。</div>
+
+  <!-- ================= 桌面菜单 ================= -->
+  <section id="menus">
+    <div class="sec-head">
+      <div>
+        <div class="no">01 · Desktop Menus</div>
+        <h2>桌面 App 都有哪些菜单</h2>
+      </div>
+      <p>最小改动不动桌面 App 的菜单结构。侧栏、顶栏、聊天室、服务中心、CC设置、托盘、悬浮码全部保持；本方案不新增任何剪贴板开关。</p>
+    </div>
+
+    <div class="panel">
+      <div class="desk">
+        <aside class="desk-side">
+          <div class="desk-brand"><span class="mini-logo">CC</span>CC-Flash<span class="desk-tool" style="margin-left:auto;font-size:8px">介绍</span></div>
+          <div class="desk-menu">
+            <span class="on"><span class="mi">◎</span>周边设备</span>
+            <span><span class="mi">✈</span>消息发送</span>
+            <span><span class="mi">▤</span>服务中心</span>
+            <span><span class="mi">⚙</span>CC设置</span>
+          </div>
+          <div class="desk-side-foot"><span>v1.2.3 · Tauri</span><span>‹ 收起</span></div>
+        </aside>
+        <div class="desk-main">
+          <div class="desk-top">
+            <b>消息发送</b>
+            <span class="mini-status">● 实时</span>
+            <span class="desk-tool">复制链接</span>
+            <span class="desk-tool">二维码</span>
+            <span class="desk-tool">浏览器</span>
+          </div>
+          <div class="desk-chat">
+            <div class="desk-msg">同一 Wi-Fi · 局域网实时互通</div>
+            <div class="desk-msg me">手机扫码即可发文件 / 聊天</div>
+            <div class="desk-msg">文件卡片、消息、引用、Markdown 全部保留</div>
+          </div>
+          <div class="desk-composer">
+            <span class="b">＋</span>
+            <span class="box"></span>
+            <span class="b">发送</span>
+          </div>
+          <div class="mini-note">输入栏「＋」：文件 / 文件夹 / 粘贴 / 共享文件。此处不新增开关；「粘贴」直接回填本机/共享剪贴板文本，不弹面板。</div>
+        </div>
+      </div>
+      <div class="desk-legend">
+        <span><b>侧栏</b> 消息发送（含周边设备栏） / 服务中心 / CC设置 / 介绍；手机 App 两标签</span>
+        <span><b>顶栏</b> 状态 / 复制链接 / 二维码 / 浏览器</span>
+        <span><b>聊天室</b> 清空 / 共享文件 / 更多 / 昵称</span>
+        <span><b>输入栏</b> 文件 / 文件夹 / 粘贴 / 共享文件</span>
+        <span><b>托盘</b> 显示 / 启停 / 网页 / 退出</span>
+        <span><b>悬浮码</b> 停留预览 / 点击打开 / 拖动吸附</span>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:14px">
+      <div class="panel">
+        <div class="node-k" style="font-size:10px;letter-spacing:1px;color:var(--ink3);font-weight:800;text-transform:uppercase;margin-bottom:8px">菜单树</div>
+        <div class="menu-tree">
+CC-Flash 桌面 App
+├─ <b>侧栏</b>
+│  ├─ 介绍（品牌区）
+│  ├─ 消息发送（页内左侧设备栏）
+│  ├─ 服务中心
+│  └─ CC设置
+├─ <b>顶栏</b>
+│  ├─ 运行状态
+│  ├─ 复制链接
+│  ├─ 二维码
+│  └─ 在浏览器打开
+├─ <b>聊天室</b>
+│  ├─ 清空消息
+│  ├─ 共享文件
+│  ├─ 更多（窄窗）
+│  └─ 昵称头像
+├─ <b>服务中心</b>
+│  ├─ 启动 / 停止
+│  ├─ 端口
+│  ├─ 共享目录（选择 / 打开）
+│  └─ 日志（搜索 / 清空）
+├─ <b>CC设置</b>
+│  ├─ 开机自启
+│  ├─ 访问令牌
+│  ├─ 悬浮二维码
+│  ├─ 皮肤设置
+│  └─ 关于 / 检查更新
+├─ <b>托盘</b>
+│  ├─ 显示主窗口
+│  ├─ 启动 / 停止服务
+│  ├─ 打开网页
+│  └─ 退出
+└─ <b>悬浮二维码</b>
+   ├─ 停留 1.5s 预览
+   ├─ 点击打开主窗口
+   └─ 拖动吸附屏幕边缘
+        </div>
+      </div>
+      <div class="panel">
+        <div class="node-k" style="font-size:10px;letter-spacing:1px;color:var(--ink3);font-weight:800;text-transform:uppercase;margin-bottom:8px">保留 / 不新增</div>
+        <div class="table-wrap" style="box-shadow:none">
+          <table style="min-width:0">
+            <thead><tr><th>菜单区域</th><th>最小改动</th></tr></thead>
+            <tbody>
+              <tr><td>侧栏（周边设备 / 消息发送 / 服务中心 / CC设置）+ 介绍</td><td><span class="tag keep">全部保留</span></td></tr>
+              <tr><td>顶栏状态 / 复制 / 二维码</td><td><span class="tag keep">全部保留</span></td></tr>
+              <tr><td>聊天室头部 / 文件抽屉</td><td><span class="tag keep">全部保留</span></td></tr>
+              <tr><td>服务中心 / 日志</td><td><span class="tag keep">全部保留</span></td></tr>
+              <tr><td>CC设置 / 皮肤 / 关于</td><td><span class="tag keep">全部保留</span></td></tr>
+              <tr><td>托盘 / 悬浮码</td><td><span class="tag keep">全部保留</span></td></tr>
+              <tr><td>「同步电脑剪贴板到手机」开关</td><td><span class="tag remove">不新增</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="no-switch" style="margin-top:10px">
+          <b>无开关</b><span>（v1.2.3 原设计，已被 2026-11-19 调整取代）剪贴板双向同步默认始终开启；桌面/手机 App 不新增任何「同步」开关。隐私边界由服务本身承担：同一服务下的已配对设备可见最新文本。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:14px">
+      <b>浏览器不继承桌面菜单：</b>手机/电脑浏览器只保留原聊天室单页（聊天、文件抽屉、输入框）；
+      没有底部三标签，没有发现页，没有设置页。需要改端口/目录/令牌时，用桌面 App 或手机 App。
+    </div>
+  </section>
+
+  <!-- ================= 需求边界 ================= -->
+  <section id="scope">
+    <div class="sec-head">
+      <div>
+        <div class="no">02 · Scope</div>
+        <h2>这次只动“不该有的路径”</h2>
+      </div>
+      <p>四条边界：聊天室不动；浏览器回原聊天室；剪贴板双向且无开关；桌面端设备栏并入「消息发送」，手机 App 收为「发送 / 设置」两标签，浏览器不做发现。</p>
+    </div>
+    <div class="grid2">
+      <div class="node main"><div class="node-k">Keep · 聊天室</div><h4>聊天室保持现状</h4><ul><li>时间线、Markdown、引用、未读、文件卡片全部保留</li><li>不改消息模型、不改历史、不做迁移</li><li>桌面/手机浏览器的主页面仍是聊天室</li></ul></div>
+      <div class="node"><div class="node-k">Browser · 回原页</div><h4>浏览器不再有三标签</h4><ul><li>没有发现/发送/设置底部标签</li><li>没有设置页、没有附近设备</li><li>只保留原聊天室单页（聊天/文件/输入框）</li><li>不再请求 <code>/api/devices</code>、<code>/api/hello</code></li></ul></div>
+      <div class="node main"><div class="node-k">Clipboard · 双向</div><h4>电脑 ↔ 手机互相粘贴</h4><ul><li>电脑复制 → 手机自动可粘</li><li>手机复制/输入 → 电脑自动可粘</li><li>不建模块、不加开关、不新增页面</li><li>只同步文本，20k 字上限</li></ul></div>
+      <div class="node"><div class="node-k">App · 不动</div><h4>桌面/手机 App 菜单不变</h4><ul><li>桌面侧栏不再保留独立「周边设备」，设备栏并入「消息发送」；服务中心、CC设置保持</li><li>手机 App「发送 / 设置」两标签；发现并入发送页</li><li>发现/投递逻辑保持</li><li>Rust 后端 0 改动</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ================= 基线 ================= -->
+  <section id="baseline">
+    <div class="sec-head">
+      <div><div class="no">03 · Baseline</div><h2>v1.2.3 基线 vs 最小改动目标</h2></div>
+      <p>最小改动不会大幅缩小安装包；收益是“浏览器路径收敛 + 剪贴板双向自动化”，而不是重写。</p>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="k">App.vue</div><div class="v">5.8k → <b>≈5.35k</b><span>行</span></div><div class="sub">浏览器三标签/设置/发现移除</div></div>
+      <div class="metric"><div class="k">server.rs</div><div class="v"><b>5.6k</b><span>行</span></div><div class="sub">Rust 0 改动</div></div>
+      <div class="metric"><div class="k">style.css</div><div class="v">3.2k → <b>≈3.1k</b><span>行</span></div><div class="sub">删浏览器标签/设置样式</div></div>
+      <div class="metric"><div class="k">JS bundle</div><div class="v">274 → <b>≈258</b><span>KB</span></div><div class="sub">约 -10~16KB</div></div>
+      <div class="metric"><div class="k">CSS bundle</div><div class="v">93 → <b>≈90</b><span>KB</span></div><div class="sub">约 -3~5KB</div></div>
+      <div class="metric"><div class="k">.app</div><div class="v">4.1 → <b>≈4.0</b><span>MB</span></div><div class="sub">基本不变</div></div>
+    </div>
+  </section>
+
+  <!-- ================= 改动清单 ================= -->
+  <section id="changes">
+    <div class="sec-head">
+      <div><div class="no">04 · Changes</div><h2>最小改动清单</h2></div>
+      <p>不删聊天、不改桌面菜单、不建剪贴板模块；只加浏览器门控与双向剪贴板桥。</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th style="width:190px">区域</th><th>改动</th><th style="width:120px">预计代码量</th><th style="width:120px">风险</th></tr></thead>
+        <tbody>
+          <tr><td><b>浏览器三标签/设置</b></td><td><code>mobileTabbed</code> 仅 <code>mobileShell</code>；浏览器不渲染底部三标签、设置页、发现页；<code>view</code> 固定 <code>transfer</code>。</td><td><span class="tag remove">-350 行</span></td><td><span class="tag keep">低</span></td></tr>
+          <tr><td><b>浏览器发现请求</b></td><td>不调用 <code>/api/devices</code>、不发 <code>/api/hello</code>；WS <code>devices:changed</code> 忽略。</td><td><span class="tag remove">-60 行</span></td><td><span class="tag keep">低</span></td></tr>
+          <tr><td><b>双向剪贴板桥</b></td><td>桌面/手机 App 监听本机剪贴板 + 监听服务端变化；变化互写；去重与循环抑制。</td><td><span class="tag keep">+150 行</span></td><td><span class="tag slim">中（隐私）</span></td></tr>
+          <tr><td><b>浏览器剪贴板按钮</b></td><td>输入框「粘贴」直接回填电脑端文本；长按粘贴的文本自动回传电脑，不新增页面/标签。</td><td><span class="tag keep">+60 行</span></td><td><span class="tag keep">低</span></td></tr>
+          <tr><td><b>Tauri 写剪贴板权限</b></td><td>capabilities 增加 <code>clipboard-manager:allow-write-text</code>；用于自动回写系统剪贴板。</td><td><span class="tag keep">+1 行</span></td><td><span class="tag keep">低</span></td></tr>
+          <tr><td><b>独立剪贴板入口</b></td><td>移除发现页/设置页里的独立卡片；底部「＋」合并为一个「粘贴」入口，点一下直接回填，不弹面板。</td><td><span class="tag remove">-50 行</span></td><td><span class="tag keep">低</span></td></tr>
+          <tr><td><b>桌面 App 菜单</b></td><td>侧栏/顶栏/服务中心/CC设置/托盘/悬浮码全部保持；不新增开关。</td><td><span class="tag keep">0</span></td><td><span class="tag keep">无</span></td></tr>
+          <tr><td><b>Rust 后端</b></td><td>0 改动；继续使用现有 <code>/api/clipboard</code>、聊天、文件、发现接口。</td><td><span class="tag keep">0</span></td><td><span class="tag keep">无</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 浏览器前后 ================= -->
+  <section id="browser">
+    <div class="sec-head">
+      <div><div class="no">05 · Browser</div><h2>浏览器：从三标签回到原聊天室</h2></div>
+      <p>浏览器不再有底部三标签、发现、设置；只保留原来的聊天室单页。桌面 App 与手机 App 不受影响。</p>
+    </div>
+    <div class="ba">
+      <div class="wire">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Before · 三标签</span></div>
+        <div class="wire-body">
+          <div class="mini-head"><span class="mini-logo">CC</span><b>CC-Flash <small>浏览器</small></b><span class="mini-status">● 实时</span></div>
+          <div class="mini-card"><div class="k">发现</div><div class="row"><span class="mini-lines" style="flex:1"><i></i><i></i></span><span style="font-size:8px;color:var(--danger)">/api/devices</span></div></div>
+          <div class="mini-drop"><b>发送 / 设置</b><small>底部还有两个标签</small></div>
+          <div class="mini-tabs"><span class="on">发现</span><span>发送</span><span>设置</span></div>
+          <div class="mini-note" style="color:var(--danger)">发现请求 + 设备条 + 设置页，浏览器并不需要这些路径。</div>
+        </div>
+      </div>
+      <div class="wire new">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">After · 原聊天室单页</span></div>
+        <div class="wire-body">
+          <div class="mini-head"><span class="mini-logo">CC</span><b>CC-Flash <small>浏览器 · 已连接电脑</small></b><span class="mini-status">● 实时</span></div>
+          <div class="mini-drop"><b>上传到电脑 / 聊天</b><small>聊天、文件、输入框保持不变</small></div>
+          <div class="mini-card"><div class="k">输入框</div><div class="row"><span style="flex:1;height:18px;border-radius:6px;border:1px solid var(--line);background:var(--card)"></span><span style="font-size:8px;color:var(--accent)">粘贴</span><span style="font-size:8px;color:var(--accent)">发送</span></div></div>
+          <div class="mini-note">无底部三标签；无发现；无设置页。只有原聊天室（聊天 / 文件抽屉 / 输入框）。</div>
+        </div>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:14px">
+      <b>电脑浏览器同理：</b>回到原聊天室单页（顶部栏 + 文件抽屉），没有底部三标签、发现或设置页。
+      需要改端口/共享目录/访问令牌时，用桌面或手机 App。
+    </div>
+  </section>
+
+  <!-- ================= 双向剪贴板 ================= -->
+  <section id="clipboard">
+    <div class="sec-head">
+      <div><div class="no">06 · Clipboard</div><h2>双向互通：电脑 ↔ 手机，零开关</h2></div>
+      <p>复用 v1.2.3 的 <code>/api/clipboard</code> 与 WS <code>clipboard:changed</code>；桌面/手机 App 自动双向写，浏览器用两个按钮补齐系统权限限制。</p>
+    </div>
+
+    <div class="panel">
+      <div class="flow2">
+        <div class="lane a">
+          <h4>电脑 → 手机</h4>
+          <div class="steps">
+            <div class="st"><b>1</b><span>电脑任意 App 复制文本。</span></div>
+            <div class="st"><b>2</b><span>桌面 App 1.5s 内读取系统剪贴板，变化才 <code>POST /api/clipboard</code>。</span></div>
+            <div class="st"><b>3</b><span>服务端保存最后一格文本 + WS 广播 <code>clipboard:changed</code>。</span></div>
+            <div class="st"><b>4</b><span>手机 App 自动写入系统剪贴板；手机浏览器点「粘贴」填入聊天输入框。</span></div>
+            <div class="st"><b>5</b><span>手机在任意 App 直接粘贴（App）；浏览器可点「复制」写回手机剪贴板。</span></div>
+          </div>
+        </div>
+        <div class="lane b">
+          <h4>手机 → 电脑</h4>
+          <div class="steps">
+            <div class="st"><b>1</b><span>手机复制文本，或在聊天输入框里长按粘贴。</span></div>
+            <div class="st"><b>2</b><span>手机 App 自动读取并 <code>POST</code>；手机浏览器在输入框长按粘贴时自动 <code>POST</code>。</span></div>
+            <div class="st"><b>3</b><span>服务端保存 + WS 广播 <code>clipboard:changed</code>。</span></div>
+            <div class="st"><b>4</b><span>桌面 App 收到变化后写入系统剪贴板（Tauri <code>writeText</code>）。</span></div>
+            <div class="st"><b>5</b><span>电脑在任意 App 直接 Cmd/Ctrl+V。</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:14px">
+        <div class="no-switch"><b>无开关</b><span>（v1.2.3 原设计，已被 2026-11-19 调整取代）剪贴板双向同步默认始终开启；桌面 App / 手机 App 的 CC设置不增加「同步电脑剪贴板到手机」开关，浏览器也没有设置页。</span></div>
+        <div class="no-switch" style="background:var(--blueBg);border-color:color-mix(in srgb,var(--blue) 28%,var(--line));"><b style="color:var(--blue)">防循环</b><span><code>lastSent</code> / <code>lastApplied</code> / 文本哈希：自己发布的回声不重复写；首次连接只记基线，不覆盖本机剪贴板。</span></div>
+      </div>
+
+      <div class="grid3" style="margin-top:14px">
+        <div class="callout"><b>桌面/手机 App：</b>双向自动。复制即同步，服务端变化自动回写系统剪贴板；只同步文本，图片/文件走上传。</div>
+        <div class="callout"><b>手机浏览器：</b>不能自动写系统剪贴板。点「粘贴」直接填入电脑端文本；在输入框长按粘贴的文本自动发给桌面。</div>
+        <div class="callout"><b>边界：</b>只同步文本（20k 上限）；不存历史；桌面 App 关闭后手机仍可读写最后一格，重新打开后继续同步。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 三端交互 ================= -->
+  <section id="ui">
+    <div class="sec-head">
+      <div><div class="no">07 · Surfaces</div><h2>三端交互：菜单不动，浏览器回原页</h2></div>
+      <p>桌面 App 菜单不变；手机 App 三标签不变；手机/电脑浏览器回到原聊天室单页，输入框获得双向剪贴板按钮。</p>
+    </div>
+    <div class="wire-grid">
+      <div class="wire">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Desktop · 菜单不变</span></div>
+        <div class="wire-body">
+          <div class="mini-head"><span class="mini-logo">CC</span><b>CC-Flash <small>侧栏 / 顶栏 / 周边设备 / 设置</small></b><span class="mini-status">● 实时</span></div>
+          <div class="mini-card"><div class="k">侧栏</div><div class="row"><span class="mini-lines" style="flex:1"><i></i><i></i></span><span style="font-size:8px;color:var(--accent)">4 入口</span></div></div>
+          <div class="mini-drop"><b>聊天 + 文件 + 周边设备</b><small>服务中心 / CC设置 / 托盘 / 悬浮码全部保留</small></div>
+          <div class="mini-tabs"><span class="on">周边设备</span><span>消息发送</span><span>服务中心</span><span>CC设置</span></div>
+          <div class="mini-note">剪贴板双向自动；不新增开关。</div>
+        </div>
+      </div>
+      <div class="wire">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Mobile App · 三标签不变</span></div>
+        <div class="wire-body">
+          <div class="mini-head"><span class="mini-logo">CC</span><b>CC-Flash <small>本机节点</small></b><span class="mini-status">● 实时</span></div>
+          <div class="mini-drop"><b>上传 / 聊天 / 发现</b><small>时间线、引用、Markdown 不变</small></div>
+          <div class="mini-card"><div class="k">输入框</div><div class="row"><span style="flex:1;height:18px;border-radius:6px;border:1px solid var(--line);background:var(--card)"></span><span style="font-size:8px;color:var(--accent)">粘贴</span><span style="font-size:8px;color:var(--accent)">发送</span></div></div>
+          <div class="mini-tabs"><span class="on">发现</span><span>发送</span><span>设置</span></div>
+          <div class="mini-note">发现/设置保留；剪贴板双向自动。</div>
+        </div>
+      </div>
+      <div class="wire color-browser">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Browser · 原聊天室单页</span></div>
+        <div class="wire-body">
+          <div class="mini-head"><span class="mini-logo">CC</span><b>CC-Flash <small>无三标签 / 无发现 / 无设置</small></b><span class="mini-status">● 实时</span></div>
+          <div class="mini-drop"><b>上传到电脑 / 聊天</b><small>聊天室与文件抽屉保持不变</small></div>
+          <div class="mini-card"><div class="k">输入框</div><div class="row"><span style="flex:1;height:18px;border-radius:6px;border:1px solid var(--line);background:var(--card)"></span><span style="font-size:8px;color:var(--accent)">粘贴直接回填</span><span style="font-size:8px;color:var(--accent)">长按自动回传</span></div></div>
+          <div class="mini-note">无底部三标签；无设置页；不再请求 /api/devices 与 /api/hello。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 路线图 ================= -->
+  <section id="roadmap">
+    <div class="sec-head">
+      <div><div class="no">08 · Roadmap</div><h2>2.5–3.5 人日，分四步</h2></div>
+      <p>桌面菜单不动；先收敛浏览器，再做双向剪贴板桥，最后补浏览器按钮与回归。</p>
+    </div>
+    <div class="panel">
+      <div class="roadmap">
+        <div class="step"><div class="when">Step 1</div><div class="rail"><i></i></div><div class="body"><b>浏览器回原聊天室</b><p><code>mobileTabbed</code> 仅 mobileShell；浏览器不渲染三标签/设置页/发现；<code>view</code> 固定 transfer；不调用发现接口。</p><div class="chips"><span>0.5–1 人日</span><span>最大收益</span><span>低风险</span></div></div></div>
+        <div class="step"><div class="when">Step 2</div><div class="rail"><i></i></div><div class="body"><b>双向剪贴板桥（桌面/手机 App）</b><p>本机剪贴板 → 服务端；服务端变化 → 本机剪贴板；去重、防循环、启动基线；不新增开关。</p><div class="chips"><span>1–1.5 人日</span><span>Tauri 写权限</span><span>无开关</span></div></div></div>
+        <div class="step"><div class="when">Step 3</div><div class="rail"><i></i></div><div class="body"><b>合并「粘贴」入口 + 去独立剪贴板</b><p>底部「＋」只保留一个「粘贴」，点一下直接回填，不弹面板；移除独立剪贴板卡片/入口。</p><div class="chips"><span>0.5 人日</span><span>不新增页面</span><span>双向补齐</span></div></div></div>
+        <div class="step"><div class="when">Step 4</div><div class="rail"><i></i></div><div class="body"><b>回归与验收</b><p>浏览器 0 三标签/0 发现/0 设置；桌面菜单不变；双向剪贴板端到端；聊天/文件/PWA/主题回归。</p><div class="chips"><span>0.5 人日</span><span>可回滚</span><span>指标验收</span></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 验收 ================= -->
+  <section id="acceptance">
+    <div class="sec-head">
+      <div><div class="no">09 · Acceptance</div><h2>验收只看这几条</h2></div>
+      <p>保留聊天与桌面菜单，确保浏览器路径收敛、剪贴板双向可用、且没有新增开关。</p>
+    </div>
+    <div class="accept">
+      <div class="item"><div class="k">浏览器三标签</div><div class="v">0 <em>个</em></div><div class="d">无发现/发送/设置标签</div></div>
+      <div class="item"><div class="k">浏览器设置页</div><div class="v">0 <em>个</em></div><div class="d">设置只在桌面/手机 App</div></div>
+      <div class="item"><div class="k">浏览器发现请求</div><div class="v">0 <em>次</em></div><div class="d">无 /api/devices、无 /api/hello</div></div>
+      <div class="item"><div class="k">浏览器落地页</div><div class="v">原聊天室 <em>✓</em></div><div class="d">聊天/文件抽屉/输入框</div></div>
+      <div class="item"><div class="k">桌面菜单</div><div class="v">全部保留 <em>✓</em></div><div class="d">侧栏/顶栏/服务/设置/托盘</div></div>
+      <div class="item"><div class="k">电脑 → 手机</div><div class="v">≤ 2 <em>秒</em></div><div class="d">复制后可粘贴</div></div>
+      <div class="item"><div class="k">手机 → 电脑</div><div class="v">≤ 2 <em>秒</em></div><div class="d">复制后可粘贴</div></div>
+      <div class="item"><div class="k">剪贴板开关</div><div class="v">0 <em>个</em></div><div class="d">不新增任何同步开关</div></div>
+      <div class="item"><div class="k">聊天室</div><div class="v">保留 <em>✓</em></div><div class="d">消息/引用/Markdown 不变</div></div>
+      <div class="item"><div class="k">Rust 后端</div><div class="v">0 <em>改动</em></div><div class="d">只加 Tauri 写权限</div></div>
+    </div>
+    <div class="callout" style="margin-top:14px">
+      <b>网络面板验收：</b>手机/电脑浏览器打开页面后，Network 里不应出现 <code>/api/devices</code>、<code>/api/hello</code>；
+      页面不应出现底部三标签或设置页。桌面 App 的菜单（『发现』更名『周边设备』）与手机 App 的菜单/发现/设置保持原样。
+    </div>
+  </section>
+
+  <!-- ================= 风险 ================= -->
+  <section id="risks">
+    <div class="sec-head">
+      <div><div class="no">10 · Trade-offs</div><h2>最小改动的取舍</h2></div>
+      <p>把边界说清楚，避免“看起来轻了、用起来更累”。</p>
+    </div>
+    <div class="panel">
+      <div class="risk"><div class="ic">!</div><div><b>无开关意味着始终共享</b><p>按需求不新增开关；桌面/手机 App 运行期间，复制到系统剪贴板的文本会进入同一服务的共享剪贴板，已配对设备可见。不要在共用电脑上复制敏感内容；需要彻底断开时停掉服务。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>浏览器不能自动写系统剪贴板</b><p>HTTP 页面没有权限自动改手机系统剪贴板。浏览器点「粘贴」直接填电脑端文本，长按粘贴时自动发给桌面；App 内可自动双向写。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>防循环必须做</b><p>本机剪贴板与服务端互相写时，用 <code>lastSent</code>/<code>lastApplied</code>/哈希抑制回声；首次连接只记基线，避免启动时覆盖本机剪贴板。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>只同步文本</b><p>图片、文件继续走上传；共享剪贴板只有一格文本，20k 字上限，无历史。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>桌面 App 关闭时</b><p>手机仍可读写最后一格共享文本；桌面端不会自动回写，直到桌面 App 再次运行。</p></div></div>
+    </div>
+  </section>
+
+  <section id="conclusion">
+    <div class="sec-head">
+      <div><div class="no">11 · Conclusion</div><h2>一句话版本</h2></div>
+      <p>保留聊天与桌面菜单；浏览器回原聊天室；剪贴板双向自动、无开关。</p>
+    </div>
+    <div class="panel" style="display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div style="max-width:800px">
+        <p style="margin:0;font-size:15px;line-height:1.85;color:var(--ink2)">
+          桌面 App 的菜单一个不动（仅「发现」更名「周边设备」）；手机/电脑浏览器只保留原聊天室单页（无三标签/发现/设置）；
+          电脑复制手机能粘、手机复制电脑能粘，<b>双向自动同步、不加开关、不做模块</b>。
+          Rust 后端 0 改动，只加一条 Tauri 剪贴板写权限；约 2.5–3.5 人日可上线。
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="pill"><b>保留</b> 聊天室 / 桌面菜单</span>
+        <span class="pill"><b>浏览器</b> 原聊天室单页</span>
+        <span class="pill"><b>剪贴板</b> 双向 / 无开关</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span><b>CC Flash · 最小改动轻量化方案（图文版）</b> · 基于 v1.2.3 · 2026-11-18</span>
+    <span>桌面菜单不变；浏览器回原聊天室；剪贴板双向互通。</span>
+  </footer>
+</main>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById("themeBtn");
+    var icon = document.getElementById("themeIcon");
+    var text = document.getElementById("themeText");
+    function apply(mode) {
+      root.setAttribute("data-theme", mode);
+      icon.textContent = mode === "dark" ? "☀" : "☾";
+      text.textContent = mode === "dark" ? "亮色" : "暗色";
+      try { localStorage.setItem("ccflash-doc-theme", mode); } catch (e) {}
+    }
+    var saved = "light";
+    try { saved = localStorage.getItem("ccflash-doc-theme") || "light"; } catch (e) {}
+    apply(saved);
+    btn.addEventListener("click", function () {
+      apply(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    });
+
+    // 滚动定位高亮
+    var links = [].slice.call(document.querySelectorAll("#nav a"));
+    var targets = links.map(function (a) {
+      return document.querySelector(a.getAttribute("href"));
+    }).filter(Boolean);
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          links.forEach(function (a) {
+            a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id);
+          });
+        });
+      }, { rootMargin: "-30% 0px -60% 0px", threshold: 0 });
+      targets.forEach(function (t) { io.observe(t); });
+    }
+  })();
+</script>
+
+<section id="final-status" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">落地结果（v1.2.3）</h2>
+<ul style="margin:0;padding-left:20px">
+<li>聊天室、Markdown、文件卡片、未读全部保留；文件 / 消息 / 共享剪贴板同一条时间线。</li>
+<li>桌面侧栏 192px；设备栏并入「消息发送」页左侧（200px），只保留本机共享 + 附近设备 + 刷新；底部二维码 / 复制地址已移除。</li>
+<li>手机 App 只有「发送 / 设置」两标签；发送页顶部目标横条 +「全部设备」面板；手机浏览器无标签、无发现、无设置页。</li>
+<li>共享剪贴板双向、默认关闭（CC设置可选开启）、无独立模块；只在页面可见时同步；浏览器在「粘贴」面板里回退操作。</li>
+<li>文件抽屉 320–380px；981–1180px 改带遮罩覆盖层；≤980px 进入窄屏。</li>
+<li>后端新增 <code>/api/clipboard</code> GET/POST/DELETE 与 <code>clipboard:changed</code> 事件；票据 / 文件指纹校验走 <code>spawn_blocking</code>。</li>
+</ul>
+</section>
+
+</body>
+</html>

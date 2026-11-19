@@ -3,7 +3,7 @@
 
 // ---- 应用 ---- //
 /// 应用显示名(托盘 tooltip / 系统通知标题)
-pub const APP_NAME: &str = "CC-Flash";
+pub const APP_NAME: &str = "CC Flash";
 /// 应用版本号。唯一来源是 Cargo.toml 的 [package] version:
 /// tauri.conf.json 已省略 version 字段(构建时自动回退读 Cargo.toml),
 /// 这里编译期取同值, 随 /api/info 下发给前端展示。
@@ -34,8 +34,12 @@ pub const PORT_RANGE_END: u16 = 1708;
 pub const CHAT_MAX: usize = 200;
 /// 昵称长度上限 [同步: config.js NICK_MAX] —— 随 /api/info 下发, 前端运行时以服务端为准
 pub const NICK_MAX_CHARS: usize = 20;
-/// 消息长度上限 [同步: config.js MSG_MAX] —— 随 /api/info 下发, 前端运行时以服务端为准
-pub const MSG_MAX_CHARS: usize = 2000;
+/// 单条消息长度上限 [同步: config.js MSG_MAX] —— 随 /api/info 下发, 前端运行时以服务端为准。
+/// 超过上限直接 400, 不再静默截断(用户必须知道尾部没有发送出去)。
+pub const MSG_MAX_CHARS: usize = 200_000;
+/// 聊天历史总字符预算: 保留 200 条的条数上限之外再限总量, 防止 200 条 × 20 万字
+/// (≈数千万字符)把内存、历史落盘和全量拉取撑爆; 超限从最旧的开始淘汰。
+pub const CHAT_TOTAL_MAX_CHARS: usize = 2_000_000;
 /// 服务日志中聊天内容预览截断长度
 pub const CHAT_PREVIEW_CHARS: usize = 40;
 /// 未填昵称时的默认昵称 [同步: config.js DEFAULT_NICK] —— 随 /api/info 下发, 前端运行时以服务端为准
@@ -54,6 +58,7 @@ pub const NOISY_GET_PATHS: &[&str] = &[
     "/api/files",
     "/api/control/logs",
     "/api/upload_progress",
+    "/api/devices",
 ];
 
 // ---- 传输 ---- //

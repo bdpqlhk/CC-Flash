@@ -1,14 +1,62 @@
 {
-  "name": "CC-Flash",
-  "short_name": "CC-Flash",
+  "id": "/",
+  "name": "CC Flash",
+  "short_name": "CC Flash",
   "description": "局域网文件互传与消息",
+  "lang": "zh-CN",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#0d1017",
   "theme_color": "#35c299",
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
+  "prefer_related_applications": false,
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "打开传输页",
+      "short_name": "传输",
+      "url": "/?tab=transfer",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

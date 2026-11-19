@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CC-Flash · 整个过程历史改动记录</title>
+<title>CC Flash · 整个过程历史改动记录</title>
 <style>
 :root{
   --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
@@ -50,6 +50,8 @@ pre code{background:none;color:inherit;padding:0}
 </style>
 </head>
 <body>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>历史文档 · 保留当时实现</b>　本文记录的是对应日期的版本状态，不作为当前交互说明。当前最新为 v1.2.4（2026-11-19）：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　最新实现详见 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>。</div>
+
 <div class="layout">
 <nav class="toc">
   <h3>目录</h3>
@@ -68,9 +70,9 @@ pre code{background:none;color:inherit;padding:0}
 </nav>
 <main>
 <header class="doc">
-  <h1>CC-Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-27）</h1>
+  <h1>CC Flash · 整个过程历史改动记录（2026-10-23 ~ 2026-10-27）</h1>
   <div class="meta">
-    <span>项目：<b>CC-Flash（局域网文件互传，Tauri 2 + Vue3 + axum）</b></span>
+    <span>项目：<b>CC Flash（局域网文件互传，Tauri 2 + Vue3 + axum）</b></span>
     <span>记录范围：<b>2026-10-23 ~ 2026-10-27</b>（另含背景溯源）</span>
     <span>依据：<b>git 历史 + 开发会话记录 + 需求/技术文档 + 代码现状</b></span>
   </div>
@@ -564,7 +566,7 @@ pre code{background:none;color:inherit;padding:0}
   <div class="note">📌 下一步：真机人工验收（Windows 复制粘贴 / 桌面缩略图 / 聊天清空 / Android 目录取回 / VPN 二维码）→ 观察 CI Windows 腿 embedBootstrapper 首发表现 → 按后期规划推进（临时分享链接等）。</div>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 整个过程历史改动记录 · 更新至 2026-10-29（含 v1.1.4） · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 整个过程历史改动记录 · 更新至 2026-10-29（含 v1.1.4） · 与《需求设计文档》《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

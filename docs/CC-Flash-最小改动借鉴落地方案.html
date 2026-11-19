@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CC-Flash · 借鉴 Snapdrop / LocalSend 的最小改动落地方案</title>
+<title>CC Flash · 借鉴 Snapdrop / LocalSend 的最小改动落地方案</title>
 <style>
   :root {
     --bg: #0b1210;
@@ -281,6 +281,8 @@
 </style>
 </head>
 <body data-theme="dark">
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+
 <div class="page">
   <header class="hero">
     <div>
@@ -641,5 +643,17 @@
     document.getElementById('plusBtn').classList.remove('on');
   });
 </script>
+
+<section id="final-status" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.3 最终形态（以此为准）</h2>
+<ul style="margin:0;padding-left:20px">
+<li>桌面侧栏 192px，不再有独立「周边设备」入口；设备栏并入「消息发送」页左侧（200px，本机共享 + 附近设备 + 刷新）。</li>
+<li>手机 App 只有「发送 / 设置」两标签；发送页顶部目标横条 +「全部设备」设备面板。</li>
+<li>手机 / 电脑浏览器保持原聊天室单页，无底部标签、无发现、无设置页；不请求 <code>/api/devices</code>、不发 <code>/api/hello</code>。</li>
+<li>共享剪贴板默认关闭，可在 CC设置 开启；不再有独立模块；只在页面可见时同步；浏览器回退到输入栏「粘贴」面板。</li>
+<li>文件抽屉 320–380px；981–1180px 改带遮罩覆盖层；≤980px 窄屏布局。</li>
+</ul>
+</section>
+
 </body>
 </html>

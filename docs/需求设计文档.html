@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CC-Flash · 需求设计文档</title>
+<title>CC Flash · 需求设计文档</title>
 <style>
 :root{
   --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2430; --text2:#5b6472;
@@ -55,6 +55,8 @@ pre code{background:none;color:inherit;padding:0}
 </style>
 </head>
 <body>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面恢复「局域网访问」开关、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+
 <div class="layout">
 <nav class="toc">
 <h3>目 录</h3>
@@ -77,10 +79,10 @@ pre code{background:none;color:inherit;padding:0}
 </nav>
 <main>
 <header class="doc">
-<h1>CC-Flash · 需求设计文档</h1>
+<h1>CC Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-16</b></span>
-<span>状态：<b>已实现，应用版本 1.2.2，macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
+<span>文档日期：<b>2026-11-19</b></span>
+<span>状态：<b>已实现，应用版本 1.2.3，macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
 </header>
@@ -99,7 +101,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><th>维度</th><th>形态</th></tr>
 <tr><td>技术栈</td><td>Rust(axum) 局域网服务 + Vue3 前端 + Tauri 2 桌面壳</td></tr>
 <tr><td>安装包体积</td><td><b>dmg ≈4.1–4.3 MB / .app ≈4.7 MB</b>（Windows exe ≈3.0 MB，Android arm64 APK ≈7.0 MB；目标 4–12 MB ✅）</td></tr>
-<tr><td>网页端</td><td>与桌面端同一份 Vue 页面，按运行环境自适应：桌面壳（侧栏 + 传输 + 文件抽屉）/ 电脑浏览器（顶部房间头 + 抽屉）/ 手机浏览器与手机 App（单列 + 文件面板）</td></tr>
+<tr><td>网页端</td><td>与桌面端同一份 Vue 页面，按运行环境自适应：桌面壳（176px 侧栏 + 消息工作台 + 文件抽屉）/ 电脑浏览器（顶部房间头 + 抽屉，原聊天室单页）/ 手机浏览器（单列原聊天室，无底部标签）/ 手机 App（「发送 / 设置」两标签 + 文件面板）</td></tr>
 <tr><td>页面托管</td><td>前端产物由服务端直接托管，手机扫码即用，无独立部署步骤</td></tr>
 </table>
 
@@ -170,9 +172,9 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × <b>5 套配色</b>（深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀），默认深空蓝亮色；即时生效并记忆，三级文字色随主题色相联动；<b>桌面端聊天气泡跟随主题</b>（接收方主题卡片面、发送方轻染强调色），浏览器/移动端保持白底黑字</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-51</td><td>页脚版权：桌面与网页端页面底部统一展示「© 2026-现在 by hangkun.li」，内容短时贴底、长时顺延</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：读取 GitHub Releases <b>列表</b>（兼容 prerelease，不只依赖 <code>/latest</code>），启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：读取 GitHub Releases <b>列表</b>（只认正式版、跳过 prerelease，避免未签名产物进入更新通道），启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-71</td><td>运行参数服务端统一下发：昵称/消息长度上限、轮询间隔等由服务接口携带，网页端自动跟随（改服务端配置重启即全端生效，无需重新构建前端）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-72</td><td rowspan="3">维护</td><td>多平台自动发版：推送 v* 标签（<b>支持四段 vX.Y.Z.W，CI 校验前三位与应用版本一致</b>）自动构建 macOS（.app/.dmg）、Windows（.msi/.exe）、Android 并挂载到 Release；Android 经 <code>--split-per-abi</code> 按 4 个 ABI 分包（arm64-v8a / armeabi-v7a / x86 / x86_64，文件名映射标准 ABI 名），必须配置 <code>ANDROID_KEYSTORE_*</code> Secrets 走 release 签名（证书固定、版本可覆盖升级），任一缺失 CI 直接失败（正式 Release 不允许 debug 包）；Android 上传前校验 Release 仍为草稿，重跑已发布 tag 不会改写线上资产；desktop 构建失败时 APK 仍可写入草稿但 Release 不公开</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-72</td><td rowspan="3">维护</td><td>多平台自动发版：推送 v* 标签（<b>支持四段 vX.Y.Z.W，CI 校验前三位与应用版本一致</b>）自动构建 macOS（分架构双包 aarch64 / x64 dmg）、Windows（单包 msi）、Android（单包 arm64-v8a APK）并挂载到 Release；Android 只构建主流 64 位机型单包，必须配置 <code>ANDROID_KEYSTORE_*</code> Secrets 走 release 签名（证书固定、版本可覆盖升级），任一缺失 CI 直接失败（正式 Release 不允许 debug 包）；Android 上传前校验 Release 仍为草稿，重跑已发布 tag 不会改写线上资产；desktop 构建失败时 APK 仍可写入草稿但 Release 不公开</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-74</td><td>软件介绍页：侧边栏「介绍」入口打开全屏介绍（Hero / 功能四卡 / 三步上手 / 技术实现 / FAQ 手风琴），粘性顶栏锚点导航 + 滚动定位高亮、Esc 关闭、<code>v-if</code> 延迟挂载不增加启动成本；Hero「立即开始传输」进文件传输页、「去启动服务」进服务中心、「查看使用说明」页内跳转如何使用</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-73</td><td>一键发版脚本：<code>scripts/release.sh X.Y.Z|X.Y.Z.W</code> 自动完成升版本/四段 tag/Android versionCode/提交/打标签/推送（含网络兜底）并验证构建触发；<b>远端同名 tag 默认拒绝重发</b>（<code>FORCE_REPUBLISH=1</code> 放行），不再自动删除远端 tag</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 </table>
@@ -217,7 +219,7 @@ pre code{background:none;color:inherit;padding:0}
 <section id="s5">
 <h2><span class="no">5</span>聊天室模块</h2>
 <ul>
-<li><b>收发</b>：新消息经 WebSocket 推送即时到达（断开时降级 3 秒轮询）；服务端保留最近 200 条；昵称截取前 20 字，消息截取前 2000 字；</li>
+<li><b>收发</b>：新消息经 WebSocket 推送即时到达（断开时降级 3 秒轮询）；服务端保留最近 200 条；昵称截取前 20 字，单条消息上限 200000 字（超过返回 400 并提示，不静默截断）；历史另有 200 万字符总量预算；</li>
 <li><b>昵称</b>：可手动输入并记忆；未设置时自动生成（如 <code>Mac Chrome-2569</code>：系统 + 浏览器 + 随机 4 位数，存 localStorage）；</li>
 <li><b>头像</b>：昵称哈希 → 24 个 emoji 池映射，同昵称恒定同头像；</li>
 <li><b>未读</b>：侧栏「传输」角标 / 浏览器标签标题显示未读数（99+ 封顶）；传输页可见且窗口聚焦时自动清零；聊天上翻时底部出现「N 条新消息」胶囊；新文件只在文件夹按钮点绿点；</li>
@@ -281,7 +283,8 @@ pre code{background:none;color:inherit;padding:0}
 </ol>
 <h3>8.2 手机浏览器布局</h3>
 <ul>
-<li>合并传输页<b>单列</b>：房间头（标题 + 运行状态 + 清空/共享文件/更多操作）→ 时间线 → 输入栏；共享文件从底部抽屉面板打开（86dvh，可下拉/点「完成」收起）；</li>
+<li><b>保持原聊天室单页</b>：不做设备发现、不加「发现 / 发送 / 设置」标签、不提供设置页，避免浏览器用户承担无用的操作层级；</li>
+<li>单列：房间头（标题 + 运行状态 + 清空/共享文件/更多操作）→ 时间线 → 输入栏；共享文件从底部抽屉面板打开（86dvh，可下拉/点「完成」收起）；</li>
 <li>正文与文件列表字号整体上调，操作热区放大；iOS 输入框保持 16px 防止聚焦缩放整页；</li>
 <li>底部面板打开锁定背景滚动；输入区适配 iOS 底部安全区。</li>
 </ul>
@@ -292,7 +295,7 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">9</span>移动端适配模块</h2>
 <table>
 <tr><th>交互</th><th>需求描述</th></tr>
-<tr><td>布局</td><td>合并传输页单列：房间头 + 时间线 + 贴底输入栏；消息与文件卡片同屏，不再有独立聊天悬浮球</td></tr>
+<tr><td>布局</td><td>手机 App 底部仅「发送 / 设置」两标签；发送页单列：聊天头部（含「设备」入口）+ 时间线 + 贴底输入栏，点「设备」在头部下方内联展开设备面板（不弹窗）；不再有独立聊天悬浮球。手机浏览器仍是原聊天室单页，无标签</td></tr>
 <tr><td>共享文件面板</td><td>底部 86dvh 抽屉、上圆角 18px、下拉手柄/「完成」/蒙层均可收起；含排序、分页、全选、批量删除</td></tr>
 <tr><td>滚动隔离</td><td>面板打开锁定 body 滚动；消息区/面板滚动到边界不穿透（overscroll-behavior: contain）</td></tr>
 <tr><td>安全区</td><td>输入区与底部面板适配 iOS 底部安全区（env(safe-area-inset-bottom)）</td></tr>
@@ -377,7 +380,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（<code>script-src 'self'</code>、<code>object-src 'none'</code> 等），即便出现注入型 XSS 也限制其能力；<code>connect-src</code> 放行 <code>http:/ws:</code>，<code>img-src/media-src</code> 放行 <code>http:</code> 与 <code>blob:</code>，<code>frame-src</code> 放行 <code>http:</code>（<b>不再 'none'</b>）——移动壳既可能连本机节点也可能连电脑，应用内预览要从局域网地址加载图片/音视频/PDF，只留回环会把发版包整端拦死（v1.2.2 已删除各平台 conf 的重复 CSP，统一由基础配置继承）；html/svg/xml 仍由服务端 inline 白名单禁止同源打开（dev 模式无 CSP，必须用发版包验证）；</li>
 <li><b>系统命令注入防护（Windows）</b>：打开 URL 走 <code>rundll32 FileProtocolHandler</code>、文件走 <code>explorer</code>，不经 <code>cmd</code> shell（cmd 会解释 <code>&amp;|^</code> 等字符）；</li>
 <li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>
-<li><b>资源上限</b>：聊天 200 条 / 昵称 20 字 / 消息 2000 字 / 日志 1000 条；</li>
+<li><b>资源上限</b>：聊天 200 条（总字符 200 万）/ 昵称 20 字 / 单条消息 200000 字 / 日志 2000 条；</li>
 <li><b>删除确认</b>：所有删除必须经确认框。</li>
 </ul>
 </section>
@@ -426,12 +429,51 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>大文件下载阈值</td><td>桌面浏览器一律原生流式下载（零内存、自带进度）；手机浏览器 ≤50MB 走 blob（有完成提示），&gt;50MB 回退原生下载（iOS Safari 数百 MB 即可能杀标签页）</td></tr>
 <tr><td>聊天持久化</td><td>仅内存 200 条，服务重启即清空（定位为临时接力，不做历史存档）</td></tr>
 <tr><td>跨平台</td><td>macOS / Windows / Android 已出包；Linux 可从源码构建；iOS 暂无安装包（Safari 访问网页版）</td></tr>
-<tr><td>更新检查方式</td><td>采用「GitHub Releases 检查 + 浏览器下载」轻量方案：前端读取 Releases <b>列表</b>（免鉴权、支持跨域、兼容 prerelease），发现新版弹框跳转下载页。检查失败一律静默，不影响正常使用；应用内自更新留作后续演进</td></tr>
+<tr><td>更新检查方式</td><td>采用「GitHub Releases 检查 + 浏览器下载」轻量方案：前端读取 Releases <b>列表</b>（免鉴权、支持跨域、仅正式版/跳过 prerelease），发现新版弹框跳转下载页。检查失败一律静默，不影响正常使用；应用内自更新留作后续演进</td></tr>
 <tr><td>后续演进项<br>（暂不实施）</td><td><b>mDNS 域名发现（wft.local）</b>：IP 变化后旧书签/旧页面自动跟随新地址。方案：Rust 侧引入 <code>mdns-sd</code> 广播 <code>_http._tcp</code> + A 记录，复用 2.5s 探测在 IP 变化时重注册，失联画面加"试试 wft.local"提示。<b>成本：约 60–80 行 / 半天。</b>硬限制：① Android 浏览器不解析 .local 主机名（系统限制），安卓用户无感；② 企业/访客网络常禁多播则静默失效；③ 同网段多实例名称冲突；④ 端口仍需手写（浏览器不读 SRV）。<b>触发条件：使用人群以 iPhone + 电脑为主时再做</b>；安卓为主的现有"失联画面 + 桌面端新二维码"路径已更可靠。</td></tr>
 </table>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC-Flash · 需求设计文档 · 2026-11-12 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+
+<!-- ================= 附录 A ================= -->
+<section id="appendix-a">
+<h2><span class="no">A</span>附录 · v1.2.4 最新实现补充（2026-11-19 安全加固）</h2>
+<h3>A.1 消息工作台（设备发现并入发送页）</h3>
+<ul>
+<li><b>桌面端</b>：「消息发送」页左侧为 Snapdrop 风格周边设备栏（本机身份卡 + 扫描雷达 + 附近设备列表，在线 / 忙碌 / 最近活跃），宽 200px；点选设备即成为发送目标，输入栏切换为直发，时间线追加本机回执。设备栏底部不再放二维码 / 复制地址，扫码仍走顶栏与服务中心，减少重复入口。</li>
+<li><b>手机 App</b>：底部只有「发送 / 设置」两个标签；聊天头部有「设备」入口，点开在头部下方内联展开设备面板（不弹窗）；选中后同样直发并显示回执。设置页承载本机服务、局域网访问、连接电脑、访问令牌等。</li>
+<li><b>浏览器</b>：电脑 / 手机浏览器都保持原聊天室单页，不做发现、没有「发送 / 设置」标签，也不会出现可点但不可达的设备。</li>
+<li><b>投递语义</b>：直发文本 / 文件走对方节点的 <code>/api/chat</code>、<code>/api/upload</code>；内容进入对方公共聊天与共享目录，同网段可见。目标开启访问令牌时按端点记忆配对码。</li>
+</ul>
+<h3>A.2 共享剪贴板（电脑 ↔ 手机双向，默认关闭、CC设置可选开启）</h3>
+<ul>
+<li>唯一入口是输入栏「粘贴」，不建独立模块。系统剪贴板自动同步<b>默认关闭</b>，由 CC设置「系统剪贴板自动同步」开关控制；开启后桌面 / 手机 App 在页面可见时每 1.5s 比对本机剪贴板，变化即写共享槽；收到 WebSocket <code>clipboard:changed</code> 立即拉取并写入系统剪贴板，另有 4.5s HTTP 兜底。</li>
+<li>共享槽上限 20,000 字，持久化；空内容表示清空。访问令牌与对方配对码会被自动排除，不进入共享槽、不落盘。浏览器在 <code>http://局域网IP</code> 下无权自动读写系统剪贴板：点「粘贴」直接把电脑端共享文本回填输入框；只有在<b>聊天输入框</b>长按粘贴的文本才回传电脑。只同步文本，复制失败回退 <code>execCommand</code>。</li>
+<li><b>安全边界</b>：只在页面可见时同步，后台窗口不被动覆盖本地剪贴板；远端内容应用后提示「已从 X 同步剪贴板」。非本机来源读写共享剪贴板需开启访问令牌；写入按来源限流。公共网络请关闭自动同步并避免复制敏感信息。</li>
+</ul>
+<h3>A.3 桌面布局与响应式</h3>
+<ul>
+<li>侧栏 176px；消息页设备栏 200px；共享文件抽屉 320–380px；窗口宽度 981–1180px 时抽屉改为带遮罩的覆盖层，避免挤压聊天区；≤980px 进入窄屏布局（设备栏收起，聊天头部「设备」入口 + 头部下方内联面板接管，不弹窗）。</li>
+<li>桌面浏览器与手机浏览器保留原聊天室；手机 App 两标签；文件列表、消息、剪贴板共用同一条时间线。</li>
+</ul>
+<h3>A.4 本轮可靠性修复</h3>
+<ul>
+<li>访问令牌读取失败 / 文件为空时 fail-closed 重新生成并原子写入，不再出现「文件坏了等于没开令牌」。</li>
+<li>分享票据与文件指纹校验、上传路径 canonicalize / 同名顺延 / 剩余空间查询改走 <code>spawn_blocking</code>，慢盘或 NFS 不再阻塞 tokio worker。</li>
+<li>静态资源缺失（<code>assets/</code> 或带点路径）返回 404，不再回退 SPA index；空 <code>.ccup</code> 标记不再被误判为系统产物。</li>
+<li>移动端 PDF 预览改走一次性票据链接；票据失败时提示下载，不再把无鉴权地址交给系统浏览器。</li>
+<li>隐藏 / 后台窗口停止轮询；Android <code>onResume</code> 重新拉起本机服务；IPv6 地址在地址栏与分享 URL 中自动加方括号。</li>
+</ul>
+<h3>A.5 2026-11-19 安全与稳定性补丁（需求口径）</h3>
+<ul>
+<li><b>默认值变更</b>：系统剪贴板自动同步默认关闭；桌面恢复「局域网访问」开关（默认开、可关闭为安全模式）；移动端自动生成本机访问令牌，loopback 请求同样校验。</li>
+<li><b>凭据不外发</b>：访问令牌/对方配对码加入剪贴板黑名单；paste 回传限定聊天输入框；共享剪贴板跨设备读写需访问令牌。</li>
+<li><b>发布口径</b>：未签名构建保持草稿并不公开，应用内更新只认正式版（跳过 prerelease）。</li>
+<li><b>稳定性</b>：WS 退避修复、下载空闲超时 + 单来源并发配额、限流固定窗口与 IPv6 /64 聚合、偏好/聊天历史原子写、启动清理不再误删、审计日志防洪水。</li>
+</ul>
+</section>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 需求设计文档 · 2026-11-19 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC Flash · 整个过程历史改动记录（2026-11-17 至 2026-11-18）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-11-17 至 2026-11-18</b> · 版本：<b>v1.2.3</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="callout"><b>本段主题</b>消息工作台落地、共享剪贴板双向同步、浏览器回原聊天室、桌面布局收敛，以及一轮全端深度检查后的 10 项修复。</div>
+
+<h2>一、消息工作台：设备发现并入发送页</h2>
+<ul>
+<li><b>桌面端</b>：「消息发送」页左侧新增 200px Snapdrop 风格周边设备栏（本机身份卡 + 扫描雷达 + 附近设备列表，在线 / 忙碌 / 最近活跃）；点设备即选中发送目标，输入栏切换为「直发」，时间线追加本机回执；点本机共享或「×」取消目标。</li>
+<li><b>设备栏底部不放二维码 / 复制地址</b>：顶栏、服务中心、二维码弹窗已覆盖，移除重复入口，减少视觉与操作负担。</li>
+<li><b>手机 App</b>：底部收为「发送 / 设置」两标签；发送页顶部为目标横条，点「全部设备」展开设备面板；选中后同样直发并显示回执。</li>
+<li><b>浏览器</b>：电脑 / 手机浏览器保持原聊天室单页，不再渲染底部标签、不做设备发现、不提供设置页；<code>setView</code> 把 discover / settings 映射回 transfer。</li>
+<li><b>直发链路</b>：文本走对方 <code>/api/chat</code>，文件走对方 <code>/api/upload</code>；目标开启访问令牌时按端点记忆配对码；内容进入对方公共聊天与共享目录。</li>
+</ul>
+
+<h2>二、共享剪贴板：双向、无开关</h2>
+<ul>
+<li>新增 <code>GET / POST / DELETE /api/clipboard</code>，共享槽上限 20,000 字并持久化；<code>clipboard:changed</code> 走 WS 事件总线。</li>
+<li>桌面 / 手机 App 在页面可见时每 1.5s 比对本机剪贴板，变化即发布；收到事件立即拉取并 <code>writeText</code>，另有 4.5s HTTP 兜底；<code>clipSyncBusy</code> 期间的远端值进 <code>pendingRemoteApply</code>，忙完再应用。</li>
+<li>输入栏底部「＋」面板中的剪贴板入口合并为唯一「粘贴」：本机剪贴板优先；浏览器读不到时直接回填共享槽文本，不弹面板；输入框粘贴事件把文本自动回传电脑。</li>
+<li><b>默认关闭，可在 CC设置 开启，不建独立模块</b>；页面不可见时不同步，重新可见时重置 <code>lastSentClip</code> 并补一次远端应用；远端内容应用后 toast「已从 X 同步剪贴板」。</li>
+<li>浏览器受安全上下文限制时复制失败回退 <code>execCommand</code>；共享内容同一 Wi-Fi 可见，公共网络建议开启访问令牌。</li>
+</ul>
+
+<h2>三、桌面布局与响应式</h2>
+<ul>
+<li>侧栏宽度 176px；设备栏 200px；共享文件抽屉 320–380px（字号加大、分页占满底栏）。</li>
+<li>981–1180px 宽度下文件抽屉改为带遮罩的覆盖层，避免挤压聊天区；≤980px 进入窄屏布局；390 / 320 宽度无横向溢出。</li>
+<li>手机 App 使用目标横条 + 设备面板；桌面浏览器、手机浏览器保留原聊天室顶部 / 单列布局。</li>
+<li>设备栏改为 Snapdrop 风格：本机身份卡（昵称 + 在线点）、扫描雷达（最多 6 个设备点 + 旋转扫描）、附近设备列表（在线 / 忙碌 / 最近活跃 + 收藏）；雷达中心与身份卡按当前终端显示手机 / 电脑图标；手机设备面板复用同一套身份卡与雷达。在线绿点、状态徽标绿点均有呼吸动效（尊重 <code>prefers-reduced-motion</code>）。</li>
+</ul>
+
+<h2>四、全端深度检查与修复（10 项）</h2>
+<table>
+<tr><th>#</th><th>问题</th><th>修复</th></tr>
+<tr><td>1</td><td>共享剪贴板可能被后台页面静默覆盖 / 被动接收</td><td>读写同步都加 <code>document.visibilityState</code> 闸；重新可见时重置基线并补应用；远端应用提示来源</td></tr>
+<tr><td>2</td><td>访问令牌文件为空 / 不可读时等同未开启</td><td><code>access_pin()</code> fail-closed 重新生成；<code>write_secret_atomic()</code> 临时文件 + rename + 0600 原子写</td></tr>
+<tr><td>3</td><td>上传 / 下载 / 票据校验在 tokio worker 上做同步磁盘 IO</td><td>新增 <code>ticket_file_matches_async</code>、<code>safe_join_existing_async</code>、<code>file_fingerprint_async</code>、<code>available_space_async</code>、<code>dedup_rel_name_async</code>，统一 <code>spawn_blocking</code>；middleware 内不跨 await 持锁</td></tr>
+<tr><td>4</td><td>二维码库动态导入失败后 Promise 永久 rejected</td><td><code>loadQrLib</code> 失败时重置 <code>qrLibPromise</code>，允许重试</td></tr>
+<tr><td>5</td><td>Android 回到前台后本机服务可能已停</td><td><code>MainActivity.onResume</code> 重新 <code>startLocalService()</code>，异常不崩溃</td></tr>
+<tr><td>6</td><td>隐藏 / 托盘状态仍轮询剪贴板与状态</td><td>隐藏时停止轮询；<code>closeWs(false)</code> 不触发重连；卸载清理定时器</td></tr>
+<tr><td>7</td><td>IPv6 地址拼接 URL 缺少方括号</td><td><code>lan_ip</code> 增加 IPv6 兜底；前端 <code>formatHost()</code> 统一加方括号；分享 / 二维码共用</td></tr>
+<tr><td>8</td><td>移动端 PDF 预览把无鉴权直链交给系统浏览器</td><td>改为先申请一次性票据，再 <code>open_url_cmd</code>；失败提示下载</td></tr>
+<tr><td>9</td><td>缺失静态资源回退 SPA index，伪装成 200</td><td>缺失 <code>assets/</code> 或带点路径返回 404 JSON</td></tr>
+<tr><td>10</td><td>空 <code>.ccup</code> 标记被误判为系统上传产物</td><td>空内容不再视为系统标记；补充单元测试</td></tr>
+</table>
+
+
+<h2>七、构建产物瘦身与 Release 精简</h2>
+<ul>
+<li><b>前端</b>：删除已废弃的 discover 页面模板与 <code>.disc-*</code> 样式、旧 peer-send / LocalSend 面板残留样式与函数；主包 274.25 → <b>288.79 KB</b>（gzip 115.39 KB），CSS 99.78 → <b>94.82 KB</b>（gzip 17.60 KB）。</li>
+<li><b>Rust</b>：保留 <code>strip + LTO + codegen-units=1 + opt-level=z + panic=abort</code>（实测 <code>opt-level=s</code> 反而增大到 5.36 MB，已回退 z）；二进制 4,034,864 字节（rust-embed 启用 DEFLATE 压缩；IPv6 发现新增少量代码）。</li>
+<li><b>GitHub Release 精简为四个包</b>：macOS 保持分架构双包（aarch64 / x64 dmg）、Windows 一个 msi、Android 一个 arm64-v8a APK（覆盖 Android 5+ 主流 64 位机型）。不再发 Windows exe 与 Android 4 ABI 分包；发布校验要求 macOS 两个 dmg、Windows msi、Android APK 齐全。</li>
+</ul>
+
+<h2>八、交互收口</h2>
+<ul>
+<li><b>粘贴不再弹框</b>：输入栏「粘贴」先读本机剪贴板；读不到时直接把共享槽文本回填输入框，无任何中间面板。浏览器输入框的 paste 事件会把文本写回共享槽，电脑端随后自动写入系统剪贴板。</li>
+<li><b>呼吸绿点</b>：手机端「实时」单绿点、设备身份卡在线点、设备列表在线点统一呼吸动画；离线/忙碌保持静态。</li>
+<li><b>周边设备</b>：桌面 200px 设备栏与手机设备面板采用身份卡 + 雷达 + 列表；雷达点位置固定，避免刷新时乱跳。</li>
+</ul>
+
+<h2>九、HTTP / WS 接口健壮性巡检</h2>
+<ul>
+<li><b>文件列表符号链接</b>：先看 <code>file_type</code> 再 metadata，跳过指向目录/文件的符号链接，避免递归到共享目录之外或形成环；非普通文件（FIFO/设备节点）也不进列表。</li>
+<li><b>上传声明大小</b>：客户端多送字节时立即 413 并清理半截文件，不再先写超量数据再在结束时拒绝，防止谎报小 size 绕过磁盘预检。</li>
+<li><b>JSON 体积上限</b>：聊天 256KB、剪贴板 128KB、分享票据 / hello 16KB；超过直接 413，避免 2MB 默认上限的内存分配。</li>
+<li><b>WS 慢客户端</b>：所有 send（心跳/事件/同步提示/Pong）加 5s 超时，半开或只连不读的连接不会长期占用 64 个 WS 许可。</li>
+<li><b>前端请求</b>：GET 统一 <code>cache:"no-store"</code>；设备列表用递增序号丢弃迟到响应；状态/聊天请求的 10s 中止链路保留到 body 读取完成；手动刷新失败给出提示。</li>
+<li><b>验证</b>：新增符号链接单测；上传超量、聊天/剪贴板超限均实测 413；两轮全端 UI 与 API 回归通过；<code>cargo test</code> 20 项通过。</li>
+</ul>
+
+<h2>十、设备发现增强（快 / 准 / IPv6）</h2>
+<ul>
+<li><b>主动探测</b>：新增 <code>POST /api/discovery/probe</code>；启动、手动刷新、WS 重连时发 probe，收到 probe 的设备立即单播回宣告（500ms/来源限流），不再等下一次 3s 周期。手动“重新扫描”现在真的会发 UDP 包，等待约 200ms 再拉设备表。</li>
+<li><b>更快</b>：启动即宣告 + 立即 probe；前端设备轮询 12s → 3s；新增/忙碌/昵称/端口变化都广播 <code>devices:changed</code>，WS 在线时立即刷新。</li>
+<li><b>更准</b>：正常停止发 <code>bye</code>，对端同 IP 同 id 才移除；TTL 120s → 15s，异常离线最多约 18s 从列表消失；15s 内保留“最近活跃”提示。</li>
+<li><b>IPv6</b>：新增 <code>[::]:53318-53321</code> v6only 监听、IPv6 link-local 多播组 <code>ff02::ccf1</code>、逐网卡 interface index 出口、v6 单播回包；link-local 设备地址带 <code>%en0</code> zone，前端 URL 编码为 <code>%25en0</code>。HTTP/WS 继续走双栈 <code>[::]</code>。</li>
+<li><b>端口顺延</b>：发现端口从固定 53318 扩展为 53318-53321；实例绑定首个空闲端口，发送端向整个范围宣告，packet 携带 <code>dport</code>，回包按 dport 返回，因此端口冲突/同机多实例仍可互相发现。</li>
+<li><b>单播兜底</b>：缓存最近 32 个设备 IP；多播被企业/路由器过滤时，启动/手动刷新/每 30s 向历史地址发单播 probe，兼容端口顺延；空设备状态按 macOS / Windows 显示本地网络 / 防火墙指引，并提供「网络设置」按钮。</li>
+<li><b>抗噪</b>：probe 每来源 30 次/分钟；发现报文单来源 50 包/秒；仍只接受私网/链路本地来源、端口 1024–65535、id 长度与自 id 校验；对慢 WS 发送已有 5s 超时。</li>
+<li><b>验证</b>：本机用 en12 link-local 发送 IPv6 多播 announce/bye，`/api/devices` 正确出现/移除带 <code>%en12</code> 的设备；v4 announce/bye、状态变化 WS、probe 接口均通过；20 项 Rust 测试通过。</li>
+</ul>
+
+<h2>十一、首次安装体验复核</h2>
+<ul>
+<li><b>共享文件气泡引导仍在</b>：桌面端首次打开 1.5 秒后显示「共享文件都在这里」气泡，文件夹按钮同步呼吸；用户首次点开共享文件抽屉后写入 <code>wft-file-hint-seen</code>，之后不再出现。浏览器和手机端不显示该气泡。</li>
+<li><b>默认主题修正</b>：代码首装默认配色由森林薄荷改为深空蓝，与 README/需求文档一致；<code>main.js</code> 预上色与 <code>App.vue</code> 首帧不再出现「先深空蓝、后薄荷」的闪变，已有用户 localStorage 选择不受影响。</li>
+<li><b>手机首装引导</b>：首次运行仍会询问是否允许同 Wi-Fi 发现本机；选择后同时写入 <code>wft-lan-asked</code> 与 Rust <code>lan-asked</code> pref（WKWebView localStorage 可能不落盘），重开不再打扰。手机 App 仅「发送 / 设置」两标签。</li>
+<li><b>输入框蒙层</b>：右键菜单「全选」使用 <code>execCommand('selectAll')</code> 会把整页选中，在输入框形成蓝色选区蒙层；已移除该项与函数，输入框恢复正常。</li>
+<li><b>交互细节（续）</b>：全屏窗口关闭先退出全屏再延迟 hide；手动发送改为键盘+光标线性图标；右键菜单增加文件预览/打开/复制/分享、粘贴输入框、手动发送、故障诊断、切换全屏等上下文项；诊断/手动弹框关闭统一为 30px 圆形按钮；介绍胶囊进一步收窄；品牌界面统一为 CC Flash。</li>
+<li><b>交互细节（前序）</b>：文件/图片/视频卡片在打开、预览、复制、分享后置灰（localStorage 记录，最多 2000 条）；桌面 WebView 非输入区右键改为「复制 / 全选 / 刷新」自定义菜单，不再出现 Reload；设备数量只保留顶部一处；空状态统一收为「故障诊断」弹框，按 5 类原因给出解决方法和网络设置入口；传输历史改为卡片式，增加设备 chip、类型图标和时间；介绍胶囊加高加色；品牌界面统一为 CC Flash（仓库地址、共享目录、技术包名保持 CC-Flash 兼容）。</li>
+<li><b>侧栏与手动发送</b>：侧栏 192px → 176px；设备栏顶部新增「手动」入口，按 LocalSend 方式输入 IP:端口（支持 IPv6 / 端口顺延）直接发送文本或文件，不依赖设备发现；手机设备面板底部也提供手动发送。</li>
+<li><b>设备栏分区与传输历史</b>：顶部刷新改为收起按钮（状态持久化，收起后聊天头显示「设备」展开入口）；「附近设备」标题增加独立扫描按钮；雷达、附近设备、传输历史分区显示；底部按当前选中设备展示最近 8 条文本/文件传输记录（localStorage 持久化，最多 120 条）；手机设备面板复用同一历史区。</li>
+<li><b>雷达主动扫描</b>：雷达区域从纯展示改为可点击的主动扫描入口；点击空白雷达/中心图标触发 probe，点击设备圆点仍只选择发送目标（stopPropagation）；扫描期间雷达加速旋转并显示「扫描中…」约 600ms，服务停止时禁用。</li>
+<li><b>停止态语义</b>：服务停止时设备栏 ↻ 禁用、雷达显示「服务未启动」、空状态按钮改为「去启动服务」；「重新扫描 / 刷新」只在服务运行时发送 UDP probe，避免误报「暂无设备」。雷达文案由「扫描中…」改为「等待设备…」，明确它只是状态展示，不主动扫描。</li>
+<li><b>首装全场景实测</b>：桌面壳（气泡、默认主题、抽屉关闭后不再出现）、手机 App（局域网询问、两标签、重开不重复）、手机浏览器（无气泡/无标签/无询问）、电脑浏览器（无气泡/无标签）全部通过；无运行时错误。</li>
+</ul>
+<h2>五、验证</h2>
+<ul>
+<li><code>cargo check</code> 全目标通过；<code>cargo test</code> 20 项全部通过。</li>
+<li><code>npm run build</code> 成功：主包 282.60 KB（gzip 113.40 KB），CSS 91.39 KB（gzip 17.13 KB），二维码 chunk 24.53 KB（gzip 9.66 KB）；清理死代码后 CSS -14.1 KB；主包因新增终端 SVG 图标略增 1 KB。</li>
+<li>macOS 二进制 4,099,392 → <b>4,034,896 字节</b>；.app 4.13 → <b>4.09 MiB</b>；aarch64 dmg <b>2.70 MiB</b>（最终保持分架构双包）。</li>
+<li>Playwright / WebKit 对桌面壳、手机壳、手机浏览器、电脑浏览器各跑两轮：设备栏 / 雷达 / 目标切换 / 两标签 / 无标签 / 粘贴直填 / 上传 / 聊天 / Markdown / 文件抽屉 / 主题 / 响应式均通过；1180 / 1024 / 981 / 390 / 320 宽度无横向溢出。</li>
+<li>接口两轮：文件上传 / 同名顺延 / Range 下载 / 分享票据 / 删除 / 聊天增删 / 剪贴板增删改 / 静态 404 / 安全头 / WS <code>clipboard:changed</code> 全部通过；App 壳剪贴板双向自动同步单独验证通过。</li>
+<li>清理 11 条被历史编辑破坏的 CSS 注释与对应废弃规则（<code>.file-*</code>、<code>.fb-*</code>、<code>.tx-peer*</code>、<code>.web-*</code>、<code>.disc-*</code> 等），修复被注释吞掉的样式，并再减 CSS 约 14 KB。</li>
+<li>本轮为纯前端与 Rust 修复，无配置迁移；升级后共享目录、聊天历史、访问令牌保持不变。</li>
+</ul>
+
+<h2>六、已知边界</h2>
+<ul>
+<li>UDP 发现仍以 IPv4 多播 / 广播为主；IPv6-only 跨设备发现未实现。</li>
+<li>共享剪贴板在可信局域网模型下未加密；同一 Wi-Fi 能打开页面的人可能看到内容，公共网络请开启访问令牌。</li>
+<li>iOS 仍无安装包；用 Safari 打开电脑地址使用网页版。</li>
+</ul>
+
+<p class="small">CC Flash · 历史改动记录 · 2026-11-17 至 2026-11-18 · 适用于 v1.2.3</p>
+</body>
+</html>

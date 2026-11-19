@@ -1,13 +1,16 @@
-//! CC-Flash · Tauri 桌面壳
+//! CC Flash · Tauri 桌面壳
 //! 职责:托盘(关窗收到托盘,服务不停) + 启动时自动拉起局域网文件服务。
 
-use tauri::{Emitter, Listener, Manager, WebviewUrl};
+use tauri::{Emitter, Manager, WebviewUrl};
+#[cfg(desktop)]
+use tauri::Listener;
 // 托盘为桌面专属能力, 移动端构建不编译这部分
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
+#[cfg(desktop)]
 use tauri_plugin_notification::NotificationExt;
 
 mod config;
@@ -33,7 +36,9 @@ fn sanitize_windows_filename(name: &str) -> String {
         stem.as_str(),
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
             | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
+            | "COM¹" | "COM²" | "COM³"
             | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+            | "LPT¹" | "LPT²" | "LPT³"
     );
     if s.is_empty() || reserved {
         "download".to_string()
@@ -123,8 +128,24 @@ fn main_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) 
             return;
         }
         api.prevent_close();
-        let _ = window.hide();
-        emit_main_window_state(window.app_handle());
+        // macOS 全屏窗口直接 hide() 会被系统忽略: 先退出全屏, 等退出动画结束后
+        // 再 hide, 否则全屏后点关闭/按 Cmd+W 看起来"没反应"。
+        if window.is_fullscreen().unwrap_or(false) {
+            let w = window.clone();
+            let _ = window.set_fullscreen(false);
+            std::thread::spawn(move || {
+                // 固定等待 macOS 全屏退出动画结束再 hide。不能拿 is_fullscreen() == false
+                // 当完成信号: styleMask 在动画刚开始就被清掉, 提前 hide 会被系统忽略,
+                // 表现就是"全屏后点关闭没反应"(v1.2.x 旧修法的回归点)。
+                std::thread::sleep(std::time::Duration::from_millis(700));
+                let _ = w.set_fullscreen(false);
+                let _ = w.hide();
+                emit_main_window_state(w.app_handle());
+            });
+        } else {
+            let _ = window.hide();
+            emit_main_window_state(window.app_handle());
+        }
         // 首次收起托盘: 系统通知提醒
         if !TRAY_TIP_SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed) {
             let _ = window
@@ -354,7 +375,7 @@ pub fn run() {
             "qr-pet",
             WebviewUrl::App("index.html?view=qr-pet".into()),
         )
-        .title("CC-Flash 扫码")
+        .title("CC Flash 扫码")
         .inner_size(96.0, 96.0)
         .decorations(false)
         .transparent(true)
@@ -518,9 +539,11 @@ pub fn run() {
                         });
                     }
                     "web" => {
-                        let (running, port, ip) = server::status();
-                        if running {
-                            let _ = server::open_with_system(&format!("http://{ip}:{port}"));
+                        // 安全模式(仅 127.0.0.1)下不能打开局域网 IP —— 必然连接失败;
+                        // web_url 按实际监听地址选择回环/局域网地址
+                        let url = server::web_url();
+                        if !url.is_empty() {
+                            let _ = server::open_with_system(&url);
                         }
                     }
                     _ => {}

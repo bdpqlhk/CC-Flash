@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CC Flash · 轻量化设计方案（基于 v1.2.3）</title>
+<style>
+  :root {
+    --bg: #f4f7f5;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --card2: #f7faf8;
+    --ink: #16241d;
+    --ink2: #4d6559;
+    --ink3: #82968c;
+    --line: rgba(22, 70, 48, .11);
+    --line2: rgba(22, 70, 48, .20);
+    --accent: #168f6c;
+    --accent2: #35b98e;
+    --accentBg: rgba(22, 143, 108, .09);
+    --accentSoft: rgba(22, 143, 108, .055);
+    --danger: #d64f5f;
+    --dangerBg: rgba(214, 79, 95, .09);
+    --warn: #c18419;
+    --warnBg: rgba(193, 132, 25, .10);
+    --blue: #3d6fd8;
+    --blueBg: rgba(61, 111, 216, .09);
+    --shadow: 0 18px 50px rgba(22, 70, 48, .09);
+    --radius: 18px;
+    --radius-sm: 12px;
+    --mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #0b1210;
+    --panel: #101a15;
+    --card: #16231c;
+    --card2: #1b2c23;
+    --ink: #e6f2ea;
+    --ink2: #a8c3b5;
+    --ink3: #6f8c7c;
+    --line: rgba(150, 230, 190, .12);
+    --line2: rgba(150, 230, 190, .22);
+    --accent: #35c299;
+    --accent2: #6ed4b6;
+    --accentBg: rgba(53, 194, 153, .12);
+    --accentSoft: rgba(53, 194, 153, .06);
+    --danger: #f2596b;
+    --dangerBg: rgba(242, 89, 107, .12);
+    --warn: #e9a93c;
+    --warnBg: rgba(233, 169, 60, .12);
+    --blue: #6ea8ff;
+    --blueBg: rgba(110, 168, 255, .12);
+    --shadow: 0 18px 60px rgba(0, 0, 0, .38);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 520px at 8% -12%, var(--accentSoft), transparent 62%),
+      radial-gradient(760px 480px at 100% 0%, rgba(61, 111, 216, .05), transparent 58%),
+      var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; }
+  code, .mono { font-family: var(--mono); }
+  .page { max-width: 1240px; margin: 0 auto; padding: 30px 22px 70px; }
+
+  /* ---------- 顶栏 ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(160%) blur(16px);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-in {
+    max-width: 1240px; margin: 0 auto; padding: 0 22px; height: 58px;
+    display: flex; align-items: center; gap: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -.2px; white-space: nowrap; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--accentBg); border: 1px solid var(--line2); color: var(--accent);
+  }
+  .brand small { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--ink3); text-transform: uppercase; }
+  .nav { display: flex; align-items: center; gap: 2px; margin-left: 8px; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { padding: 7px 10px; border-radius: 8px; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+  .nav a:hover { background: var(--card2); color: var(--ink); }
+  .nav a.on { color: var(--accent); background: var(--accentBg); font-weight: 600; }
+  .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .theme-btn {
+    height: 32px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink2); font-size: 11.5px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 44px 0 22px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: 1.8px;
+    color: var(--accent); font-weight: 800; text-transform: uppercase;
+  }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accentBg); }
+  h1 {
+    margin: 14px 0 12px; font-size: clamp(30px, 4.3vw, 50px);
+    line-height: 1.14; letter-spacing: -1.2px; font-weight: 800;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lead { margin: 0; max-width: 850px; color: var(--ink2); font-size: 15px; line-height: 1.85; }
+  .lead b { color: var(--ink); font-weight: 650; }
+  .hero-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink2); font-size: 11.5px; white-space: nowrap;
+  }
+  .pill b { color: var(--accent); font-weight: 650; }
+  .pill.red b { color: var(--danger); }
+  .pill.blue b { color: var(--blue); }
+
+  /* ---------- 指标卡 ---------- */
+  .metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 24px 0 8px; }
+  .metric {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 13px 13px 12px; box-shadow: var(--shadow);
+  }
+  .metric .k { font-size: 10px; color: var(--ink3); letter-spacing: .6px; text-transform: uppercase; font-weight: 700; }
+  .metric .v { margin-top: 6px; font-size: 19px; font-weight: 800; letter-spacing: -.5px; }
+  .metric .v span { font-size: 11px; color: var(--ink3); font-weight: 600; margin-left: 4px; }
+  .metric .sub { margin-top: 3px; font-size: 10.5px; color: var(--ink3); }
+  .metric .sub b { color: var(--accent); font-weight: 700; }
+
+  /* ---------- 通用区块 ---------- */
+  section { padding-top: 46px; }
+  .sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+  .sec-head .no { font-size: 10.5px; letter-spacing: 1.4px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .sec-head h2 { margin: 6px 0 0; font-size: clamp(22px, 2.4vw, 30px); letter-spacing: -.6px; line-height: 1.2; }
+  .sec-head p { margin: 0; max-width: 560px; color: var(--ink2); font-size: 13px; line-height: 1.75; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 22px;
+  }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .callout {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--accentSoft); border-radius: 12px; padding: 13px 15px;
+    font-size: 13px; color: var(--ink2); line-height: 1.75;
+  }
+  .callout b { color: var(--ink); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warnBg); }
+  .callout.danger { border-left-color: var(--danger); background: var(--dangerBg); }
+
+  /* ---------- 现状/目标条形图 ---------- */
+  .bars { display: flex; flex-direction: column; gap: 13px; }
+  .bar-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 120px; align-items: center; gap: 12px; }
+  .bar-row .name { font-size: 12px; color: var(--ink2); font-weight: 600; }
+  .bar-track { height: 10px; border-radius: 6px; background: var(--card2); border: 1px solid var(--line); overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .bar-fill.old { background: color-mix(in srgb, var(--ink3) 30%, transparent); position: absolute; inset: 0; }
+  .bar-fill.new { position: relative; }
+  .bar-row .val { text-align: right; font-size: 11.5px; color: var(--ink3); font-family: var(--mono); }
+  .bar-row .val b { color: var(--accent); font-family: inherit; }
+
+  /* ---------- 表格 ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 12.5px; }
+  th { background: var(--card2); color: var(--ink3); font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; font-weight: 800; }
+  tr:last-child td { border-bottom: none; }
+  td b { font-weight: 650; }
+  td .muted { color: var(--ink3); font-size: 11.5px; }
+  code {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font-size: 11.5px; color: var(--ink); white-space: nowrap;
+  }
+  .tag {
+    display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 750; letter-spacing: .3px; white-space: nowrap;
+  }
+  .tag.keep { color: var(--accent); background: var(--accentBg); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+  .tag.remove { color: var(--danger); background: var(--dangerBg); border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line)); }
+  .tag.slim { color: var(--blue); background: var(--blueBg); border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line)); }
+  .tag.opt { color: var(--warn); background: var(--warnBg); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--line)); }
+
+  /* ---------- 架构图 ---------- */
+  .arch { display: grid; grid-template-columns: minmax(0, 1.15fr) 54px minmax(0, .85fr); gap: 14px; align-items: stretch; }
+  .arch-col { display: flex; flex-direction: column; gap: 10px; }
+  .node {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 13px 14px;
+  }
+  .node.main { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accentSoft); }
+  .node .node-k { font-size: 10px; letter-spacing: 1px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .node h4 { margin: 4px 0 8px; font-size: 14px; letter-spacing: -.2px; }
+  .node ul { margin: 0; padding-left: 16px; color: var(--ink2); font-size: 11.5px; line-height: 1.75; }
+  .node ul li::marker { color: var(--accent); }
+  .arch-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--ink3); font-size: 10px; letter-spacing: .6px; }
+  .arch-mid .line { width: 1px; flex: 1; background: linear-gradient(var(--line2), transparent); }
+  .arch-mid .arrow { font-size: 16px; color: var(--accent); }
+  .arch-note { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .arch-note span { font-size: 10.5px; color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; background: var(--card); }
+
+  /* ---------- API ---------- */
+  .api-list { display: flex; flex-direction: column; gap: 7px; }
+  .api-row {
+    display: grid; grid-template-columns: 62px minmax(190px, 1fr) minmax(0, 1.3fr);
+    gap: 12px; align-items: center; padding: 9px 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); font-size: 12px;
+  }
+  .api-row .m { font-family: var(--mono); font-size: 10.5px; font-weight: 800; letter-spacing: .3px; }
+  .api-row .m.get { color: var(--blue); }
+  .api-row .m.post { color: var(--accent); }
+  .api-row .m.del { color: var(--danger); }
+  .api-row .p { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  .api-row .d { color: var(--ink2); font-size: 11.5px; }
+  .api-row.removed { opacity: .62; border-style: dashed; }
+  .api-row.removed .p { text-decoration: line-through; color: var(--ink3); }
+
+  /* ---------- 线框图 ---------- */
+  .wire-grid { display: grid; grid-template-columns: 1.15fr .85fr .85fr; gap: 16px; align-items: start; }
+  .wire { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+  .wire-top { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 11px; border-bottom: 1px solid var(--line); background: var(--card2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line2); }
+  .wire-title { margin-left: 6px; font-size: 10px; color: var(--ink3); letter-spacing: .5px; }
+  .wire-body { padding: 12px; min-height: 260px; }
+  .mini-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+  .mini-logo { width: 26px; height: 26px; border-radius: 8px; background: var(--accentBg); border: 1px solid var(--line2); display: grid; place-items: center; color: var(--accent); font-size: 9px; font-weight: 900; }
+  .mini-head b { font-size: 12px; }
+  .mini-head small { display: block; font-size: 9.5px; color: var(--ink3); }
+  .mini-status { margin-left: auto; font-size: 9.5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); background: var(--accentBg); border-radius: 999px; padding: 2px 7px; white-space: nowrap; }
+  .mini-card { border: 1px solid var(--line); background: var(--card2); border-radius: 11px; padding: 9px; margin-bottom: 8px; }
+  .mini-card .k { font-size: 9px; color: var(--ink3); letter-spacing: .6px; text-transform: uppercase; font-weight: 800; }
+  .mini-card .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .mini-file { width: 24px; height: 24px; border-radius: 6px; background: var(--accentBg); border: 1px solid var(--line); display: grid; place-items: center; font-size: 7px; font-weight: 900; color: var(--accent); }
+  .mini-lines { flex: 1; min-width: 0; }
+  .mini-lines i { display: block; height: 5px; border-radius: 3px; background: var(--line2); }
+  .mini-lines i + i { margin-top: 4px; width: 60%; opacity: .6; }
+  .mini-drop {
+    border: 1.5px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+    border-radius: 11px; padding: 14px 8px; text-align: center; background: var(--accentSoft); margin-bottom: 8px;
+  }
+  .mini-drop b { display: block; font-size: 10px; }
+  .mini-drop small { display: block; font-size: 8.5px; color: var(--ink3); margin-top: 2px; }
+  .mini-list { display: flex; flex-direction: column; gap: 5px; }
+  .mini-row { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 5px 7px; }
+  .mini-row .mini-file { width: 20px; height: 20px; font-size: 6px; }
+  .mini-row .mini-lines i { height: 4px; }
+  .mini-row .mini-lines i + i { width: 45%; }
+  .mini-tabs { display: flex; gap: 2px; margin-top: 9px; border-top: 1px solid var(--line); padding-top: 7px; }
+  .mini-tabs span { flex: 1; text-align: center; font-size: 8.5px; color: var(--ink3); padding: 3px 0; border-radius: 6px; }
+  .mini-tabs span.on { color: var(--accent); background: var(--accentBg); font-weight: 700; }
+  .mini-note { margin-top: 8px; font-size: 8.5px; color: var(--ink3); line-height: 1.55; }
+  .wire.color-browser .mini-tabs { display: none; }
+  .wire.color-browser .mini-drop { margin-top: 6px; }
+  .wire-badge { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 9px; color: var(--ink3); }
+
+  /* ---------- 路线图 ---------- */
+  .roadmap { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 92px 22px minmax(0, 1fr); gap: 12px; }
+  .step .when { text-align: right; font-size: 11px; color: var(--ink3); padding-top: 2px; font-family: var(--mono); }
+  .step .rail { position: relative; display: flex; justify-content: center; }
+  .step .rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line2); }
+  .step:last-child .rail::before { bottom: 50%; }
+  .step .rail i { position: relative; z-index: 1; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); margin-top: 3px; }
+  .step .body { padding-bottom: 18px; }
+  .step .body b { font-size: 13px; }
+  .step .body p { margin: 3px 0 0; font-size: 11.5px; color: var(--ink2); line-height: 1.7; }
+  .step .body .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+  .step .body .chips span { font-size: 9.5px; color: var(--ink3); border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 2px 7px; }
+
+  /* ---------- 验收 ---------- */
+  .accept { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .accept .item { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px; }
+  .accept .item .k { font-size: 9.5px; letter-spacing: .7px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .accept .item .v { margin-top: 5px; font-size: 16px; font-weight: 800; letter-spacing: -.4px; }
+  .accept .item .v em { font-style: normal; font-size: 10px; color: var(--ink3); font-weight: 600; }
+  .accept .item .d { margin-top: 3px; font-size: 10.5px; color: var(--ink3); line-height: 1.55; }
+
+  /* ---------- 风险 ---------- */
+  .risk { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .risk + .risk { margin-top: 8px; }
+  .risk .ic { flex-shrink: 0; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--warnBg); color: var(--warn); font-size: 12px; font-weight: 900; }
+  .risk b { font-size: 12.5px; }
+  .risk p { margin: 2px 0 0; font-size: 11.5px; color: var(--ink2); line-height: 1.7; }
+
+  /* ---------- 页脚 ---------- */
+  .foot { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; color: var(--ink3); font-size: 11px; }
+  .foot b { color: var(--ink2); }
+
+  @media (max-width: 1080px) {
+    .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .wire-grid { grid-template-columns: 1fr 1fr; }
+    .wire-grid .wire:first-child { grid-column: 1 / -1; }
+    .accept { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 780px) {
+    .page { padding: 22px 16px 56px; }
+    .nav { display: none; }
+    .hero { padding-top: 30px; }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid2, .grid3, .arch { grid-template-columns: 1fr; }
+    .arch-mid { flex-direction: row; padding: 4px 0; }
+    .arch-mid .line { width: auto; height: 1px; flex: 1; background: linear-gradient(90deg, var(--line2), transparent); }
+    .wire-grid { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 74px minmax(0, 1fr) 98px; }
+    .api-row { grid-template-columns: 54px minmax(0, 1fr); }
+    .api-row .d { grid-column: 1 / -1; padding-left: 0; }
+    .step { grid-template-columns: 70px 18px minmax(0, 1fr); }
+  }
+  @media (max-width: 480px) {
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .accept { grid-template-columns: 1fr; }
+    .sec-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+  @media print {
+    .topbar, .theme-btn { display: none; }
+    body { background: #fff; }
+    .panel, .metric, .wire, .table-wrap { box-shadow: none; }
+    section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div style="margin:0;padding:10px 18px;background:#3a2a12;color:#ffe9c7;border-bottom:1px solid #6b4d1f;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>实现更新 · 2026-11-19</b>　本文关于共享剪贴板「无开关 / 默认始终开启」的设计已调整：现为<b>默认关闭</b>，可在 CC设置「系统剪贴板自动同步」开启；访问令牌与配对码自动排除，跨设备读取需访问令牌。其余内容以《技术实现文档》《需求设计文档》为准。</div>
+
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#top">
+      <span class="mark">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>
+      </span>
+      CC-Flash <small>Lightweight Plan</small>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#diagnosis">现状诊断</a>
+      <a href="#architecture">目标架构</a>
+      <a href="#modules">模块取舍</a>
+      <a href="#api">最小 API</a>
+      <a href="#ui">三端 UI</a>
+      <a href="#roadmap">迁移路线</a>
+      <a href="#acceptance">验收指标</a>
+    </nav>
+    <div class="top-actions">
+      <button class="theme-btn" id="themeBtn" type="button" aria-label="切换明暗">
+        <span id="themeIcon">☾</span><span id="themeText">暗色</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="page" id="top">
+  <!-- ================= Hero ================= -->
+  <section class="hero">
+    <span class="eyebrow"><i></i> Design Proposal · Based on v1.2.3</span>
+    <h1>把 CC-Flash 收回到 <em>3 个核心能力</em><br />传文件、共享剪贴板、端侧发现</h1>
+    <p class="lead">
+      v1.2.3 已经完成了一批基础瘦身：共享剪贴板 API、手机三标签、二维码按需加载、SVG/WebP 图标、死 CSS 清理。
+      但主路径仍被聊天室、浏览器设备发现、五套主题、悬浮码、介绍页和日志面板层层包裹。
+      轻量化不是删功能，而是<b>把“必须有”的做到极致，把“可以有”的移到可选模块</b>。
+      本方案以 v1.2.3 为基线：桌面端启动服务 ↔ 手机浏览器传文件；共享剪贴板走接口；
+      设备发现只在桌面端和手机 App 内发生，浏览器不参与发现。
+    </p>
+    <div class="hero-badges">
+      <span class="pill"><b>保留</b> 文件传输 / 共享剪贴板 / 端侧发现</span>
+      <span class="pill red"><b>移除</b> 聊天室 / 浏览器发现 / 装饰性模块</span>
+      <span class="pill blue"><b>可选</b> PWA / 访问令牌 / 自启 / 托盘</span>
+      <span class="pill"><b>目标</b> App.vue &lt; 2.5k 行 · JS &lt; 200KB</span>
+    </div>
+  </section>
+
+  <!-- ================= 指标 ================= -->
+  <div class="metrics" aria-label="轻量化目标指标">
+    <div class="metric"><div class="k">App.vue</div><div class="v">5.8k → <b>2.4k</b><span>行</span></div><div class="sub">约 <b>-59%</b></div></div>
+    <div class="metric"><div class="k">server.rs</div><div class="v">5.6k → <b>2.9k</b><span>行</span></div><div class="sub">约 <b>-48%</b></div></div>
+    <div class="metric"><div class="k">CSS</div><div class="v">3.2k → <b>1.2k</b><span>行</span></div><div class="sub">约 <b>-63%</b></div></div>
+    <div class="metric"><div class="k">JS bundle</div><div class="v">274 → <b>190</b><span>KB</span></div><div class="sub">gzip <b>&lt; 90KB</b></div></div>
+    <div class="metric"><div class="k">CSS bundle</div><div class="v">93 → <b>55</b><span>KB</span></div><div class="sub">gzip <b>&lt; 13KB</b></div></div>
+    <div class="metric"><div class="k">.app</div><div class="v">4.1 → <b>3.5</b><span>MB</span></div><div class="sub">二进制 <b>&lt; 3.5MB</b></div></div>
+  </div>
+
+  <!-- ================= v1.2.3 已完成 ================= -->
+  <section id="foundation">
+    <div class="sec-head">
+      <div>
+        <div class="no">00 · Foundation</div>
+        <h2>v1.2.3 已经打好的轻量基础</h2>
+      </div>
+      <p>这一版不是从零开始。共享剪贴板、手机三标签、按需二维码、资源压缩与死 CSS 清理已经落地，本方案只处理剩下的“结构性重量”。</p>
+    </div>
+    <div class="grid3">
+      <div class="node main">
+        <div class="node-k">Clipboard · Done</div>
+        <h4>共享剪贴板 API 已落地</h4>
+        <ul>
+          <li><code>GET/POST/DELETE /api/clipboard</code></li>
+          <li>WS <code>clipboard:changed</code> 实时同步</li>
+          <li>删除聊天室后，文字能力直接由它承接</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node-k">Mobile · Done</div>
+        <h4>手机 App「发送 / 设置」两标签已就位</h4>
+        <ul>
+          <li>发现 / 发送 / 设置</li>
+          <li>发现页只展示 App 侧设备</li>
+          <li>轻量版保留 App 三标签，浏览器不再复用</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node-k">Assets · Done</div>
+        <h4>首屏资源已瘦一轮</h4>
+        <ul>
+          <li>二维码库按需加载 24.5 KB</li>
+          <li>发现图标 SVG 333 B</li>
+          <li>无信号图 WebP、PWA 图标调色板压缩</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node-k">CSS · Done</div>
+        <h4>死 CSS 清理 219 条选择器</h4>
+        <ul>
+          <li>CSS 111 KB → 93 KB（gzip 20.3 → 17.3）</li>
+          <li>旧聊天/旧 Web 双列/旧文件表已移除</li>
+          <li>剩余结构仍可继续收敛到约 55 KB</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node-k">Discovery · Done</div>
+        <h4>发现链路更可靠</h4>
+        <ul>
+          <li>逐网卡多播出口 + 子网定向广播</li>
+          <li>单播回包补齐单向通路</li>
+          <li>诊断字段 / 权限提示已就位；下一步只保留 App 侧</li>
+        </ul>
+      </div>
+      <div class="node">
+        <div class="node-k">UX · Done</div>
+        <h4>触控与安全区已收口</h4>
+        <ul>
+          <li>小屏 2×2 操作网格、触控热区 ≥30px</li>
+          <li>状态「单绿点 + 实时」</li>
+          <li>输入框多行高度跨标签保持</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 现状诊断 ================= -->
+  <section id="diagnosis">
+    <div class="sec-head">
+      <div>
+        <div class="no">01 · Diagnosis</div>
+        <h2>v1.2.3 的“重”，还剩在哪里</h2>
+      </div>
+      <p>不是代码质量差，而是主路径上堆了太多“顺手加的功能”。下面按模块拆开，只保留能直接服务“传文件 + 共享剪贴板”的部分。</p>
+    </div>
+
+    <div class="panel">
+      <div class="bars" aria-label="体量收敛目标（旧 100% → 新占比）">
+        <div class="bar-row">
+          <span class="name">App.vue</span>
+          <span class="bar-track"><span class="bar-fill old" style="width:100%"></span><span class="bar-fill new" style="width:41%"></span></span>
+          <span class="val">5.8k → <b>2.4k</b></span>
+        </div>
+        <div class="bar-row">
+          <span class="name">server.rs</span>
+          <span class="bar-track"><span class="bar-fill old" style="width:100%"></span><span class="bar-fill new" style="width:52%"></span></span>
+          <span class="val">5.6k → <b>2.9k</b></span>
+        </div>
+        <div class="bar-row">
+          <span class="name">style.css</span>
+          <span class="bar-track"><span class="bar-fill old" style="width:100%"></span><span class="bar-fill new" style="width:38%"></span></span>
+          <span class="val">3.2k → <b>1.2k</b></span>
+        </div>
+        <div class="bar-row">
+          <span class="name">JS bundle</span>
+          <span class="bar-track"><span class="bar-fill old" style="width:100%"></span><span class="bar-fill new" style="width:69%"></span></span>
+          <span class="val">274KB → <b>190KB</b></span>
+        </div>
+        <div class="bar-row">
+          <span class="name">.app</span>
+          <span class="bar-track"><span class="bar-fill old" style="width:100%"></span><span class="bar-fill new" style="width:85%"></span></span>
+          <span class="val">4.1MB → <b>3.5MB</b></span>
+        </div>
+      </div>
+      <p class="mini-note" style="margin:14px 2px 0;font-size:11px;color:var(--ink3)">注：v1.2.3 的具体行数/体积为本地实测基线；目标值为设计约束，不是精确承诺。实际收益取决于可选模块最终保留多少。</p>
+    </div>
+
+    <div class="grid2" style="margin-top:14px">
+      <div class="callout danger">
+        <b>最大的一刀：聊天室。</b> 时间线、Markdown、引用、未读、历史持久化、消息删除、文件组与聊天卡片交织在一起，
+        占了前端近三分之一的状态与样式。v1.2.3 的<b>共享剪贴板已经落地</b>，删除聊天室不会失去文字能力：
+        文字收敛成一格剪贴板，不再维护消息历史。
+      </div>
+      <div class="callout warn">
+        <b>第二刀：浏览器设备发现。</b> v1.2.3 的浏览器仍会调用 <code>/api/devices</code> 并展示发现页，
+        但浏览器没有监听端口，永远无法作为可投递目标；让浏览器参与发现只会带来“看得到、连不上”的解释成本。
+        发现只保留在桌面端和手机 App。
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 目标架构 ================= -->
+  <section id="architecture">
+    <div class="sec-head">
+      <div>
+        <div class="no">02 · Architecture</div>
+        <h2>一个内核，三种壳</h2>
+      </div>
+      <p>桌面端与手机 App 共用同一个轻量 HTTP 内核；手机浏览器只是这个内核的静态页面客户端。发现能力只在内核的 App 侧启用。v1.2.3 已有共享剪贴板；App 最终收敛为「发送 / 设置」两标签，本方案主要把浏览器从发现链路摘出去，并删除聊天室。</p>
+    </div>
+
+    <div class="panel">
+      <div class="arch">
+        <div class="arch-col">
+          <div class="node main">
+            <div class="node-k">Desktop · Tauri</div>
+            <h4>桌面端：服务 + 发现 + 单页 UI</h4>
+            <ul>
+              <li>启动即监听 HTTP，手机浏览器扫码/输地址即可用</li>
+              <li>文件上传、下载、列表、删除、Range 续传</li>
+              <li>共享剪贴板（GET/POST/DELETE + WS 事件）</li>
+              <li>UDP 发现：仅本 App 读取，不暴露给浏览器</li>
+              <li>托盘 / 开机自启 / 单实例（平台基础能力）</li>
+            </ul>
+          </div>
+          <div class="node">
+            <div class="node-k">Shared Core · axum</div>
+            <h4>一个最小 HTTP 内核</h4>
+            <ul>
+              <li><code>files</code> · <code>upload</code> · <code>download</code> · <code>delete</code></li>
+              <li><code>clipboard</code> · <code>ws</code> · <code>info</code></li>
+              <li>路径安全 / 并发闸 / 上传回滚（保留）</li>
+              <li>可选：访问令牌、PWA、更新检查</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="arch-mid" aria-hidden="true">
+          <span class="line"></span>
+          <span class="arrow">⇄</span>
+          <span>HTTP / WS</span>
+          <span class="line"></span>
+          <span class="arrow">⇅</span>
+          <span>UDP · App only</span>
+          <span class="line"></span>
+        </div>
+
+        <div class="arch-col">
+          <div class="node">
+            <div class="node-k">Mobile App · Tauri</div>
+            <h4>手机 App：客户端 + 轻节点</h4>
+            <ul>
+              <li>与桌面共用 HTTP 内核与文件/剪贴板 API</li>
+              <li>参与 UDP 发现：可被桌面/其他 App 发现</li>
+              <li>「发送 / 设置」两标签（最终落地；原方案曾设想三标签）</li>
+              <li>默认独立轻节点（参与发现）；可切换「连接电脑」，切换后不参与发现</li>
+            </ul>
+          </div>
+          <div class="node" style="border-style:dashed">
+            <div class="node-k">Mobile Browser · Static</div>
+            <h4>手机浏览器：只做客户端</h4>
+            <ul>
+              <li>单页：上传 / 文件列表 / 下载 / 共享剪贴板</li>
+              <li><b>不调用发现接口</b>，不显示附近设备</li>
+              <li>不注册设备、不发 <code>/api/hello</code></li>
+              <li>无需安装，扫码或输入地址即用</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="arch-note">
+        <span>浏览器永不进入发现列表</span>
+        <span>App 侧通过 Tauri 命令读取设备，不占用 HTTP 面</span>
+        <span>剪贴板是“一格文本”，不是聊天室</span>
+        <span>所有端共用同一套文件 API</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 模块取舍 ================= -->
+  <section id="modules">
+    <div class="sec-head">
+      <div>
+        <div class="no">03 · Module Decisions</div>
+        <h2>保留、删除、简化、可选</h2>
+      </div>
+      <p>判定标准只有三条：是否直接服务文件传输？是否直接服务共享剪贴板？是否是桌面/移动 App 的平台必需能力？都不是的，移出主路径。</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th style="width:170px">模块</th><th>v1.2.3 现状</th><th style="width:120px">决策</th><th style="width:300px">轻量版做法</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>文件传输</b></td>
+            <td>上传 / 下载 / 列表 / 删除 / Range / 同名顺延 / 文件夹上传 / 预览</td>
+            <td><span class="tag keep">保留</span></td>
+            <td>只保留单一「文件」入口；拖拽、多选、文件夹；图片/文本预览保留，音视频预览改为下载。</td>
+          </tr>
+          <tr>
+            <td><b>共享剪贴板</b></td>
+            <td>v1.2.3 已落地：<code>GET/POST/DELETE /api/clipboard</code> + WS <code>clipboard:changed</code></td>
+            <td><span class="tag keep">保留 · 已完成</span></td>
+            <td>只保留单格文本；不再存消息历史。删除聊天室时，文字能力由它直接承接。</td>
+          </tr>
+          <tr>
+            <td><b>聊天室</b></td>
+            <td>v1.2.3 仍有完整聊天：时间线、文件卡片、Markdown、引用、未读、删除、200 条历史</td>
+            <td><span class="tag remove">删除</span></td>
+            <td>整块移除；文字能力由已落地的共享剪贴板替代；文件卡片改由文件列表承担。</td>
+          </tr>
+          <tr>
+            <td><b>浏览器设备发现</b></td>
+            <td>v1.2.3 浏览器仍调用 <code>/api/devices</code> 并展示「发现」页/设备卡</td>
+            <td><span class="tag remove">删除</span></td>
+            <td>浏览器不参与发现；设备列表只通过 App 的 Tauri 命令获取，HTTP 面不再暴露。</td>
+          </tr>
+          <tr>
+            <td><b>App 设备发现</b></td>
+            <td>UDP 多播 + 广播；桌面/手机 App 可见</td>
+            <td><span class="tag keep">保留</span></td>
+            <td>保留 UDP 发现与逐网卡发送；只在桌面/App UI 展示，点击后走文件上传或剪贴板投递。</td>
+          </tr>
+          <tr>
+            <td><b>访问令牌 / 分享票据</b></td>
+            <td>6 位配对码、票据、退避、限流</td>
+            <td><span class="tag opt">可选</span></td>
+            <td>保留路径安全；访问令牌作为可选模块。一次性票据移出核心，分享改为“地址 + 可选令牌”。</td>
+          </tr>
+          <tr>
+            <td><b>PWA / Service Worker</b></td>
+            <td>v1.2.3 已实现完整 PWA：manifest、离线壳、安装指引</td>
+            <td><span class="tag opt">可选</span></td>
+            <td>核心不依赖 PWA；v1.2.3 的实现作为可选构建项保留，HTTP 下本来就不能安装。</td>
+          </tr>
+          <tr>
+            <td><b>五套配色</b></td>
+            <td>亮/暗/系统 + 5 套配色 + 迁移</td>
+            <td><span class="tag slim">简化</span></td>
+            <td>只保留亮 / 暗 / 跟随系统 + 一个品牌强调色；删除主题选择器与迁移表。</td>
+          </tr>
+          <tr>
+            <td><b>悬浮二维码</b></td>
+            <td>独立透明 Pet 窗、贴边呼吸、拖拽多屏、角标</td>
+            <td><span class="tag remove">删除</span></td>
+            <td>改为顶栏一个二维码按钮 + 弹窗；去掉独立窗口、拖拽、位置持久化。</td>
+          </tr>
+          <tr>
+            <td><b>软件介绍页</b></td>
+            <td>全屏 Hero / 功能卡 / FAQ / 锚点导航</td>
+            <td><span class="tag remove">删除</span></td>
+            <td>官网/README 承担介绍；应用内只保留「关于」一行版本号。</td>
+          </tr>
+          <tr>
+            <td><b>服务日志面板</b></td>
+            <td>结构化日志、级别、来源、搜索、清空</td>
+            <td><span class="tag slim">简化</span></td>
+            <td>保留最近 N 条纯文本日志或落盘文件；去掉搜索/级别着色/复杂行布局。</td>
+          </tr>
+          <tr>
+            <td><b>托盘 / 自启 / 单实例</b></td>
+            <td>关窗收托盘、托盘菜单、手动自启、单实例</td>
+            <td><span class="tag keep">保留</span></td>
+            <td>桌面平台基础能力；继续保留，但不参与主页面复杂度。</td>
+          </tr>
+          <tr>
+            <td><b>更新检查</b></td>
+            <td>GitHub Releases 检查、弹框、下载页</td>
+            <td><span class="tag opt">可选</span></td>
+            <td>从核心移除；需要时作为设置里的一个轻量按钮。</td>
+          </tr>
+          <tr>
+            <td><b>预览 / 分享 / 定位</b></td>
+            <td>图片/PDF/文本/音视频预览、票据分享、定位文件</td>
+            <td><span class="tag slim">精简</span></td>
+            <td>图片/文本预览保留；PDF 交浏览器；音视频只下载；“定位”仅桌面保留。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= API ================= -->
+  <section id="api">
+    <div class="sec-head">
+      <div>
+        <div class="no">04 · Minimal API</div>
+        <h2>7 个端点，9 个方法，够用</h2>
+      </div>
+      <p>浏览器只认文件与剪贴板；设备发现不进入 HTTP。这样既减少接口，也从协议层保证“浏览器不做发现”。v1.2.3 的 <code>/api/clipboard</code> 已存在；本方案删除 <code>/api/hello</code>、<code>/api/devices</code> 与 <code>/api/chat*</code>。</p>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+          <b style="font-size:13px">核心接口</b><span class="tag keep">Keep</span>
+        </div>
+        <div class="api-list">
+          <div class="api-row"><span class="m get">GET</span><span class="p">/api/info</span><span class="d">版本、端口、地址、运行状态、可选令牌开关</span></div>
+          <div class="api-row"><span class="m get">GET</span><span class="p">/api/files</span><span class="d">共享文件列表（递归、相对路径）</span></div>
+          <div class="api-row"><span class="m post">POST</span><span class="p">/api/upload</span><span class="d">单请求整文件直传（X-Filename / X-File-Size）</span></div>
+          <div class="api-row"><span class="m get">GET</span><span class="p">/api/download/{name}</span><span class="d">流式下载，支持 Range / 断点续传</span></div>
+          <div class="api-row"><span class="m del">DELETE</span><span class="p">/api/delete/{name}</span><span class="d">删除文件（路径越界校验）</span></div>
+          <div class="api-row"><span class="m get">GET</span><span class="p">/api/clipboard</span><span class="d">读取当前共享文本、来源、更新时间</span></div>
+          <div class="api-row"><span class="m post">POST</span><span class="p">/api/clipboard</span><span class="d">发布/覆盖共享文本（2 万字上限）</span></div>
+          <div class="api-row"><span class="m del">DELETE</span><span class="p">/api/clipboard</span><span class="d">清空共享文本</span></div>
+          <div class="api-row"><span class="m get">GET</span><span class="p">/ws</span><span class="d">files:changed / clipboard:changed 事件（可选，降级轮询）</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+          <b style="font-size:13px">移出 HTTP 面</b><span class="tag remove">Remove</span>
+        </div>
+        <div class="api-list">
+          <div class="api-row removed"><span class="m post">POST</span><span class="p">/api/hello</span><span class="d">浏览器不再上报设备；发现由 App 侧完成</span></div>
+          <div class="api-row removed"><span class="m get">GET</span><span class="p">/api/devices</span><span class="d">改为 Tauri 命令 <code>list_devices_cmd</code>，浏览器不可见</span></div>
+          <div class="api-row removed"><span class="m get">GET</span><span class="p">/api/chat</span><span class="d">聊天室删除；文字走剪贴板</span></div>
+          <div class="api-row removed"><span class="m post">POST</span><span class="p">/api/chat</span><span class="d">同上</span></div>
+          <div class="api-row removed"><span class="m del">DELETE</span><span class="p">/api/chat/{id}</span><span class="d">同上</span></div>
+          <div class="api-row removed"><span class="m post">POST</span><span class="p">/api/share-ticket</span><span class="d">核心不需要；分享=地址+可选令牌</span></div>
+        </div>
+        <div class="callout" style="margin-top:12px">
+          <b>App 侧发现数据流：</b>UDP 线程维护内存设备表 → Tauri 命令 <code>list_devices_cmd</code> → App UI。
+          浏览器页面没有这条命令的通道，因此<b>天然看不到附近设备</b>，不需要额外分支判断。
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+        <b style="font-size:13px">请求/响应约定</b><span class="tag slim">Lean</span>
+      </div>
+      <div class="grid3">
+        <div>
+          <div class="node-k" style="font-size:9.5px;letter-spacing:.7px;color:var(--ink3);font-weight:800;text-transform:uppercase">上传</div>
+          <p class="mini-note" style="margin-top:5px;font-size:11.5px;color:var(--ink2)">
+            单请求整文件直传；<code>X-Filename</code> URL 编码；同名自动 <code>(1)</code> 顺延；失败回滚半截文件。
+            不引入分片/断点协议，减少状态。
+          </p>
+        </div>
+        <div>
+          <div class="node-k" style="font-size:9.5px;letter-spacing:.7px;color:var(--ink3);font-weight:800;text-transform:uppercase">下载</div>
+          <p class="mini-note" style="margin-top:5px;font-size:11.5px;color:var(--ink2)">
+            GET 流式 + Range；浏览器原生下载器负责进度与续传；服务端只做文件流和越界校验。
+          </p>
+        </div>
+        <div>
+          <div class="node-k" style="font-size:9.5px;letter-spacing:.7px;color:var(--ink3);font-weight:800;text-transform:uppercase">剪贴板</div>
+          <p class="mini-note" style="margin-top:5px;font-size:11.5px;color:var(--ink2)">
+            单值模型：<code>{ text, from, updatedAt }</code>；POST 覆盖、DELETE 清空；WS 广播变更，无历史、无消息 ID。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 三端 UI ================= -->
+  <section id="ui">
+    <div class="sec-head">
+      <div>
+        <div class="no">05 · Surfaces</div>
+        <h2>三端都只保留“一眼能懂”的操作</h2>
+      </div>
+      <p>桌面端单窗口、手机 App「发送 / 设置」两标签、手机浏览器单页。浏览器没有“发现”入口，也不出现附近设备。v1.2.3 已在手机 App 落地三标签；本方案保留 App 三标签，把浏览器收回单页。</p>
+    </div>
+
+    <div class="wire-grid">
+      <!-- Desktop -->
+      <div class="wire">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Desktop · 单窗口</span></div>
+        <div class="wire-body">
+          <div class="mini-head">
+            <span class="mini-logo">CC</span>
+            <b>CC-Flash <small>同一 Wi-Fi · 桌面服务运行中</small></b>
+            <span class="mini-status">● 实时</span>
+          </div>
+          <div class="mini-card">
+            <div class="k">本机地址</div>
+            <div class="row">
+              <span class="mini-lines" style="flex:1"><i></i><i></i></span>
+              <span style="font-size:8.5px;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:2px 6px">二维码</span>
+              <span style="font-size:8.5px;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:2px 6px">复制</span>
+            </div>
+          </div>
+          <div class="mini-drop"><b>拖入文件，或点击选择</b><small>支持多文件 / 文件夹 · 手机浏览器可直接上传</small></div>
+          <div class="mini-card" style="margin-bottom:6px">
+            <div class="k">共享剪贴板</div>
+            <div class="row">
+              <span style="flex:1;height:20px;border-radius:5px;background:var(--line);opacity:.35"></span>
+              <span style="font-size:8px;color:var(--accent)">发布</span>
+            </div>
+          </div>
+          <div class="mini-list">
+            <div class="mini-row"><span class="mini-file">PDF</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">下载</span><span style="font-size:8px;color:var(--ink3)">删</span></div>
+            <div class="mini-row"><span class="mini-file">IMG</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">下载</span><span style="font-size:8px;color:var(--ink3)">删</span></div>
+            <div class="mini-row"><span class="mini-file">TXT</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">下载</span><span style="font-size:8px;color:var(--ink3)">删</span></div>
+          </div>
+          <div class="wire-badge">☰ 设置：端口 · 共享目录 · 访问令牌 · 开机自启</div>
+        </div>
+      </div>
+
+      <!-- Mobile app -->
+      <div class="wire">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Mobile App · 三标签</span></div>
+        <div class="wire-body">
+          <div class="mini-head">
+            <span class="mini-logo">CC</span>
+            <b>CC-Flash <small>手机本机节点 · 在线</small></b>
+            <span class="mini-status">● 实时</span>
+          </div>
+          <div class="mini-card">
+            <div class="k">共享剪贴板</div>
+            <div class="row"><span style="flex:1;height:18px;border-radius:5px;background:var(--line);opacity:.35"></span><span style="font-size:8px;color:var(--accent)">粘贴</span><span style="font-size:8px;color:var(--accent)">复制</span></div>
+          </div>
+          <div class="mini-drop"><b>上传文件</b><small>照片 / 文档 / 文件夹</small></div>
+          <div class="mini-list">
+            <div class="mini-row"><span class="mini-file">IMG</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">⋯</span></div>
+            <div class="mini-row"><span class="mini-file">ZIP</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">⋯</span></div>
+          </div>
+          <div class="mini-tabs"><span class="on">传输</span><span>发现</span><span>设置</span></div>
+          <div class="mini-note">发现页只列桌面 / 手机 App；浏览器不会出现在这里。</div>
+        </div>
+      </div>
+
+      <!-- Mobile browser -->
+      <div class="wire color-browser">
+        <div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">Mobile Browser · 单页</span></div>
+        <div class="wire-body">
+          <div class="mini-head">
+            <span class="mini-logo">CC</span>
+            <b>CC-Flash <small>同一 Wi-Fi · 已连接电脑</small></b>
+            <span class="mini-status">● 实时</span>
+          </div>
+          <div class="mini-card">
+            <div class="k">共享剪贴板</div>
+            <div class="row"><span style="flex:1;height:18px;border-radius:5px;background:var(--line);opacity:.35"></span><span style="font-size:8px;color:var(--accent)">发布</span><span style="font-size:8px;color:var(--accent)">复制</span></div>
+          </div>
+          <div class="mini-drop"><b>上传到电脑</b><small>拖拽 / 选择 / 粘贴截图</small></div>
+          <div class="mini-list">
+            <div class="mini-row"><span class="mini-file">PDF</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">下载</span><span style="font-size:8px;color:var(--ink3)">分享</span></div>
+            <div class="mini-row"><span class="mini-file">TXT</span><span class="mini-lines"><i></i><i></i></span><span style="font-size:8px;color:var(--ink3)">下载</span><span style="font-size:8px;color:var(--ink3)">分享</span></div>
+          </div>
+          <div class="mini-note">没有「发现」标签；浏览器页面不参与设备发现。</div>
+          <div class="wire-badge">↻ 下拉/刷新即可同步文件与剪贴板</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid3" style="margin-top:14px">
+      <div class="callout"><b>桌面：</b>一屏完成“看地址 / 拖文件 / 看剪贴板 / 管理文件”；设置收进抽屉，不再有侧栏和服务中心页。</div>
+      <div class="callout"><b>手机 App：</b>传输是默认页；发现是独立标签；设置只放服务、令牌、名称、关于。浏览器端不出现发现。</div>
+      <div class="callout"><b>手机浏览器：</b>没有标签栏、没有附近设备、没有 App 安装引导；只有“上传、下载、剪贴板”三件事。</div>
+    </div>
+  </section>
+
+  <!-- ================= 路线图 ================= -->
+  <section id="roadmap">
+    <div class="sec-head">
+      <div>
+        <div class="no">06 · Roadmap</div>
+        <h2>从 v1.2.3 分四步收敛</h2>
+      </div>
+      <p>先删最大块，再统一 UI，最后把可选模块做成独立开关。每一步都可单独发版、可回滚。</p>
+    </div>
+
+    <div class="panel">
+      <div class="roadmap">
+        <div class="step">
+          <div class="when">Step 0</div>
+          <div class="rail"><i></i></div>
+          <div class="body">
+            <b>基线固化 + 特性开关</b>
+            <p>记录 v1.2.3 的 bundle / 二进制 / 首屏请求基线；把聊天、浏览器发现、PWA、主题、悬浮码拆成可开关的模块，确保删除可回滚。共享剪贴板已在 v1.2.3 完成，直接作为聊天室的替代。</p>
+            <div class="chips"><span>1 人日</span><span>不改功能</span><span>先量后删</span></div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="when">Step 1</div>
+          <div class="rail"><i></i></div>
+          <div class="body">
+            <b>删除聊天室 + 浏览器发现（最大收益）</b>
+            <p>前端移除时间线/Markdown/引用/未读/历史；后端移除 <code>/api/chat*</code>、<code>/api/hello</code>、浏览器设备登记与设备条。共享剪贴板 API 上线，文字能力平移到剪贴板。</p>
+            <div class="chips"><span>2–3 人日</span><span>App.vue -1.5k 行</span><span>server -1.2k 行</span></div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="when">Step 2</div>
+          <div class="rail"><i></i></div>
+          <div class="body">
+            <b>三端 UI 收敛</b>
+            <p>桌面改单窗口；手机 App 固定三标签；手机浏览器单页。删除介绍页、五套配色、悬浮 Pet 窗、复杂日志面板；统一到一套亮/暗主题。</p>
+            <div class="chips"><span>3–4 人日</span><span>CSS 减半</span><span>视觉统一</span></div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="when">Step 3</div>
+          <div class="rail"><i></i></div>
+          <div class="body">
+            <b>可选模块独立 + 回归</b>
+            <p>把 PWA、访问令牌、自启、托盘、更新检查拆成独立模块/构建开关；跑文件、剪贴板、发现、离线、三端响应式回归；对比体积与首屏。</p>
+            <div class="chips"><span>2 人日</span><span>可单独发版</span><span>指标验收</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 验收 ================= -->
+  <section id="acceptance">
+    <div class="sec-head">
+      <div>
+        <div class="no">07 · Acceptance</div>
+        <h2>轻量化的验收标准</h2>
+      </div>
+      <p>不只看“代码少了多少”，还要看首屏、请求数、内存和操作路径是否真的变短。</p>
+    </div>
+
+    <div class="accept">
+      <div class="item"><div class="k">App.vue</div><div class="v">≤ 2.5k <em>行</em></div><div class="d">聊天/主题/介绍/悬浮码移出主文件</div></div>
+      <div class="item"><div class="k">server.rs</div><div class="v">≤ 3.0k <em>行</em></div><div class="d">只保留文件、剪贴板、发现、安全</div></div>
+      <div class="item"><div class="k">JS bundle</div><div class="v">≤ 200 <em>KB</em></div><div class="d">gzip ≤ 90KB；二维码按需加载</div></div>
+      <div class="item"><div class="k">CSS bundle</div><div class="v">≤ 55 <em>KB</em></div><div class="d">gzip ≤ 13KB；一套亮暗主题</div></div>
+      <div class="item"><div class="k">首屏 API</div><div class="v">≤ 3 <em>次</em></div><div class="d">info + files + clipboard</div></div>
+      <div class="item"><div class="k">浏览器发现</div><div class="v">0 <em>入口</em></div><div class="d">无设备条、无 /api/hello、无 /api/devices</div></div>
+      <div class="item"><div class="k">核心操作</div><div class="v">≤ 2 <em>步</em></div><div class="d">上传、下载、复制/发布剪贴板</div></div>
+      <div class="item"><div class="k">.app</div><div class="v">≤ 3.5 <em>MB</em></div><div class="d">桌面安装包；无聊天/宠物/介绍页</div></div>
+    </div>
+
+    <div class="callout" style="margin-top:14px">
+      <b>功能回归底线：</b>上传/下载/Range/同名顺延/删除/路径安全必须保持；剪贴板发布/读取/清空/实时广播必须保持；
+      桌面与手机 App 的 UDP 发现必须保持；手机浏览器只允许文件与剪贴板，不得出现设备发现入口。
+    </div>
+  </section>
+
+  <!-- ================= 风险 ================= -->
+  <section id="risks">
+    <div class="sec-head">
+      <div>
+        <div class="no">08 · Trade-offs</div>
+        <h2>删掉的东西，怎么补</h2>
+      </div>
+      <p>轻量化必然有取舍。关键不是“删了会不会有人用”，而是“用最低成本给出一条替代路径”。</p>
+    </div>
+
+    <div class="panel">
+      <div class="risk">
+        <div class="ic">!</div>
+        <div><b>聊天室被删除</b><p>v1.2.3 的共享剪贴板已经落地，替代路径已就绪：一格文本 + “发布到剪贴板”按钮；需要长文时走文件传输。若确有需求，把聊天作为独立可选模块，不回到主路径。</p></div>
+      </div>
+      <div class="risk">
+        <div class="ic">!</div>
+        <div><b>浏览器不再发现设备</b><p>这是有意为之：浏览器没有监听端口，发现也投递不到。替代：桌面/App 显示二维码，浏览器扫码连接；浏览器只做文件与剪贴板。</p></div>
+      </div>
+      <div class="risk">
+        <div class="ic">!</div>
+        <div><b>主题与悬浮码的“精致感”下降</b><p>保留亮/暗与一个品牌色，视觉仍然统一；悬浮码改为顶栏二维码弹窗，减少一个独立窗口和一套窗口几何逻辑。</p></div>
+      </div>
+      <div class="risk">
+        <div class="ic">!</div>
+        <div><b>安全不能被“轻量”掉</b><p>路径穿越、上传大小/磁盘预检、上传回滚、并发闸、可选访问令牌必须保留；分享票据可以移出核心，但“地址 + 令牌”的底线不能丢。</p></div>
+      </div>
+      <div class="risk">
+        <div class="ic">!</div>
+        <div><b>迁移期数据</b><p>文件与剪贴板天然兼容；聊天历史不再进入新版本。升级时保留旧文件目录，剪贴板为空即可，不做消息迁移。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 结论 ================= -->
+  <section id="conclusion">
+    <div class="sec-head">
+      <div>
+        <div class="no">09 · Conclusion</div>
+        <h2>一句话版本</h2>
+      </div>
+      <p>把 CC-Flash 从“局域网聊天室”收回到“局域网文件 + 剪贴板工具”，设备发现只留给真正有监听端口的 App。</p>
+    </div>
+    <div class="panel" style="display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div style="max-width:760px">
+        <p style="margin:0;font-size:15px;line-height:1.85;color:var(--ink2)">
+          桌面端启动服务，手机浏览器扫码即传文件、共享剪贴板；<b>发现只在桌面端和手机 App</b>。
+          核心接口 7 个，核心页面 3 种，核心状态 2 个（文件 + 剪贴板）。
+          v1.2.3 的共享剪贴板、App 三标签、按需二维码与资源压缩全部保留；只删掉聊天室、浏览器发现和装饰性模块，代码量与首屏负担就会回到一个“工具该有的样子”。
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="pill"><b>核心</b> 文件 + 剪贴板</span>
+        <span class="pill"><b>发现</b> 仅 App</span>
+        <span class="pill"><b>浏览器</b> 零安装客户端</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span><b>CC Flash · 轻量化设计方案</b> · 基于 v1.2.3 · 2026-11-18</span>
+    <span>目标：更少的代码、更短的路径、更轻的常驻负担。</span>
+  </footer>
+</main>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById("themeBtn");
+    var icon = document.getElementById("themeIcon");
+    var text = document.getElementById("themeText");
+    function apply(mode) {
+      root.setAttribute("data-theme", mode);
+      icon.textContent = mode === "dark" ? "☀" : "☾";
+      text.textContent = mode === "dark" ? "亮色" : "暗色";
+      try { localStorage.setItem("ccflash-doc-theme", mode); } catch (e) {}
+    }
+    var saved = "light";
+    try { saved = localStorage.getItem("ccflash-doc-theme") || "light"; } catch (e) {}
+    apply(saved);
+    btn.addEventListener("click", function () {
+      apply(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    });
+
+    // 滚动定位高亮
+    var links = [].slice.call(document.querySelectorAll("#nav a"));
+    var targets = links.map(function (a) {
+      return document.querySelector(a.getAttribute("href"));
+    }).filter(Boolean);
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          links.forEach(function (a) {
+            a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id);
+          });
+        });
+      }, { rootMargin: "-30% 0px -60% 0px", threshold: 0 });
+      targets.forEach(function (t) { io.observe(t); });
+    }
+  })();
+</script>
+
+<section id="final-status" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">最终落地修正（以 v1.2.3 代码为准）</h2>
+<ul style="margin:0;padding-left:20px">
+<li><b>聊天室保留</b>：用户明确要求不删除聊天室；文件、消息、剪贴板共用同一条时间线。本方案中「移除聊天室、把文字收敛成一格剪贴板」未采纳。</li>
+<li><b>手机 App 两标签</b>：最终只有「发送 / 设置」，不是「传输 / 发现 / 设置」三标签；发现并进发送页的目标横条 + 设备面板。</li>
+<li><b>桌面不再有独立「周边设备」入口</b>：设备栏并入「消息发送」页左侧（200px），底部只保留刷新，不再重复二维码 / 复制地址。</li>
+<li><b>浏览器</b>：保持原聊天室单页，不调用 <code>/api/devices</code>、不发 <code>/api/hello</code>、无底部标签与设置页——这部分按方案落地。</li>
+<li><b>共享剪贴板</b>：双向、无开关、无独立模块，只在页面可见时同步；浏览器回退到「粘贴」面板。</li>
+</ul>
+</section>
+
+</body>
+</html>

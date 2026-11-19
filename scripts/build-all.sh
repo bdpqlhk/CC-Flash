@@ -19,8 +19,7 @@
 #           (或使用 GitHub Actions 的 windows-latest)
 #   android: Android Studio(SDK+NDK) + JDK 17, 环境变量
 #           ANDROID_HOME / NDK_HOME / JAVA_HOME
-#           rustup target add aarch64-linux-android armv7-linux-androideabi \
-#                          i686-linux-android x86_64-linux-android
+#           rustup target add aarch64-linux-android
 #   ios:    Xcode 15+(完整版, 含 iOS SDK)
 #           rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 #           真机包需 Apple 开发者账号签名; 免签名可用 debug 包/模拟器
@@ -57,9 +56,12 @@ build_mac() {
   need node "https://nodejs.org"
   need cargo "https://rustup.rs"
   ensure_dist_frontend
-  npm run tauri build || die "macOS 打包失败"
-  ok "产物: src-tauri/target/release/bundle/macos/*.app"
-  ok "产物: src-tauri/target/release/bundle/dmg/*.dmg"
+  # 保持分架构双包: Apple Silicon 与 Intel 各一个 dmg, 单包约为 universal 的一半
+  for t in aarch64-apple-darwin x86_64-apple-darwin; do
+    has_target "$t" || { warn "添加 Rust 目标: rustup target add $t"; rustup target add "$t" || die "rustup target 添加失败: $t"; }
+    npm run tauri build -- --target "$t" || die "macOS 打包失败: $t"
+    ok "产物: src-tauri/target/$t/release/bundle/dmg/*.dmg"
+  done
 }
 
 # ---------------------------------------------------------------- win
@@ -85,9 +87,9 @@ build_android() {
   [[ -n "${JAVA_HOME:-}" ]] || warn "未设 JAVA_HOME (JDK 17), 若失败请安装 Android Studio 并配置"
   # 缺 SDK 时立即终止本目标: die 只置 FAIL 不退出, 继续跑 rustup/构建会级联出一堆误导性报错
   [[ -n "${ANDROID_HOME:-}" || -n "${ANDROID_SDK_ROOT:-}" ]] || { die "未设 ANDROID_HOME —— 请先安装 Android Studio 并在 shell 配置 ANDROID_HOME/NDK_HOME"; return 1; }
-  for t in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
-    has_target "$t" || { warn "添加 Rust 目标: rustup target add $t"; rustup target add "$t" || die "rustup target 添加失败: $t"; }
-  done
+  # 只发 arm64-v8a 单包: 覆盖 Android 5+ 主流 64 位机型, 减少产物数量
+  t=aarch64-linux-android
+  has_target "$t" || { warn "添加 Rust 目标: rustup target add $t"; rustup target add "$t" || die "rustup target 添加失败: $t"; }
 
   # 首次使用初始化 Android 工程
   if [[ ! -d src-tauri/gen/android ]]; then
@@ -98,7 +100,7 @@ build_android() {
 
   ensure_dist_frontend
   if [[ "$VARIANT" == "debug" ]]; then
-    npm run tauri android build --apk --debug || die "Android debug 构建失败"
+    npm run tauri android build --apk --target aarch64 --debug || die "Android debug 构建失败"
     ok "产物(debug apk, 可直接安装): src-tauri/gen/android/app/build/outputs/apk/"
   else
     # 本地 release 也必须用发布证书: 缺证书时 AGP 会产出 *-unsigned.apk,
@@ -107,7 +109,7 @@ build_android() {
       eval "val=\${$v:-}"
       [[ -n "$val" ]] || { die "release 构建缺少 $v —— 会产出 unsigned APK; 请配置 CC_KEYSTORE_*，或改用 ./build-all.sh android debug"; return 1; }
     done
-    npm run tauri android build --apk || die "Android release 构建失败"
+    npm run tauri android build --apk --target aarch64 || die "Android release 构建失败"
     unsigned=$(find src-tauri/gen/android/app/build/outputs/apk -name "*unsigned*.apk" -type f)
     if [ -n "$unsigned" ]; then
       echo "$unsigned"

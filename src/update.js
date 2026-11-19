@@ -59,8 +59,9 @@ export async function fetchLatestRelease() {
     if (!r.ok) return null;   // 404(还没发过 Release)/403(限流)等 → 视为无结果
     const d = await r.json();
     const list = Array.isArray(d) ? d : [d];
-    // 列表按发布时间倒序: 跳过草稿, 保留 prerelease(缺签名时它就是正式产物)
-    const rel = list.find((x) => x && !x.draft && x.tag_name);
+    // 列表按发布时间倒序: 跳过草稿与 prerelease。缺签名时 Release 保持草稿(见
+    // release.yml), 不会再出现"把未签名/打不开的 prerelease 当更新推给用户"。
+    const rel = list.find((x) => x && !x.draft && !x.prerelease && x.tag_name);
     if (!rel) return null;
     // 不信任 API 返回的任意跳转地址: 只接受本仓库 Releases 前缀, 否则回落到固定页面,
     // 防止上游/镜像被接管后把用户导向任意下载站

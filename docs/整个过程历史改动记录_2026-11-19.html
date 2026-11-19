@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC Flash · 整个过程历史改动记录（2026-11-19）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-11-19</b> · 版本：<b>v1.2.4 安全加固</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="callout"><b>本段主题</b>全代码、全平台深度检查后的集中修复：系统剪贴板同步改为可选、移动端本机令牌、桌面局域网开关恢复、WS 退避、限流与慢客户端、发布链路、Android 17 权限、数据落盘一致性与构建瘦身；同时更新 README / docs / 应用内介绍页，并美化「N 条新消息」浮动胶囊。</div>
+
+<h2>一、隐私与安全</h2>
+<ul>
+<li><b>系统剪贴板自动同步默认关闭</b>：新增 CC设置「系统剪贴板自动同步」开关（持久化 <code>wft-clip-sync</code> + Rust pref）；开启后仍只在页面可见时同步。此前默认开启会把用户复制的密码/验证码持续上传到无鉴权的局域网接口。</li>
+<li><b>凭据黑名单</b>：<code>isSecretClip()</code> 对访问令牌、当前码与全部对方配对码做精确比对，命中则自动发布与 paste 回传都跳过；「复制令牌」不再随剪贴板同步外发并落盘。</li>
+<li><b>paste 回传收窄</b>：全局 paste 监听只在<b>聊天输入框</b>（<code>.tx-input</code>）触发回传；配对码、昵称、日志搜索等输入框不再外发。</li>
+<li><b>共享剪贴板远端鉴权</b>：非本机来源在未开启访问令牌时禁止 <code>GET/POST /api/clipboard</code>；写入按来源限流 240 次/分钟（IPv6 /64 聚合）。</li>
+<li><b>移动端沙箱</b>：Android/iOS 首次启动自动生成本机访问令牌并原子落盘；<code>mobile_loopback_locked</code> 让 127.0.0.1 也需校验，同机其他 App 无法再读写删除共享目录/剪贴板或停服。壳内通过 <code>control_status_cmd</code> 自动取码。</li>
+<li><b>静态页 CSP</b>：浏览器版下发完整 <code>script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'</code> 等策略（样式保留 inline，图片/媒体允许 data:/blob:，connect 允许 ws:）。</li>
+<li><b>发布链路</b>：缺 Apple/Windows 签名 Secrets 时 publish job 报错并保持草稿，不再以 prerelease 公开；Windows 空证书变量不再注入构建环境；应用内更新检查跳过 prerelease。</li>
+</ul>
+
+<h2>二、稳定性与可用性</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>WS 重连退避被 <code>closeWs()</code> 重置为 1s，断网时每秒重连</td><td>退避只在 <code>onopen</code> 复位；停服后 WS 循环以 <code>is_running()</code> 兜底退出，避免 kick 订阅竞态泄漏许可</td></tr>
+<tr><td>单台设备可占满 16 上传 / 32 下载许可</td><td>增加单来源并发配额（上传 4、下载 8；IPv6 /64 聚合）；下载流每块 45s 空闲超时</td></tr>
+<tr><td>聊天/开票/探测限流"突发 N 次后整窗封禁"</td><td>改为固定窗口（窗口起点不随每次成功刷新）；<code>rate_key()</code> 对 IPv6 按 /64 聚合</td></tr>
+<tr><td>未认证请求可用 404 洪水冲掉安全审计日志</td><td>4xx 请求按来源限流记录（60 条/分钟）</td></tr>
+<tr><td>删除文件、聊天/剪贴板落盘在 async worker 上做同步 IO</td><td>删除标记检查 <code>spawn_blocking</code>；聊天/剪贴板在锁内只序列化，落盘进阻塞线程并按序号串行（较新快照不会被旧写覆盖）</td></tr>
+<tr><td>聊天历史解析失败被读空并在下条消息覆盖</td><td>损坏文件改名 <code>chat-history.json.bad-*</code> 保留并告警；<code>write_secret</code> 增加 <code>sync_all</code></td></tr>
+<tr><td>无声明大小的上传崩溃后完整文件被当半截删除</td><td>无声明大小时不再删除，改为改名 <code>.incomplete</code> 保留并提示人工确认</td></tr>
+<tr><td>旧共享目录迁移 rename 失败后静默使用新空目录</td><td>失败时回退旧目录并告警，下次启动重试</td></tr>
+<tr><td>共享目录/端口/局域网/设备缓存偏好非原子写</td><td>统一 <code>write_secret_atomic</code>（临时文件 + fsync + rename），写失败有日志</td></tr>
+<tr><td>分享票据 TTL 使用 <code>SystemTime</code>，时钟回拨可延长</td><td>改为 <code>Instant</code> 单调时钟</td></tr>
+<tr><td>UDP 已知设备 id 可被其他 IP 覆盖（身份劫持）</td><td>id 已存在时只接受原 IP 续期，换 IP 等 TTL 过期后重新登记</td></tr>
+</table>
+
+<h2>三、跨平台</h2>
+<ul>
+<li><b>桌面局域网入口恢复</b>：CC设置 通用卡片新增「局域网访问」开关；所有「去发现页开启」文案改为「CC设置」；托盘「打开网页」在安全模式下使用 <code>127.0.0.1</code>（新增 <code>web_url()</code>）。</li>
+<li><b>地址选择</b>：<code>lan_ip()</code> 扩充虚拟网卡过滤（VirtualBox / VMware / Hyper-V / ZeroTier / WireGuard / WSL 等），169.254 链路本地降为末位候选，CGNAT 次优先。</li>
+<li><b>IPv6</b>：link-local probe 回包保留 scope id（v4/v6 两条路径统一 <code>dst.set_port()</code>）。</li>
+<li><b>macOS</b>：全屏关窗改为固定等待 700ms 再 hide，不再以 <code>is_fullscreen()</code> 提前为 false 判断动画结束。</li>
+<li><b>Windows</b>：保留设备名过滤补充上标数字 <code>COM¹/COM²/COM³、LPT¹/²/³</code>；下载落盘同样的消毒逻辑同步。</li>
+<li><b>Android</b>：<code>MainActivity</code> 在 Android 16+ 运行时申请 <code>ACCESS_LOCAL_NETWORK</code>（与通知权限合并请求）；前台服务配额超时的 <code>onTimeout</code> 先发「保活已暂停」通知再 <code>stopSelf</code>。</li>
+<li><b>Unix 文件名</b>：<code>safe_rel_path</code> / 文件列表只在 Windows 归一化 <code>\</code>，避免 <code>a\b.txt</code> 与 <code>a/b.txt</code> 串文件。</li>
+<li><b>下载文件名</b>：<code>Content-Disposition filename*</code> 改用 basename + <code>NON_ALPHANUMERIC</code> 完整编码，含 <code>%</code>、子目录、单引号的文件名不再生成非法头。</li>
+<li><b>iOS</b>：仍不提供原生安装包（无 <code>gen/apple</code>、CI iOS job 注释）；网页版限制、本地网络权限与 ATS 调试脚本口径已在文档中明确。</li>
+</ul>
+
+<h2>四、前端体验</h2>
+<ul>
+<li>窄窗桌面（<980px）把设备入口放到聊天头部（与共享文件同一行，只显示「设备」），点击后在头部下方内联展开同一套设备面板（Teleport，不弹窗）；选中设备自动收起。设备栏雷达保留「扫描雷达」标题、去掉雷达内空态文字，直径 132→156px（面板内 146→184px），并新增在线/忙碌/离线图例。</li>
+<li>「N 条新消息」浮动胶囊重做：实心强调色渐变 + 白色粗体 + 下箭头 SVG + 更大触控面积 + 出现动画，解决旧样式在深色底上低对比看不清的问题。</li>
+<li>配对弹框「稍后再输入」改为 60 秒内不再自动弹出（<code>pinSnoozeUntil</code>）；401/429 不再把可达的服务误判为失联。</li>
+<li>直发批量文件遇到 401/429 立即中止整批并提示更新配对码/稍后再试，不再用旧码把所有文件打一遍触发对方 IP 锁定。</li>
+<li>切换电脑地址会提示已取消的未完成上传数量；引用快照在切换会话时清空，避免把 A 电脑的消息带进 B 电脑。</li>
+<li>目录超过 8 层的文件在选择/拖入时提前过滤并提示数量；回到前台重新申请 Wake Lock/保活视频。</li>
+<li>复制/悬浮码诊断落盘改为 <code>wft-diag=1</code> 时才启用；pet 在场轮询 250ms → 400ms。</li>
+<li>单条消息上限由 2000 提升为 <b>200000 字符</b>（前后端同口径 Unicode 计数）；输入栏实时字数、超限红色提示并禁止发送；服务端超限返回 400（不再静默截断）。聊天历史增加 200 万字符总量预算，持久化写入按 300ms 合并，防止超大消息拖垮内存/磁盘/全量拉取。</li>
+<li>应用内介绍页、FAQ、设置页文案同步：剪贴板默认关闭、桌面局域网开关、移动端本机令牌、更新只认正式版。</li>
+</ul>
+
+<h2>五、构建瘦身</h2>
+<ul>
+<li>Rust release 显式 <code>strip=true / lto="fat" / codegen-units=1 / opt-level="z" / panic="abort" / debug=false / incremental=false</code>，构建脚本单独 <code>opt-level=3</code>。</li>
+<li>前端生产构建 drop <code>console/debugger</code>、关闭 sourcemap、esbuild/js minify、删除未引用 <code>discover.svg</code>；dist 主包约 291 KB（gzip 115 KB），CSS 约 96 KB（gzip 18 KB）。</li>
+<li>二进制与安装包体积以本机构建实测为准；Windows/Android 产物沿用同一套 Rust/前端裁剪。</li>
+</ul>
+
+<h2>六、验证</h2>
+<ul>
+<li><code>cargo check</code> 通过；<code>cargo test --lib</code> 20 项全过（含上传/下载 E2E、HTTP 源校验、限流、UDP 发现、剪贴板往返）。</li>
+<li><code>npm run build</code> 通过；四端 UI 以本地演示页与既有 Playwright 自测为基线，新增交互需真机复核（Windows 双栈/DPI、Android 17 权限、iOS Safari）。</li>
+</ul>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 历史改动记录 · 2026-11-19 · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</p>
+</body>
+</html>

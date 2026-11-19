@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CC Flash · 消息发送与周边设备整合方案</title>
+<style>
+  :root {
+    --bg: #f4f7f5;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --card2: #f7faf8;
+    --ink: #16241d;
+    --ink2: #4d6559;
+    --ink3: #82968c;
+    --line: rgba(22, 70, 48, .11);
+    --line2: rgba(22, 70, 48, .20);
+    --accent: #168f6c;
+    --accent2: #35b98e;
+    --accentBg: rgba(22, 143, 108, .09);
+    --accentSoft: rgba(22, 143, 108, .055);
+    --danger: #d64f5f;
+    --dangerBg: rgba(214, 79, 95, .09);
+    --warn: #c18419;
+    --warnBg: rgba(193, 132, 25, .10);
+    --blue: #3d6fd8;
+    --blueBg: rgba(61, 111, 216, .09);
+    --shadow: 0 18px 50px rgba(22, 70, 48, .09);
+    --radius: 18px;
+    --radius-sm: 12px;
+    --mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  [data-theme="dark"] {
+    --bg: #0b1210;
+    --panel: #101a15;
+    --card: #16231c;
+    --card2: #1b2c23;
+    --ink: #e6f2ea;
+    --ink2: #a8c3b5;
+    --ink3: #6f8c7c;
+    --line: rgba(150, 230, 190, .12);
+    --line2: rgba(150, 230, 190, .22);
+    --accent: #35c299;
+    --accent2: #6ed4b6;
+    --accentBg: rgba(53, 194, 153, .12);
+    --accentSoft: rgba(53, 194, 153, .06);
+    --danger: #f2596b;
+    --dangerBg: rgba(242, 89, 107, .12);
+    --warn: #e9a93c;
+    --warnBg: rgba(233, 169, 60, .12);
+    --blue: #6ea8ff;
+    --blueBg: rgba(110, 168, 255, .12);
+    --shadow: 0 18px 60px rgba(0, 0, 0, .38);
+  }
+  * { box-sizing: border-box; }
+  .nb { white-space: nowrap; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 520px at 8% -12%, var(--accentSoft), transparent 62%),
+      radial-gradient(760px 480px at 100% 0%, rgba(61, 111, 216, .05), transparent 58%),
+      var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; }
+  code, .mono { font-family: var(--mono); }
+  .page { max-width: 1240px; margin: 0 auto; padding: 30px 22px 70px; }
+
+  /* ---------- 顶栏 ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(160%) blur(16px);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-in {
+    max-width: 1240px; margin: 0 auto; padding: 0 22px; height: 58px;
+    display: flex; align-items: center; gap: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -.2px; white-space: nowrap; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--accentBg); border: 1px solid var(--line2); color: var(--accent);
+  }
+  .brand small { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--ink3); text-transform: uppercase; }
+  .nav { display: flex; align-items: center; gap: 2px; margin-left: 8px; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { padding: 7px 10px; border-radius: 8px; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+  .nav a:hover { background: var(--card2); color: var(--ink); }
+  .nav a.on { color: var(--accent); background: var(--accentBg); font-weight: 600; }
+  .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .theme-btn {
+    height: 32px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink2); font-size: 11.5px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 44px 0 22px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: 1.8px;
+    color: var(--accent); font-weight: 800; text-transform: uppercase;
+  }
+  .eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accentBg); }
+  h1 {
+    margin: 14px 0 12px; font-size: clamp(30px, 4.3vw, 50px);
+    line-height: 1.14; letter-spacing: -1.2px; font-weight: 800;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lead { margin: 0; max-width: 850px; color: var(--ink2); font-size: 15px; line-height: 1.85; }
+  .lead b { color: var(--ink); font-weight: 650; }
+  .hero-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink2); font-size: 11.5px; white-space: nowrap;
+  }
+  .pill b { color: var(--accent); font-weight: 650; }
+  .pill.red b { color: var(--danger); }
+  .pill.blue b { color: var(--blue); }
+
+  /* ---------- 指标卡 ---------- */
+  .metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 24px 0 8px; }
+  .metric {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 13px 13px 12px; box-shadow: var(--shadow);
+  }
+  .metric .k { font-size: 10px; color: var(--ink3); letter-spacing: .6px; text-transform: uppercase; font-weight: 700; }
+  .metric .v { margin-top: 6px; font-size: 19px; font-weight: 800; letter-spacing: -.5px; }
+  .metric .v span { font-size: 11px; color: var(--ink3); font-weight: 600; margin-left: 4px; }
+  .metric .sub { margin-top: 3px; font-size: 10.5px; color: var(--ink3); }
+  .metric .sub b { color: var(--accent); font-weight: 700; }
+
+  /* ---------- 通用区块 ---------- */
+  section { padding-top: 46px; }
+  .sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+  .sec-head .no { font-size: 10.5px; letter-spacing: 1.4px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .sec-head h2 { margin: 6px 0 0; font-size: clamp(22px, 2.4vw, 30px); letter-spacing: -.6px; line-height: 1.2; }
+  .sec-head p { margin: 0; max-width: 560px; color: var(--ink2); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+  .sec-head p code { white-space: normal; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 22px;
+  }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .callout {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--accentSoft); border-radius: 12px; padding: 13px 15px;
+    font-size: 13px; color: var(--ink2); line-height: 1.75;
+  }
+  .callout b { color: var(--ink); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warnBg); }
+  .callout.danger { border-left-color: var(--danger); background: var(--dangerBg); }
+
+  /* ---------- 现状/目标条形图 ---------- */
+  .bars { display: flex; flex-direction: column; gap: 13px; }
+  .bar-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 120px; align-items: center; gap: 12px; }
+  .bar-row .name { font-size: 12px; color: var(--ink2); font-weight: 600; }
+  .bar-track { height: 10px; border-radius: 6px; background: var(--card2); border: 1px solid var(--line); overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .bar-fill.old { background: color-mix(in srgb, var(--ink3) 30%, transparent); position: absolute; inset: 0; }
+  .bar-fill.new { position: relative; }
+  .bar-row .val { text-align: right; font-size: 11.5px; color: var(--ink3); font-family: var(--mono); }
+  .bar-row .val b { color: var(--accent); font-family: inherit; }
+
+  /* ---------- 表格 ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 12.5px; }
+  th { background: var(--card2); color: var(--ink3); font-size: 10.5px; letter-spacing: .8px; text-transform: uppercase; font-weight: 800; }
+  tr:last-child td { border-bottom: none; }
+  td b { font-weight: 650; }
+  td .muted { color: var(--ink3); font-size: 11.5px; }
+  code {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; font-size: 11.5px; color: var(--ink); white-space: nowrap;
+  }
+  .tag {
+    display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+    font-size: 10px; font-weight: 750; letter-spacing: .3px; white-space: nowrap;
+  }
+  .tag.keep { color: var(--accent); background: var(--accentBg); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+  .tag.remove { color: var(--danger); background: var(--dangerBg); border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line)); }
+  .tag.slim { color: var(--blue); background: var(--blueBg); border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line)); }
+  .tag.opt { color: var(--warn); background: var(--warnBg); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--line)); }
+
+  /* ---------- 架构图 ---------- */
+  .arch { display: grid; grid-template-columns: minmax(0, 1.15fr) 54px minmax(0, .85fr); gap: 14px; align-items: stretch; }
+  .arch-col { display: flex; flex-direction: column; gap: 10px; }
+  .node {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 13px 14px;
+  }
+  .node.main { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accentSoft); }
+  .node .node-k { font-size: 10px; letter-spacing: 1px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .node h4 { margin: 4px 0 8px; font-size: 14px; letter-spacing: -.2px; }
+  .node ul { margin: 0; padding-left: 16px; color: var(--ink2); font-size: 11.5px; line-height: 1.75; overflow-wrap: anywhere; }
+  .node ul code { white-space: normal; overflow-wrap: anywhere; }
+  .node ul li::marker { color: var(--accent); }
+  .arch-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--ink3); font-size: 10px; letter-spacing: .6px; }
+  .arch-mid .line { width: 1px; flex: 1; background: linear-gradient(var(--line2), transparent); }
+  .arch-mid .arrow { font-size: 16px; color: var(--accent); }
+  .arch-note { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .arch-note span { font-size: 10.5px; color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; background: var(--card); }
+
+  /* ---------- API ---------- */
+  .api-list { display: flex; flex-direction: column; gap: 7px; }
+  .api-row {
+    display: grid; grid-template-columns: 62px minmax(190px, 1fr) minmax(0, 1.3fr);
+    gap: 12px; align-items: center; padding: 9px 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); font-size: 12px;
+  }
+  .api-row .m { font-family: var(--mono); font-size: 10.5px; font-weight: 800; letter-spacing: .3px; }
+  .api-row .m.get { color: var(--blue); }
+  .api-row .m.post { color: var(--accent); }
+  .api-row .m.del { color: var(--danger); }
+  .api-row .p { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  .api-row .d { color: var(--ink2); font-size: 11.5px; }
+  .api-row.removed { opacity: .62; border-style: dashed; }
+  .api-row.removed .p { text-decoration: line-through; color: var(--ink3); }
+
+  /* ---------- 线框图 ---------- */
+  .wire-grid { display: grid; grid-template-columns: 1.15fr .85fr .85fr; gap: 16px; align-items: start; }
+  .wire { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+  .wire-top { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 11px; border-bottom: 1px solid var(--line); background: var(--card2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line2); }
+  .wire-title { margin-left: 6px; font-size: 10px; color: var(--ink3); letter-spacing: .5px; }
+  .wire-body { padding: 12px; min-height: 260px; }
+  .mini-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+  .mini-logo { width: 26px; height: 26px; border-radius: 8px; background: var(--accentBg); border: 1px solid var(--line2); display: grid; place-items: center; color: var(--accent); font-size: 9px; font-weight: 900; }
+  .mini-head b { font-size: 12px; }
+  .mini-head small { display: block; font-size: 9.5px; color: var(--ink3); }
+  .mini-status { margin-left: auto; font-size: 9.5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); background: var(--accentBg); border-radius: 999px; padding: 2px 7px; white-space: nowrap; }
+  .mini-card { border: 1px solid var(--line); background: var(--card2); border-radius: 11px; padding: 9px; margin-bottom: 8px; }
+  .mini-card .k { font-size: 9px; color: var(--ink3); letter-spacing: .6px; text-transform: uppercase; font-weight: 800; }
+  .mini-card .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .mini-file { width: 24px; height: 24px; border-radius: 6px; background: var(--accentBg); border: 1px solid var(--line); display: grid; place-items: center; font-size: 7px; font-weight: 900; color: var(--accent); }
+  .mini-lines { flex: 1; min-width: 0; }
+  .mini-lines i { display: block; height: 5px; border-radius: 3px; background: var(--line2); }
+  .mini-lines i + i { margin-top: 4px; width: 60%; opacity: .6; }
+  .mini-drop {
+    border: 1.5px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+    border-radius: 11px; padding: 14px 8px; text-align: center; background: var(--accentSoft); margin-bottom: 8px;
+  }
+  .mini-drop b { display: block; font-size: 10px; }
+  .mini-drop small { display: block; font-size: 8.5px; color: var(--ink3); margin-top: 2px; }
+  .mini-list { display: flex; flex-direction: column; gap: 5px; }
+  .mini-row { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 5px 7px; }
+  .mini-row .mini-file { width: 20px; height: 20px; font-size: 6px; }
+  .mini-row .mini-lines i { height: 4px; }
+  .mini-row .mini-lines i + i { width: 45%; }
+  .mini-tabs { display: flex; gap: 2px; margin-top: 9px; border-top: 1px solid var(--line); padding-top: 7px; }
+  .mini-tabs span { flex: 1; text-align: center; font-size: 8.5px; color: var(--ink3); padding: 3px 0; border-radius: 6px; }
+  .mini-tabs span.on { color: var(--accent); background: var(--accentBg); font-weight: 700; }
+  .mini-note { margin-top: 8px; font-size: 8.5px; color: var(--ink3); line-height: 1.55; }
+  .wire.color-browser .mini-tabs { display: none; }
+  .wire.color-browser .mini-drop { margin-top: 6px; }
+  .wire-badge { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 9px; color: var(--ink3); }
+
+  /* ---------- 路线图 ---------- */
+  .roadmap { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 92px 22px minmax(0, 1fr); gap: 12px; }
+  .step .when { text-align: right; font-size: 11px; color: var(--ink3); padding-top: 2px; font-family: var(--mono); }
+  .step .rail { position: relative; display: flex; justify-content: center; }
+  .step .rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line2); }
+  .step:last-child .rail::before { bottom: 50%; }
+  .step .rail i { position: relative; z-index: 1; width: 10px; height: 10px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); margin-top: 3px; }
+  .step .body { padding-bottom: 18px; }
+  .step .body b { font-size: 13px; }
+  .step .body p { margin: 3px 0 0; font-size: 11.5px; color: var(--ink2); line-height: 1.7; }
+  .step .body .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+  .step .body .chips span { font-size: 9.5px; color: var(--ink3); border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 2px 7px; }
+
+  /* ---------- 验收 ---------- */
+  .accept { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .accept .item { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px; }
+  .accept .item .k { font-size: 9.5px; letter-spacing: .7px; color: var(--ink3); font-weight: 800; text-transform: uppercase; }
+  .accept .item .v { margin-top: 5px; font-size: 16px; font-weight: 800; letter-spacing: -.4px; }
+  .accept .item .v em { font-style: normal; font-size: 10px; color: var(--ink3); font-weight: 600; }
+  .accept .item .d { margin-top: 3px; font-size: 10.5px; color: var(--ink3); line-height: 1.55; }
+
+  /* ---------- 风险 ---------- */
+  .risk { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .risk + .risk { margin-top: 8px; }
+  .risk .ic { flex-shrink: 0; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--warnBg); color: var(--warn); font-size: 12px; font-weight: 900; }
+  .risk b { font-size: 12.5px; }
+  .risk p { margin: 2px 0 0; font-size: 11.5px; color: var(--ink2); line-height: 1.7; }
+
+  /* ---------- 页脚 ---------- */
+  .foot { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; color: var(--ink3); font-size: 11px; }
+  .foot b { color: var(--ink2); }
+
+  @media (max-width: 1080px) {
+    .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .wire-grid { grid-template-columns: 1fr 1fr; }
+    .wire-grid .wire:first-child { grid-column: 1 / -1; }
+    .accept { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 780px) {
+    .page { padding: 22px 16px 56px; }
+    .nav { display: none; }
+    .hero { padding-top: 30px; }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid2, .grid3, .arch { grid-template-columns: 1fr; }
+    .arch-mid { flex-direction: row; padding: 4px 0; }
+    .arch-mid .line { width: auto; height: 1px; flex: 1; background: linear-gradient(90deg, var(--line2), transparent); }
+    .wire-grid { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 74px minmax(0, 1fr) 98px; }
+    .api-row { grid-template-columns: 54px minmax(0, 1fr); }
+    .api-row .d { grid-column: 1 / -1; padding-left: 0; }
+    .step { grid-template-columns: 70px 18px minmax(0, 1fr); }
+  }
+  @media (max-width: 480px) {
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .accept { grid-template-columns: 1fr; }
+    .sec-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .brand small { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+  @media print {
+    .topbar, .theme-btn { display: none; }
+    body { background: #fff; }
+    .panel, .metric, .wire, .table-wrap { box-shadow: none; }
+    section { break-inside: avoid; }
+  }
+
+  /* ---------- 图文版新增：桌面菜单模拟 / 菜单树 / 双向剪贴板 / 前后对比 ---------- */
+  .desk {
+    display: grid; grid-template-columns: 168px minmax(0, 1fr);
+    border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--card);
+    box-shadow: var(--shadow); min-height: 330px;
+  }
+  .desk-side { border-right: 1px solid var(--line); background: var(--card2); padding: 12px 10px; }
+  .desk-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 12px; padding: 3px 6px 12px; }
+  .desk-brand .mini-logo { width: 26px; height: 26px; border-radius: 8px; }
+  .desk-menu { display: flex; flex-direction: column; gap: 3px; }
+  .desk-menu span { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; font-size: 10.5px; color: var(--ink2); }
+  .desk-menu span.on { background: var(--accentBg); color: var(--accent); font-weight: 700; }
+  .desk-menu .mi { width: 15px; text-align: center; font-size: 10px; }
+  .desk-side-foot { margin-top: 18px; padding: 9px 6px 2px; border-top: 1px solid var(--line); color: var(--ink3); font-size: 9px; display: flex; align-items: center; justify-content: space-between; }
+  .desk-main { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .desk-top { display: flex; align-items: center; gap: 7px; }
+  .desk-top b { font-size: 12px; }
+  .desk-top .mini-status { margin-left: auto; }
+  .desk-tool { font-size: 8.5px; color: var(--ink3); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; white-space: nowrap; }
+  .desk-chat { flex: 1; min-height: 160px; border: 1px solid var(--line); border-radius: 10px; background: var(--card2); padding: 9px; display: flex; flex-direction: column; gap: 6px; }
+  .desk-msg { max-width: 78%; padding: 6px 8px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); font-size: 9px; line-height: 1.5; color: var(--ink2); }
+  .desk-msg.me { align-self: flex-end; background: var(--accentBg); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); color: var(--ink); }
+  .desk-composer { display: flex; gap: 6px; align-items: center; }
+  .desk-composer .box { flex: 1; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  .desk-composer .b { font-size: 8.5px; color: var(--accent); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; white-space: nowrap; }
+  .desk-legend { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .desk-legend span { font-size: 10px; color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; background: var(--card); }
+  .desk-legend b { color: var(--accent); }
+  .menu-tree { font-family: var(--mono); font-size: 11px; line-height: 1.95; color: var(--ink2); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; overflow-x: auto; }
+  .menu-tree b { color: var(--accent); }
+  .flow2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .lane { border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 14px; }
+  .lane h4 { margin: 0 0 8px; font-size: 13px; letter-spacing: -.1px; }
+  .lane.a { border-top: 3px solid var(--accent); }
+  .lane.b { border-top: 3px solid var(--blue); }
+  .lane .steps { display: flex; flex-direction: column; gap: 6px; }
+  .lane .st { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; color: var(--ink2); line-height: 1.65; }
+  .lane .st b { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accentBg); color: var(--accent); display: grid; place-items: center; font-size: 9px; }
+  .lane.b .st b { background: var(--blueBg); color: var(--blue); }
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .ba .wire-body { min-height: 230px; }
+  .ba .wire.new .mini-note { color: var(--accent); }
+  .no-switch {
+    display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-radius: 12px;
+    background: var(--warnBg); border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--line));
+    color: var(--ink2); font-size: 11.5px; line-height: 1.6;
+  }
+  .no-switch b { color: var(--warn); flex-shrink: 0; }
+  .lane code, .desk code, .menu-tree code { white-space: normal; overflow-wrap: anywhere; }
+  @media (max-width: 980px) {
+    .flow2, .ba { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 780px) {
+    .desk { grid-template-columns: 1fr; }
+    .desk-side { display: none; }
+    .desk-main { padding: 11px; }
+  }
+
+
+  .merge { display:grid; grid-template-columns:94px 156px minmax(0,1fr) 124px; border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--card); box-shadow:var(--shadow); min-height:360px; }
+  .merge-side { background:var(--card2); border-right:1px solid var(--line); padding:10px 7px; }
+  .merge-brand { display:flex; align-items:center; gap:6px; font-size:10px; font-weight:800; padding:2px 4px 10px; }
+  .merge-brand .mini-logo { width:22px; height:22px; border-radius:7px; font-size:8px; }
+  .merge-nav { display:flex; flex-direction:column; gap:3px; }
+  .merge-nav span { display:flex; align-items:center; gap:6px; padding:6px; border-radius:7px; font-size:9px; color:var(--ink2); }
+  .merge-nav span.on { background:var(--accentBg); color:var(--accent); font-weight:700; }
+  .merge-rail { border-right:1px solid var(--line); padding:10px 8px; background:var(--card); min-width:0; }
+  .merge-rail .k { font-size:8px; letter-spacing:.7px; color:var(--ink3); text-transform:uppercase; font-weight:800; margin-bottom:6px; }
+  .rail-self { display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:8px; background:var(--card2); padding:6px; margin-bottom:7px; }
+  .rail-self .mini-logo { width:22px; height:22px; font-size:8px; border-radius:7px; }
+  .rail-self b { display:block; font-size:8.5px; } .rail-self small { display:block; font-size:7.5px; color:var(--ink3); }
+  .rail-dev { display:flex; align-items:center; gap:6px; padding:6px; border:1px solid var(--line); border-radius:8px; margin-bottom:5px; background:var(--card); font-size:8.5px; cursor:pointer; }
+  .rail-dev.on { border-color:var(--accent); background:var(--accentBg); }
+  .rail-dev .dot { width:5px; height:5px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+  .rail-dev .nm { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rail-dev small { color:var(--ink3); font-size:7.5px; }
+  .rail-actions { display:flex; gap:4px; margin-top:8px; }
+  .rail-actions span { flex:1; text-align:center; font-size:7.5px; border:1px solid var(--line); border-radius:6px; padding:3px 2px; color:var(--accent); background:var(--card); }
+  .merge-main { padding:9px 11px; display:flex; flex-direction:column; gap:7px; min-width:0; }
+  .merge-top { display:flex; align-items:center; gap:6px; } .merge-top b { font-size:11px; } .merge-top .mini-status { margin-left:auto; }
+  .targetbar { display:flex; align-items:center; gap:4px; border:1px solid var(--line); background:var(--card2); border-radius:8px; padding:4px 6px; font-size:8px; color:var(--ink3); flex-wrap:wrap; }
+  .target-chip { padding:2px 6px; border-radius:999px; border:1px solid var(--line); background:var(--card); }
+  .target-chip.on { background:var(--accentBg); color:var(--accent); border-color:var(--accent); font-weight:700; }
+  .merge-chat { flex:1; min-height:150px; border:1px solid var(--line); border-radius:9px; background:var(--card2); padding:8px; display:flex; flex-direction:column; gap:5px; }
+  .merge-msg { max-width:80%; padding:5px 7px; border-radius:7px; background:var(--card); border:1px solid var(--line); font-size:8px; color:var(--ink2); }
+  .merge-msg.me { align-self:flex-end; background:var(--accentBg); border-color:color-mix(in srgb,var(--accent) 28%,var(--line)); color:var(--ink); }
+  .receipt { align-self:center; font-size:7.5px; color:var(--ink3); border:1px dashed var(--line); border-radius:999px; padding:2px 7px; background:var(--card); }
+  .merge-composer { display:flex; gap:4px; align-items:center; }
+  .merge-composer .box { flex:1; height:23px; border:1px solid var(--line); border-radius:7px; background:var(--card); }
+  .merge-composer .b { font-size:7.5px; color:var(--accent); border:1px solid var(--line); border-radius:5px; padding:3px 6px; white-space:nowrap; }
+  .merge-files { border-left:1px solid var(--line); background:var(--card2); padding:9px 8px; font-size:8px; color:var(--ink3); }
+  .merge-files .k { font-size:8px; letter-spacing:.7px; text-transform:uppercase; font-weight:800; margin-bottom:6px; }
+  .file-mini { display:flex; gap:5px; align-items:center; border:1px solid var(--line); border-radius:6px; background:var(--card); padding:4px 5px; margin-bottom:4px; }
+  .file-mini .mini-file { width:16px; height:16px; font-size:5px; } .file-mini .mini-lines i { height:3px; } .file-mini .mini-lines i + i { width:45%; }
+  .merge-legend { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .merge-legend span { font-size:10px; color:var(--ink3); border:1px solid var(--line); border-radius:999px; padding:3px 8px; background:var(--card); } .merge-legend b { color:var(--accent); }
+  .ia-flow { display:flex; align-items:stretch; gap:8px; flex-wrap:wrap; }
+  .ia-step { flex:1 1 170px; border:1px solid var(--line); border-radius:12px; background:var(--card); padding:11px; }
+  .ia-step .no { font-size:9px; letter-spacing:.8px; color:var(--ink3); font-weight:800; text-transform:uppercase; }
+  .ia-step b { display:block; margin-top:4px; font-size:12px; } .ia-step p { margin:3px 0 0; font-size:10.5px; line-height:1.6; color:var(--ink3); }
+  .ia-arrow { display:flex; align-items:center; color:var(--accent); font-size:18px; flex:0 0 auto; }
+  .ia-step.after { border-color:color-mix(in srgb,var(--accent) 38%,var(--line)); background:var(--accentSoft); } .ia-step.after b { color:var(--accent); }
+  .phone-merge { max-width:300px; margin:0 auto; }
+  .mobile-target { display:flex; gap:4px; margin:7px 0; overflow:hidden; }
+  .mobile-target span { flex-shrink:0; font-size:8px; border:1px solid var(--line); border-radius:999px; padding:3px 7px; color:var(--ink3); background:var(--card); }
+  .mobile-target span.on { background:var(--accentBg); color:var(--accent); border-color:var(--accent); font-weight:700; }
+  .mobile-sheet { margin-top:8px; border:1px solid var(--line); border-radius:10px 10px 0 0; background:var(--card2); padding:8px; }
+  .mobile-sheet .k { font-size:8px; color:var(--ink3); letter-spacing:.7px; font-weight:800; text-transform:uppercase; margin-bottom:5px; }
+  .mobile-sheet .rail-dev { margin-bottom:4px; }
+  @media (max-width:980px) { .merge { grid-template-columns:1fr; } .merge-side,.merge-rail,.merge-files { display:none; } .merge-main { padding:10px; } .ia-arrow { display:none; } }
+
+</style>
+</head>
+
+<body>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+
+<header class="topbar"><div class="topbar-in">
+  <a class="brand" href="#top"><span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span>CC-Flash <small>Workspace Merge</small></a>
+  <nav class="nav" id="nav"><a href="#pain">现状</a><a href="#idea">整合思路</a><a href="#desktop">桌面工作台</a><a href="#mobile">手机端</a><a href="#states">交互状态</a><a href="#flow">前后对比</a><a href="#impl">实施</a><a href="#acceptance">验收</a></nav>
+  <div class="top-actions"><button class="theme-btn" id="themeBtn" type="button" aria-label="切换明暗"><span id="themeIcon">☾</span><span id="themeText">暗色</span></button></div>
+</div></header>
+
+<main class="page" id="top">
+  <section class="hero">
+    <span class="eyebrow"><i></i> Integration Proposal · 周边设备 × 直发 × 消息发送</span>
+    <h1>把三处跳转，收成一个<br /><em>消息工作台</em></h1>
+    <p class="lead">现在「周边设备」是一个页面、「给周边设备发消息」是一个弹窗、「消息发送」是另一个页面。整合方案把它们收进同一个工作台：<b>左侧设备栏选目标，顶部目标条确认，底部输入栏直接发，时间线给出回执</b>。聊天室不动，后端不改，浏览器仍保持无发现的原始聊天页。</p>
+    <div class="hero-badges"><span class="pill"><b>一个页面</b> 设备 / 目标 / 聊天 / 文件</span><span class="pill red"><b>去掉</b> 周边设备独立页 + 直发弹窗</span><span class="pill blue"><b>保留</b> 聊天室 / 文件 / 剪贴板</span><span class="pill"><b>改动</b> 前端为主 · 2–3 人日</span></div>
+  </section>
+
+  <div class="callout" style="margin-top:14px"><b>已落地：</b>桌面消息页左侧设备栏 + 目标条/目标提示 + 直发回执；手机 App 两标签（发送 / 设置）+ 顶部目标横条 + 设备面板；浏览器保持原聊天室。聊天、文件、共享剪贴板不变，后端 0 改动。</div>
+
+  <section id="pain">
+    <div class="sec-head"><div><div class="no">01 · Current Pain</div><h2>为什么现在看起来“散”</h2></div><p>同一件事被拆成三套上下文，每套都有自己的入口、返回和状态。</p></div>
+    <div class="panel">
+      <div class="ia-flow">
+        <div class="ia-step"><div class="no">Context 1</div><b>周边设备页</b><p>看设备、收藏、扫码。点设备后进入另一个弹窗。</p></div>
+        <div class="ia-arrow">→</div>
+        <div class="ia-step"><div class="no">Context 2</div><b>给设备发消息弹窗</b><p>文件 / 文本 / 剪贴板三选一；发完关闭，回到设备页或聊天页。</p></div>
+        <div class="ia-arrow">→</div>
+        <div class="ia-step"><div class="no">Context 3</div><b>消息发送页</b><p>真正的时间线、文件抽屉、聊天输入在这里；直发记录不在这里。</p></div>
+      </div>
+      <div class="grid3" style="margin-top:14px">
+        <div class="callout"><b>目标不清楚：</b>输入框到底发给“房间”还是“某个设备”？只能靠用户记住刚才点开了哪个弹窗。</div>
+        <div class="callout"><b>重复入口：</b>桌面同时有「周边设备」页和聊天页顶部设备条；手机有「发现」Tab 和发送弹窗。</div>
+        <div class="callout"><b>回执丢失：</b>弹窗关闭后，时间线里没有“我发给了谁”的明确记录。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="idea">
+    <div class="sec-head"><div><div class="no">02 · Idea</div><h2>一个工作台，三个固定区域</h2></div><p>把“设备”变成目标选择器，把“直发弹窗”变成输入栏的一种状态，把“聊天时间线”作为唯一反馈面。</p></div>
+    <div class="grid3">
+      <div class="node main"><div class="node-k">Zone 1 · Devices</div><h4>左侧设备栏</h4><ul><li>本机共享 + 周边设备</li><li>在线/忙碌、收藏、刷新</li><li>点设备 = 选中目标，不是打开弹窗</li></ul></div>
+      <div class="node"><div class="node-k">Zone 2 · Target</div><h4>顶部目标条</h4><ul><li>始终显示“发送到：本机共享 / 设备 A”</li><li>输入栏旁再有目标 chip</li><li>一键切回本机共享</li></ul></div>
+      <div class="node"><div class="node-k">Zone 3 · Timeline</div><h4>聊天 + 回执 + 文件</h4><ul><li>房间时间线不动</li><li>直发成功追加一条本地回执</li><li>文件抽屉/手机面板保留</li></ul></div>
+    </div>
+    <div class="callout" style="margin-top:14px"><b>关键取舍：</b>直发仍投递到对方公共聊天/共享目录（与现在一致），不引入私聊后端；本机时间线追加“已发送到 X”的回执，让用户在同一处看到结果。</div>
+  </section>
+
+  <section id="desktop">
+    <div class="sec-head"><div><div class="no">03 · Desktop</div><h2>桌面工作台：设备栏 + 目标条 + 时间线</h2></div><p>侧栏去掉「周边设备」独立入口；它成为「消息发送」页里的左侧设备栏。服务中心、CC设置保持不变。</p></div>
+    <div class="panel">
+      <div class="merge">
+        <aside class="merge-side"><div class="merge-brand"><span class="mini-logo">CC</span>CC-Flash</div><div class="merge-nav"><span class="on"><span>✈</span>消息发送</span><span><span>▤</span>服务中心</span><span><span>⚙</span>CC设置</span></div></aside>
+        <aside class="merge-rail">
+          <div class="k">本机 · 本机共享</div><div class="rail-self"><span class="mini-logo">CC</span><div><b>本机共享</b><small>房间 · 文件 + 聊天</small></div></div>
+          <div class="k">周边设备 · 3 台</div>
+          <div class="rail-dev on"><span class="dot"></span><span class="nm">MacBook Pro</span><small>在线</small></div>
+          <div class="rail-dev"><span class="dot" style="background:var(--warn)"></span><span class="nm">iPhone 15</span><small>忙碌</small></div>
+          <div class="rail-dev"><span class="dot"></span><span class="nm">客厅电脑</span><small>可发送</small></div>
+          <div class="rail-actions"><span>刷新</span></div>
+        </aside>
+        <div class="merge-main">
+          <div class="merge-top"><b>消息发送</b><span class="mini-status">● 实时</span></div>
+          <div class="targetbar">发送到：<span class="target-chip">本机共享</span><span class="target-chip on">MacBook Pro</span><span style="margin-left:auto;color:var(--ink3)">✕ 切回本机</span></div>
+          <div class="merge-chat"><div class="merge-msg">同一 Wi-Fi · 局域网实时互通</div><div class="merge-msg me">房间里的文件与消息照旧</div><div class="receipt">已向 MacBook Pro 发送：设计稿.zip</div><div class="merge-msg me">直发成功后，时间线留一条回执</div></div>
+          <div class="merge-composer"><span class="b">＋</span><span class="b" style="border-color:var(--accent);color:var(--accent)">→ MacBook Pro</span><span class="box"></span><span class="b">直发</span></div>
+          <div class="mini-note">点左侧设备只切换目标；不再打开弹窗。输入栏「＋」里的文件/文件夹/粘贴/共享文件都跟随当前目标；剪贴板从「粘贴」进入。</div>
+        </div>
+        <aside class="merge-files"><div class="k">共享文件</div><div class="file-mini"><span class="mini-file">PDF</span><span class="mini-lines"><i></i><i></i></span></div><div class="file-mini"><span class="mini-file">IMG</span><span class="mini-lines"><i></i><i></i></span></div><div class="file-mini"><span class="mini-file">ZIP</span><span class="mini-lines"><i></i><i></i></span></div></aside>
+      </div>
+      <div class="merge-legend"><span><b>左栏</b> 本机共享 + 周边设备（原独立页）</span><span><b>目标条</b> 当前发送对象，永远可见</span><span><b>时间线</b> 房间消息 + 直发回执</span><span><b>输入栏</b> 跟随目标切换</span><span><b>右栏</b> 原共享文件抽屉</span></div>
+    </div>
+    <div class="grid2" style="margin-top:14px"><div class="callout"><b>去掉的入口：</b>侧栏「周边设备」独立页、聊天页顶部重复设备条、给设备发消息弹窗。设备选择只在左栏完成。</div><div class="callout"><b>保留的入口：</b>服务中心、CC设置、托盘、悬浮码、共享文件抽屉、聊天时间线、输入栏「＋」、共享剪贴板。</div></div>
+  </section>
+
+  <section id="mobile">
+    <div class="sec-head"><div><div class="no">04 · Mobile</div><h2>手机端：目标横条 + 设备面板</h2></div><p>推荐把「发现」并进「发送」：底部只留「发送 / 设置」，周边设备成为发送页顶部的目标横条与可展开设备面板。</p></div>
+    <div class="grid2">
+      <div class="wire phone-merge"><div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">推荐 · 发送 / 设置</span></div><div class="wire-body">
+        <div class="mini-head"><span class="mini-logo">CC</span><b>发送 <small>已连接 · 3 台设备</small></b><span class="mini-status">● 实时</span></div>
+        <div class="mobile-target"><span class="on">本机共享</span><span>MacBook</span><span>iPhone</span><span>全部设备</span></div>
+        <div class="mini-drop"><b>聊天 / 文件 / 直发</b><small>输入栏跟随目标切换</small></div>
+        <div class="mini-card"><div class="k">输入框</div><div class="row"><span style="flex:1;height:18px;border-radius:6px;border:1px solid var(--line);background:var(--card)"></span><span style="font-size:8px;color:var(--accent)">粘贴</span><span style="font-size:8px;color:var(--accent)">发送</span></div></div>
+        <div class="mini-tabs"><span class="on">发送</span><span>设置</span></div><div class="mini-note">点设备 = 选中目标；输入栏显示「→ 设备」；发送后时间线出现回执。</div>
+      </div></div>
+      <div class="wire phone-merge"><div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">设备面板 · 从顶部展开</span></div><div class="wire-body">
+        <div class="mini-head"><span class="mini-logo">CC</span><b>周边设备 <small>本机共享 + 3 台</small></b><span class="mini-status">● 实时</span></div>
+        <div class="mobile-sheet"><div class="k">本机</div><div class="rail-dev"><span class="mini-logo" style="width:20px;height:20px;font-size:7px">CC</span><span class="nm">本机共享</span><small>房间</small></div><div class="k" style="margin-top:6px">周边设备</div><div class="rail-dev on"><span class="dot"></span><span class="nm">MacBook Pro</span><small>在线</small></div><div class="rail-dev"><span class="dot" style="background:var(--warn)"></span><span class="nm">iPhone 15</span><small>忙碌</small></div><div class="rail-dev"><span class="dot"></span><span class="nm">客厅电脑</span><small>可发送</small></div><div class="rail-actions"><span>刷新</span></div></div>
+        <div class="mini-note">没有独立「发现」Tab；设备面板就是原来的周边设备页，收起后回到发送页。</div>
+      </div></div>
+    </div>
+    <div class="callout" style="margin-top:14px"><b>保守变体：</b>如果暂时不想动底部三标签，可保留「发现 / 发送 / 设置」，但「发现」只作为设备目录；点设备后进入「发送」并自动选中该目标，不再打开直发弹窗。推荐版本少一个 Tab，路径更短。</div>
+  </section>
+
+  <section id="states">
+    <div class="sec-head"><div><div class="no">05 · States</div><h2>目标切换后的输入栏状态</h2></div><p>整合的关键不是布局，而是让“当前发给谁”始终可见、可切换、可撤销。</p></div>
+    <div class="table-wrap"><table><thead><tr><th style="width:150px">当前目标</th><th>输入栏 / 提示</th><th>发送动作</th><th>时间线反馈</th></tr></thead><tbody>
+      <tr><td><b>本机共享</b>（默认）</td><td>占位“说点什么…”；无目标 chip</td><td>发到房间聊天；文件传共享目录</td><td>正常消息/文件卡片</td></tr>
+      <tr><td><b>设备 A</b>（在线）</td><td>占位“发送到 设备 A…”；输入栏显示 `→ 设备 A`</td><td>文本投递到对方聊天；文件投递到对方共享目录</td><td>追加“已向 设备 A 发送…”回执</td></tr>
+      <tr><td><b>设备 A</b>（忙碌）</td><td>目标 chip 带忙碌点；仍可发送</td><td>同在线；失败给出明确原因</td><td>回执显示成功/失败</td></tr>
+      <tr><td><b>设备 A</b>（离线）</td><td>chip 变灰；提示“设备已离线，切回本机？”</td><td>禁止直发或自动回本机共享</td><td>不出回执；toast 说明</td></tr>
+      <tr><td><b>共享剪贴板</b></td><td>与目标无关；剪贴板按钮始终可用</td><td>发布/复制走现有 /api/clipboard</td><td>不产生聊天消息</td></tr>
+    </tbody></table></div>
+  </section>
+
+  <section id="flow">
+    <div class="sec-head"><div><div class="no">06 · Before / After</div><h2>路径从 5 步收敛到 3 步</h2></div><p>不是把功能搬家，而是把“选设备 → 发内容 → 看结果”放在同一屏。</p></div>
+    <div class="grid2">
+      <div class="panel"><div class="node-k" style="font-size:10px;letter-spacing:1px;color:var(--danger);font-weight:800;text-transform:uppercase;margin-bottom:8px">Before · 分散</div><div class="ia-flow" style="flex-direction:column"><div class="ia-step"><div class="no">1</div><b>进入周边设备页</b><p>离开聊天，找设备。</p></div><div class="ia-step"><div class="no">2</div><b>点设备 → 打开直发弹窗</b><p>再选文件/文本/剪贴板。</p></div><div class="ia-step"><div class="no">3</div><b>发送 → 弹窗关闭</b><p>找不到回执。</p></div><div class="ia-step"><div class="no">4</div><b>切回消息发送页</b><p>继续房间聊天又是一套上下文。</p></div></div></div>
+      <div class="panel"><div class="node-k" style="font-size:10px;letter-spacing:1px;color:var(--accent);font-weight:800;text-transform:uppercase;margin-bottom:8px">After · 一个工作台</div><div class="ia-flow" style="flex-direction:column"><div class="ia-step after"><div class="no">1</div><b>在消息发送页点设备</b><p>左侧设备栏/顶部目标条直接选中。</p></div><div class="ia-step after"><div class="no">2</div><b>输入栏自动切到「→ 设备」</b><p>文件/文本/剪贴板仍走同一个「＋ → 粘贴」。</p></div><div class="ia-step after"><div class="no">3</div><b>发送 → 同页出现回执</b><p>时间线看到“已发送到 X”，目标 chip 可切回本机。</p></div></div></div>
+    </div>
+  </section>
+
+  <section id="impl">
+    <div class="sec-head"><div><div class="no">07 · Implementation</div><h2>前端整合，后端 0 改动</h2></div><p>复用现有设备发现、直发接口和聊天时间线；只调整信息架构与状态。</p></div>
+    <div class="table-wrap"><table><thead><tr><th style="width:190px">区域</th><th>改动</th><th style="width:120px">预计</th><th style="width:110px">风险</th></tr></thead><tbody>
+      <tr><td><b>设备栏/目标条</b></td><td>新增 `sendTarget`（null=本机共享，设备对象=直发）；左栏/横条读取 `peersSorted`；点设备只设置目标。</td><td><span class="tag keep">+120 行</span></td><td><span class="tag keep">低</span></td></tr>
+      <tr><td><b>输入栏路由</b></td><td>`sendChat` / 文件选择按 `sendTarget` 分流：本机共享走房间，目标设备走现有 peer 投递；发送后追加回执。</td><td><span class="tag slim">+80 行</span></td><td><span class="tag keep">低</span></td></tr>
+      <tr><td><b>去独立页/弹窗</b></td><td>删除侧栏「周边设备」入口与 `view === 'discover'` 页面；删除 peer send 弹窗；桌面设备条并入左栏。</td><td><span class="tag remove">-400 行</span></td><td><span class="tag slim">中（导航变化）</span></td></tr>
+      <tr><td><b>手机端</b></td><td>推荐：底部 2 标签（发送/设置）；发送页顶部目标横条 + 设备面板；点设备进入发送并选中。保守：保留 3 标签，发现只做目录。</td><td><span class="tag keep">+100 行</span></td><td><span class="tag slim">中</span></td></tr>
+      <tr><td><b>浏览器</b></td><td>不变：无发现、无设备栏、原始聊天室单页。</td><td><span class="tag keep">0</span></td><td><span class="tag keep">无</span></td></tr>
+      <tr><td><b>后端</b></td><td>0 改动：继续使用 `/api/devices`、`/api/hello`、`/api/chat`、`/api/upload`、`/api/clipboard`。</td><td><span class="tag keep">0</span></td><td><span class="tag keep">无</span></td></tr>
+    </tbody></table></div>
+    <div class="grid3" style="margin-top:14px"><div class="callout"><b>保留：</b>聊天室、文件抽屉、共享剪贴板、服务中心、CC设置、托盘/悬浮码全部不动；只是把设备选择搬进消息页。</div><div class="callout"><b>删除：</b>周边设备独立页、直发弹窗、桌面重复设备条、手机独立发现 Tab（推荐版）。</div><div class="callout"><b>不做：</b>不新增私聊历史/会话表；直发仍是投递到对方公共聊天，回执只在本机时间线展示。</div></div>
+  </section>
+
+  <section id="acceptance">
+    <div class="sec-head"><div><div class="no">08 · Acceptance</div><h2>验收：一条路径、一个屏、一个目标</h2></div><p>用户不需要记住“现在在哪个页面/哪个弹窗”，只需要看输入栏上的目标 chip。</p></div>
+    <div class="accept">
+      <div class="item"><div class="k">桌面入口</div><div class="v">1 <em>个</em></div><div class="d">消息发送（设备栏内置）</div></div>
+      <div class="item"><div class="k">独立周边设备页</div><div class="v">0 <em>个</em></div><div class="d">并入左栏/设备面板</div></div>
+      <div class="item"><div class="k">直发弹窗</div><div class="v">0 <em>个</em></div><div class="d">输入栏目标状态替代</div></div>
+      <div class="item"><div class="k">手机底部标签</div><div class="v">2 <em>个</em></div><div class="d">发送 / 设置（推荐）</div></div>
+      <div class="item"><div class="k">选设备到发送</div><div class="v">≤ 3 <em>步</em></div><div class="d">点设备 → 输入 → 发送</div></div>
+      <div class="item"><div class="k">目标可见</div><div class="v">始终 <em>✓</em></div><div class="d">顶部目标条 + 输入栏 chip</div></div>
+      <div class="item"><div class="k">发送回执</div><div class="v">同页 <em>✓</em></div><div class="d">时间线本地回执</div></div>
+      <div class="item"><div class="k">聊天/文件/剪贴板</div><div class="v">不变 <em>✓</em></div><div class="d">现有能力全部保留</div></div>
+      <div class="item"><div class="k">后端</div><div class="v">0 <em>改动</em></div><div class="d">复用现有接口</div></div>
+      <div class="item"><div class="k">响应式</div><div class="v">320–1440 <em>✓</em></div><div class="d">无横向溢出/遮挡</div></div>
+    </div>
+  </section>
+
+  <section id="risks">
+    <div class="sec-head"><div><div class="no">09 · Trade-offs</div><h2>取舍与边界</h2></div><p>整合不是把入口藏起来；设备栏/目标条必须始终可见，用户才不会“找不到周边设备”。</p></div>
+    <div class="panel">
+      <div class="risk"><div class="ic">!</div><div><b>导航变化</b><p>桌面去掉「周边设备」侧栏入口，老用户可能找不到。缓解：消息页左栏常驻设备区；手机顶部有「全部设备」；扫码 / 复制地址仍走顶栏与服务中心，不在设备栏底部重复。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>直发不是私聊</b><p>现有直发会进入对方公共聊天/共享目录，同网段可见。回执和目标 chip 要明确写「发送到设备」，避免误以为是私聊。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>设备为空/离线</b><p>左栏/横条给出空态，并提示用顶栏扫码或复制地址；目标设备离线时禁用直发并提示切回本机；不要保留离线目标。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>目标状态污染</b><p>目标 device 对象可能在轮询中消失；用 id 匹配最新 peers，目标消失即回落本机共享并 toast；发送前再校验地址/端口。</p></div></div>
+      <div class="risk"><div class="ic">!</div><div><b>手机端标签减少</b><p>推荐 2 标签是为了缩短路径；如果坚持 3 标签，用保守变体：发现只做目录，点设备后切到发送并选中目标，不再弹窗。</p></div></div>
+    </div>
+  </section>
+
+  <section id="conclusion">
+    <div class="sec-head"><div><div class="no">10 · Conclusion</div><h2>一句话版本</h2></div><p>把“设备”变成输入栏的目标，把“直发”变成发送页的一种状态，把“回执”留在同一条时间线。</p></div>
+    <div class="panel" style="display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap"><div style="max-width:800px"><p style="margin:0;font-size:15px;line-height:1.85;color:var(--ink2)">桌面：消息发送页 = 左侧设备栏 + 顶部目标条 + 聊天时间线 + 共享文件抽屉；点设备只切换目标，直发不弹窗。手机：发送页顶部目标横条 + 设备面板；推荐底部只留「发送 / 设置」。浏览器：保持无发现的原始聊天室。聊天、文件、剪贴板全部不动，后端 0 改动。</p></div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill"><b>一个工作台</b></span><span class="pill"><b>目标始终可见</b></span><span class="pill"><b>无直发弹窗</b></span></div></div>
+  </section>
+
+  <footer class="foot"><span><b>CC Flash · 消息发送与周边设备整合方案</b> · 2026-11-18</span><span>设备 / 目标 / 直发 / 回执，收进同一屏。</span></footer>
+</main>
+
+
+<div class="wrap" id="final-diff" style="padding-bottom:44px">
+  <div class="sec-head"><div><div class="no">11 · Final</div><h2>最终落地差异（v1.2.3）</h2></div><p>方案主体已按本文实现；以下是与原稿的几处收敛。</p></div>
+  <div class="callout"><b>1. 设备栏不再重复扫码 / 复制</b>最终版左栏为本机身份卡 + 扫描雷达 + 附近设备列表（在线 / 忙碌 / 最近活跃），底部二维码与复制地址已移除——顶栏、服务中心、二维码弹窗已经覆盖，重复入口反而增加视觉负担。</div>
+  <div class="callout" style="margin-top:10px"><b>2. 手机 App 两标签</b>底部只有「发送 / 设置」；发送页顶部目标横条 +「全部设备」设备面板。手机浏览器不渲染标签，仍是原聊天室单页。</div>
+  <div class="callout" style="margin-top:10px"><b>3. 直发范围</b>桌面 / 手机 App 选中设备后，文本走对方 <code>/api/chat</code>、文件走对方 <code>/api/upload</code>，本机时间线追加回执；共享剪贴板仍走共享槽，不绑定单台设备。</div>
+  <div class="callout" style="margin-top:10px"><b>4. 布局</b>桌面侧栏 192px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层，≤980px 进入窄屏。</div>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById("themeBtn");
+    var icon = document.getElementById("themeIcon");
+    var text = document.getElementById("themeText");
+    function apply(mode) {
+      root.setAttribute("data-theme", mode);
+      icon.textContent = mode === "dark" ? "☀" : "☾";
+      text.textContent = mode === "dark" ? "亮色" : "暗色";
+      try { localStorage.setItem("ccflash-doc-theme", mode); } catch (e) {}
+    }
+    var saved = "light";
+    try { saved = localStorage.getItem("ccflash-doc-theme") || "light"; } catch (e) {}
+    apply(saved);
+    btn.addEventListener("click", function () {
+      apply(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    });
+
+    // 滚动定位高亮
+    var links = [].slice.call(document.querySelectorAll("#nav a"));
+    var targets = links.map(function (a) {
+      return document.querySelector(a.getAttribute("href"));
+    }).filter(Boolean);
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          links.forEach(function (a) {
+            a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id);
+          });
+        });
+      }, { rootMargin: "-30% 0px -60% 0px", threshold: 0 });
+      targets.forEach(function (t) { io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

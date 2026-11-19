@@ -12,6 +12,8 @@ export default defineConfig({
   },
   esbuild: {
     legalComments: "none",
+    // 生产包去掉 console/debugger: 体积更小, 也避免把调试输出带到用户端
+    drop: ["console", "debugger"],
   },
   server: {
     port: 5173,
@@ -41,5 +43,9 @@ export default defineConfig({
     target: "es2021",
     // ≤200KB 的图片直接内联为 base64: 失联提示图必须在断网前就在页面内存里, 不能靠断连后的请求
     assetsInlineLimit: 200 * 1024,
+    minify: "esbuild",
+    cssMinify: "esbuild",
+    sourcemap: false,
+    reportCompressedSize: false,
   },
 });
