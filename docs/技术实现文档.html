@@ -660,7 +660,7 @@ npm run tauri build
 <ul>
 <li><code>App.vue</code> 以 <code>mobileShell</code> / <code>isDesktop</code> 判定壳层：桌面壳显示 176px 侧栏与消息工作台；手机 App 只渲染「发送 / 设置」两标签；手机 / 电脑浏览器保持原聊天室，不渲染底部标签，<code>setView</code> 把 discover / settings 映射回 transfer。</li>
 <li>工作台状态：<code>sendTarget</code>、<code>deviceInlineOpen</code>、<code>devicePanelInline</code>、<code>directReceipts</code>、<code>directSending</code>、<code>showDeviceRail</code>。宽屏桌面左侧 200px 设备栏与窄窗/手机内联设备面板共用同一段模板与 <code>selectSendTarget</code>（Teleport 到聊天头部下方，不弹窗）；直发文本走对方 <code>/api/chat</code>，文件走 <code>/api/upload</code>，本地时间线追加回执。</li>
-<li>布局断点：文件抽屉 320–380px，981–1180px 改为带遮罩覆盖层；≤980px 进入窄屏：宽屏桌面显示 200px 设备栏，窄窗桌面与手机 App 在聊天头部显示「设备」入口，点击后展开竖屏整页设备面板（Teleport，聊天列表/输入栏隐藏，不弹窗）；选中设备后面板自动收起。雷达保留「扫描雷达」标题、去掉雷达内空态文字，直径 156px（面板内 184px），另附在线/忙碌/离线图例。</li>
+<li>布局断点：文件抽屉 320–380px，981–1180px 改为带遮罩覆盖层；≤980px 进入窄屏：宽屏桌面显示 200px 设备栏；窄窗桌面与手机 App 在聊天头部左侧显示「设备」入口，点击展开 360px 竖屏设备侧栏（手机 ≤430px 全屏覆盖），不弹窗，选中设备自动收起。雷达去掉「扫描雷达」标题，尺寸 140/200/230px，图例在雷达卡片底部。</li>
 </ul>
 <h3>A.2 共享剪贴板同步（2026-11-19 改为可选）</h3>
 <ul>

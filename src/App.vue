@@ -4132,8 +4132,8 @@ const INTRO_FAQS = [
   { q: "支持哪些平台？", a: "桌面端提供 macOS（11.0+）与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK（默认独立节点，可切换连接电脑）。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。" },
   { q: "电脑换了 IP 或换了另一台电脑怎么办？", a: "手机浏览器直接打开电脑端显示的新地址即可。Android App：若当前处于「连接电脑」模式且地址失效，在「无信号」页面点「重新启动本机服务」会回到本机节点，或到「CC设置 → 连接电脑」重新填写地址；也可点「切回本机节点」。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。" },
   { q: "「周边设备」和「发现」去哪了？", a: "设备发现已并入发送工作台：桌面端点侧栏「消息发送」，左侧是 Snapdrop 风格设备栏（本机身份卡 + 扫描雷达 + 附近设备，显示在线/忙碌/最近活跃）；窗口窄于 980px 时设备栏收起，聊天头部左侧出现「设备」入口，点开后展开竖屏整页设备面板（不弹窗）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口同样展开竖屏整页设备面板；手机浏览器保持原聊天室单页，不做发现。选中设备后，输入框会切换成直发，消息 / 文件直接送到对方节点并追加回执。注意：投递内容会进入对方的公共聊天与共享目录，同网段设备可见，请勿发送敏感内容。找不到设备时：先在「故障诊断」确认两侧都是「局域网可见」；macOS 允许「本地网络」权限，Windows 防火墙放行专用网络 UDP 53318-53321；两侧需在同一 Wi-Fi/子网（访客网络、AP 隔离、有线/无线不同子网都会互相不可见，VPN/Tailscale 不参与发现）。诊断里可输入对方 IP 做单播探测，仍不行就用「手动发送」走 IP:端口（TCP）。" },
-  { q: "共享剪贴板怎么用？需要开开关吗？", a: "系统剪贴板自动同步默认关闭，在 CC设置「系统剪贴板自动同步」打开后生效：电脑复制的文本会同步给已配对设备，手机复制的文本写入电脑系统剪贴板。所有文本（含令牌/验证码）都会同步，不做内容过滤。浏览器在 http://局域网IP 下不能自动读写系统剪贴板：点输入栏「粘贴」会回填电脑端共享的文本；在聊天输入框长按「粘贴」时，文本也会回传电脑。" },
-  { q: "手机 App 会把我的文件暴露到 Wi-Fi 吗？", a: "默认只监听 127.0.0.1（安全模式），且手机会自动生成本机访问令牌——同机其他 App 也无法直连本机服务。首次运行会弹框询问是否允许同 Wi-Fi 设备发现本机；选「开启（推荐）」后自动开启局域网访问并重启服务，其他设备需输入本机配对码。也可稍后在「设置 → 本机服务」修改。Android 会用前台服务通知保持传输不被系统冻结（系统对后台保活有 6 小时/24 小时配额）。" },
+  { q: "共享剪贴板怎么用？需要开开关吗？", a: "默认关闭，在 CC设置「系统剪贴板自动同步」打开后生效：电脑与手机双向同步复制的文本（含令牌/验证码等任意内容）。浏览器在 http://局域网IP 下点输入栏「粘贴」可回填电脑端文本；在聊天输入框长按粘贴会回传电脑。" },
+  { q: "手机 App 会把我的文件暴露到 Wi-Fi 吗？", a: "手机始终开放局域网并自动生成本机访问令牌；同网段设备可发现手机，但读取/发送需要输入本机配对码，同机其他 App 也无法直连。CC设置不再提供局域网开关。Android 前台服务会保持传输不被系统冻结（系统有 6 小时/24 小时后台配额）。" },
   { q: "访问令牌和分享链接安全吗？", a: "访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，公网来源还受全局失败预算约束，锁定期间正确码也会被拒。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；文件被删除或同名重传后旧链接立即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。" },
   { q: "浏览器里能「安装」成应用吗？", a: "通过 https 或 localhost 访问时可以安装为 PWA 并离线缓存界面壳（设置 → 安装到主屏幕）；通过 http://局域网IP 访问时浏览器内核禁用 Service Worker 与安装能力，只能「添加到主屏幕」创建快捷方式（不缓存离线，iOS Safari 同样支持）。桌面端与 Android 建议直接使用原生安装包。" },
   { q: "一条消息最多能发多长？", a: "单条上限 200000 字符（按 Unicode 字符计数，emoji 算 1 个）；输入栏会实时显示当前字数，超限时禁止发送并提示删减。聊天历史保留最近 200 条，并限制总量 200 万字符，超出时从最旧的消息开始淘汰。" },
@@ -5131,7 +5131,6 @@ async function refreshStatus() {
               <span class="tx-idcard-main"><b>{{ curNick }}</b><small>{{ running ? (lanActive ? "这是你 · 可被发现" : "这是你 · 仅本机") : "服务未启动" }}</small></span>
             </button>
             <div class="tx-radar-wrap">
-            <div class="tx-sec-label"><span>扫描雷达</span><small v-if="!running">服务未启动</small></div>
             <div class="tx-radar" :class="{ scanning: running, probing: radarScanning, disabled: !running }"
                  role="button" tabindex="0" :aria-disabled="!running"
                  :title="running ? '点击主动扫描周边设备' : '服务未启动'"
@@ -5649,7 +5648,7 @@ async function refreshStatus() {
           <div class="setting-row">
             <div class="setting-info">
               <div class="setting-title">系统剪贴板自动同步</div>
-              <div class="setting-desc">默认关闭。开启后本机复制的文本会自动同步到已配对设备（含令牌/验证码等任意文本）；公共网络请谨慎开启</div>
+              <div class="setting-desc">默认关闭；开启后电脑与手机双向同步复制的文本</div>
             </div>
             <button class="switch" :class="{ on: clipSyncEnabled }" role="switch" :aria-checked="clipSyncEnabled"
                     :title="clipSyncEnabled ? '点击关闭' : '点击开启'" @click="toggleClipSync">
@@ -5692,7 +5691,7 @@ async function refreshStatus() {
           <div class="setting-row" v-if="!serverAddr || isLocalAddr(serverAddr)">
             <div class="setting-info">
               <div class="setting-title">系统剪贴板自动同步</div>
-              <div class="setting-desc">默认关闭。开启后本机复制的文本会自动同步到已配对设备（含令牌/验证码等任意文本）</div>
+              <div class="setting-desc">默认关闭；开启后电脑与手机双向同步复制的文本</div>
             </div>
             <button class="switch" :class="{ on: clipSyncEnabled }" role="switch" :aria-checked="clipSyncEnabled"
                     :title="clipSyncEnabled ? '点击关闭' : '点击开启'" @click="toggleClipSync">
@@ -5963,7 +5962,7 @@ async function refreshStatus() {
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></div>
           <h3>共享剪贴板</h3>
           <p>电脑复制、手机直接粘贴；手机复制的文本写入电脑系统剪贴板。系统剪贴板自动同步<b>默认关闭</b>，可在 CC设置 打开；所有文本都会同步（包括令牌/验证码）；公共网络请自行判断是否开启。输入栏「粘贴」是唯一入口：电脑的文本点一下直接回填；浏览器在 HTTP 局域网下受限时，长按聊天输入框粘贴的文本也会回传电脑。2 万字上限，只同步文本。</p>
-          <div class="tags"><span class="tag">可选双向同步</span><span class="tag">凭据不外发</span><span class="tag">浏览器兜底</span></div>
+          <div class="tags"><span class="tag">可选双向同步</span><span class="tag">任意文本同步</span><span class="tag">浏览器兜底</span></div>
         </div>
       </div>
     </section>
