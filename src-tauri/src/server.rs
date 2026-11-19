@@ -708,7 +708,9 @@ fn iface_index(name: &str) -> Option<u32> {
 /// interface index → 网卡名: 链路本地 IPv6 的 URL 必须带 zone(%en0 / %25en0)
 #[cfg(unix)]
 fn iface_name(index: u32) -> Option<String> {
-    let mut buf = [0i8; 128];
+    // c_char 的平台类型不同: macOS/iOS 是 i8, Android(bionic) 是 u8。
+    // 写死 [0i8; 128] 会让 Android 目标编译失败(expected *mut u8, found *mut i8)。
+    let mut buf = [0 as libc::c_char; 128];
     let p = unsafe { libc::if_indextoname(index, buf.as_mut_ptr()) };
     if p.is_null() {
         return None;

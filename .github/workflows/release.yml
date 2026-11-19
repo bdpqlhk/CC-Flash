@@ -65,7 +65,9 @@ jobs:
             exit 1
           fi
           echo "版本校验通过: $GITHUB_REF_NAME (应用版本 $ver, versionCode $actual)"
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          # CCFLASH_BUILD_VERSION 只影响应用内展示: 去掉 tag 的 v 前缀,
+          # 前端统一自己加 v, 避免出现 "vv1.2.4"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: 创建/确认草稿 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
