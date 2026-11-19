@@ -3008,11 +3008,35 @@ const isMacDesktop = computed(() => isRealDesktop && /Macintosh|Mac OS X/.test(n
 const isWinDesktop = computed(() => isRealDesktop && /Windows/.test(navigator.userAgent));
 const showNetworkSettingsButton = computed(() => isMacDesktop.value || isWinDesktop.value);
 const diagnosticsOpen = ref(false);
+const probeIp = ref("");
+const probeSending = ref(false);
 function openDiagnostics() { diagnosticsOpen.value = true; }
 function closeDiagnostics() { diagnosticsOpen.value = false; }
 function diagGoService() { diagnosticsOpen.value = false; setView(isRealDesktop ? "service" : "settings"); }
 function diagOpenQr() { diagnosticsOpen.value = false; openQr(); }
 function diagManualSend() { diagnosticsOpen.value = false; openManualSend(); }
+/* 手动单播探测: 多播/广播被交换机或防火墙拦截时的兜底 */
+async function probePeerByIp() {
+  const ip = String(probeIp.value || "").trim().replace(/^\[|\]$/g, "");
+  if (!ip || probeSending.value) return;
+  if (!isLanHost(ip)) { showToast("请输入局域网 IP（如 192.168.1.8）", "error"); return; }
+  probeSending.value = true;
+  try {
+    const r = await apiFetch(apiBase.value + "/api/discovery/probe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { showToast(d.error || "探测失败", "error"); return; }
+    showToast(`已向 ${ip} 发送探测，等待对方回包`);
+    setTimeout(() => refreshPeers(), 900);
+  } catch (e) {
+    showToast("探测失败，请检查网络", "error");
+  } finally {
+    probeSending.value = false;
+  }
+}
 async function openNetworkSettings() {
   if (!showNetworkSettingsButton.value) return;
   const url = isMacDesktop.value
@@ -4110,7 +4134,7 @@ const INTRO_FAQS = [
   { q: "关闭窗口后服务会停止吗？", a: "不会。关窗只是把窗口收进系统托盘，服务继续保持运行，手机端不受影响；开机自启默认关闭，可在「CC设置」中手动开启。真正退出请点托盘菜单中的「退出」。" },
   { q: "支持哪些平台？", a: "桌面端提供 macOS（11.0+）与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK（默认独立节点，可切换连接电脑）。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。" },
   { q: "电脑换了 IP 或换了另一台电脑怎么办？", a: "手机浏览器直接打开电脑端显示的新地址即可。Android App：若当前处于「连接电脑」模式且地址失效，在「无信号」页面点「重新启动本机服务」会回到本机节点，或到「CC设置 → 连接电脑」重新填写地址；也可点「切回本机节点」。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。" },
-  { q: "「周边设备」和「发现」去哪了？", a: "设备发现已并入发送工作台：桌面端点侧栏「消息发送」，左侧是 Snapdrop 风格设备栏（本机身份卡 + 扫描雷达 + 附近设备，显示在线/忙碌/最近活跃）；窗口窄于 980px 时设备栏收起，聊天头部出现「设备」入口，点开后在头部下方内联展开同一套面板（不弹窗）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口同样内联展开；手机浏览器保持原聊天室单页，不做发现。选中设备后，输入框会切换成直发，消息 / 文件直接送到对方节点并追加回执。注意：投递内容会进入对方的公共聊天与共享目录，同网段设备可见，请勿发送敏感内容。找不到设备时：macOS 允许「本地网络」权限、Windows 防火墙放行 UDP 53318、手机 App 在设置里开启「局域网访问」。" },
+  { q: "「周边设备」和「发现」去哪了？", a: "设备发现已并入发送工作台：桌面端点侧栏「消息发送」，左侧是 Snapdrop 风格设备栏（本机身份卡 + 扫描雷达 + 附近设备，显示在线/忙碌/最近活跃）；窗口窄于 980px 时设备栏收起，聊天头部出现「设备」入口，点开后在头部下方内联展开同一套面板（不弹窗）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口同样内联展开；手机浏览器保持原聊天室单页，不做发现。选中设备后，输入框会切换成直发，消息 / 文件直接送到对方节点并追加回执。注意：投递内容会进入对方的公共聊天与共享目录，同网段设备可见，请勿发送敏感内容。找不到设备时：先在「故障诊断」确认两侧都是「局域网可见」；macOS 允许「本地网络」权限，Windows 防火墙放行专用网络 UDP 53318-53321；两侧需在同一 Wi-Fi/子网（访客网络、AP 隔离、有线/无线不同子网都会互相不可见，VPN/Tailscale 不参与发现）。诊断里可输入对方 IP 做单播探测，仍不行就用「手动发送」走 IP:端口（TCP）。" },
   { q: "共享剪贴板怎么用？需要开开关吗？", a: "系统剪贴板自动同步默认关闭，在 CC设置「系统剪贴板自动同步」打开后生效：电脑复制的文本会同步给已配对设备，手机复制的文本写入电脑系统剪贴板。访问令牌/对方配对码会被自动排除，不进入共享内容。浏览器在 http://局域网IP 下不能自动读写系统剪贴板：点输入栏「粘贴」会回填电脑端共享的文本；在聊天输入框长按「粘贴」时，文本也会回传电脑。共享剪贴板跨设备读取需要访问令牌。" },
   { q: "手机 App 会把我的文件暴露到 Wi-Fi 吗？", a: "默认只监听 127.0.0.1（安全模式），且手机会自动生成本机访问令牌——同机其他 App 也无法直连本机服务。首次运行会弹框询问是否允许同 Wi-Fi 设备发现本机；选「开启（推荐）」后自动开启局域网访问并重启服务，其他设备需输入本机配对码。也可稍后在「设置 → 本机服务」修改。Android 会用前台服务通知保持传输不被系统冻结（系统对后台保活有 6 小时/24 小时配额）。" },
   { q: "访问令牌和分享链接安全吗？", a: "访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，公网来源还受全局失败预算约束，锁定期间正确码也会被拒。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；文件被删除或同名重传后旧链接立即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。" },
@@ -5130,16 +5154,16 @@ async function refreshStatus() {
                       :aria-label="'发送到 ' + (p.nickname || '设备')"
                       @click.stop="selectSendTarget(p)"></button>
             </div>
+            <div class="tx-dev-legend" aria-label="设备状态图例">
+              <span><i class="online"></i>在线</span>
+              <span><i class="busy"></i>忙碌</span>
+              <span><i class="away"></i>离线</span>
+            </div>
             </div>
             <div class="tx-devices-sub"><span>附近设备</span>
               <button class="tx-devices-scan" :disabled="!running" :title="running ? '主动扫描（发送 UDP probe）' : '服务未启动'" aria-label="重新扫描" @click="refreshDiscover">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7L21 16"/><path d="M21 21v-5h-5"/></svg>
               </button>
-            </div>
-            <div class="tx-dev-legend" aria-label="设备状态图例">
-              <span><i class="online"></i>在线</span>
-              <span><i class="busy"></i>忙碌</span>
-              <span><i class="away"></i>离线</span>
             </div>
             <div class="tx-devices-list">
               <button v-for="p in peersSorted" :key="p.id" class="tx-device" :class="{ on: sendTarget && sendTarget.id === p.id, busy: p.busy }"
@@ -5170,12 +5194,21 @@ async function refreshStatus() {
             </section>
           </aside>
           </Teleport>
-          <section class="tx-chat">
+          <section class="tx-chat" :class="{ 'device-page-open': devicePanelInline }">
             <div v-if="isRealDesktop && !running" class="tx-service-bar">
               <span>🔒 服务未启动，手机暂时无法访问</span>
               <button @click="setView('service')">去启动</button>
             </div>
             <header class="tx-head" :class="{ slim: isRealDesktop }">
+              <!-- 窄窗/手机: 设备入口靠左，与右侧共享文件同一行；点击展开竖屏设备面板 -->
+              <button v-if="canTargetDevices && (isNarrow || !isRealDesktop)"
+                      class="tx-hbtn tx-dev-btn tx-dev-btn-left" :class="{ on: deviceInlineOpen }"
+                      :title="deviceInlineOpen ? '收起周边设备' : '展开周边设备'"
+                      :aria-expanded="deviceInlineOpen ? 'true' : 'false'"
+                      @click.stop="deviceInlineOpen = !deviceInlineOpen">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v3.4M12 16.6V20M4 12h3.4M16.6 12H20M6.3 6.3l2.4 2.4M15.3 15.3l2.4 2.4M17.7 6.3l-2.4 2.4M8.7 15.3l-2.4 2.4"/><circle cx="12" cy="12" r="2"/></svg>
+                <span>设备</span>
+              </button>
               <div v-if="isRealDesktop" class="tx-room-brief">
                 <button v-if="canTargetDevices && deviceRailCollapsed" class="tx-rail-open" title="展开周边设备" @click="toggleDeviceRail">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v3.4M12 16.6V20M4 12h3.4M16.6 12H20M6.3 6.3l2.4 2.4M15.3 15.3l2.4 2.4M17.7 6.3l-2.4 2.4M8.7 15.3l-2.4 2.4"/><circle cx="12" cy="12" r="2"/></svg>
@@ -5195,15 +5228,6 @@ async function refreshStatus() {
               </div>
               <div class="tx-acts">
                 <button class="tx-hbtn tx-clear-btn" title="清空本窗口的消息显示（不影响其他设备）" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
-                <!-- 窄窗/手机: 设备入口与共享文件同一行; 点击内联展开设备面板, 不弹窗 -->
-                <button v-if="canTargetDevices && (isNarrow || !isRealDesktop)"
-                        class="tx-hbtn tx-dev-btn" :class="{ on: deviceInlineOpen }"
-                        :title="deviceInlineOpen ? '收起周边设备' : '展开周边设备'"
-                        :aria-expanded="deviceInlineOpen ? 'true' : 'false'"
-                        @click.stop="deviceInlineOpen = !deviceInlineOpen">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v3.4M12 16.6V20M4 12h3.4M16.6 12H20M6.3 6.3l2.4 2.4M15.3 15.3l2.4 2.4M17.7 6.3l-2.4 2.4M8.7 15.3l-2.4 2.4"/><circle cx="12" cy="12" r="2"/></svg>
-                  <span>设备</span>
-                </button>
                 <button class="tx-hbtn" :class="{ 'hint-pulse': fileHintShow }" title="共享文件" @click="toggleFilePanel">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                   <b>{{ stats.count }}</b>
@@ -6144,6 +6168,8 @@ async function refreshStatus() {
         <span :class="lanActive ? 'ok' : 'bad'">{{ lanActive ? "局域网可见" : "仅本机" }}</span>
         <span v-if="discoveryInfo.port">UDP {{ discoveryInfo.port }}</span>
         <span v-if="discoveryInfo.ipv6">IPv6</span>
+        <span v-if="lanIp && lanIp !== '--'">本机 {{ lanIp }}</span>
+        <span>已发现 {{ peers.length }}</span>
       </div>
       <div class="diag-list">
         <div class="diag-item">
@@ -6157,8 +6183,8 @@ async function refreshStatus() {
         <div class="diag-item">
           <span class="diag-no">2</span>
           <div class="diag-body">
-            <b>不在同一 Wi-Fi / AP 隔离</b>
-            <p>确认设备连的是同一个 Wi-Fi。公司或酒店网络可能禁止设备互访；此时扫码打开电脑地址，用电脑中转文件/消息。</p>
+            <b>不在同一 Wi-Fi / 子网 / AP 隔离</b>
+            <p>确认设备连的是同一个 Wi-Fi 且在同一网段（如都是 192.168.1.x）。公司、酒店或访客网络可能禁止设备互访，或把有线/无线分在不同子网；此时扫码打开电脑地址，用电脑中转文件/消息。</p>
             <button class="diag-act" @click="diagOpenQr">显示二维码</button>
           </div>
         </div>
@@ -6166,7 +6192,12 @@ async function refreshStatus() {
           <span class="diag-no">3</span>
           <div class="diag-body">
             <b>企业 Wi-Fi 过滤多播</b>
-            <p>如网络禁止多播/广播，可避开发现流程，直接输入对方 IP:端口手动发送；已发现的设备会尝试单播探测。</p>
+            <p>如网络禁止多播/广播，可对对方 IP 发一次单播探测；仍不行时直接用 IP:端口手动发送。</p>
+            <div class="diag-probe">
+              <input v-model="probeIp" placeholder="对方 IP，如 192.168.1.8" inputmode="decimal"
+                     @keydown.enter.prevent="probePeerByIp" />
+              <button class="diag-act" :disabled="probeSending || !running" @click="probePeerByIp">{{ probeSending ? "探测中…" : "单播探测" }}</button>
+            </div>
             <button class="diag-act" @click="diagManualSend">手动发送</button>
           </div>
         </div>

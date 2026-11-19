@@ -678,7 +678,7 @@ npm run tauri build
 <li><b>静态资源</b>：缺失 <code>assets/</code> 或带点路径返回 404 JSON；空 <code>.ccup</code> 标记不再判定为系统上传产物。</li>
 <li><b>移动端</b>：PDF 预览先申请一次性票据，再交系统浏览器 / 外部打开；失败提示「请下载后查看」，不再暴露无鉴权直链。Android <code>MainActivity.onResume</code> 重新 <code>startLocalService()</code>。</li>
 <li><b>HTTP / WS 加固（v1.2.3 复核）</b>：文件列表跳过符号链接与非普通文件；上传内容超过 <code>X-File-Size</code> 声明立即 413 并回滚；聊天 / 剪贴板 / 票据 / hello 的 JSON body 分别限制 256 / 128 / 16 / 16 KB；WS 所有发送加 5s 超时，慢客户端不会长期占用连接许可。</li>
-<li><b>发现增强（v1.2.3 复核）</b>：启动/手动刷新/WS 重连发 <code>probe</code>，对端 500ms 内单播回包；缓存最近 32 个设备 IP，多播被过滤时向历史地址发单播 probe（每 30s 一次 + 手动刷新）；雷达区域本身可点击触发主动扫描（圆点仍只负责选择目标），扫描中雷达加速旋转约 600ms；空设备状态按 macOS / Windows 显示本地网络 / 防火墙指引，并可打开系统设置；启动即宣告；正常停止发 <code>bye</code>；TTL 15s；前端 3s 轮询；发现端口 53318-53321 自动顺延；新增 IPv6 link-local 多播 <code>ff02::ccf1</code>（53318-53321），link-local 地址带 <code>%网卡</code> zone。</li>
+<li><b>发现增强（v1.2.3 复核）</b>：启动/手动刷新/WS 重连发 <code>probe</code>，对端 500ms 内单播回包；<code>POST /api/discovery/probe</code> 支持可选 <code>{"ip":"192.168.1.8"}</code> 对指定局域网 IP 做单播探测（多播/广播被交换机或防火墙拦截时的兜底）；发现 id 相同但来源 IP 不是本机时按正常设备处理（整机镜像/克隆配置不再互相忽略）；缓存最近 32 个设备 IP，多播被过滤时向历史地址发单播 probe（每 30s 一次 + 手动刷新）；雷达区域本身可点击触发主动扫描（圆点仍只负责选择目标），扫描中雷达加速旋转约 600ms；空设备状态按 macOS / Windows 显示本地网络 / 防火墙指引，并可打开系统设置；启动即宣告；正常停止发 <code>bye</code>；TTL 15s；前端 3s 轮询；发现端口 53318-53321 自动顺延；新增 IPv6 link-local 多播 <code>ff02::ccf1</code>（53318-53321），link-local 地址带 <code>%网卡</code> zone。</li>
 </ul>
 <h3>A.3.1 2026-11-19 全量深查修复</h3>
 <table>

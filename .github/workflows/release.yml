@@ -1,5 +1,5 @@
 # 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
-# 覆盖: macOS 分架构双包(aarch64 dmg + x64 dmg) · Windows 单包 .msi
+# 覆盖: macOS 分架构双包(aarch64 dmg + x64 dmg) · Windows msi + NSIS exe
 #       · Android 单包 arm64-v8a .apk(覆盖 Android 5+ 主流 64 位机型)
 #       macOS 保持轻量双包(单架构安装包约为 universal 的一半);
 #       Windows / Android 各一个包, 减少 Release 文件数量与用户选择成本;
@@ -102,7 +102,7 @@ jobs:
             args: --target x86_64-apple-darwin
             arch: x64
           - os: windows-latest
-            args: --bundles msi
+            args: --bundles msi,nsis
             arch: x64-win
     runs-on: ${{ matrix.os }}
     steps:
@@ -379,6 +379,7 @@ jobs:
           dmg_count=$(printf '%s\n' "$assets" | grep -cE '\.dmg$' || true)
           [ "$dmg_count" -ge 2 ] || { echo "::error::Release 缺少完整 macOS 双架构 dmg(当前 $dmg_count 个)"; exit 1; }
           printf '%s\n' "$assets" | grep -qE '\.msi$' || { echo "::error::Release 缺少 Windows msi"; exit 1; }
+          printf '%s\n' "$assets" | grep -qE '\.exe$' || { echo "::error::Release 缺少 Windows NSIS exe"; exit 1; }
           apk_count=$(printf '%s\n' "$assets" | grep -cE 'android-.*\.apk$' || true)
           [ "$apk_count" -ge 1 ] || { echo "::error::Release 缺少 Android arm64 APK(当前 $apk_count 个)"; exit 1; }
           # 未签名/未公证的包不得公开: macOS Gatekeeper 会直接拦截, Windows SmartScreen

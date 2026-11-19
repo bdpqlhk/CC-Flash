@@ -8,7 +8,7 @@
 [![CC Flash 演示](assets/demo.gif)](assets/demo.gif)
 -->
 
-技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.4**，2026-11-19 安全加固）。前端主包 **291.6 KB（gzip 116.6 KB）**，二维码库按需另加载 25 KB（gzip 10 KB），CSS 96.1 KB（gzip 18.1 KB）；Rust 二进制 **4.07 MB**（strip + fat LTO + opt-level=z + panic=abort）。Windows 安装包改用 WebView2 **downloadBootstrapper**（不再内嵌 ~1.8 MB 引导器），Android 仅保留中英文资源并只发 arm64-v8a 单包；macOS 分架构 dmg 本机实测 **2.71 MB** / .app **4.10 MB**。
+技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.4**，2026-11-19 安全加固）。前端主包 **292.8 KB（gzip 117.1 KB）**，二维码库按需另加载 25 KB（gzip 10 KB），CSS 96.4 KB（gzip 18.1 KB）；Rust 二进制 **约 4.1 MB**（strip + fat LTO + opt-level=z + panic=abort）。Windows 安装包改用 WebView2 **downloadBootstrapper**（不再内嵌 ~1.8 MB 引导器），Android 仅保留中英文资源并只发 arm64-v8a 单包；macOS 分架构 dmg 约 **2.8–3.0 MB** / .app 约 **4.1 MB**（以 Release 产物为准）。
 
 ## 功能特性
 
@@ -39,7 +39,7 @@
 前往 [Releases 页面](https://github.com/bdpqlhk/CC-Flash/releases) 下载对应平台安装包：
 
 - macOS：按芯片选 `.dmg` —— Apple Silicon 用 `_aarch64.dmg`、Intel 用 `_x64.dmg`，双击拖入「应用程序」
-- Windows：下载 `.msi` 安装包
+- Windows：下载 `.msi` 或 `.exe` 安装包
 - Android：只提供一个 `arm64-v8a` APK，覆盖 Android 5+ 主流 64 位机型（不再分发 x86 / 32 位分包）
 - Linux：从源码构建（`npm run tauri build`），CI 暂未发布 Linux 安装包
 
@@ -52,7 +52,7 @@
 npm install
 npm run tauri dev      # 开发运行：前端热更 + Rust 增量编译
 npm run check          # cargo check 快速校验 Rust 编译
-npm run tauri build    # 发布构建：自动产出 .app / .dmg / .msi
+npm run tauri build    # 发布构建：自动产出 .app / .dmg / .msi / .exe
 ```
 
 ## 目录结构
@@ -108,7 +108,7 @@ Android 产物说明：
 - **代码签名：未签名不发布**。workflow 预留 `APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID` 与 `WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD`；配置后自动签名/公证。任一缺失时 publish job **保持草稿并明确失败**，不会把未签名包公开，也不会进入应用内更新通道（未签名 macOS DMG 会被 Gatekeeper 拦截、Windows 包会触发 SmartScreen）。空 Secret 不会注入构建环境，避免 Tauri 对空证书报 `Unable to decode`。
 - 本地 `./scripts/build-all.sh android` 的 release 构建会校验 `CC_KEYSTORE_*`；缺证书直接失败，不再把 unsigned APK 当成功产物。
 
-macOS 按架构出**双包**：`_aarch64.dmg`（Apple Silicon）与 `_x64.dmg`（Intel），单包约 2.70 MB；Windows 只出 **msi**，Android 只出 **arm64-v8a APK**。
+macOS 按架构出**双包**：`_aarch64.dmg`（Apple Silicon）与 `_x64.dmg`（Intel），单包约 2.70 MB；Windows 出 **msi + NSIS exe**，Android 只出 **arm64-v8a APK**。
 
 > Android 端共享目录默认位于应用专属存储（无需存储权限）。当前上传为**单请求整文件直传**：中断后需重新选择文件上传（半截文件即时清理；Windows 上若成品被占用无法删除，会保留 `.ccup` 标记等下次启动清理，绝不让半截文件"转正"）；7 天清理逻辑仅用于回收 v1.1.5-1.1.7 旧版遗留的 `.ccpart` 断点。下载侧 Range 断点续传使用 `ETag + If-Range`：同名文件被替换后不会把旧前缀拼到新内容上。
 

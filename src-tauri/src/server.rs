@@ -249,6 +249,13 @@ fn multicast_peers() -> &'static Mutex<HashMap<String, DeviceInfo>> {
     PEERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// 只有"id 相同且来源确实是本机"才算自己的回环包。两台机器如果复制了同一份
+/// discovery-id(整机镜像/克隆配置), 仅凭 id 相同会互相忽略; 此时来源 IP 不是本机,
+/// 必须按正常设备处理。
+fn is_self_discovery_packet(id: Option<&str>, src_ip: std::net::IpAddr) -> bool {
+    id == Some(discovery_id()) && is_local_source(src_ip)
+}
+
 fn discovery_id() -> &'static str {
     static ID: OnceLock<String> = OnceLock::new();
     ID.get_or_init(|| {
@@ -366,7 +373,7 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
         .trim()
         .to_string();
     // 自身包(多播 loop)与异常 id 直接丢弃
-    if id.is_empty() || id.len() > 64 || id == discovery_id() {
+    if id.is_empty() || id.len() > 64 || is_self_discovery_packet(Some(&id), src.ip()) {
         return IngestResult::default();
     }
     let port = v.get("port").and_then(|x| x.as_u64()).unwrap_or(0);
@@ -589,6 +596,28 @@ fn send_discovery_probe() {
 fn send_discovery_bye() {
     if let Some(packet) = bye_packet_bytes() {
         send_discovery_packet(&packet);
+    }
+}
+
+/// 向指定局域网 IP 发单播 probe(手动探测): 多播/广播被交换机或防火墙拦截时,
+/// 只要目标放行 UDP 53318-53321 入站, 单播仍可触发对方回宣告。
+fn send_probe_to(ip: std::net::IpAddr) -> bool {
+    let Some(packet) = probe_packet_bytes() else { return false; };
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else { return false };
+            for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                let _ = sock.send_to(&packet, (v4, port));
+            }
+            true
+        }
+        std::net::IpAddr::V6(v6) => {
+            let Ok(sock) = UdpSocket::bind(("::", 0)) else { return false };
+            for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                let _ = sock.send_to(&packet, (v6, port));
+            }
+            true
+        }
     }
 }
 
@@ -864,7 +893,7 @@ fn ensure_discovery_v6(port: u16) {
             if t == "probe" {
                 if is_lan_peer(src.ip())
                     && v.get("app").and_then(|x| x.as_str()) == Some(DISCOVERY_APP)
-                    && v.get("id").and_then(|x| x.as_str()) != Some(discovery_id())
+                    && !is_self_discovery_packet(v.get("id").and_then(|x| x.as_str()), src.ip())
                 {
                     let due = last_probe_reply
                         .get(&src.ip())
@@ -887,7 +916,7 @@ fn ensure_discovery_v6(port: u16) {
             }
             if t == "bye" {
                 let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                if is_lan_peer(src.ip()) && !id.is_empty() && id != discovery_id() {
+                if is_lan_peer(src.ip()) && !id.is_empty() && !is_self_discovery_packet(Some(id), src.ip()) {
                     let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
                     let same = map.get(id).map(|d| d.ip == source_ip_string(src)).unwrap_or(false);
                     if same && map.remove(id).is_some() {
@@ -1037,7 +1066,7 @@ fn ensure_discovery() {
                 if t == "probe" {
                     if is_lan_peer(src.ip())
                         && v.get("app").and_then(|x| x.as_str()) == Some(DISCOVERY_APP)
-                        && v.get("id").and_then(|x| x.as_str()) != Some(discovery_id())
+                        && !is_self_discovery_packet(v.get("id").and_then(|x| x.as_str()), src.ip())
                     {
                         let due = last_probe_reply
                             .get(&src.ip())
@@ -1060,7 +1089,7 @@ fn ensure_discovery() {
                 // 正常退出: 同 IP 同 id 才能移除, 防止伪造 bye 清掉别人
                 if t == "bye" {
                     let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                    if is_lan_peer(src.ip()) && !id.is_empty() && id != discovery_id() {
+                    if is_lan_peer(src.ip()) && !id.is_empty() && !is_self_discovery_packet(Some(id), src.ip()) {
                         let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
                         let same = map.get(id).map(|d| d.ip == source_ip_string(src)).unwrap_or(false);
                         if same && map.remove(id).is_some() {
@@ -1206,12 +1235,39 @@ fn discovery_probe_allow(peer: std::net::IpAddr) -> bool {
     true
 }
 
+#[derive(serde::Deserialize)]
+struct ProbeIn {
+    ip: Option<String>,
+}
+
 async fn discovery_probe(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    body: Option<Json<ProbeIn>>,
 ) -> Response {
     let peer = normalize_peer(addr.ip());
     if !discovery_probe_allow(peer) {
         return err(StatusCode::TOO_MANY_REQUESTS, "扫描过于频繁，请稍后再试");
+    }
+    // 手动探测: 指定局域网 IP 时只向该地址发单播 probe, 用于绕过交换机/防火墙
+    // 对多播与广播的过滤; 不填则沿用全局多播+广播+历史地址探测。
+    if let Some(raw) = body.and_then(|Json(b)| b.ip) {
+        let Ok(ip) = raw.trim().parse::<std::net::IpAddr>() else {
+            return err(StatusCode::BAD_REQUEST, "IP 格式不正确");
+        };
+        if !is_lan_peer(ip) {
+            return err(StatusCode::BAD_REQUEST, "只支持局域网 IP");
+        }
+        let sent = tokio::task::spawn_blocking(move || send_probe_to(ip))
+            .await
+            .unwrap_or(false);
+        if !sent {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "探测包发送失败，请检查服务是否运行");
+        }
+        push_log(format!("手动单播探测 {ip} ← {peer}"));
+        return Json(serde_json::json!({
+            "ok": true, "port": discovery_active_port(), "target": ip.to_string()
+        }))
+        .into_response();
     }
     // UDP 发送很快; 直接在当前线程执行, 避免为一个 probe 再起任务
     tokio::task::spawn_blocking(send_discovery_probe)
@@ -6521,8 +6577,18 @@ mod tests {
             "非 ccflash 报文必须丢弃"
         );
         assert!(
-            !ingest_peer_packet(&udp_packet(discovery_id(), 1688, "self"), ip),
-            "自身 id 必须丢弃"
+            !ingest_peer_packet(
+                &udp_packet(discovery_id(), 1688, "self"),
+                "127.0.0.1".parse().unwrap()
+            ),
+            "本机回环同 id 必须丢弃"
+        );
+        assert!(
+            ingest_peer_packet(
+                &udp_packet(discovery_id(), 1688, "cloned"),
+                "192.168.50.15".parse().unwrap()
+            ),
+            "另一台同 id 设备(克隆配置)必须可被发现"
         );
         for bad_port in [0u64, 80, 1023, 70000] {
             assert!(
