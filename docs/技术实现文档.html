@@ -49,7 +49,7 @@ pre code{background:none;color:inherit;padding:0}
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面恢复「局域网访问」开关、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>、本文附录 A 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>、本文附录 A 与仓库 README 为准。</div>
 
 <div class="layout">
 <nav class="toc">
@@ -82,7 +82,7 @@ pre code{background:none;color:inherit;padding:0}
 <b>v1.2.4 实现状态（2026-11-19 安全加固）</b>
 <ul>
 <li><b>消息工作台（v1.2.3）</b>：设备发现并入桌面「消息发送」左侧设备栏（200px）与手机 App「发送」页；手机 App 只有「发送 / 设置」两标签；浏览器保持原聊天室单页，无发现 / 设置。选中设备后直发文本 / 文件并追加本机回执。</li>
-<li><b>共享剪贴板（v1.2.3 起，2026-11-19 加固）</b>：<code>GET/POST/DELETE /api/clipboard</code>，20,000 字持久化共享槽；系统剪贴板自动同步<b>默认关闭</b>，由 CC设置「系统剪贴板自动同步」开关控制；访问令牌/对方配对码自动排除。WS 事件 <code>clipboard:changed</code>，HTTP 4.5s 兜底；浏览器只在聊天输入框粘贴时回传。非本机来源读取共享剪贴板需开启访问令牌，写入按来源限流。</li>
+<li><b>共享剪贴板（v1.2.3 起，2026-11-19 加固）</b>：<code>GET/POST/DELETE /api/clipboard</code>，20,000 字持久化共享槽；系统剪贴板自动同步<b>默认关闭</b>，由 CC设置「系统剪贴板自动同步」开关控制；任何文本（含令牌/验证码）都会同步，不做内容过滤。WS 事件 <code>clipboard:changed</code>，HTTP 4.5s 兜底；浏览器只在聊天输入框粘贴时回传。写入按来源限流。</li>
 <li><b>布局（v1.2.3）</b>：侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层。</li>
 <li><b>移动端改为独立节点</b>：Android/iOS App 启动本机 HTTP 服务与聊天；默认安全模式（只监听 127.0.0.1），CC设置里可开「局域网访问」+ 访问令牌，开关修改后需重启服务；「连接电脑」作为可选模式保留，可随时切回本机节点。Android 用前台服务（dataSync）+ MulticastLock 保活/收多播，<code>allowBackup=false</code>。</li>
 <li><b>附近设备</b>：IPv4 多播 <code>239.255.42.99:53318</code> + IPv6 link-local <code>ff02::ccf1:53318</code> + 广播，每个节点每 3s 宣告自身；启动/手动刷新主动 probe，正常退出发 bye；最多 64 个 peer、15s TTL；发现端口 53318-53321 自动顺延；新设备与状态变化即时推 <code>devices:changed</code>；<code>/api/hello</code> 不再把浏览器登记为可发送目标；前端只接受私网地址投递，消息/文件落到对方公共聊天/共享目录。</li>
@@ -666,10 +666,10 @@ npm run tauri build
 <ul>
 <li>HTTP：<code>GET/POST/DELETE /api/clipboard</code>，共享槽 20,000 字并持久化。<code>SharedClip</code> 记 <code>text/updated_at/from</code>。</li>
 <li><b>默认关闭</b>：App 壳是否自动同步由 CC设置「系统剪贴板自动同步」控制（<code>wft-clip-sync</code>，移动端同时写 Rust pref）。<code>initClipboardSync</code> 只在开关打开时启动；每 1.5s 调用 <code>syncClipboardTick</code>，与 <code>lastSentClip</code> 比较后 POST；收到 <code>clipboard:changed</code> 立即 <code>GET</code> 并 <code>writeText</code>，另有 4.5s HTTP 兜底。<code>clipSyncBusy</code> 期间远端值进 <code>pendingRemoteApply</code>，忙完再应用。</li>
-<li><b>凭据黑名单</b>：<code>isSecretClip()</code> 比对本机访问令牌、当前码与全部对方配对码，命中则既不自动发布也不允许 paste 回传；「复制令牌」不会再随剪贴板同步外发。</li>
+
 <li><b>可见性闸</b>：<code>document.visibilityState !== "visible"</code> 时读 / 写同步都直接返回；页面重新可见时把 <code>lastSentClip</code> 重置为当前本地剪贴板并补一次远端应用。远端应用弹 toast「已从 X 同步剪贴板」。</li>
 <li>浏览器：无系统剪贴板权限时，输入栏「粘贴」直接回填共享槽文本；只有 <b>聊天输入框</b> 的 paste 事件会回传共享槽（其他输入框、配对框不再外发）。复制失败回退 <code>execCommand</code>。</li>
-<li><b>服务端</b>：非本机来源在未开启访问令牌时禁止读写共享剪贴板；写入按来源限流 240 次/分钟（IPv6 按 /64 聚合）；落盘从 async worker 移到阻塞线程并按序号串行，避免高频写入卡住 tokio。</li>
+<li><b>服务端</b>：写入按来源限流 240 次/分钟（IPv6 按 /64 聚合）；落盘从 async worker 移到阻塞线程并按序号串行，避免高频写入卡住 tokio。开启同步后不限制文本内容（含令牌/验证码）。</li>
 </ul>
 <h3>A.3 服务端可靠性修复</h3>
 <ul>
@@ -684,7 +684,7 @@ npm run tauri build
 <table>
 <tr><th>类别</th><th>修复</th></tr>
 <tr><td>移动端沙箱</td><td>移动端首次启动自动生成本机访问令牌并落盘；<code>mobile_loopback_locked</code> 使 127.0.0.1 也需校验。壳内通过 <code>control_status_cmd</code> 取码自动附加，同机其他 App 无码不可读写/停服。</td></tr>
-<tr><td>剪贴板</td><td>自动同步默认关闭 + CC设置开关；凭据黑名单；paste 仅聊天输入框回传；非本机未开令牌时服务端拒绝；写入限流与串行落盘。</td></tr>
+<tr><td>剪贴板</td><td>自动同步默认关闭 + CC设置开关；开启后所有文本（含令牌/验证码）都会同步；paste 仍限定聊天输入框；写入限流与串行落盘。</td></tr>
 <tr><td>局域网入口</td><td>桌面 CC设置 恢复「局域网访问」开关；文案从已删除的「发现」页改为「CC设置」；<code>web_url()</code> 在安全模式下打开 <code>127.0.0.1</code> 而不是不可达的 LAN IP。</td></tr>
 <tr><td>WS 退避</td><td><code>closeWs()</code> 不再重置 <code>wsRetryDelay</code>，退避只在 <code>onopen</code> 复位；停服后 WS 循环以 <code>is_running()</code> 兜底退出，避免 kick 订阅竞态泄漏许可。</td></tr>
 <tr><td>并发与限流</td><td>上传/下载在全局许可外增加单来源配额（4 / 8，IPv6 /64 聚合）；下载流每块 45s 空闲超时；聊天/开票/探测限流改为固定窗口（不再"突发 60 次后整窗封禁"）；失败请求日志按来源限流。</td></tr>
@@ -696,7 +696,7 @@ npm run tauri build
 <h3>A.4 已知边界</h3>
 <ul>
 <li>UDP 发现已支持 IPv4 多播/广播与 IPv6 link-local 多播；IPv6 跨网段/全局地址仍依赖手动地址，link-local 需要网卡作用域，自动发现主要面向同一链路。</li>
-<li>共享剪贴板在可信局域网模型下没有加密；系统剪贴板自动同步默认关闭，跨设备读写需开启访问令牌。公共网络请避免复制敏感信息，敏感内容传完点「清空」。</li>
+<li>共享剪贴板在可信局域网模型下没有加密；系统剪贴板自动同步默认关闭；开启后不限制文本内容（含令牌/验证码），公共网络请自行判断是否开启。</li>
 <li>Android 15+ 对 <code>dataSync</code> 前台服务有 6h/24h 配额，超时后系统会停止保活；当前已在 <code>onTimeout</code> 发通知提示，回到前台会重新拉起服务。iOS 仍不提供原生安装包，只能用 Safari 网页版。</li>
 </ul>
 </section>

@@ -25,7 +25,7 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <h2>一、隐私与安全</h2>
 <ul>
 <li><b>系统剪贴板自动同步默认关闭</b>：新增 CC设置「系统剪贴板自动同步」开关（持久化 <code>wft-clip-sync</code> + Rust pref）；开启后仍只在页面可见时同步。此前默认开启会把用户复制的密码/验证码持续上传到无鉴权的局域网接口。</li>
-<li><b>凭据黑名单</b>：<code>isSecretClip()</code> 对访问令牌、当前码与全部对方配对码做精确比对，命中则自动发布与 paste 回传都跳过；「复制令牌」不再随剪贴板同步外发并落盘。</li>
+<li><b>剪贴板不限制内容</b>：按产品要求移除凭据黑名单，开启同步后包括令牌/验证码在内的所有文本都会互通；paste 仍限定聊天输入框，避免任意输入框被动外发。</li>
 <li><b>paste 回传收窄</b>：全局 paste 监听只在<b>聊天输入框</b>（<code>.tx-input</code>）触发回传；配对码、昵称、日志搜索等输入框不再外发。</li>
 <li><b>共享剪贴板远端鉴权</b>：非本机来源在未开启访问令牌时禁止 <code>GET/POST /api/clipboard</code>；写入按来源限流 240 次/分钟（IPv6 /64 聚合）。</li>
 <li><b>移动端沙箱</b>：Android/iOS 首次启动自动生成本机访问令牌并原子落盘；<code>mobile_loopback_locked</code> 让 127.0.0.1 也需校验，同机其他 App 无法再读写删除共享目录/剪贴板或停服。壳内通过 <code>control_status_cmd</code> 自动取码。</li>

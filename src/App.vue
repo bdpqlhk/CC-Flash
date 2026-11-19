@@ -597,7 +597,6 @@ const jumpCount = ref(0);             // 上翻期间的新消息数
 const sendTarget = ref(null);         // null = 本机共享; device = 直发
 // 窄屏设备面板: 复用宽屏设备栏的同一套内容, 竖屏整页展开(不是弹框)
 const deviceInlineOpen = ref(false);
-const inlineDeviceHost = ref(null);   // Teleport 目标: 聊天头部下方, 保证面板在入口按钮下面展开
 const directReceipts = ref([]);       // 直发回执只留本机时间线
 const TRANSFER_HISTORY_KEY = "wft-transfer-history";
 const transferHistory = ref((() => {
@@ -3499,17 +3498,6 @@ const CLIP_SYNC_KEY = "wft-clip-sync";
 const clipSyncEnabled = ref((() => {
   try { return localStorage.getItem(CLIP_SYNC_KEY) === "1"; } catch (e) { return false; }
 })());
-/* 敏感内容黑名单: 访问令牌/对方配对码即使被复制也不进入共享剪贴板 */
-function isSecretClip(text) {
-  const s = String(text || "").trim();
-  if (!s) return false;
-  if (pinCode.value && s === String(pinCode.value).trim()) return true;
-  if (accessPin.value && s === String(accessPin.value).trim()) return true;
-  for (const v of Object.values(peerPins.value || {})) {
-    if (v && s === String(v).trim()) return true;
-  }
-  return false;
-}
 function setClipSyncEnabled(v) {
   clipSyncEnabled.value = !!v;
   try { localStorage.setItem(CLIP_SYNC_KEY, v ? "1" : "0"); } catch (e) {}
@@ -3552,8 +3540,6 @@ async function loadSharedClip() {
 async function publishSharedClip(text, silent = false) {
   const val = clampChars(String(typeof text === "string" ? text : ""), 20000).trim();
   if (!val) { if (!silent) showToast("剪贴板为空", "error"); return false; }
-  // 访问令牌/对方配对码不进入共享剪贴板(否则凭据会随同步广播到其他设备并落盘)
-  if (isSecretClip(val)) return false;
   if (sharedClipSaving.value) return false;
   sharedClipSaving.value = true;
   try {
@@ -3581,7 +3567,6 @@ function publishPastedText(text, target) {
   // 只回传"在聊天输入框里粘贴"的文本 —— 全局 paste 监听会把配对码、昵称、
   // 日志搜索等输入框的粘贴也外发, 属于越权收集敏感输入。
   if (!target || !target.closest || !target.closest(".tx-input")) return;
-  if (isSecretClip(t)) return;
   lastSentClip = t;   // 抑制自己的回声
   publishSharedClip(t, true);
 }
@@ -3671,8 +3656,6 @@ async function syncClipboardTick() {
   }
   const local = (await readLocalClipboardText()).trim();
   if (!local || local === lastSentClip || local === lastAppliedClip || local === (sharedClip.value.text || "").trim()) return;
-  // 敏感内容(访问令牌/对方配对码)不自动外发; 记入基线, 避免每 1.5s 重复判断
-  if (isSecretClip(local)) { lastSentClip = local; return; }
   const prev = lastSentClip;
   lastSentClip = local;   // 先置位: 自己的 POST 回声不能被当成远端变化
   clipSyncBusy = true;
@@ -4135,7 +4118,7 @@ const INTRO_FAQS = [
   { q: "支持哪些平台？", a: "桌面端提供 macOS（11.0+）与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK（默认独立节点，可切换连接电脑）。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。" },
   { q: "电脑换了 IP 或换了另一台电脑怎么办？", a: "手机浏览器直接打开电脑端显示的新地址即可。Android App：若当前处于「连接电脑」模式且地址失效，在「无信号」页面点「重新启动本机服务」会回到本机节点，或到「CC设置 → 连接电脑」重新填写地址；也可点「切回本机节点」。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。" },
   { q: "「周边设备」和「发现」去哪了？", a: "设备发现已并入发送工作台：桌面端点侧栏「消息发送」，左侧是 Snapdrop 风格设备栏（本机身份卡 + 扫描雷达 + 附近设备，显示在线/忙碌/最近活跃）；窗口窄于 980px 时设备栏收起，聊天头部左侧出现「设备」入口，点开后展开竖屏整页设备面板（不弹窗）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口同样展开竖屏整页设备面板；手机浏览器保持原聊天室单页，不做发现。选中设备后，输入框会切换成直发，消息 / 文件直接送到对方节点并追加回执。注意：投递内容会进入对方的公共聊天与共享目录，同网段设备可见，请勿发送敏感内容。找不到设备时：先在「故障诊断」确认两侧都是「局域网可见」；macOS 允许「本地网络」权限，Windows 防火墙放行专用网络 UDP 53318-53321；两侧需在同一 Wi-Fi/子网（访客网络、AP 隔离、有线/无线不同子网都会互相不可见，VPN/Tailscale 不参与发现）。诊断里可输入对方 IP 做单播探测，仍不行就用「手动发送」走 IP:端口（TCP）。" },
-  { q: "共享剪贴板怎么用？需要开开关吗？", a: "系统剪贴板自动同步默认关闭，在 CC设置「系统剪贴板自动同步」打开后生效：电脑复制的文本会同步给已配对设备，手机复制的文本写入电脑系统剪贴板。访问令牌/对方配对码会被自动排除，不进入共享内容。浏览器在 http://局域网IP 下不能自动读写系统剪贴板：点输入栏「粘贴」会回填电脑端共享的文本；在聊天输入框长按「粘贴」时，文本也会回传电脑。共享剪贴板跨设备读取需要访问令牌。" },
+  { q: "共享剪贴板怎么用？需要开开关吗？", a: "系统剪贴板自动同步默认关闭，在 CC设置「系统剪贴板自动同步」打开后生效：电脑复制的文本会同步给已配对设备，手机复制的文本写入电脑系统剪贴板。所有文本（含令牌/验证码）都会同步，不做内容过滤。浏览器在 http://局域网IP 下不能自动读写系统剪贴板：点输入栏「粘贴」会回填电脑端共享的文本；在聊天输入框长按「粘贴」时，文本也会回传电脑。" },
   { q: "手机 App 会把我的文件暴露到 Wi-Fi 吗？", a: "默认只监听 127.0.0.1（安全模式），且手机会自动生成本机访问令牌——同机其他 App 也无法直连本机服务。首次运行会弹框询问是否允许同 Wi-Fi 设备发现本机；选「开启（推荐）」后自动开启局域网访问并重启服务，其他设备需输入本机配对码。也可稍后在「设置 → 本机服务」修改。Android 会用前台服务通知保持传输不被系统冻结（系统对后台保活有 6 小时/24 小时配额）。" },
   { q: "访问令牌和分享链接安全吗？", a: "访问令牌是 6 位配对码，通过请求头校验，本机免输；连续输错会按来源 IP 指数退避，公网来源还受全局失败预算约束，锁定期间正确码也会被拒。开启令牌后分享按钮生成的链接只授权下载那一个文件、10 分钟有效、完整下载一次即失效；文件被删除或同名重传后旧链接立即失效；关闭令牌或轮换配对码时所有未使用链接同步作废；对无效链接的猜测会按来源 IP 限流。" },
   { q: "浏览器里能「安装」成应用吗？", a: "通过 https 或 localhost 访问时可以安装为 PWA 并离线缓存界面壳（设置 → 安装到主屏幕）；通过 http://局域网IP 访问时浏览器内核禁用 Service Worker 与安装能力，只能「添加到主屏幕」创建快捷方式（不缓存离线，iOS Safari 同样支持）。桌面端与 Android 建议直接使用原生安装包。" },
@@ -5116,8 +5099,7 @@ async function refreshStatus() {
              @dragover.prevent="dragOver = true" @dragleave.prevent="onPageDragLeave"
              @drop.prevent="onDrop">
           <!-- 桌面工作台: 左侧设备栏 = Snapdrop 风格身份卡 + 雷达 + 设备列表 -->
-          <Teleport v-if="showDeviceRail" :to="inlineDeviceHost" :disabled="!devicePanelInline">
-          <aside class="tx-devices" :class="{ 'is-inline': devicePanelInline }">
+          <aside v-if="showDeviceRail" class="tx-devices" :class="{ 'is-inline': devicePanelInline }">
             <div class="tx-devices-head">
               <b>周边设备</b><span>{{ peers.length }}</span>
               <button class="tx-devices-manual" title="手动发送（输入 IP:端口）" aria-label="手动发送" @click="openManualSend">
@@ -5193,8 +5175,7 @@ async function refreshStatus() {
               </div>
             </section>
           </aside>
-          </Teleport>
-          <section class="tx-chat" :class="{ 'device-page-open': devicePanelInline }">
+          <section class="tx-chat">
             <div v-if="isRealDesktop && !running" class="tx-service-bar">
               <span>🔒 服务未启动，手机暂时无法访问</span>
               <button @click="setView('service')">去启动</button>
@@ -5260,8 +5241,6 @@ async function refreshStatus() {
                 <button v-if="isRealDesktop && isNarrow" @click="setView('service'); moreOpen = false">服务中心</button>
               </div>
             </header>
-            <!-- 窄窗/手机设备面板的 Teleport 落点: 紧贴聊天头部下方展开 -->
-            <div ref="inlineDeviceHost" class="tx-inline-host"></div>
             <div v-if="moreOpen" class="tx-menu-backdrop" @click="moreOpen = false"></div>
 
             <div class="tx-list" ref="chatBox" @scroll="onTimelineScroll" @click.self="activeMsgKey = ''">
@@ -5655,18 +5634,8 @@ async function refreshStatus() {
           </div>
           <div class="setting-row">
             <div class="setting-info">
-              <div class="setting-title">局域网访问</div>
-              <div class="setting-desc">关闭后仅本机可访问（安全模式）；修改后需重启服务生效</div>
-            </div>
-            <button class="switch" :class="{ on: openLanEnabled }" role="switch" :aria-checked="openLanEnabled"
-                    :title="openLanEnabled ? '点击关闭' : '点击开启'" @click="toggleOpenLan">
-              <span class="knob"></span>
-            </button>
-          </div>
-          <div class="setting-row">
-            <div class="setting-info">
               <div class="setting-title">系统剪贴板自动同步</div>
-              <div class="setting-desc">默认关闭。开启后本机复制的文本会自动同步到已配对设备（访问令牌/配对码除外）；公共网络请谨慎开启</div>
+              <div class="setting-desc">默认关闭。开启后本机复制的文本会自动同步到已配对设备（含令牌/验证码等任意文本）；公共网络请谨慎开启</div>
             </div>
             <button class="switch" :class="{ on: clipSyncEnabled }" role="switch" :aria-checked="clipSyncEnabled"
                     :title="clipSyncEnabled ? '点击关闭' : '点击开启'" @click="toggleClipSync">
@@ -5719,7 +5688,7 @@ async function refreshStatus() {
           <div class="setting-row" v-if="!serverAddr || isLocalAddr(serverAddr)">
             <div class="setting-info">
               <div class="setting-title">系统剪贴板自动同步</div>
-              <div class="setting-desc">默认关闭。开启后本机复制的文本会自动同步到已配对设备（访问令牌/配对码除外）</div>
+              <div class="setting-desc">默认关闭。开启后本机复制的文本会自动同步到已配对设备（含令牌/验证码等任意文本）</div>
             </div>
             <button class="switch" :class="{ on: clipSyncEnabled }" role="switch" :aria-checked="clipSyncEnabled"
                     :title="clipSyncEnabled ? '点击关闭' : '点击开启'" @click="toggleClipSync">
@@ -5989,7 +5958,7 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></div>
           <h3>共享剪贴板</h3>
-          <p>电脑复制、手机直接粘贴；手机复制的文本写入电脑系统剪贴板。系统剪贴板自动同步<b>默认关闭</b>，可在 CC设置 打开；访问令牌与对方配对码会被自动排除，不进入同步。输入栏「粘贴」是唯一入口：电脑的文本点一下直接回填；浏览器在 HTTP 局域网下受限时，长按聊天输入框粘贴的文本也会回传电脑（跨设备共享需开启访问令牌）。2 万字上限，只同步文本。</p>
+          <p>电脑复制、手机直接粘贴；手机复制的文本写入电脑系统剪贴板。系统剪贴板自动同步<b>默认关闭</b>，可在 CC设置 打开；所有文本都会同步（包括令牌/验证码）；公共网络请自行判断是否开启。输入栏「粘贴」是唯一入口：电脑的文本点一下直接回填；浏览器在 HTTP 局域网下受限时，长按聊天输入框粘贴的文本也会回传电脑。2 万字上限，只同步文本。</p>
           <div class="tags"><span class="tag">可选双向同步</span><span class="tag">凭据不外发</span><span class="tag">浏览器兜底</span></div>
         </div>
       </div>
@@ -6028,7 +5997,7 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
           <h3>数据只在局域网</h3>
-          <p>HTTP 服务只在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。桌面默认开放局域网，可在 CC设置 切到仅本机；移动 App 默认仅监听 127.0.0.1，并自动生成本机访问令牌（同机其他 App 无法直连）。桌面可选 6 位访问令牌（单 IP 指数退避 + 公网全局失败预算、本机免输）；系统剪贴板自动同步默认关闭，跨设备共享剪贴板需开启访问令牌。分享链接为一次性票据，文件删除/同名重传后旧链接立即失效。</p>
+          <p>HTTP 服务只在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。桌面始终开放局域网；移动 App 默认仅监听 127.0.0.1，并自动生成本机访问令牌（同机其他 App 无法直连）。桌面可选 6 位访问令牌（单 IP 指数退避 + 公网全局失败预算、本机免输）；系统剪贴板自动同步默认关闭，开启后任何文本（含令牌/验证码）都会同步，不做内容过滤。分享链接为一次性票据，文件删除/同名重传后旧链接立即失效。</p>
         </div>
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>

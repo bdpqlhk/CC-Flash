@@ -2805,25 +2805,17 @@ button:focus-visible, [role="button"]:focus-visible {
     width: 200px; flex-shrink: 0; border-right: 1px solid var(--card-border);
     background: var(--panel); display: flex; flex-direction: column; min-height: 0;
 }
-/* 窄窗/手机: 设备入口展开为竖屏整页面板(同一套内容), 不弹窗、不遮罩 */
-.tx-inline-host { display: contents; }
-.tx-chat.device-page-open .tx-head,
-.tx-chat.device-page-open .tx-list,
-.tx-chat.device-page-open .tx-composer,
-.tx-chat.device-page-open .tx-upload-strip,
-.tx-chat.device-page-open .tx-target-note,
-.tx-chat.device-page-open .tx-quoting,
-.tx-chat.device-page-open .tx-jump { display: none; }
+/* 窄窗/手机: 设备面板以竖屏侧栏展开(宽度收窄), 手机窄屏为整页覆盖 */
 .tx-devices.is-inline {
-    width: 100%; flex: 1; min-height: 0; max-height: none; overflow-y: auto;
-    border-right: none; border-bottom: none;
+    width: 360px; flex: 0 0 360px; min-height: 0; max-height: none; overflow-y: auto;
+    border-right: 1px solid var(--card-border); border-bottom: none;
 }
 .tx-devices.is-inline .tx-devices-head {
     flex-shrink: 0; position: sticky; top: 0; z-index: 2; background: var(--panel);
 }
-.tx-devices.is-inline .tx-idcard { width: min(calc(100% - 20px), 560px); margin: 10px auto 8px; }
-.tx-devices.is-inline .tx-radar-wrap { width: min(calc(100% - 16px), 560px); margin: 8px auto; padding: 10px 10px 9px; }
-.tx-devices.is-inline .tx-radar { width: min(78vw, 300px); height: min(78vw, 300px); margin: 2px auto 0; }
+.tx-devices.is-inline .tx-idcard { width: min(calc(100% - 20px), 560px); margin: 9px auto 7px; }
+.tx-devices.is-inline .tx-radar-wrap { width: min(calc(100% - 16px), 560px); margin: 7px auto; padding: 8px 8px 7px; }
+.tx-devices.is-inline .tx-radar { width: 200px; height: 200px; margin: 2px auto 0; }
 .tx-devices.is-inline .tx-devices-sub { width: min(calc(100% - 16px), 560px); margin: 0 auto; }
 .tx-devices.is-inline .tx-devices-list {
     width: min(calc(100% - 16px), 560px); margin: 0 auto;
@@ -2834,8 +2826,16 @@ button:focus-visible, [role="button"]:focus-visible {
     width: min(calc(100% - 16px), 560px); margin: 10px auto 14px;
     flex-shrink: 0; margin-top: auto;
 }
+@media (max-width: 620px) {
+    .tx-devices.is-inline {
+        position: absolute; inset: 0; z-index: 40;
+        width: 100%; flex-basis: auto; border-right: none;
+        background: var(--panel);
+    }
+    .tx-devices.is-inline .tx-radar { width: 230px; height: 230px; }
+}
 /* 设备状态图例(在线/忙碌/离线): 放在雷达模块底部 */
-.tx-dev-legend { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0 0; margin-top: 8px; border-top: 1px solid var(--card-border); font-size: 10px; color: var(--text2); }
+.tx-dev-legend { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 6px 0 0; margin-top: 6px; border-top: 1px solid var(--card-border); font-size: 10px; color: var(--text2); }
 .tx-dev-legend span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .tx-dev-legend i { width: 7px; height: 7px; border-radius: 50%; display: block; }
 .tx-dev-legend i.online { background: var(--success); }
@@ -2848,7 +2848,7 @@ button:focus-visible, [role="button"]:focus-visible {
 .tx-devices-manual:hover { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--card-border)); }
 .tx-devices-collapse { margin-left: 4px; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--card-border); background: var(--card); color: var(--text2); cursor: pointer; display: grid; place-items: center; }
 .tx-devices-collapse:hover { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--card-border)); }
-.tx-radar-wrap { margin: 9px 8px 0; padding: 8px 6px 10px; border: 1px solid var(--card-border); border-radius: 12px; background: color-mix(in srgb, var(--card) 72%, transparent); }
+.tx-radar-wrap { margin: 8px 8px 0; padding: 7px 6px 8px; border: 1px solid var(--card-border); border-radius: 12px; background: color-mix(in srgb, var(--card) 72%, transparent); }
 .tx-sec-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 3px 4px; font-size: 9.5px; letter-spacing: .05em; color: var(--text2); font-weight: 700; }
 .tx-sec-label small { font-size: 9px; color: var(--accent-text); }
 .tx-devices-scan { margin-left: auto; width: 23px; height: 23px; border-radius: 7px; border: 1px solid var(--card-border); background: var(--card); color: var(--text2); cursor: pointer; font-size: 12px; display: grid; place-items: center; }
@@ -2896,7 +2896,7 @@ button:focus-visible, [role="button"]:focus-visible {
 .tx-state-dot.off { background: var(--text3); }
 .tx-radar {
     /* 去掉「扫描雷达」标题后把直径从 132 放大到 156, 仍是 194px 设备栏内的安全尺寸 */
-    position: relative; width: 156px; height: 156px; margin: 2px auto 9px; flex-shrink: 0;
+    position: relative; width: 140px; height: 140px; margin: 2px auto 7px; flex-shrink: 0;
     border-radius: 50%; overflow: hidden; border: 1px solid var(--card-border);
     cursor: pointer; transition: border-color .15s, box-shadow .15s;
     background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 13%, var(--panel)) 0 22%, transparent 23%),

@@ -2349,17 +2349,23 @@ const OPEN_LAN_PREF_FILE: &str = "open_lan_pref";
 fn open_lan_pref_file() -> PathBuf { port_pref_file().with_file_name(OPEN_LAN_PREF_FILE) }
 
 fn open_lan() -> bool {
-    // 首次使用时从偏好文件恢复; 运行中切换监听地址需要重绑, 由下次 start 生效。
-    // 默认值: 桌面 true(产品定位就是同 Wi-Fi 互传), 移动端 false(公共 Wi-Fi 安全模式)。
-    // 桌面设置页已移除开关, 但**仍尊重历史偏好**: 曾显式关闭过的用户升级后不会
-    // 被静默重新暴露到局域网; 发现页会给出"仅本机模式"提示和一键恢复入口。
-    static INIT: OnceLock<()> = OnceLock::new();
-    INIT.get_or_init(|| {
-        if let Ok(s) = std::fs::read_to_string(open_lan_pref_file()) {
-            OPEN_LAN.store(s.trim() == "1", Ordering::Relaxed);
-        }
-    });
-    OPEN_LAN.load(Ordering::Relaxed)
+    // 桌面端始终监听局域网(产品定位就是同一 Wi-Fi 互传), CC设置不再提供开关;
+    // 历史 open_lan_pref=0 不再生效, 避免"没有入口却停在仅本机"的死角。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        return true;
+    }
+    // 移动端默认仅回环(公共 Wi-Fi 安全模式), 由 CC设置 手动开启并持久化。
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        static INIT: OnceLock<()> = OnceLock::new();
+        INIT.get_or_init(|| {
+            if let Ok(s) = std::fs::read_to_string(open_lan_pref_file()) {
+                OPEN_LAN.store(s.trim() == "1", Ordering::Relaxed);
+            }
+        });
+        OPEN_LAN.load(Ordering::Relaxed)
+    }
 }
 
 pub fn set_open_lan(open: bool) {
@@ -5866,18 +5872,6 @@ async fn log_middleware(
             return err(
                 StatusCode::FORBIDDEN,
                 "公网地址访问需先在电脑端「CC设置」开启访问令牌",
-            );
-        }
-        // 共享剪贴板属于敏感数据(可能含密码/验证码): 非本机来源必须先开启访问令牌。
-        // 本机/壳内回环不受影响; 开令牌后由下面的 PIN 校验统一保护。
-        // 未开令牌时直接拒绝, 避免"零配置局域网"把系统剪贴板暴露给任意同网段设备。
-        if path == "/api/clipboard"
-            && !is_local_source(peer)
-            && access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_none()
-        {
-            return err(
-                StatusCode::FORBIDDEN,
-                "共享剪贴板需要先在电脑端「CC设置」开启访问令牌",
             );
         }
         // 分享票据先于访问码校验: 票据是一次性、绑定单文件的下载凭证 ——

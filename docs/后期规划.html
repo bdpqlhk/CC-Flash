@@ -53,7 +53,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>规划状态已按 v1.2.4 更新 · 2026-11-19</b>　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面恢复「局域网访问」开关、未签名构建不再发布/进入更新通道。　消息工作台、双向共享剪贴板、浏览器去发现等已落地；设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　尚未实施项仍以本文标注为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>规划状态已按 v1.2.4 更新 · 2026-11-19</b>　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。　消息工作台、双向共享剪贴板、浏览器去发现等已落地；设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　尚未实施项仍以本文标注为准。</div>
 
 <div class="layout">
 
@@ -236,7 +236,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td>v1.2.1.1</td><td class="muted">已发布（2026-11-11）</td><td><b>体验补齐与传输安全加固</b>：应用内预览（图片/PDF/文本/音视频）与 CSP 放行、聊天 Markdown + 多行输入、顶栏/共享文件抽屉打磨、5 套配色 × 亮/暗/跟随、桌面气泡跟随主题；服务端下载 32/上传 16/WS 64 并发闸、上传低速闸、.ccup 状态机、长文件名 marker 预检、符号链接删除保护、.ccpart 只清会话指纹命名、open_lan 持久化、IPv6 /64 锁窗封顶 10 分钟；四段 tag 与重发保护</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.2</td><td class="muted">已发布（2026-11-16）</td><td><b>移动端独立节点 + 附近设备</b>：Android/iOS 本机服务与聊天、默认安全模式、连接电脑双模式、前台服务保活与 MulticastLock；UDP 多播/广播设备发现与点对点投递；上传清理防"半截转正"、下载 ETag/If-Range、票据绑定 size/ETag 并随删除/重传失效、公网 PIN 全局失败预算、控制接口拒绝跨站、静态页防点击劫持、聊天 id 单调、macOS 11+ 本地网络权限；`npm ci` 与四处版本一致性门禁</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.3</td><td class="muted">已发布（2026-11-18）</td><td><b>消息工作台 + 双向剪贴板</b>：桌面设备栏并入消息发送、手机 App 两标签、浏览器回原聊天室；共享剪贴板 GET/POST/DELETE 与双向自动同步（无开关、可见性闸）；侧栏 192px / 设备栏 200px / 文件抽屉 320–380px；访问令牌 fail-closed、票据与文件指纹异步校验、静态资源 404、PDF 一次性票据、Android onResume 重启服务</td><td><span class="tag t-done">✔ 已发</span></td></tr>
-<tr><td>v1.2.4</td><td class="muted">已落地（2026-11-19）</td><td><b>全量深查修复</b>：剪贴板同步默认关闭 + 凭据黑名单 + 远端需访问令牌；移动端自动本机访问令牌；桌面恢复「局域网访问」开关；WS 退避修复；下载 45s 空闲超时 + 单来源并发配额；限流窗口与 IPv6 /64 聚合；偏好/聊天历史原子写与损坏保留；启动清理不再误删；未签名构建不公开；Android 17 本地网络权限；前端/二进制瘦身与消息提醒胶囊美化</td><td><span class="tag t-done">✔ 已落地</span></td></tr>
+<tr><td>v1.2.4</td><td class="muted">已落地（2026-11-19）</td><td><b>全量深查修复</b>：剪贴板同步默认关闭 + 凭据黑名单 + 远端需访问令牌；移动端自动本机访问令牌；桌面始终开放局域网（CC设置不再提供开关）；WS 退避修复；下载 45s 空闲超时 + 单来源并发配额；限流窗口与 IPv6 /64 聚合；偏好/聊天历史原子写与损坏保留；启动清理不再误删；未签名构建不公开；Android 17 本地网络权限；前端/二进制瘦身与消息提醒胶囊美化</td><td><span class="tag t-done">✔ 已落地</span></td></tr>
 <tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索）；小尾巴清零 / 诊断包导出（断网自愈、路径安全测试集、在线预览均已落地）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
 <tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接增强（可选时长/多文件/链接管理；基础一次性票据已在 v1.2.0 落地）+ UDP 广播发现 + 共享文件夹监控（上传断点续传已列入红线不做）</td><td>链接管理与发现能力上线</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
