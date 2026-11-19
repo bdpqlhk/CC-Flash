@@ -30,7 +30,7 @@ import {
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
 import { createPetActivityTracker } from "./pet-activity";
-import { open as openDialog, ask as askDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { readText as readClipboardText, readImage as readClipboardImage, writeText as writeClipboardText } from "@tauri-apps/plugin-clipboard-manager";
 // 模块化 API 取代 window.__TAURI__ 全局暴露(withGlobalTauri=false): XSS 即便发生也拿不到
 // 覆盖全部自定义命令的 invoke 面 —— isDesktop 判定走 __TAURI_INTERNALS__(IPC 内部注入, 不受此开关影响)
@@ -487,15 +487,33 @@ function clearAccessPinIfOff(enabled) {
   saveTextPref("access-pin", "");
   clearShareTicketCache();
 }
+/* 统一的应用内确认框: 替代系统原生 alert/confirm, 与 CC Flash 主题一致 */
+const confirmState = ref(null);
+function appConfirm(opts) {
+  return new Promise((resolve) => {
+    confirmState.value = {
+      title: "请确认", message: "", confirmText: "确定", cancelText: "取消",
+      danger: false, ...(opts || {}), resolve,
+    };
+  });
+}
+function resolveConfirm(ok) {
+  const st = confirmState.value;
+  if (!st) return;
+  confirmState.value = null;
+  try { st.resolve?.(!!ok); } catch (e) {}
+}
+
 async function toggleAccessPin() {
   try {
     // 移动端关闭令牌会让 127.0.0.1 重新对同机其他 App 开放(Android 回环不按应用隔离),
     // 必须二次确认, 不能一键静默解除本机沙箱保护
     if (mobileShell && pinEnabled.value) {
-      const yes = await askDialog(
-        "关闭访问令牌后，同机其他 App 也能直接访问本机文件服务与共享剪贴板（Android 的 127.0.0.1 不按应用隔离）。确定关闭吗？",
-        { title: "关闭访问令牌", kind: "warning" }
-      );
+      const yes = await appConfirm({
+        title: "关闭访问令牌",
+        message: "关闭后，同机其他 App 也能直接访问本机文件服务与共享剪贴板（Android 的 127.0.0.1 不按应用隔离）。确定关闭吗？",
+        confirmText: "关闭令牌", danger: true,
+      });
       if (!yes) return;
     }
     const d = await tauriInvoke("set_access_pin_cmd", { enable: !pinEnabled.value });
@@ -509,7 +527,7 @@ async function toggleAccessPin() {
   } catch (e) { showToast("设置失败，请重试", "error");
   }
 }
-/* 局域网访问开关: 桌面默认开; 移动端默认关(仅回环), 公共 Wi-Fi 下不会裸奔 */
+/* 局域网访问: 桌面与移动端都始终开放; 移动端用自动本机令牌保护 */
 async function toggleOpenLan() {
   try {
     const d = await tauriInvoke("set_open_lan_cmd", { open: !openLanEnabled.value });
@@ -886,7 +904,7 @@ function scrollChats() {
 
 /* ---------- 服务控制(桌面) ---------- */
 const running = ref(false);
-// 局域网访问开关(服务端 /api/info 下发; 移动端默认 false)。定义提前到二维码 watch 之前。
+// 局域网访问状态(服务端 /api/info 下发; 两端始终开放)。定义提前到二维码 watch 之前。
 const openLanEnabled = ref(true);
 // 本次服务实际监听在局域网(与偏好 openLan 不同: 拨开关后需重启服务才生效)
 const lanActive = ref(true);
@@ -965,10 +983,11 @@ async function applyShareDir(path) {
   // (后端"运行中拒绝"保留为安全兜底; 高危目录确认与失败回滚逻辑不变)
   let wasRunning = false;
   if (running.value) {
-    const yes = await askDialog(
-      `服务正在运行。修改共享目录将自动执行：\n停止服务 → 切换目录 → 重启服务（手机端需刷新页面）。继续吗？`,
-      { title: "切换共享目录", kind: "warning" }
-    );
+    const yes = await appConfirm({
+      title: "切换共享目录",
+      message: "服务正在运行。修改共享目录将自动执行：停止服务 → 切换目录 → 重启服务（手机端需刷新页面）。继续吗？",
+      confirmText: "继续",
+    });
     if (!yes) return { ok: false, cancelled: true };
     try {
       await tauriInvoke("control_stop_cmd");
@@ -1001,10 +1020,11 @@ async function applyShareDir(path) {
     }
     return d;
   }
-  const yes = await askDialog(
-    `「${path}」是高风险目录（家目录、其上级或磁盘根目录）。\n\n共享后同一 Wi-Fi 内的任何设备都能读取、覆盖、删除其中的全部文件。确定继续吗？`,
-    { title: "高风险共享目录", kind: "warning" }
-  );
+  const yes = await appConfirm({
+    title: "高风险共享目录",
+    message: `「${path}」是家目录、其上级或磁盘根目录。\n共享后同一 Wi-Fi 内的任何设备都能读取、覆盖、删除其中的全部文件。确定继续吗？`,
+    confirmText: "仍然共享", danger: true,
+  });
   if (!yes) return finish({ ok: false, cancelled: true });
   const d2 = await tauriInvoke("set_share_dir_cmd", { path, force: true });
   if (!d2.ok) return finish(d2);
@@ -1775,7 +1795,7 @@ function copyUrl() {
   if (serviceDown()) { showToast("服务未启动", "error"); return; }
   // 安全模式只监听回环: 复制出的局域网 IP 别人打不开
   if (!lanActive.value) {
-    showToast("当前为仅本机模式，请在「CC设置」中开启局域网访问并重启服务", "error");
+    showToast("当前为仅本机模式，请重启电脑端服务", "error");
     return;
   }
   // 浏览器首刷前 lanIp 还是占位 "--": 此刻复制出来的是 http://--:port 无效地址
@@ -1989,7 +2009,7 @@ async function loadFiles(manual = false) {
 async function shareFile(name) {
   if (serviceDown()) { showToast("服务已停止，无法分享", "error"); return; }
   if (!lanActive.value) {
-    showToast("当前为仅本机模式，请在「设置」中开启局域网访问并重启服务", "error");
+    showToast("当前为仅本机模式，请重启本机服务", "error");
     return;
   }   // 停服后链接打不开, 先拦截
   markFileViewed(name);
@@ -3945,17 +3965,11 @@ function copyMessage(m) {
 }
 async function deleteMessage(m) {
   if (!m || offlineGuard()) return;
-  let yes = false;   // 默认不删: 确认框异常时绝不能静默执行跨端删除
-  try {
-    if (isRealDesktop) {
-      yes = await askDialog("删除这条消息？所有设备都将看不到它。", { title: "删除消息", kind: "warning" });
-    } else {
-      yes = window.confirm("删除这条消息？所有设备都将看不到它。");
-    }
-  } catch (_) {
-    showToast("无法弹出确认框，请重试", "error");
-    return;
-  }
+  const yes = await appConfirm({
+    title: "删除消息",
+    message: "删除这条消息？所有设备都将看不到它。",
+    confirmText: "删除", danger: true,
+  });
   if (!yes) return;
   try {
     const r = await apiFetch(apiBase.value + API.chatDelete(m.id), { method: "DELETE" });
@@ -5660,16 +5674,6 @@ async function refreshStatus() {
           <div class="field-hint">当前连接：{{ apiBase || "启动中…" }} · {{ running ? "运行中" : "未运行" }}</div>
           <div class="setting-row" v-if="!serverAddr || isLocalAddr(serverAddr)">
             <div class="setting-info">
-              <div class="setting-title">局域网访问</div>
-              <div class="setting-desc">默认关闭（仅本机可访问）；开启后同一 Wi-Fi 下的设备可通过扫码/地址访问本机文件</div>
-            </div>
-            <button class="switch" :class="{ on: openLanEnabled }" role="switch" :aria-checked="openLanEnabled"
-                    :title="openLanEnabled ? '点击关闭' : '点击开启'" @click="toggleOpenLan">
-              <span class="knob"></span>
-            </button>
-          </div>
-          <div class="setting-row" v-if="!serverAddr || isLocalAddr(serverAddr)">
-            <div class="setting-info">
               <div class="setting-title">访问令牌保护</div>
               <div class="setting-desc">
                 开启后同一 Wi-Fi 下的设备需输入配对码才能使用（本机壳自动取码，其他 App 无法直连）
@@ -5698,7 +5702,7 @@ async function refreshStatus() {
           <div class="setting-row" v-if="!serverAddr || isLocalAddr(serverAddr)">
             <div class="setting-info">
               <div class="setting-title">重启本机服务</div>
-              <div class="setting-desc">局域网访问/令牌开关修改后需重启服务才会生效</div>
+              <div class="setting-desc">访问令牌开关修改后需重启服务才会生效</div>
             </div>
             <button class="btn btn-ghost" style="height:28px" @click="restartMobileService">重启服务</button>
           </div>
@@ -5997,7 +6001,7 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
           <h3>数据只在局域网</h3>
-          <p>HTTP 服务只在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。桌面始终开放局域网；移动 App 默认仅监听 127.0.0.1，并自动生成本机访问令牌（同机其他 App 无法直连）。桌面可选 6 位访问令牌（单 IP 指数退避 + 公网全局失败预算、本机免输）；系统剪贴板自动同步默认关闭，开启后任何文本（含令牌/验证码）都会同步，不做内容过滤。分享链接为一次性票据，文件删除/同名重传后旧链接立即失效。</p>
+          <p>HTTP 服务只在局域网内直达 —— 不上云、无账号体系、不经过任何第三方服务器，断外网照样用。桌面始终开放局域网；移动 App 始终开放局域网，并自动生成本机访问令牌（同网段设备需配对码，同机其他 App 无法直连）。桌面可选 6 位访问令牌（单 IP 指数退避 + 公网全局失败预算、本机免输）；系统剪贴板自动同步默认关闭，开启后任何文本（含令牌/验证码）都会同步，不做内容过滤。分享链接为一次性票据，文件删除/同名重传后旧链接立即失效。</p>
         </div>
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
@@ -6174,7 +6178,7 @@ async function refreshStatus() {
           <span class="diag-no">4</span>
           <div class="diag-body">
             <b>服务未启动 / 仅本机模式</b>
-            <p>手机 App 默认只监听本机；需要被发现时，到设置开启「局域网访问」并重启服务。电脑端请先启动服务。</p>
+            <p>手机 App 始终开放局域网，并自动生成本机访问令牌；同网段设备需配对码。电脑端请先启动服务。</p>
             <button class="diag-act" @click="diagGoService">{{ isRealDesktop ? "去服务中心" : "去设置" }}</button>
           </div>
         </div>
@@ -6253,7 +6257,7 @@ async function refreshStatus() {
     <div class="dialog-box">
       <h4>扫描二维码在手机上打开</h4>
       <img v-if="qrData" class="qr-img" :src="qrData" alt="QR" />
-      <div v-else class="qr-empty" style="margin:10px auto">{{ running ? (lanActive ? "二维码生成中…" : "仅本机模式：请先在「CC设置」开启局域网访问") : "服务已停止" }}</div>
+      <div v-else class="qr-empty" style="margin:10px auto">{{ running ? (lanActive ? "二维码生成中…" : "仅本机模式：请重启服务") : "服务已停止" }}</div>
       <p style="word-break:break-all">{{ shareUrl }}</p>
       <p style="font-size:12px;color:var(--text2);margin:0">{{ TIP_QR }}</p>
       <div class="dialog-actions"><button class="btn btn-primary" @click="qrShow = false">关闭</button></div>
@@ -6284,6 +6288,22 @@ async function refreshStatus() {
       <div class="dialog-actions">
         <button class="btn btn-ghost" @click="showDel = false">取消</button>
         <button class="btn btn-danger" @click="doDelete">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 统一应用内确认框(替代系统原生 ask/confirm) -->
+  <div v-if="confirmState" class="dialog-overlay app-confirm-overlay" @click.self="resolveConfirm(false)">
+    <div class="dialog-box app-confirm" :class="{ danger: confirmState.danger }" role="alertdialog" aria-modal="true">
+      <div class="app-confirm-ic" aria-hidden="true">
+        <svg v-if="confirmState.danger" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M7 7l1 13h8l1-13"/><line x1="10" y1="11" x2="10" y2="16"/><line x1="14" y1="11" x2="14" y2="16"/></svg>
+        <svg v-else width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 16H3z"/><line x1="12" y1="9" x2="12" y2="14"/><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/></svg>
+      </div>
+      <h4>{{ confirmState.title }}</h4>
+      <p class="app-confirm-msg">{{ confirmState.message }}</p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" @click="resolveConfirm(false)">{{ confirmState.cancelText }}</button>
+        <button class="btn" :class="confirmState.danger ? 'btn-danger' : 'btn-primary'" @click="resolveConfirm(true)">{{ confirmState.confirmText }}</button>
       </div>
     </div>
   </div>

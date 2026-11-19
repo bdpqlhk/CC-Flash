@@ -3052,3 +3052,20 @@ button:focus-visible, [role="button"]:focus-visible {
     border: 1px solid var(--card-border); pointer-events: none; white-space: nowrap;
 }
 .tx-char-count.over { color: #fff; background: var(--danger); border-color: var(--danger); font-weight: 700; }
+
+/* 统一应用内确认框: 与主题一致, 替代系统原生 alert/confirm */
+.app-confirm { max-width: 360px; width: min(360px, 92vw); padding: 22px 22px 18px; text-align: center; }
+.app-confirm-ic {
+    width: 48px; height: 48px; margin: 0 auto 12px; border-radius: 15px;
+    display: grid; place-items: center;
+    background: var(--accent-bg); color: var(--accent-text);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.app-confirm.danger .app-confirm-ic {
+    background: var(--danger-bg); color: var(--danger);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.app-confirm h4 { margin: 0 0 7px; font-size: 16px; color: var(--text); }
+.app-confirm-msg { margin: 0; color: var(--text2); font-size: 12.5px; line-height: 1.75; white-space: pre-line; word-break: break-word; }
+.app-confirm .dialog-actions { display: flex; gap: 8px; margin-top: 18px; }
+.app-confirm .dialog-actions .btn { flex: 1; min-height: 36px; }

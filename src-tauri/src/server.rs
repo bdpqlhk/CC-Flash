@@ -2349,23 +2349,10 @@ const OPEN_LAN_PREF_FILE: &str = "open_lan_pref";
 fn open_lan_pref_file() -> PathBuf { port_pref_file().with_file_name(OPEN_LAN_PREF_FILE) }
 
 fn open_lan() -> bool {
-    // 桌面端始终监听局域网(产品定位就是同一 Wi-Fi 互传), CC设置不再提供开关;
-    // 历史 open_lan_pref=0 不再生效, 避免"没有入口却停在仅本机"的死角。
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        return true;
-    }
-    // 移动端默认仅回环(公共 Wi-Fi 安全模式), 由 CC设置 手动开启并持久化。
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        static INIT: OnceLock<()> = OnceLock::new();
-        INIT.get_or_init(|| {
-            if let Ok(s) = std::fs::read_to_string(open_lan_pref_file()) {
-                OPEN_LAN.store(s.trim() == "1", Ordering::Relaxed);
-            }
-        });
-        OPEN_LAN.load(Ordering::Relaxed)
-    }
+    // 桌面端与移动端都始终监听局域网(产品定位就是同一 Wi-Fi 互传), 不再提供开关;
+    // 历史 open_lan_pref=0 不再生效, 避免"设置页没有入口却停在仅本机"的死角。
+    // 移动端仍自动生成本机访问令牌, 同网段设备需配对码。
+    true
 }
 
 pub fn set_open_lan(open: bool) {

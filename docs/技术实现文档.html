@@ -84,7 +84,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>消息工作台（v1.2.3）</b>：设备发现并入桌面「消息发送」左侧设备栏（200px）与手机 App「发送」页；手机 App 只有「发送 / 设置」两标签；浏览器保持原聊天室单页，无发现 / 设置。选中设备后直发文本 / 文件并追加本机回执。</li>
 <li><b>共享剪贴板（v1.2.3 起，2026-11-19 加固）</b>：<code>GET/POST/DELETE /api/clipboard</code>，20,000 字持久化共享槽；系统剪贴板自动同步<b>默认关闭</b>，由 CC设置「系统剪贴板自动同步」开关控制；任何文本（含令牌/验证码）都会同步，不做内容过滤。WS 事件 <code>clipboard:changed</code>，HTTP 4.5s 兜底；浏览器只在聊天输入框粘贴时回传。写入按来源限流。</li>
 <li><b>布局（v1.2.3）</b>：侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层。</li>
-<li><b>移动端改为独立节点</b>：Android/iOS App 启动本机 HTTP 服务与聊天；默认安全模式（只监听 127.0.0.1），CC设置里可开「局域网访问」+ 访问令牌，开关修改后需重启服务；「连接电脑」作为可选模式保留，可随时切回本机节点。Android 用前台服务（dataSync）+ MulticastLock 保活/收多播，<code>allowBackup=false</code>。</li>
+<li><b>移动端改为独立节点</b>：Android/iOS App 启动本机 HTTP 服务与聊天；始终开放局域网并自动生成本机访问令牌（同网段设备需配对码），CC设置不再提供「局域网访问」开关；「连接电脑」作为可选模式保留，可随时切回本机节点。Android 用前台服务（dataSync）+ MulticastLock 保活/收多播，<code>allowBackup=false</code>。</li>
 <li><b>附近设备</b>：IPv4 多播 <code>239.255.42.99:53318</code> + IPv6 link-local <code>ff02::ccf1:53318</code> + 广播，每个节点每 3s 宣告自身；启动/手动刷新主动 probe，正常退出发 bye；最多 64 个 peer、15s TTL；发现端口 53318-53321 自动顺延；新设备与状态变化即时推 <code>devices:changed</code>；<code>/api/hello</code> 不再把浏览器登记为可发送目标；前端只接受私网地址投递，消息/文件落到对方公共聊天/共享目录。</li>
 <li><b>下载完整性</b>：响应带强 <code>ETag</code>（size+mtime），<code>If-Range</code> 不匹配时忽略 Range 回 200 全量，防止断点续传把同名新文件拼坏。</li>
 <li><b>上传清理</b>：<code>abort_upload</code> 与启动清理由"先删标记后删成品"改为"成品确认消失才删标记"，Windows 句柄占用时保留标记等下次启动，半截文件不会转正。</li>
@@ -685,7 +685,7 @@ npm run tauri build
 <tr><th>类别</th><th>修复</th></tr>
 <tr><td>移动端沙箱</td><td>移动端首次启动自动生成本机访问令牌并落盘；<code>mobile_loopback_locked</code> 使 127.0.0.1 也需校验。壳内通过 <code>control_status_cmd</code> 取码自动附加，同机其他 App 无码不可读写/停服。</td></tr>
 <tr><td>剪贴板</td><td>自动同步默认关闭 + CC设置开关；开启后所有文本（含令牌/验证码）都会同步；paste 仍限定聊天输入框；写入限流与串行落盘。</td></tr>
-<tr><td>局域网入口</td><td>桌面 CC设置 恢复「局域网访问」开关；文案从已删除的「发现」页改为「CC设置」；<code>web_url()</code> 在安全模式下打开 <code>127.0.0.1</code> 而不是不可达的 LAN IP。</td></tr>
+<tr><td>局域网入口</td><td>桌面与移动端都始终开放局域网（CC设置移除开关）；<code>web_url()</code> 按实际监听地址打开。</td></tr>
 <tr><td>WS 退避</td><td><code>closeWs()</code> 不再重置 <code>wsRetryDelay</code>，退避只在 <code>onopen</code> 复位；停服后 WS 循环以 <code>is_running()</code> 兜底退出，避免 kick 订阅竞态泄漏许可。</td></tr>
 <tr><td>并发与限流</td><td>上传/下载在全局许可外增加单来源配额（4 / 8，IPv6 /64 聚合）；下载流每块 45s 空闲超时；聊天/开票/探测限流改为固定窗口（不再"突发 60 次后整窗封禁"）；失败请求日志按来源限流。</td></tr>
 <tr><td>数据安全</td><td>共享目录/端口/局域网/设备缓存偏好改用原子写 + fsync；聊天历史损坏改名 <code>.bad-*</code> 保留；启动清理对"无声明大小"的上传残留改名 <code>.incomplete</code> 保留而非删除；旧共享目录迁移失败回退旧目录并告警；聊天/剪贴板落盘移出 async worker 并按序号串行。</td></tr>

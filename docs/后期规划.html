@@ -89,7 +89,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><th>维度</th><th>状态</th></tr>
 <tr><td>平台</td><td>macOS / Windows / Android（单包 arm64-v8a + release 签名）；Linux 可源码构建；iOS 用 Safari 访问网页版</td></tr>
 <tr><td>核心能力</td><td>文件互传（四途径上传/流式下载/分享链接）、合并传输页（消息 + 文件卡片同一时间线）、<b>应用内预览（图片/PDF/文本/音视频）</b>、<b>聊天 Markdown 与多行输入</b>、服务控制/日志、<b>5 套配色 × 亮/暗/跟随</b>、介绍页、开机自启、托盘唤窗、单实例、桌面悬浮码、<b>附近设备（UDP 多播/广播发现 + 点对点投递）</b>、<b>移动 App 独立节点（默认安全模式）与连接电脑双模式</b>、<b>消息工作台与双向共享剪贴板（v1.2.3）</b></td></tr>
-<tr><td>工程</td><td>CI 三平台自动发版（macOS 分架构双包 dmg、Windows msi + NSIS exe、Android arm64-v8a APK）、Android 签名 Secrets 链路、<b>四段 tag（vX.Y.Z.W）</b>与四段 versionCode、重发 tag 默认拒绝、发布前草稿门禁</td></tr>
+<tr><td>工程</td><td>CI 三平台自动发版（macOS 分架构双包 dmg、Windows NSIS exe、Android arm64-v8a APK）、Android 签名 Secrets 链路、<b>四段 tag（vX.Y.Z.W）</b>与四段 versionCode、重发 tag 默认拒绝、发布前草稿门禁</td></tr>
 <tr><td>已知遗留</td><td>iOS 无真机包（依赖开发者账号）、应用内自更新未做、mDNS 未实施（UDP 多播/广播发现已于 v1.2.2 落地）、HTTPS 自签未做、<span class="tag t-done">Android 正式签名已完成</span>、<span class="tag t-done">应用内预览 / Markdown / 四段版本已落地</span></td></tr>
 </table>
 </section>
@@ -169,7 +169,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <table>
 <tr><th>平台/渠道</th><th>现状</th><th>计划</th><th>依赖</th></tr>
 <tr><td>macOS</td><td>dmg（未签名/公证）</td><td>→ Apple Developer 签名+公证（消除「无法验证开发者」首启摩擦）</td><td>$99/年 账号（与 iOS 同一决策）</td></tr>
-<tr><td>Windows</td><td>msi/exe</td><td>→ 签名证书（SmartScreen 名声）+ winget 收录</td><td>代码签名证书（OV 约 $70~150/年）或先走社区信任</td></tr>
+<tr><td>Windows</td><td>NSIS exe</td><td>→ 签名证书（SmartScreen 名声）+ winget 收录</td><td>代码签名证书（OV 约 $70~150/年）或先走社区信任</td></tr>
 <tr><td>Android</td><td>arm64-v8a 单包已 release 签名；<span class="tag t-done">✔ v1.1.6 应用内下载已支持</span></td><td>→ AAB（Play）/ 商店上架（国内）</td><td>商店材料/软著</td></tr>
 <tr><td>iOS</td><td>workflow 注释模板</td><td>v2.0 启用</td><td>开发者账号</td></tr>
 <tr><td>Linux</td><td>源码构建</td><td>AppImage + deb + AUR</td><td>低</td></tr>
