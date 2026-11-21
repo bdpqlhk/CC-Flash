@@ -256,7 +256,7 @@ ol.steps-5 li b{color:var(--text)}
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 
 <!-- ================= 导航 ================= -->
@@ -441,8 +441,8 @@ ol.steps-5 li b{color:var(--text)}
       <article class="card">
         <span class="ico ico-pink"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
         <h3>手机 App，双模式</h3>
-        <p>Android App 默认作为本机独立节点（只监听 127.0.0.1，安全模式），可在 CC设置 开启局域网访问，也可切换「连接电脑」浏览电脑共享文件，随时切回本机。</p>
-        <div class="tags"><span class="tag">独立节点</span><span class="tag">连接电脑</span><span class="tag">前台保活</span></div>
+        <p>Android App 作为独立本机节点运行，始终开放局域网并自动生成本机访问令牌；不再提供「连接电脑」入口。</p>
+        <div class="tags"><span class="tag">独立节点</span><span class="tag">本机令牌</span><span class="tag">前台保活</span></div>
       </article>
       <article class="card">
         <span class="ico ico-blue"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></span>
@@ -466,7 +466,7 @@ ol.steps-5 li b{color:var(--text)}
     <h3 class="mini-title"><span class="n">1</span>安装与首次打开</h3>
     <ul class="list">
       <li><b>macOS</b>：Apple Silicon 选 <code>_aarch64.dmg</code>，Intel 选 <code>_x64.dmg</code>，拖入「应用程序」。首次若提示无法验证开发者，右键 →「打开」→ 再点「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」。</li>
-      <li><b>Windows</b>：运行 <code>.exe</code> / <code>.msi</code>。若 SmartScreen 提示「已保护你的电脑」，点「更多信息」→「仍要运行」。首次启动允许<strong>专用网络</strong>防火墙授权，否则手机连不上。</li>
+      <li><b>Windows</b>：运行 <code>.exe</code>（NSIS 安装包）。若 SmartScreen 提示「已保护你的电脑」，点「更多信息」→「仍要运行」。首次启动允许<strong>专用网络</strong>防火墙授权，否则手机连不上。</li>
       <li><b>Linux</b>：<code>npm install &amp;&amp; npm run tauri build</code> 从源码构建。</li>
     </ul>
 
@@ -526,7 +526,7 @@ ol.steps-5 li b{color:var(--text)}
       </div>
       <div class="card" style="box-shadow:none">
         <h3>CC设置</h3>
-        <p>开机自动启动（默认关闭）、局域网访问、访问令牌、悬浮二维码、皮肤（亮 / 暗 / 跟随系统 × 五套配色）、检查更新。移动 App 还多出「重启服务 / 连接电脑 / 切回本机节点」。</p>
+        <p>开机自动启动（默认关闭）、访问令牌、悬浮二维码、皮肤（亮 / 暗 / 跟随系统 × 六套配色，默认信号台）、检查更新。移动 App 还多出「重启服务 / 访问令牌 / 剪贴板同步」。</p>
       </div>
     </div>
 
@@ -545,7 +545,7 @@ ol.steps-5 li b{color:var(--text)}
     <div class="sec-head">
       <span class="eyebrow">手机端</span>
       <h2>浏览器免安装，App 更完整。</h2>
-      <p class="sub">手机浏览器扫码即用；Android App 默认独立节点，也可连接电脑。</p>
+      <p class="sub">手机浏览器扫码即用；Android App 是独立本机节点。</p>
     </div>
 
     <div class="grid-2">
@@ -565,10 +565,10 @@ ol.steps-5 li b{color:var(--text)}
         <span class="ico ico-green"><svg viewBox="0 0 24 24"><path d="M7 2l1.5 3.5A7 7 0 0112 5a7 7 0 013.5.5L17 2"/><path d="M5 9a7 7 0 0014 0v5a7 7 0 01-14 0z"/><path d="M9 11h.01M15 11h.01"/></svg></span>
         <h3>Android App（推荐）</h3>
         <ul class="list" style="margin-top:8px">
-          <li>Releases 只提供一个 <code>arm64-v8a</code> APK，覆盖 Android 5+ 主流 64 位机型。</li>
+          <li>Releases 只提供一个 <code>arm64-v8a</code> APK，覆盖 Android 7.0+（minSdk 24）主流 64 位机型。</li>
           <li><b>默认独立节点</b>：手机本机运行文件服务与聊天，只监听 <code>127.0.0.1</code>（安全模式），其他设备访问不到。</li>
-          <li>要让其他设备访问手机共享目录：CC设置 → 开启「局域网访问」（建议同时开访问令牌）→ 点「重启服务」。</li>
-          <li>要浏览电脑文件：CC设置 →「连接电脑」填电脑地址；随时点「切回本机节点」。</li>
+          <li>手机共享目录始终开放局域网，并自动生成本机访问令牌；同网段设备需输入配对码。</li>
+          <li>要浏览电脑文件：直接用手机浏览器打开电脑地址；App 本身作为独立节点运行。</li>
           <li>Android 用前台服务通知保活；附近设备发现会持有 MulticastLock。</li>
         </ul>
       </article>
@@ -601,12 +601,12 @@ ol.steps-5 li b{color:var(--text)}
       <div class="plat">
         <span class="pi"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span>
         <h3>Windows 10/11</h3>
-        <p><code>.exe</code> / <code>.msi</code>；首次允许专用网络防火墙</p>
+        <p><code>.exe</code>（NSIS 安装包）；首次允许专用网络防火墙</p>
       </div>
       <div class="plat">
         <span class="pi"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
         <h3>Android</h3>
-        <p>按 CPU 选 APK；默认独立节点，可连接电脑</p>
+        <p>按 CPU 选 APK；独立本机节点</p>
       </div>
       <div class="plat">
         <span class="pi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 014 10 15 15 0 01-4 10 15 15 0 01-4-10 15 15 0 014-10z"/></svg></span>
@@ -641,7 +641,7 @@ ol.steps-5 li b{color:var(--text)}
         </div>
         <div class="callout c-warn">
           <span class="ci"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg></span>
-          <div><b>请勿在公共 Wi-Fi 裸奔</b>默认同一网络的任何人都能查看 / 下载 / 删除共享文件、发言。公共或半可信网络请开启访问令牌；手机 App 默认只监听 127.0.0.1，需要被访问时再手动开启局域网并重启服务。</div>
+          <div><b>请勿在公共 Wi-Fi 裸奔</b>默认同一网络的任何人都能查看 / 下载 / 删除共享文件、发言。公共或半可信网络请开启访问令牌；手机 App 始终开放局域网并自动生成本机访问令牌。</div>
         </div>
       </div>
       <div>
@@ -697,15 +697,15 @@ ol.steps-5 li b{color:var(--text)}
       </details>
       <details class="faq">
         <summary>电脑换了 IP 或换了另一台电脑？<span class="plus">+</span></summary>
-        <div class="a">手机浏览器直接打开电脑端显示的新地址即可。Android App：连本机模式会自动重新探测端口；连接电脑模式到「CC设置 → 连接电脑」填新地址，或点「切回本机节点」。地址只支持 IP / localhost（<code>xxx.local</code> 会被拒绝，防 DNS 重绑定）。</div>
+        <div class="a">手机浏览器直接打开电脑端显示的新地址即可。Android App 是独立本机节点，电脑换 IP 不影响手机；本机服务异常时点「重新启动本机服务」。浏览器地址只支持 IP / localhost（<code>xxx.local</code> 会被拒绝，防 DNS 重绑定）。</div>
       </details>
       <details class="faq">
         <summary>Android 手机怎么装？装完为什么看不到电脑文件？<span class="plus">+</span></summary>
-        <div class="a">到 Releases 按 CPU 选 APK（多数手机用 <code>arm64-v8a</code>），允许「未知来源」安装。App 默认是本机独立节点，看不到电脑文件是正常的：到「CC设置 → 连接电脑」填电脑地址即可；要让其他设备访问手机共享目录，则开启「局域网访问」并重启服务（建议同时开访问令牌）。</div>
+        <div class="a">到 Releases 按 CPU 选 APK（多数手机用 <code>arm64-v8a</code>），允许「未知来源」安装。App 是独立本机节点，始终开放局域网并自动生成本机访问令牌；看不到电脑文件属正常，用手机浏览器打开电脑地址即可。</div>
       </details>
       <details class="faq">
         <summary>「附近设备」里为什么没有某台设备？<span class="plus">+</span></summary>
-        <div class="a">附近设备只显示运行 CC-Flash 的电脑 / 手机 App（通过 IPv4 UDP 多播 <code>239.255.42.99:53318</code> + 广播发现）；纯浏览器页面没有监听端口，不会出现。确认双方在同一 Wi-Fi、都开启了服务；手机 App 默认安全模式（仅 127.0.0.1）不会广播，需在 CC设置 开启「局域网访问」并重启服务；Windows 还需在防火墙放行 UDP 53318。部分 Android 网络会过滤多播，广播兜底可能需要几秒。注意：纯浏览器页面向另一台设备投递时，目标设备未开启访问令牌则只允许发消息/文件（读取、删除、生成分享票据会被拒绝）；桌面 / 手机 App 客户端不受此限制；对方开启访问令牌时，在投递弹窗里填写对方配对码即可（会按设备记住）。</div>
+        <div class="a">附近设备只显示运行 CC-Flash 的电脑 / 手机 App（通过 IPv4 UDP 多播 <code>239.255.42.99:53318</code> + 广播发现）；纯浏览器页面没有监听端口，不会出现。确认双方在同一 Wi-Fi、都开启了服务；手机 App 始终开放局域网并广播，同网段设备需配对码；Windows 还需在防火墙放行 UDP 53318。部分 Android 网络会过滤多播，广播兜底可能需要几秒。注意：纯浏览器页面向另一台设备投递时，目标设备未开启访问令牌则只允许发消息/文件（读取、删除、生成分享票据会被拒绝）；桌面 / 手机 App 客户端不受此限制；对方开启访问令牌时，在投递弹窗里填写对方配对码即可（会按设备记住）。</div>
       </details>
       <details class="faq">
         <summary>macOS 提示「已损坏，无法打开」/ Windows 提示 SmartScreen？<span class="plus">+</span></summary>
@@ -776,7 +776,7 @@ ol.steps-5 li b{color:var(--text)}
     </div>
     <div class="foot-bottom">
       <span>Copyright © 2026-Present 李航坤. All Rights Reserved.</span>
-      <span class="ver">CC Flash · 保姆级使用说明 · v1.2.4 (v1.2.4.x) · 2026-11-19</span>
+      <span class="ver">CC Flash · 保姆级使用说明 · v1.2.4 (v1.2.4.x) · 2026-11-21</span>
     </div>
   </div>
 </footer>
@@ -801,12 +801,13 @@ document.querySelectorAll('details.faq').forEach(function (d) {
 </script>
 
 <section id="v123-update" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-19 安全加固）</h2>
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-21 收尾校准）</h2>
 <ul style="margin:0;padding-left:20px">
+<li><b>2026-11-20/21 复审收尾</b>：移动端开启访问令牌后对所有来源（含本机 Wi-Fi IP）强制校验；WS 半开看门狗、响应体完整超时、手动发送可取消且失败保留草稿；下载许可看门狗回收、聊天/文件并发闸；聊天历史改为借用序列化；浏览器不提供跨设备直发；CSP 增加 <code>wss:</code>；Android 7.0+ / minSdk 24；发布链路仅 404 视为 missing、Actions 固定 SHA、构建后复核签名。</li>
 <li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口点开后展开竖屏整页设备面板（不弹窗）。选中设备后输入栏切换直发，并显示本机回执。</li>
 <li><b>浏览器保持原聊天室</b>：手机 / 电脑浏览器都不做发现、不加底部标签、不提供设置页，避免"点得到、连不上"。</li>
 <li><b>共享剪贴板双向同步</b>：电脑复制手机粘贴，手机发布电脑更新；系统剪贴板自动同步默认关闭，可在 CC设置「系统剪贴板自动同步」开启；开启后仅在页面可见时同步，所有文本（含令牌/验证码）都会同步。浏览器受安全上下文限制时，点「粘贴」直接回填电脑端文本；在聊天输入框长按粘贴的文本会自动回传电脑。</li>
-<li><b>布局</b>：桌面侧栏 192px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
+<li><b>布局</b>：桌面侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
 <li><b>细节</b>：设备栏底部不再重复二维码 / 复制地址；PDF 预览走一次性票据；访问令牌损坏时自动重新生成；静态资源缺失返回 404。</li>
 </ul>
 </section>

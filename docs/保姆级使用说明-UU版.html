@@ -396,7 +396,7 @@ img,svg{display:block}
 <noscript><style>.f-item{position:static !important;opacity:1 !important;transform:none !important;display:flex !important}.features-track{height:auto !important}.features-stage{position:static !important;height:auto !important;flex-direction:column !important}.fn-panel{position:static !important;opacity:1 !important;transform:none !important;display:block !important;margin-bottom:.4rem}</style></noscript>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 
 <!-- 图标 sprite -->
@@ -619,7 +619,7 @@ img,svg{display:block}
             <div class="mrow"><b>⚙️ 服务控制</b>启停 / 改端口 / 换共享目录一屏搞定<span class="tag">control</span></div>
             <div class="mrow"><b>📜 结构化日志</b>时间戳 + 级别着色 + 来源 文件:行号<span class="tag warn">loguru</span></div>
           </div>
-          <p class="fn-cap"><b>皮肤与更新</b>——CC设置 里 亮/暗/跟随系统 × <b>5 套配色（深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀）</b>，版本检查一键前往下载。</p>
+          <p class="fn-cap"><b>皮肤与更新</b>——CC设置 里 亮/暗/跟随系统 × <b>6 套配色（信号台 / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀，默认信号台）</b>，版本检查一键前往下载。</p>
         </div>
         <div class="fn-panel" data-i="4">
           <div class="fn-mock">
@@ -628,7 +628,7 @@ img,svg{display:block}
             <div class="mrow"><b>③ 传文件</b>点上传选照片，进度条实时走<span class="tag ok">sync</span></div>
             <div class="mrow"><b>④ 预览与消息</b>点缩略图预览，Markdown 与多行输入<span class="tag warn">preview</span></div>
           </div>
-          <p class="fn-cap"><b>Android 用户</b>——Releases 里按 CPU 选 <b>arm64-v8a</b> 装 APK；App 默认是本机独立节点（仅本机可访问），到「CC设置 → 连接电脑」填电脑地址即可浏览电脑共享文件；IP 变了用桌面端提示的新地址重开或点「切回本机节点」。</p>
+          <p class="fn-cap"><b>Android 用户</b>——Releases 里按 CPU 选 <b>arm64-v8a</b> 装 APK；App 是独立本机节点，始终开放局域网并自动生成本机访问令牌；电脑换 IP 不影响手机。</p>
         </div>
       </div>
     </div>
@@ -653,7 +653,7 @@ img,svg{display:block}
       <div class="nb">
         <h3>手机 App 独立节点 + 附近设备</h3>
         <span class="dt">2026-11-18</span>
-        <p>Android App 默认作为独立节点运行本机文件服务与聊天（只监听 127.0.0.1，安全模式），CC设置可开启局域网访问并切换「连接电脑」；同一 Wi-Fi 的 CC Flash 节点通过 UDP 多播/广播自动出现在「附近设备」，点击即可投递消息或文件；下载增加 ETag/If-Range 防续传拼坏，上传清理不再让半截文件转正，访问令牌增加公网全局失败预算，分享票据随文件删除/重传失效；Android 前台服务保活，macOS 11+ 本地网络权限声明。</p>
+        <p>Android App 作为独立节点运行本机文件服务与聊天，始终开放局域网并自动生成本机访问令牌；不再提供「连接电脑」入口；同一 Wi-Fi 的 CC Flash 节点通过 UDP 多播/广播自动出现在「附近设备」，点击即可投递消息或文件；下载增加 ETag/If-Range 防续传拼坏，上传清理不再让半截文件转正，访问令牌增加公网全局失败预算，分享票据随文件删除/重传失效；Android 前台服务保活，macOS 11+ 本地网络权限声明。</p>
       </div>
     </a>
     <div class="news-part">
@@ -663,7 +663,7 @@ img,svg{display:block}
       </a>
       <a class="news-row" href="https://github.com/bdpqlhk/CC-Flash/releases/tag/v1.2.1" target="_blank" rel="noopener">
         <div class="news-cover" style="background:#0d65ea"><span class="ver">1.2.1</span></div>
-        <div class="nr"><h3>预览、Markdown 与安全收口</h3><span class="dt">2026-11-09</span><p>应用内预览图片 / PDF / 文本 / 音视频；聊天 Markdown 与多行输入；共享文件抽屉加宽、每页 10 条并带预览入口；五套配色；配对码 IPv6 /64 聚合退避、CSP 与上传 / 下载 / WS 并发闸；移动端失联出路与 Windows 混合 DPI。</p></div>
+        <div class="nr"><h3>预览、Markdown 与安全收口</h3><span class="dt">2026-11-09</span><p>应用内预览图片 / PDF / 文本 / 音视频；聊天 Markdown 与多行输入；共享文件抽屉加宽、每页 10 条并带预览入口；六套配色（默认信号台）；配对码 IPv6 /64 聚合退避、CSP 与上传 / 下载 / WS 并发闸；移动端失联出路与 Windows 混合 DPI。</p></div>
       </a>
       <a class="news-row" href="https://github.com/bdpqlhk/CC-Flash/releases/tag/v1.2.0" target="_blank" rel="noopener">
         <div class="news-cover" style="background:#8632e7"><span class="ver">1.2.0</span></div>
@@ -763,7 +763,7 @@ var QA=[
  ["🟢","小球外圈绿点是什么？","","有新文件或新消息时出现；打开主窗口后自动消失，平时完全隐藏。"],
  ["🗂","同名文件会覆盖吗？","","绝不覆盖——自动改名 报告(1).zip、(2) 依次顺延。"],
  ["⏳","上传到一半断了会坏吗？","","中断即整份重传，半截文件服务端即时清理，目录不残留残缺文件。"],
- ["📱","安卓手机怎么装？",""," Releases 按 CPU 选 arm64-v8a 的 APK 直接安装。默认是本机独立节点（只监听 127.0.0.1），要浏览电脑文件到「CC设置 → 连接电脑」填地址；要让别人访问手机共享目录，在 CC设置 开启「局域网访问」并重启服务。"],
+ ["📱","安卓手机怎么装？",""," Releases 按 CPU 选 arm64-v8a 的 APK 直接安装。默认是本机独立节点，始终开放局域网并自动生成本机访问令牌；要浏览电脑文件用手机浏览器打开电脑地址。"],
  ["👁","能直接预览文件吗？","新增","图片 / PDF / 文本 / 音视频点缩略图或「预览」全屏查看，Esc 或右上角关闭；桌面/手机壳的 PDF 交系统浏览器。Office / 压缩包需下载。"],
  ["✍️","聊天支持 Markdown 吗？","","支持标题 / 列表 / 引用 / 代码块 / 粗体 / 链接；桌面 Enter 发送、Shift+Enter 换行，手机 Enter 换行点发送。"],
  ["🗃","共享文件列表在哪？","","桌面右侧「共享文件」抽屉，手机顶部文件夹或「＋ → 共享文件」；每页 10 条，可排序、全选、批量删除。"],
@@ -853,12 +853,13 @@ function qaHTML(q){return '<div class="qa-card"><div class="qh"><span class="av"
 </script>
 
 <section id="v123-update" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-19 安全加固）</h2>
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-21 收尾校准）</h2>
 <ul style="margin:0;padding-left:20px">
+<li><b>2026-11-20/21 复审收尾</b>：移动端开启访问令牌后对所有来源（含本机 Wi-Fi IP）强制校验；WS 半开看门狗、响应体完整超时、手动发送可取消且失败保留草稿；下载许可看门狗回收、聊天/文件并发闸；聊天历史改为借用序列化；浏览器不提供跨设备直发；CSP 增加 <code>wss:</code>；Android 7.0+ / minSdk 24；发布链路仅 404 视为 missing、Actions 固定 SHA、构建后复核签名。</li>
 <li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口点开后展开竖屏整页设备面板（不弹窗）。选中设备后输入栏切换直发，并显示本机回执。</li>
 <li><b>浏览器保持原聊天室</b>：手机 / 电脑浏览器都不做发现、不加底部标签、不提供设置页，避免"点得到、连不上"。</li>
 <li><b>共享剪贴板双向同步</b>：电脑复制手机粘贴，手机发布电脑更新；系统剪贴板自动同步默认关闭，可在 CC设置「系统剪贴板自动同步」开启；开启后仅在页面可见时同步，所有文本（含令牌/验证码）都会同步。浏览器受安全上下文限制时，点「粘贴」直接回填电脑端文本；在聊天输入框长按粘贴的文本会自动回传电脑。</li>
-<li><b>布局</b>：桌面侧栏 192px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
+<li><b>布局</b>：桌面侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
 <li><b>细节</b>：设备栏底部不再重复二维码 / 复制地址；PDF 预览走一次性票据；访问令牌损坏时自动重新生成；静态资源缺失返回 404。</li>
 </ul>
 </section>

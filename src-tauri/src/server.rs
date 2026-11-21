@@ -135,12 +135,15 @@ fn chat_history_json(q: &VecDeque<ChatMsg>) -> Option<Vec<u8>> {
     serde_json::to_vec(q).ok()
 }
 
-fn write_chat_history_bytes(path: &Path, json: &[u8]) {
+fn write_chat_history_bytes(path: &Path, json: &[u8]) -> bool {
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        if std::fs::create_dir_all(dir).is_err() {
+            return false;
+        }
     }
-    // 内部已是"临时文件 + fsync + 原子 rename", 掉电不会留下半截 JSON
-    let _ = write_secret_atomic(path, json);
+    // 内部是"临时文件 + fsync + 原子 rename"; 失败必须返回 false,
+    // 否则序号继续前移, 下一次更旧/更小快照也可能被误认为已落盘。
+    write_secret_atomic(path, json).is_ok()
 }
 
 /// 异步落盘: 聊天 handler 不再在 async 上下文里做磁盘 IO(共享目录/磁盘忙时
@@ -156,8 +159,9 @@ fn schedule_chat_save(json: Option<Vec<u8>>) {
         if seq <= CHAT_SAVED_SEQ.load(Ordering::SeqCst) {
             return; // 已有更新的快照落盘
         }
-        write_chat_history_bytes(&path, &json);
-        CHAT_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        if write_chat_history_bytes(&path, &json) {
+            CHAT_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        }
     };
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         let _ = handle.spawn_blocking(task);
@@ -279,7 +283,7 @@ fn discovery_id() -> &'static str {
             }
         }
         let mut b = [0u8; 8];
-        let _ = getrandom::getrandom(&mut b);
+        fill_random(&mut b);
         let id: String = b.iter().map(|x| format!("{x:02x}")).collect();
         if let Some(p) = &file {
             if let Some(dir) = p.parent() {
@@ -1396,15 +1400,27 @@ fn download_permits() -> &'static tokio::sync::Semaphore {
     S.get_or_init(|| tokio::sync::Semaphore::new(32))
 }
 
+/// 目录列表并发闸: 遍历在 spawn_blocking 上跑, 无限制时空目录树可耗尽阻塞线程池。
+fn files_permits() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| tokio::sync::Semaphore::new(2))
+}
+
 /// 单来源并发槽位(IPv6 按 /64 聚合)。全局闸之外再做一层公平性限制:
 /// 否则一台设备就能占满 16 个上传/32 个下载许可, 把所有其他设备挡在 429 外。
-fn peer_slots() -> &'static Mutex<HashMap<std::net::IpAddr, usize>> {
-    static SLOTS: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
-    SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
+#[derive(Clone, Copy)]
+enum PeerSlotKind { Upload, Download }
+fn peer_slots(kind: PeerSlotKind) -> &'static Mutex<HashMap<std::net::IpAddr, usize>> {
+    static UP: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
+    static DOWN: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
+    match kind {
+        PeerSlotKind::Upload => UP.get_or_init(|| Mutex::new(HashMap::new())),
+        PeerSlotKind::Download => DOWN.get_or_init(|| Mutex::new(HashMap::new())),
+    }
 }
-fn peer_slot_try_acquire(peer: std::net::IpAddr, max: usize) -> Option<PeerSlot> {
+fn peer_slot_try_acquire(peer: std::net::IpAddr, max: usize, kind: PeerSlotKind) -> Option<PeerSlot> {
     let key = rate_key(peer);
-    let mut m = peer_slots().lock().unwrap_or_else(|e| e.into_inner());
+    let mut m = peer_slots(kind).lock().unwrap_or_else(|e| e.into_inner());
     if m.len() > 1024 {
         m.retain(|_, n| *n > 0);
     }
@@ -1413,23 +1429,28 @@ fn peer_slot_try_acquire(peer: std::net::IpAddr, max: usize) -> Option<PeerSlot>
         return None;
     }
     *n += 1;
-    Some(PeerSlot { key })
+    Some(PeerSlot { key, kind })
 }
 /// 下载流的存活标记: 流被 drop(正常读完/客户端断开/看门狗 abort)时置位,
 /// 让看门狗任务及时退出, 不必等到 45s 静默窗口。
-struct DownloadAlive(std::sync::Arc<std::sync::atomic::AtomicBool>);
+struct DownloadAlive {
+    alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    notify: std::sync::Arc<tokio::sync::Notify>,
+}
 impl Drop for DownloadAlive {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::Relaxed);
+        self.alive.store(true, Ordering::Relaxed);
+        self.notify.notify_waiters();
     }
 }
 
 struct PeerSlot {
     key: std::net::IpAddr,
+    kind: PeerSlotKind,
 }
 impl Drop for PeerSlot {
     fn drop(&mut self) {
-        let mut m = peer_slots().lock().unwrap_or_else(|e| e.into_inner());
+        let mut m = peer_slots(self.kind).lock().unwrap_or_else(|e| e.into_inner());
         if let Some(n) = m.get_mut(&self.key) {
             *n = n.saturating_sub(1);
             if *n == 0 {
@@ -2196,20 +2217,35 @@ fn clean_incomplete_uploads(share: &Path) {
                     push_log_warn(format!("清理完成标记(成品大小吻合, 已保留) {final_name}"));
                 }
             } else {
-                let gone = match std::fs::remove_file(&final_path) {
-                    Ok(()) => true,
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
-                    Err(_) => false,
-                };
-                if gone {
-                    removed |= std::fs::remove_file(&p).is_ok();
-                    push_log_warn(format!("清理硬中断残留的半截文件 {final_name}"));
-                } else {
-                    // 成品删不掉(Windows 句柄占用等): 保留标记等下次启动再试,
-                    // 绝不能先删标记把半截文件"转正"成可下载的完整文件
-                    push_log_warn(format!(
-                        "残留半截文件删除失败，已保留标记等待下次启动: {final_name}"
-                    ));
+                // 声明大小不吻合时也不能直接删成品: 硬杀进程后用户可能在重启前
+                // 把该路径换成自己的完整文件。采用与"无声明大小"相同的非破坏性策略,
+                // 改名保留 .incomplete, 只清标记, 让用户自行确认。
+                match std::fs::metadata(&final_path) {
+                    Ok(md) if md.is_file() => {
+                        let mut alt = dir.join(format!("{final_name}.incomplete"));
+                        let mut variant = 1u32;
+                        while alt.exists() && variant < 1000 {
+                            alt = dir.join(format!("{final_name}.incomplete-{variant}"));
+                            variant += 1;
+                        }
+                        match std::fs::rename(&final_path, &alt) {
+                            Ok(()) => {
+                                let _ = std::fs::remove_file(&p);
+                                removed = true;
+                                push_log_warn(format!(
+                                    "发现大小不符的上传残留 {final_name}，已改名保留为 {}（请人工确认完整性）",
+                                    alt.file_name().and_then(|s| s.to_str()).unwrap_or("*.incomplete")
+                                ));
+                            }
+                            Err(e) => push_log_warn(format!(
+                                "大小不符的上传残留 {final_name} 改名失败({e})，保留原标记等待下次启动"
+                            )),
+                        }
+                    }
+                    _ => {
+                        let _ = std::fs::remove_file(&p);
+                        removed = true;
+                    }
                 }
             }
             if removed {
@@ -2356,15 +2392,18 @@ fn open_lan() -> bool {
 }
 
 pub fn set_open_lan(open: bool) {
-    OPEN_LAN.store(open, Ordering::Relaxed);
-    if let Err(e) = write_secret_atomic(open_lan_pref_file().as_path(), if open { b"1" } else { b"0" }) {
+    if !open {
+        // 产品已取消局域网开关；保留命令兼容旧前端，但绝不能打印“已启用安全模式”
+        // 让用户误以为关闭成功。
+        OPEN_LAN.store(true, Ordering::Relaxed);
+        push_log_warn("局域网访问始终开启，忽略关闭请求".into());
+        return;
+    }
+    OPEN_LAN.store(true, Ordering::Relaxed);
+    if let Err(e) = write_secret_atomic(open_lan_pref_file().as_path(), b"1") {
         push_log_warn(format!("局域网访问偏好保存失败(重启后可能回落默认值): {e}"));
     }
-    push_log(if open {
-        "已开放局域网访问（重启服务后生效）".into()
-    } else {
-        "已启用安全模式：仅本机可访问（重启服务后生效）".into()
-    });
+    push_log("已开放局域网访问（重启服务后生效）".into());
 }
 
 pub fn status() -> (bool, u16, String) {
@@ -2625,9 +2664,34 @@ fn file_op_lock() -> &'static tokio::sync::Mutex<()> {
 /// 与"同名新上传或用户自己的 .ccup 文件" —— abort 只清理仍属于本会话的产物。
 const UPLOAD_TOKEN_PREFIX: &str = "ccflash-v1:";
 
+fn fill_random(bytes: &mut [u8]) {
+    if getrandom::getrandom(bytes).is_ok() {
+        return;
+    }
+    // CSPRNG 不可用时不让 panic=abort 杀掉整个服务: 用时间/进程/原子序号
+    // 经 splitmix64 扩散出可用的临时随机数, 仍保证 PIN/票据不可预测性远高于固定值。
+    static FALLBACK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut x = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ (std::process::id() as u64)
+        ^ FALLBACK_SEQ.fetch_add(1, Ordering::Relaxed);
+    for chunk in bytes.chunks_mut(8) {
+        x = x.wrapping_add(0x9E3779B97F4A7C15);
+        let mut z = x;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^= z >> 31;
+        for (i, b) in chunk.iter_mut().enumerate() {
+            *b = (z >> (i * 8)) as u8;
+        }
+    }
+}
+
 fn new_upload_token() -> String {
     let mut bytes = [0u8; 8];
-    getrandom::getrandom(&mut bytes).expect("CSPRNG 不可用");
+    fill_random(&mut bytes);
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     // 固定前缀 = 标记签名: 用户自己的 .x.ccup 文件即使首行恰好是 16 位 hex,
     // 也不会被当成系统标记而删掉同名成品
@@ -2792,7 +2856,7 @@ fn random_token() -> String {
     // 且 2048 张票据时生日碰撞约 12%。48bit 下暴力猜中与碰撞都不现实; 票据仍是
     // 承载式、绑定单文件、下载即焚。
     let mut bytes = [0u8; 6];
-    getrandom::getrandom(&mut bytes).expect("CSPRNG 不可用");
+    fill_random(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -3020,7 +3084,7 @@ fn ticket_admit(peer: std::net::IpAddr) -> bool {
     if m.len() > 2048 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < TICKET_FAIL_WINDOW_SECS);
     }
-    let e = m.entry(peer).or_insert((0, now));
+    let e = m.entry(rate_key(peer)).or_insert((0, now));
     if now.duration_since(e.1).as_secs() >= TICKET_FAIL_WINDOW_SECS {
         *e = (0, now);   // 窗口过期: 重新计数
     }
@@ -3063,6 +3127,17 @@ fn ticket_issue_allow(peer: std::net::IpAddr) -> bool {
 /// 聊天发送限流: 每 IP 60 条/分钟。防止局域网洪泛反复触发「锁内序列化整段历史
 /// 并同步写盘」而阻塞 tokio worker。
 const CHAT_PER_MIN: u32 = 60;
+
+/// 聊天读取/写入并发闸: 历史最多 200 万字符，一次 GET 会构造数 MB JSON；
+/// 不限制时局域网并发拉到 GB 级，panic=abort 下直接终止进程。
+fn chat_read_permits() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| tokio::sync::Semaphore::new(4))
+}
+fn chat_write_permits() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| tokio::sync::Semaphore::new(8))
+}
 
 fn chat_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
     static RATE: OnceLock<Mutex<HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
@@ -3358,7 +3433,7 @@ fn static_headers(mime: &str, cache: &'static str) -> HeaderMap {
              img-src 'self' data: blob:; \
              media-src 'self' blob:; \
              font-src 'self' data:; \
-             connect-src 'self' ws:; \
+             connect-src 'self' ws: wss:; \
              object-src 'none'; \
              base-uri 'self'; \
              frame-ancestors 'self'",
@@ -3416,18 +3491,19 @@ struct FileEntry {
 }
 
 /// 递归收集文件(深度上限 8, 跳过上传断点临时文件); name 为相对路径
-fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>) {
+fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>, visited: &mut usize) {
     // depth 为当前目录相对层级(根=0), 其内文件路径段数 = depth+1;
     // 用 >= 而非 >: 否则 8 层目录里的文件(9 段)会进列表, 但 safe_rel_path 拒收 9 段,
     // 出现"列得出、下载/删除全 400"的自相矛盾
-    if depth >= UPLOAD_MAX_DEPTH || out.len() >= FILES_LIST_MAX {
+    if depth >= UPLOAD_MAX_DEPTH || out.len() >= FILES_LIST_MAX || *visited >= FILES_LIST_MAX * 4 {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
-        if out.len() >= FILES_LIST_MAX {
-            return; // 超大目录不再无界遍历/序列化
+        if out.len() >= FILES_LIST_MAX || *visited >= FILES_LIST_MAX * 4 {
+            return; // 文件/目录访问都有预算: 空目录树也不能无限拖垮阻塞线程池
         }
+        *visited += 1;
         let p = e.path();
         // 先看自身类型再 follow: 指向目录的符号链接若先 metadata 会递归到共享目录之外
         // (并可形成环); 列表/下载/删除的越界校验虽会拒绝，也不能把界外文件名/metadata 列出来。
@@ -3437,7 +3513,7 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
         }
         let Ok(md) = e.metadata() else { continue };
         if md.is_dir() {
-            collect_files(&p, base, depth + 1, out);
+            collect_files(&p, base, depth + 1, out, visited);
             continue;
         }
         // FIFO/设备节点等非普通文件取不回也删不了，不进列表
@@ -3480,10 +3556,14 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
 }
 
 async fn files(State(share): State<PathBuf>) -> Response {
+    let Ok(_permit) = files_permits().try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "文件列表刷新过快，请稍后重试");
+    };
     // 同步递归遍历放进阻塞线程: 大目录时别把 tokio worker 卡住(饿死 WS 心跳等其他任务)
-    let out = tokio::task::spawn_blocking(move || {
+    let (out, visited) = tokio::task::spawn_blocking(move || {
         let mut out: Vec<FileEntry> = Vec::new();
-        collect_files(&share, &share, 0, &mut out);
+        let mut visited = 0usize;
+        collect_files(&share, &share, 0, &mut out, &mut visited);
         // 补上传者昵称: 遍历时不加锁, 这里一次性查映射
         {
             let mut up = uploaders().lock().unwrap_or_else(|e| e.into_inner());
@@ -3500,11 +3580,11 @@ async fn files(State(share): State<PathBuf>) -> Response {
             }
         }
         out.sort_by(|a, b| b.modified.total_cmp(&a.modified));
-        out
+        (out, visited)
     })
     .await
     .unwrap_or_default();
-    let truncated = out.len() >= FILES_LIST_MAX;
+    let truncated = out.len() >= FILES_LIST_MAX || visited >= FILES_LIST_MAX * 4;
     Json(serde_json::json!({ "files": out, "truncated": truncated })).into_response()
 }
 
@@ -3522,7 +3602,7 @@ async fn download(
         return err(StatusCode::TOO_MANY_REQUESTS, "下载并发过多，请稍后重试");
     };
     // 单来源并发上限 8(总闸 32): 否则一台设备慢读 32 条即可让全员 429
-    let Some(download_slot) = peer_slot_try_acquire(peer, 8) else {
+    let Some(download_slot) = peer_slot_try_acquire(peer, 8, PeerSlotKind::Download) else {
         return err(StatusCode::TOO_MANY_REQUESTS, "该设备下载并发过多，请稍后再试");
     };
     // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验(读路径不拦保留设备名, 否则既有文件取不回)
@@ -3655,12 +3735,13 @@ async fn download(
     use tokio::io::AsyncReadExt;
     let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let alive_notify = std::sync::Arc::new(tokio::sync::Notify::new());
     let (abort_tx, abort_rx) = futures_util::future::AbortHandle::new_pair();
     let base = futures_util::stream::unfold(
-        (reader, download_permit, download_slot, DownloadAlive(alive.clone()), false),
+        (reader, DownloadAlive { alive: alive.clone(), notify: alive_notify.clone() }, false),
         {
             let progress = progress.clone();
-            move |(mut r, permit, slot, guard, done)| {
+            move |(mut r, guard, done)| {
                 let progress = progress.clone();
                 async move {
                     if done {
@@ -3677,18 +3758,15 @@ async fn download(
                         Ok(Ok(n)) => {
                             progress.fetch_add(n as u64, Ordering::Relaxed);
                             buf.truncate(n);
-                            Some((
-                                Ok(axum::body::Bytes::from(buf)),
-                                (r, permit, slot, guard, false),
-                            ))
+                            Some((Ok(axum::body::Bytes::from(buf)), (r, guard, false)))
                         }
-                        Ok(Err(e)) => Some((Err(e), (r, permit, slot, guard, true))),
+                        Ok(Err(e)) => Some((Err(e), (r, guard, true))),
                         Err(_) => Some((
                             Err(std::io::Error::new(
                                 std::io::ErrorKind::TimedOut,
                                 "download idle timeout",
                             )),
-                            (r, permit, slot, guard, true),
+                            (r, guard, true),
                         )),
                     }
                 }
@@ -3698,12 +3776,21 @@ async fn download(
     {
         let progress = progress.clone();
         let alive = alive.clone();
+        let alive_notify = alive_notify.clone();
+        // 许可所有权放在看门狗而不是响应流里: 客户端不读响应时 hyper 可能不再 poll body,
+        // 流不会被 drop, 许可会永久泄漏。看门狗超时无条件 abort；即便流从未被 poll,
+        // 这里 break 也会 drop permit/slot，恢复下载容量。
         tokio::spawn(async move {
+            let _permit = download_permit;
+            let _slot = download_slot;
             let started = std::time::Instant::now();
             let mut last_bytes = 0u64;
             let mut last_at = std::time::Instant::now();
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                tokio::select! {
+                    _ = alive_notify.notified() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                }
                 if alive.load(Ordering::Relaxed) {
                     break;
                 }
@@ -3784,7 +3871,7 @@ async fn upload(
         return err(StatusCode::TOO_MANY_REQUESTS, "上传并发过多，请稍后重试");
     };
     // 单来源最多占 4 条(总闸 16): 一台设备不能凭慢速上传饿死整个局域网
-    let Some(_peer_slot) = peer_slot_try_acquire(peer, 4) else {
+    let Some(_peer_slot) = peer_slot_try_acquire(peer, 4, PeerSlotKind::Upload) else {
         return err(StatusCode::TOO_MANY_REQUESTS, "该设备上传并发过多，请稍后再试");
     };
     let raw = headers
@@ -3955,7 +4042,7 @@ async fn upload(
     let marker = dir.join(format!(".{base}.ccup"));
     // 同名 .ccup 若不是系统标记(用户自己的文件), 绝不能覆盖删除;
     // 空内容的标记视为崩溃残留, 允许回收后重建。
-    if let Ok(c) = tokio::fs::read_to_string(&marker).await {
+    if let Some(c) = read_ccup_prefix(&marker, 256) {
         let t = c.lines().next().unwrap_or("").trim().to_string();
         if t.is_empty() {
             let _ = tokio::fs::remove_file(&marker).await;
@@ -4454,8 +4541,7 @@ async fn delete_file(
             let (token, path) = match share2.join(&name2).parent() {
                 Some(parent) => {
                     let marker = parent.join(format!(".{base}.ccup"));
-                    let tok = std::fs::read_to_string(&marker)
-                        .ok()
+                    let tok = read_ccup_prefix(&marker, 256)
                         .and_then(|c| c.lines().next().map(|t| t.trim().to_string()));
                     (tok, Some(marker))
                 }
@@ -4516,25 +4602,28 @@ async fn delete_file(
     res
 }
 
+/// 聊天列表的借用视图: 直接序列化 `&ChatMsg`, 不再逐条 clone 成
+/// `serde_json::Value`。历史上限 200 条 / 200 万字符, 旧实现会在锁内
+/// 复制一遍全部字符串再构造 Value 树, 多客户端并发拉取时峰值内存翻倍。
+#[derive(serde::Serialize)]
+struct ChatList<'a> {
+    messages: Vec<&'a ChatMsg>,
+}
+
 async fn chat_get() -> Response {
+    let Ok(_permit) = chat_read_permits().try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "聊天历史读取并发过多，请稍后重试");
+    };
     let q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
     // ip 仅进服务端日志, 不随接口下发 —— 局域网内没必要让所有客户端互相看到地址
-    let msgs: Vec<serde_json::Value> = q
-        .iter()
-        .map(|m| {
-            let mut v = serde_json::json!({
-                "id": m.id, "nickname": m.nickname,
-                "message": m.message, "timestamp": m.timestamp,
-            });
-            if let Some(q) = &m.quote {
-                v["quote"] = serde_json::json!({
-                    "id": q.id, "nickname": q.nickname, "message": q.message,
-                });
-            }
-            v
-        })
-        .collect();
-    Json(serde_json::json!({ "messages": msgs })).into_response()
+    let body = match serde_json::to_vec(&ChatList { messages: q.iter().collect() }) {
+        Ok(b) => b,
+        Err(e) => {
+            push_log_err(format!("聊天历史序列化失败: {e}"));
+            return err(StatusCode::INTERNAL_SERVER_ERROR, "聊天历史序列化失败");
+        }
+    };
+    ([(header::CONTENT_TYPE, "application/json")], body).into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -4558,6 +4647,9 @@ async fn chat_post(
     Json(body): Json<ChatIn>,
 ) -> Response {
     let peer = normalize_peer(addr.ip());
+    let Ok(_permit) = chat_write_permits().try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "消息发送并发过多，请稍后重试");
+    };
     if !chat_admit(peer) {
         return err(StatusCode::TOO_MANY_REQUESTS, "消息发送过于频繁，请稍后再试");
     }
@@ -5030,8 +5122,15 @@ fn new_pin() -> String {
 
 /// 原子写敏感文件: 临时文件(0600) → rename, 掉电/截断不会留下半截 PIN
 fn write_secret_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::sync::atomic::AtomicU64;
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("secret");
-    let tmp = path.with_file_name(format!(".{name}.tmp"));
+    // 唯一临时名: 固定 `.name.tmp` 在并发写(PIN/聊天/偏好调试)时会互相覆盖。
+    let tmp = path.with_file_name(format!(
+        ".{name}.tmp-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     write_secret(&tmp, data)?;
     if let Err(e) = std::fs::rename(&tmp, path) {
         // Windows 目标已存在时部分环境 rename 不替换: 极小窗口内先删旧文件再重试
@@ -5643,11 +5742,15 @@ fn device_kind(ua: &str) -> String {
 /// v4-mapped IPv6 统一折回 v4, 否则 `[::ffff:192.168.1.5]` 与 `192.168.1.5`
 /// 会被当成两个不同地址(同源判断失败、私网判定失效)。
 fn host_literal_ip(host: &str) -> Option<std::net::IpAddr> {
-    let ip = if let Some(rest) = host.strip_prefix('[') {
-        rest.split(']').next()?.parse().ok()?
+    let raw = if let Some(rest) = host.strip_prefix('[') {
+        rest.split(']').next()?
     } else {
-        host.split(':').next()?.parse().ok()?
+        host.split(':').next()?
     };
+    // 链路本地 IPv6 的 Host 可能是 [fe80::1%25en0]:1688; %25(URL) 或 %(系统 zone)
+    // 都必须先剥掉再 parse，否则发现到的 fe80 设备所有 API 都会被判 Host 非法。
+    let literal = raw.split('%').next().unwrap_or(raw);
+    let ip = literal.parse().ok()?;
     Some(normalize_peer(ip))
 }
 
@@ -5846,13 +5949,15 @@ async fn log_middleware(
     // 移动端开启访问令牌后, loopback 也不再豁免: 127.0.0.1 在 Android 上不按应用
     // 隔离, 同机其他 App 不能凭"本机来源"直接读写/停服。移动壳页面通过 Tauri 命令
     // 取得本机码并自动放进 X-Access-Pin; 浏览器访问时正常输入配对码。
-    let mobile_loopback_locked = mobile_client_only()
-        && peer.is_loopback()
+    // 移动端只要启用了访问令牌，就对所有来源强制校验 —— 包括本机网卡 IP。
+    // Android/iOS 的 127.0.0.1 不按应用隔离，同机其他 App 改连本机 Wi-Fi IP
+    // 时源地址会命中 is_local_source；只锁 loopback 会留下完整绕过口。
+    let mobile_pin_required = mobile_client_only()
         && access_pin()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .is_some();
-    if is_api && (cross_lan_origin || !is_local_source(peer) || mobile_loopback_locked) {
+    if is_api && (cross_lan_origin || mobile_pin_required || !is_local_source(peer)) {
         // 公网地址(非私网/链路本地)默认必须带访问令牌: 主机有公网 IPv6 且防火墙
         // 未拦入站时, 旧行为会把共享目录直接暴露给互联网。私网/本机仍零配置直连。
         if !is_lan_peer(peer) && access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_none() {
@@ -6054,6 +6159,8 @@ async fn log_middleware(
         // 并行分片上传: 每个大文件几十个成功分片请求, 逐条记会把日志环冲爆;
         // 开始/完成/中断由 upload handler 自己记关键日志, 中间片仅失败时留痕
         || (path == "/api/upload" && method == "POST" && res.status().is_success())
+        // 成功下载同样可被高频刷屏, 挤掉 PIN 锁定等安全事件; 只按来源采样记录
+        || (path.starts_with("/api/download/") && res.status().is_success() && !log_admit(peer))
         // 审计防洪水: 4xx 失败请求按来源限流(每 IPv4/IPv6-/64 每分钟 60 条),
         // 否则未认证设备可用 2000+ 次 404 把 PIN 锁定/删除等安全事件挤出日志环
         || (res.status().is_client_error() && !log_admit(peer));
@@ -6192,7 +6299,8 @@ mod tests {
         std::fs::write(outside.join("secret.txt"), b"no").unwrap();
         std::os::unix::fs::symlink(&outside, root.join("linked-dir")).unwrap();
         let mut out = Vec::new();
-        collect_files(&root, &root, 0, &mut out);
+        let mut visited = 0usize;
+        collect_files(&root, &root, 0, &mut out, &mut visited);
         let names: Vec<&str> = out.iter().map(|f| f.name.as_str()).collect();
         assert!(names.contains(&"real.txt"), "{names:?}");
         assert!(!names.iter().any(|n| n.contains("secret")), "{names:?}");
@@ -6676,25 +6784,27 @@ mod tests {
         assert!(broadcast_allowed(true, true, 1688));
     }
 
-    /// 端到端(协议 → 登记 → HTTP): 用空闲的 53319 收一个真实 UDP 报文,
+    /// 端到端(协议 → 登记 → HTTP): 用临时回环端口收一个真实 UDP 报文,
     /// 走 `ingest_peer_packet` 登记后从 `/api/devices` 查回来。
-    /// 不占用生产端口 53318, 避免与本机正在运行的 CC-Flash 抢端口。
+    /// 不能用 53319: 发现广播会向 53318-53321 整个范围发送, 服务自己的
+    /// announce 可能先到, recv_from 会拿到它而不是测试报文(时序性失败)。
     #[test]
     fn udp_ingest_to_http_end_to_end() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        let Ok(rx) = UdpSocket::bind(("0.0.0.0", 53319)) else {
-            eprintln!("skip: UDP 53319 已被占用");
+        let Ok(rx) = UdpSocket::bind(("127.0.0.1", 0)) else {
+            eprintln!("skip: 无法绑定临时回环 UDP 端口");
             return;
         };
+        let rx_addr = rx.local_addr().expect("rx local addr");
         rx.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         let pref = port_pref_file();
         let orig_pref = std::fs::read_to_string(&pref).ok();
         let port = start(Some(17714)).expect("start server on 17714");
 
-        let tx = UdpSocket::bind(("0.0.0.0", 0)).expect("bind tx");
+        let tx = UdpSocket::bind(("127.0.0.1", 0)).expect("bind tx");
         tx.send_to(
             udp_packet("peer-e2e-udp", 17715, "E2E Peer").to_string().as_bytes(),
-            ("127.0.0.1", 53319),
+            rx_addr,
         )
         .expect("send udp");
         let mut buf = [0u8; 2048];

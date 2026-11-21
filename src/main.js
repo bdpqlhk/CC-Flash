@@ -5,14 +5,20 @@ import { LS, THEME_MIGRATE } from "./config";
 
 // 挂载前先恢复上次选择的主题与明暗模式, 避免闪默认色
 try {
-  let t = localStorage.getItem(LS.theme) || "default";
+  let t = localStorage.getItem(LS.theme) || "signal";
   // 主题精简迁移(v1.1.6): 9 套收敛为 6 套, 被移除的选择映射到色相最近的新皮肤
   if (t && THEME_MIGRATE[t]) {
     t = THEME_MIGRATE[t];
     localStorage.setItem(LS.theme, t);
   }
+  // 与 App.vue 同步的一次性迁移：整体视觉改造后首次进入信号台。
+  if (localStorage.getItem("wft-signal-theme-v1") !== "1") {
+    t = "signal";
+    localStorage.setItem("wft-signal-theme-v1", "1");
+    localStorage.setItem(LS.theme, t);
+  }
   if (t && t !== "default") document.documentElement.dataset.theme = t;
-  const m = localStorage.getItem(LS.mode) || "light";
+  const m = localStorage.getItem(LS.mode) || "dark";
   const dark = m === "system"
     ? window.matchMedia("(prefers-color-scheme: dark)").matches
     : m === "dark";

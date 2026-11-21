@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC Flash · 整个过程历史改动记录（2026-11-20 至 2026-11-21）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:900px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-11-20 至 2026-11-21</b> · 版本：<b>v1.2.4 全量复审收尾</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="callout"><b>本段主题</b>对桌面壳、手机 App、电脑/手机浏览器与服务端做全量复审，按「安全 → 可用性 → 平台/发布 → 文档」修复审查项。同时把 README、docs 全目录与应用内介绍页校准到最新代码：侧栏 176px、Windows 仅 NSIS exe、Android 7.0+、雷达去掉「扫描雷达」标题、浏览器不提供跨设备直发。</div>
+
+<h2>一、安全</h2>
+<ul>
+<li><b>移动端令牌全来源校验</b>：启用访问令牌后，除回环外本机 Wi-Fi IP 也必须带码，堵住同机其他 App 改连 <code>192.168.x.x</code> 绕过 PIN 的口子；App 壳通过可信 Tauri 通道自动带 <code>X-Access-Pin</code>，正常使用无感。</li>
+<li><b>浏览器跨设备直发入口隐藏</b>：浏览器静态页 CSP 不为任意 <code>http:</code> 目标放行，手动发送/直发在网页端显式提示「请使用桌面端或手机 App」，避免 100% 失败却误报「对方离线」。</li>
+<li><b>CSP 补齐 <code>wss:</code></b>：Tauri 壳与浏览器静态页的 <code>connect-src</code> 同时允许 <code>ws:</code>/<code>wss:</code>，HTTPS 反代下安装 PWA 后 WebSocket 不再被拦、实时推送不再降级为轮询。</li>
+<li><b>发布链路 fail-closed</b>：Release 查询只把 404 当 missing，网络/API/权限错误直接失败；已公开 Release 或陈旧 main 不再被 API 推送覆盖；第三方 Actions 固定 commit SHA；macOS/Windows 构建后复核 <code>codesign/stapler</code> 与 Authenticode，签名/公证不完整不公开。</li>
+<li><b>下载/上传/聊天并发闸</b>：下载许可与单来源槽位改由独立看门狗持有，客户端不读响应或 45s 无进展时无条件 abort 并归还；聊天读 4 / 写 8、文件遍历 2 的并发上限，单来源上传 4 / 下载 8，下载与上传槽位分开计数。</li>
+</ul>
+
+<h2>二、可用性与数据一致性</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>WS 半开连接停在 CLOSING，看门狗只 <code>close()</code> 不恢复轮询</td><td>看门狗直接 <code>closeWs(false)</code> + <code>applyWsMode()</code> + <code>scheduleWsRetry()</code>；<code>connectWs</code> 对 CLOSING/CLOSED 旧 socket 强制替换</td></tr>
+<tr><td><code>apiFetch</code> 超时只覆盖响应头，<code>r.json()</code> 可永久挂起</td><td>超时绑定到响应体消费完成（json/text/blob/arrayBuffer 读完才清计时器）；发送失败回填草稿并复位 <code>sending</code></td></tr>
+<tr><td>手动发送/直发被 10 分钟 XHR 锁死且不可取消</td><td>批次级 <code>AbortController</code>，关闭/Esc/取消均可中止；超时/网络错误立即结束整批；仅成功才清空文本与文件</td></tr>
+<tr><td>聊天历史 GET 在锁内逐条 clone 成 <code>serde_json::Value</code></td><td>改为借用 <code>&amp;ChatMsg</code> 的 <code>ChatList</code> 直接序列化；200 条 / 200 万字符上限下并发拉取峰值内存显著下降</td></tr>
+<tr><td>聊天历史落盘失败仍推进 <code>CHAT_SAVED_SEQ</code></td><td>写盘失败不推进序号，较新的快照仍会重试；偏好统一原子写</td></tr>
+<tr><td><code>isLanHost</code> 仅按前缀判断 IPv6，<code>fd.example.com</code> 可绕过</td><td>先校验十六进制/冒号结构，再用 <code>new URL()</code> 复核；IPv4 每段 ≤255；链路本地 <code>%zone</code>/<code>%25zone</code> 正确剥离</td></tr>
+<tr><td>剪贴板并发响应可能用旧内容覆盖新内容</td><td><code>loadSharedClip</code> 比较 <code>updatedAt</code>，旧响应直接丢弃</td></tr>
+<tr><td>成功下载日志可刷满 2000 条审计环</td><td>成功下载按来源采样记录，安全事件不被挤掉</td></tr>
+<tr><td><code>getrandom</code> 失败 <code>expect</code> 在 <code>panic=abort</code> 下终止进程</td><td>失败回退到时间/进程/原子序号混合随机，不再 abort</td></tr>
+</table>
+
+<h2>三、平台与发布</h2>
+<ul>
+<li><b>Android</b>：产物统一为 <code>arm64-v8a</code> 单包、<code>minSdk 24</code>（Android 7.0+）；旧 WebView 由启动页内核检查兜底提示升级，不再宣称 Android 5/6 可用。</li>
+<li><b>iOS</b>：明确不交付原生安装包（无 <code>gen/apple</code>、签名、multicast entitlement 与后台模式）；<code>build-all.sh ios</code> 默认拒绝，iOS 用户使用 Safari 网页版。</li>
+<li><b>Windows</b>：只发 NSIS <code>.exe</code>，不再生成/发布 msi；文档与 Release 门禁同步。</li>
+<li><b>CI 修正</b>：Android 的 <code>dtolnay/rust-toolchain</code> 步骤原有两个 <code>with:</code> 键，YAML 解析时会丢弃 <code>toolchain</code>；已合并为同时设置 <code>toolchain</code> 与 <code>targets</code>。</li>
+</ul>
+
+<h2>四、文档与介绍页</h2>
+<ul>
+<li>README / README.en：更新版本日期、Windows 仅 exe、Android 7.0+、侧栏 176px、浏览器不提供跨设备直发、英文剪贴板「不过滤内容」口径。</li>
+<li>docs 全目录：统一侧栏 176px、雷达盘（去掉「扫描雷达」标题）、Windows exe、日期到 2026-11-21；需求/技术/保姆级/介绍页/后期规划/推广方案补充 11-20/21 复审条目；历史记录正文事实保持不变，仅刷新顶部「最新实现」提示。</li>
+<li>应用内介绍页：雷达文案、Windows NSIS exe、浏览器不提供跨设备直发、Android 7.0+/iOS 网页版等与代码一致。</li>
+</ul>
+
+<h2>五、交互自测与响应式收尾（2026-11-21）</h2>
+<ul>
+<li><b>窄窗设备面板</b>：原 ≤430px 才整页覆盖，桌面窗口最小 560px 时 360px 侧栏会把聊天区压到 200px、输入栏不可用；改为 ≤760px 整页覆盖，761–980px 仍保留 360px 侧栏（聊天区 ≥400px）。</li>
+<li><b>手动发送</b>：取消不再误报「发送超时」；失败/取消保留地址、文本与已选文件，重开可直接重试；只有全部成功才关闭弹框，部分成功只清掉成功的部分。</li>
+<li><b>提示位置</b>：toast 在底部输入栏存在时抬到输入栏上方，不再遮挡发送按钮。</li>
+<li><b>窄屏输入栏</b>：占位文案缩短为「说点什么…（Enter 发送）」（触屏为「说点什么…」），360/390px 不再换行裁切；设备面板开合后重算 textarea 高度，避免 WebKit 半屏高输入框残留。</li>
+<li><b>状态与日志</b>：已停止状态收成单个静态灰点（三灰点与加载中太像）；服务日志强制换行，不再横向裁切；运行中介绍页顶部按钮改为「打开服务中心」。</li>
+</ul>
+
+<h2>六、验证</h2>
+<ul>
+<li><code>cargo test --lib</code>：21/21 通过（含 UDP 发现端到端；该测试改用临时回环端口，避免发现广播 53318-53321 的时序竞争）。</li>
+<li><code>npm run build</code>：通过，主包 290.97 KB（gzip 115.6 KB）、CSS 114.2 KB（gzip 20.7 KB）、二维码分块 24.5 KB（gzip 9.6 KB）。</li>
+<li><code>npm run tauri build</code>：macOS 发布二进制 <b>3.9 MB</b>、<code>CC-Flash.app</code> <b>4.10 MiB</b>、<code>CC-Flash_1.2.4_aarch64.dmg</code> <b>2.72 MiB</b>；release 已开启 strip + fat LTO + opt-level=z + panic=abort + codegen-units=1，Android 单 arm64 包 / R8 / 中英文资源过滤、Windows NSIS exe + WebView2 downloadBootstrapper 均已在构建配置中生效，无可安全再裁的未使用依赖。</li>
+<li><b>功能自测</b>：Chromium / WebKit 的电脑浏览器与手机浏览器（1180/900/480/430/390/360）、桌面壳（1180/900/800/700/600/560）、手机 App 模拟（430/390/360）完成聊天/Markdown/引用/删除/清空/20 万字上限、单/多/大文件上传与分组、预览/下载/Range/分享票据/删除、共享文件抽屉排序/分页/全选、双端实时消息、设备发现/收藏/直发文本与文件/手动发送/取消与草稿、传输历史、服务启停与无信号恢复、昵称/主题/介绍页/PWA/剪贴板上限等回归；未发现新的阻断问题。</li>
+<li>说明：PIN 与一次性分享票据的“非本机来源”强制校验依赖第二台设备，本机回环/本机网卡属于设计内豁免；该路径已由代码审查与服务端单测覆盖，未做跨机实机联调。</li>
+<li><code>release.yml</code> 通过 YAML 解析，Android 步骤 <code>with</code> 同时包含 <code>toolchain: stable</code> 与 <code>targets: aarch64-linux-android</code>；<code>api-push.sh</code> / <code>build-all.sh</code> 通过 <code>bash -n</code>。</li>
+</ul>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 历史改动记录 · 2026-11-21 · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</p>
+</body>
+</html>

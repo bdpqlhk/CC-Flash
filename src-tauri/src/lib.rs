@@ -13,6 +13,35 @@ use tauri::{
 #[cfg(desktop)]
 use tauri_plugin_notification::NotificationExt;
 
+/// 偏好文件原子写: 临时文件 + fsync + rename。偏好虽小, 但 WKWebView/断电下
+/// 直接 write 可能留下半截 JSON, 启动回读失败会静默丢掉主题/令牌等设置。
+fn write_text_atomic(path: &std::path::Path, value: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("pref");
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_file_name(format!(
+        ".{name}.tmp-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut f = std::fs::File::create(&tmp)?;
+    f.write_all(value.as_bytes())?;
+    f.sync_all()?;
+    drop(f);
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        if cfg!(windows) && path.exists() {
+            let _ = std::fs::remove_file(path);
+            return std::fs::rename(&tmp, path);
+        }
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
 mod config;
 mod server;
 
@@ -218,8 +247,7 @@ pub mod commands {
         }
         match app.path().app_config_dir() {
             Ok(dir) => {
-                let _ = std::fs::create_dir_all(&dir);
-                match std::fs::write(dir.join("pet-dock.json"), dock) {
+                match write_text_atomic(&dir.join("pet-dock.json"), &dock) {
                     Ok(_) => serde_json::json!({ "ok": true }),
                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                 }
@@ -269,11 +297,7 @@ pub mod commands {
         }
         match pref_path(&app, &key) {
             Ok(p) => {
-                // 目录不存在时写入会失败并静默丢偏好(移动壳 app_config_dir 首启可能尚未创建)
-                if let Some(dir) = p.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                match std::fs::write(p, value) {
+                match write_text_atomic(&p, &value) {
                     Ok(_) => serde_json::json!({ "ok": true }),
                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                 }
@@ -424,7 +448,7 @@ pub fn run() {
                 // 桌面端先隐藏, 由 main://ready / 2s 兜底显示(防自启闪窗);
                 // 移动端没有托盘与隐藏→显示路径, 必须初始可见(否则整个 App 是空白)
                 .visible(!cfg!(desktop))
-                .background_color(tauri::webview::Color(13, 16, 23, 255))
+                .background_color(tauri::webview::Color(11, 14, 13, 255))
                 // macOS 首点默认只用于激活窗口、不传给 webview —— 从别的应用切回来后
                 // 第一击凭空消失(表现为"按钮要点两次"), 必须开启首点穿透
                 .accept_first_mouse(true)
@@ -465,14 +489,16 @@ pub fn run() {
                         // 同名不静默覆盖: stem(1).ext 顺延(审查回归 —— 原实现直接 join,
                         // Downloads 里的同名旧文件可能被无声替换)
                         let mut target = dir.join(&fname);
-                        if target.exists() {
+                        // symlink_metadata 能识别悬垂符号链接; Path::exists() 会跟随链接
+                        // 返回 false, 让下载写入悬垂链接指向的目录之外。
+                        if std::fs::symlink_metadata(&target).is_ok() {
                             let (stem, ext) = match fname.rsplit_once('.') {
                                 Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
                                 _ => (fname.clone(), String::new()),
                             };
                             for i in 1..10000u32 {
                                 let cand = dir.join(format!("{stem}({i}){ext}"));
-                                if !cand.exists() {
+                                if std::fs::symlink_metadata(&cand).is_err() {
                                     target = cand;
                                     break;
                                 }

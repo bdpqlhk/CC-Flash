@@ -87,7 +87,7 @@ build_android() {
   [[ -n "${JAVA_HOME:-}" ]] || warn "未设 JAVA_HOME (JDK 17), 若失败请安装 Android Studio 并配置"
   # 缺 SDK 时立即终止本目标: die 只置 FAIL 不退出, 继续跑 rustup/构建会级联出一堆误导性报错
   [[ -n "${ANDROID_HOME:-}" || -n "${ANDROID_SDK_ROOT:-}" ]] || { die "未设 ANDROID_HOME —— 请先安装 Android Studio 并在 shell 配置 ANDROID_HOME/NDK_HOME"; return 1; }
-  # 只发 arm64-v8a 单包: 覆盖 Android 5+ 主流 64 位机型, 减少产物数量
+  # 只发 arm64-v8a 单包: 覆盖 Android 7.0+（minSdk 24）主流 64 位机型, 减少产物数量
   t=aarch64-linux-android
   has_target "$t" || { warn "添加 Rust 目标: rustup target add $t"; rustup target add "$t" || die "rustup target 添加失败: $t"; }
 
@@ -124,6 +124,12 @@ build_android() {
 # ---------------------------------------------------------------- ios
 build_ios() {
   log "iOS ($VARIANT)"
+  # 当前仓库没有 gen/apple、描述文件、multicast entitlement 与后台模式；
+  # 直接跑 tauri ios build 会生成一个无法发现设备/无法后台运行/未签名的半成品。
+  # 明确阻断，避免把“能编译”误当成“可交付的 iOS 原生包”。
+  if [[ "${CCFLASH_IOS_EXPERIMENTAL:-0}" != "1" ]]; then
+    die "iOS 原生包当前未交付（无 gen/apple/签名/multicast/后台模式）。请使用 iOS Safari 访问电脑网页版；仅在明确做 iOS 适配时设置 CCFLASH_IOS_EXPERIMENTAL=1"
+  fi
   [[ "$(uname -s)" == Darwin ]] || die "iOS 打包只能在 macOS 上进行"
   need xcodebuild "App Store 安装完整版 Xcode (含 iOS SDK)"
   need cargo "https://rustup.rs"

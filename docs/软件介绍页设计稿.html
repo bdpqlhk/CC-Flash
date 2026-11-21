@@ -381,7 +381,7 @@ a { color: inherit; text-decoration: none; }
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 
 <!-- ============ Part 1 · 侧边栏入口示意 ============ -->
@@ -531,7 +531,7 @@ a { color: inherit; text-decoration: none; }
             <div class="card">
                 <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                 <h3>服务中心</h3>
-                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、Windows 混合 DPI 正确落位、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，五套配色（深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀）× 亮色 / 暗色 / 跟随系统即点即换，桌面对话气泡也随主题同步。</p>
+                <p>启停服务、改端口（被占自动顺延）、换共享目录，磁盘余量一目了然。双二维码入口：侧边栏常驻码（流光动效）+ 屏幕边缘<b>呼吸球悬浮码</b>（悬停 1.5 秒出码、拖动换边、支持扩展屏、Windows 混合 DPI 正确落位、新消息绿点提醒），任意页面随扫随传；服务日志 loguru 风格实时滚动，六套配色（信号台 / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀）× 亮色 / 暗色 / 跟随系统即点即换，桌面对话气泡也随主题同步。</p>
                 <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
             </div>
             <div class="card">
@@ -603,7 +603,7 @@ a { color: inherit; text-decoration: none; }
             <div class="pt">
                 <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
                 <h3>多端覆盖</h3>
-                <p>桌面端支持 macOS（11.0+）与 Windows（Linux 可源码构建）；手机浏览器免安装即可用；Android App 默认作为独立节点，也可切换为连接电脑；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
+                <p>桌面端支持 macOS（11.0+）与 Windows（Linux 可源码构建）；手机浏览器免安装即可用；Android App 作为独立本机节点；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
             </div>
         </div>
         <div class="codes">
@@ -636,7 +636,7 @@ npm run tauri build</div>
         <div class="faq">
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">手机需要安装 App 吗？<span class="pm">+</span></button>
-                <div class="faq-a"><p>不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户也可以安装 APK：App 默认作为独立节点运行本机文件服务，并在「CC设置」里提供「连接电脑」输入框，可直接浏览电脑上的共享文件；两种模式随时切换。</p></div>
+                <div class="faq-a"><p>不需要。手机、平板在同一 Wi-Fi 下用浏览器扫码或输入地址，即可使用全部功能（上传、下载、聊天、删除）。Android 用户也可以安装 APK：App 作为独立节点运行本机文件服务，附近设备自动发现，也可被电脑和其他手机发现。</p></div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">屏幕边缘的呼吸小球是什么？<span class="pm">+</span></button>
@@ -668,11 +668,11 @@ npm run tauri build</div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">支持哪些平台？<span class="pm">+</span></button>
-                <div class="faq-a"><p>桌面端提供 macOS（11.0+）与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK（默认独立节点，可切换连接电脑）。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
+                <div class="faq-a"><p>桌面端提供 macOS（11.0+）与 Windows 安装包（Linux 可从源码构建）；手机端浏览器免安装即可使用，Android 另有可直接安装的 APK（Android 7.0+，独立本机节点）。iOS 暂无安装包，请直接用 Safari 打开电脑端地址使用网页版。所有设备需处于同一局域网（同一 Wi-Fi）。</p></div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">电脑换了 IP 或换了另一台电脑怎么办？<span class="pm">+</span></button>
-                <div class="faq-a"><p>手机浏览器直接打开电脑端显示的新地址即可。Android App：若当前处于「连接电脑」模式且地址失效，在「无信号」页面点「重新启动本机服务」会回到本机节点，或到「CC设置 → 连接电脑」重新填写地址；也可点「切回本机节点」。地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。</p></div>
+                <div class="faq-a"><p>手机浏览器直接打开电脑端显示的新地址即可。Android App 是独立本机节点，电脑换 IP 不影响手机；若本机服务异常，在「无信号」页面点「重新启动本机服务」即可。浏览器地址只支持 IP 或 localhost（为防 DNS 重绑定不接受 xxx.local 域名）。</p></div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">访问令牌和分享链接安全吗？<span class="pm">+</span></button>
@@ -684,7 +684,7 @@ npm run tauri build</div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">手机 App 会把我的文件暴露到 Wi-Fi 吗？<span class="pm">+</span></button>
-                <div class="faq-a"><p>默认不会：移动端首次启动是「安全模式」，只监听 127.0.0.1。需要手机被其他设备访问时，到「CC设置 → 本机服务」手动开启「局域网访问」，并建议同时开启访问令牌；开关修改后点「重启服务」生效。Android 会用前台服务通知保持传输不被系统冻结。</p></div>
+                <div class="faq-a"><p>不会。移动 App 始终开放局域网并自动生成本机访问令牌，同网段设备需要配对码才能读写；CC设置不再提供「局域网访问」开关。Android 会用前台服务通知保持传输不被系统冻结。</p></div>
             </div>
         </div>
     </section>
@@ -794,13 +794,14 @@ function toast(msg) {
 </script>
 
 <section id="v123-update" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-19 安全加固）</h2>
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-21 收尾校准）</h2>
 <ul style="margin:0;padding-left:20px">
-<li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口点开后展开竖屏整页设备面板（不弹窗）。选中设备后输入栏切换直发，并显示本机回执。</li>
+<li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口在 761–980px 展开 360px 竖屏侧栏、≤760px 整页覆盖（不弹窗）。选中设备后输入栏切换直发，并显示本机回执。</li>
 <li><b>浏览器保持原聊天室</b>：手机 / 电脑浏览器都不做发现、不加底部标签、不提供设置页，避免"点得到、连不上"。</li>
 <li><b>共享剪贴板（可选）</b>：系统剪贴板自动同步默认关闭，在 CC设置开启后电脑复制手机粘贴、手机发布电脑更新；所有文本（含令牌/验证码）都会同步。浏览器受安全上下文限制时，在聊天输入框粘贴会把文本回传电脑。</li>
-<li><b>布局</b>：桌面侧栏 192px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
+<li><b>布局</b>：桌面侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
 <li><b>细节</b>：设备栏底部不再重复二维码 / 复制地址；PDF 预览走一次性票据；访问令牌损坏时自动重新生成；静态资源缺失返回 404。</li>
+<li><b>2026-11-20/21 复审收尾</b>：移动端开启访问令牌后对所有来源（含本机 Wi-Fi IP）强制校验；WS 半开看门狗、响应体超时、手动发送取消与失败保留草稿；下载许可看门狗回收、聊天/文件并发闸；聊天历史改为借用序列化；浏览器不提供跨设备直发；CSP 增加 <code>wss:</code>；Android 7.0+；发布链路仅 404 视为 missing、Actions 固定 SHA、构建后复核签名。</li>
 <li><b>2026-11-19 安全加固</b>：剪贴板同步默认关闭并可开关；移动端自动本机令牌；桌面始终开放局域网（CC设置不再提供开关）；WS 退避、下载空闲超时 + 单来源配额、限流固定窗口；未签名构建不发布、更新只认正式版；Android 17 本地网络权限。</li>
 </ul>
 </section>

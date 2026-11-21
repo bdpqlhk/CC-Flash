@@ -53,7 +53,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新版本 v1.2.3 · 2026-11-18</b>　对外表述请使用当前功能：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　截图与文案请按当前安装包校对。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新版本 v1.2.4 · 2026-11-21</b>　对外表述请使用当前功能：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　截图与文案请按当前安装包校对。</div>
 
 <div class="layout">
 
@@ -77,7 +77,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC Flash · 推广营销方案</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-18（v1.2.3 修订）</b></span>
+<span>文档日期：<b>2026-11-21（v1.2.4 修订）</b></span>
 <span>版本：<b>面向 v1.2.3 起（四段 tag v1.2.3.x）</b></span>
 <span>原则：<b>零预算内容驱动 · 不吹不黑 · 安全口径先行</b></span>
 </div>
@@ -104,7 +104,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">二</span>现状盘点：可复用资产</h2>
 <table>
 <tr><th>资产</th><th>状态</th><th>推广用途</th></tr>
-<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、<b>移动 App 独立节点 + 可选连接电脑</b>、<b>消息工作台（设备发现并入发送页）与电脑↔手机双向共享剪贴板</b>、访问令牌 + 一次性分享票据（绑定 ETag）、配对码 IPv6 /64 聚合退避 + 公网全局失败预算、控制接口跨站防护、CSP 与上传/下载/WS 并发闸；应用内预览、聊天 Markdown 与多行输入、共享文件抽屉加宽（每页 10 条）、顶栏标题左/状态地址右的自适应布局、五套配色 × 亮/暗/跟随系统、同名文件自动改名、Android 前台服务保活与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
+<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、<b>移动 App 独立节点（始终开放局域网 + 本机令牌）</b>、<b>消息工作台（设备发现并入发送页）与电脑↔手机双向共享剪贴板</b>、访问令牌 + 一次性分享票据（绑定 ETag）、配对码 IPv6 /64 聚合退避 + 公网全局失败预算、控制接口跨站防护、CSP 与上传/下载/WS 并发闸；应用内预览、聊天 Markdown 与多行输入、共享文件抽屉加宽（每页 10 条）、顶栏标题左/状态地址右的自适应布局、六套配色 × 亮/暗/跟随系统（默认信号台）、同名文件自动改名、Android 前台服务保活与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
 <tr><td>文档体系</td><td class="muted">需求/技术/使用说明/历史记录/设计稿 五件套 + README</td><td>技术社区传播的「信任状」</td></tr>
 <tr><td>发布流水线</td><td class="muted">打 tag 自动出 macOS 分架构双包 dmg、Windows NSIS exe、Android arm64-v8a APK；Android 必须 release 签名，debug 包禁止进入正式 Release</td><td>快速响应热点，随发随推</td></tr>
 <tr><td>介绍页</td><td class="muted">应用内全屏介绍页（Hero/三步上手/FAQ）</td><td>新用户 30 秒看懂，降低传播流失</td></tr>
@@ -254,7 +254,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td class="muted">第 4 月起</td><td>官网域名 / brew·winget / awesome PR / 英文界面</td><td>1000★，包管理器至少 1 个收录</td></tr>
 </table>
 <div class="callout c-tip"><b>执行建议</b>阶段一的 7 件事可以一次 PR 完成；阶段二每条渠道首贴前，先花 30 分钟读该社区近一周热帖找手感。<b>所有阶段都以「真实用户的一个好评」为最高优先级信号</b>——数据次之。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC Flash · 推广营销方案 · 2026-11-19 · 适用于 v1.2.4（四段 tag v1.2.3.x） · 与《后期规划》《需求设计文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC Flash · 推广营销方案 · 2026-11-21 · 适用于 v1.2.4（四段 tag v1.2.4.x） · 与《后期规划》《需求设计文档》《保姆级使用说明》配套阅读</p>
 </section>
 
 </main>

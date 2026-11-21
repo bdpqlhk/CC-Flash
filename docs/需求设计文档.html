@@ -55,7 +55,7 @@ pre code{background:none;color:inherit;padding:0}
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-19</b>　本文已按最新代码校对。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 <div class="layout">
 <nav class="toc">
@@ -81,7 +81,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-19</b></span>
+<span>文档日期：<b>2026-11-21</b></span>
 <span>状态：<b>已实现，应用版本 1.2.4，macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
@@ -110,7 +110,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>零配置</b>：安装即用，端口/目录全自动，端口被占自动顺延；</li>
 <li><b>零学习成本</b>：所有操作一目了然，文案口语化（"保姆级"标准）；</li>
 <li><b>可信赖的反馈</b>：每个动作都有 toast 提示（上传/下载/复制/清空/错误），服务状态常驻可见（三圆点脉冲徽标）；</li>
-<li><b>低刺激视觉</b>：亮色 / 暗色 / 跟随系统三种模式 × <b>5 套可切换配色</b>（深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
+<li><b>低刺激视觉</b>：亮色 / 暗色 / 跟随系统三种模式 × <b>6 套可切换配色</b>（信号台 / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
 </ul>
 </section>
 
@@ -150,7 +150,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息支持<b>轻量 Markdown</b>（标题、列表、引用、分割线、围栏代码块；行内代码、链接、粗体、斜体、删除线），URL 自动识别为可点击链接（先整体转义防 XSS，桌面端点击走系统浏览器）；输入框为多行 textarea（自动长高，桌面 Enter 发送 / Shift+Enter 换行，手机 Enter 换行、点发送提交）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止（桌面与移动 App 均可；移动端默认<b>安全模式</b>仅监听 127.0.0.1，需在 CC设置 显式开启局域网访问，建议同时开启访问令牌）；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）；停止服务会先中止并回滚在途上传，不会出现"停服后文件被启动清理误删"；移动端可切换「连接电脑」/「本机节点」</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止（桌面与移动 App 均可；移动端始终开放局域网并自动生成本机访问令牌，启用后对所有来源（含本机网卡 IP）校验；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）；停止服务会先中止并回滚在途上传，不会出现"停服后文件被启动清理误删"；移动端为独立本机节点</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-21</td><td>共享目录可查看与更换：手动输入或点「选择」弹原生目录框直接选取（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-22</td><td>运行状态徽标常驻（三圆点波浪动效），出现在桌面顶栏、网页顶栏与服务控制卡</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡：地址（IP:端口）或运行状态任一变化自动重生成，停服即清空防残留，生成失败由状态轮询兜底重试</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -168,8 +168,8 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-40</td><td rowspan="4">网页端</td><td>电脑浏览器：合并传输页——顶栏标题居左、运行状态+地址+复制/二维码整组靠右上（地址自适应、窄屏换行），消息与文件卡片同一时间线，共享文件收进右侧 340–400px 抽屉</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-41</td><td>手机浏览器：<b>合并传输页单列</b>——消息/文件卡片同一条时间线，共享文件收进底部 86dvh 抽屉面板；输入栏贴底，不再设置独立聊天悬浮球/聊天面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-42</td><td>底部文件面板打开时锁定背景滚动，面板内滑动不穿透；状态/IP 2.5s 刷新；窄屏正文与文件列表字号整体上调，操作热区放大</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据（恢复首拉的历史不计未读），删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）；<b>Android/iOS 壳</b>在遮罩上提供「重新启动本机服务」按钮（连电脑模式可回到本机节点，也可到 CC设置改地址），避免设置页被遮罩盖住后只能清应用数据</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × <b>5 套配色</b>（深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀），默认深空蓝亮色；即时生效并记忆，三级文字色随主题色相联动；<b>桌面端聊天气泡跟随主题</b>（接收方主题卡片面、发送方轻染强调色），浏览器/移动端保持白底黑字</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据（恢复首拉的历史不计未读），删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）；<b>Android/iOS 壳</b>在遮罩上提供「重新启动本机服务」按钮（点按钮重新拉起本机服务），避免设置页被遮罩盖住后只能清应用数据</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × <b>6 套配色</b>（信号台/深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀），默认信号台暗色；即时生效并记忆，三级文字色随主题色相联动；<b>桌面端聊天气泡跟随主题</b>（接收方主题卡片面、发送方轻染强调色）；信号台在浏览器/移动端也使用深色气泡，其他皮肤仍白底黑字</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-51</td><td>页脚版权：桌面与网页端页面底部统一展示「© 2026-现在 by hangkun.li」，内容短时贴底、长时顺延</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：读取 GitHub Releases <b>列表</b>（只认正式版、跳过 prerelease，避免未签名产物进入更新通道），启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -241,7 +241,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>二维码卡</b>：白底大二维码（204px，贴边展示），未启动时显示虚线占位；caption「手机 / 平板同一 Wi-Fi 下扫码打开」。</li>
 </ol>
 <h3>6.2 IP 变化可靠性需求（FR-60）</h3>
-<p>开放局域网时服务监听双栈 <code>[::]</code>（v4 自检失败回落 <code>0.0.0.0</code>），安全模式下只监听 <code>127.0.0.1</code>；DHCP 换 IP 不会中断服务，但客户端手里的旧地址会失联（表现为连接超时）。因此要求：</p>
+<p>服务监听双栈 <code>[::]</code>（v4 自检失败回落 <code>0.0.0.0</code>）；移动端始终开放局域网，旧版安全模式不再生效；DHCP 换 IP 不会中断服务，但客户端手里的旧地址会失联（表现为连接超时）。因此要求：</p>
 <ul>
 <li>前端每 2.5 秒刷新一次状态；检测到 IP 变化 → 地址栏/二维码/统计立即换新，并弹醒目提示「本机 IP 已变为 x.x.x.x，手机请改用新地址访问」；</li>
 <li>已打开的旧页面无法自救（旧 IP 已失联），必须以桌面端提示的新地址重开——这是本需求的边界。</li>
@@ -306,10 +306,11 @@ pre code{background:none;color:inherit;padding:0}
 <section id="s10">
 <h2><span class="no">10</span>外观与动效规范</h2>
 <h3>10.1 皮肤系统</h3>
-<p>三种模式（亮色 / 暗色 / 跟随系统）× <b>5 套配色</b>（默认深空蓝浅色），经 <code>data-theme</code>（配色定色相）与 <code>data-mode</code>（定明暗）正交切换 CSS 变量实现，即时生效并记忆（localStorage，旧皮肤 id 启动时自动迁移）。桌面端聊天气泡跟随主题，浏览器/移动端保持白底黑字：</p>
+<p>三种模式（亮色 / 暗色 / 跟随系统）× <b>6 套配色</b>（默认信号台暗色），经 <code>data-theme</code>（配色定色相）与 <code>data-mode</code>（定明暗）正交切换 CSS 变量实现，即时生效并记忆（localStorage，旧皮肤 id 启动时自动迁移）。桌面端聊天气泡跟随主题；信号台在浏览器/移动端也使用深色气泡，其他皮肤仍白底黑字：</p>
 <table>
 <tr><th>配色</th><th>主色气质</th><th>文字三级色</th></tr>
-<tr><td>深空蓝（默认）</td><td>蓝 #4f8af7</td><td>蓝灰系（与主色同色相）</td></tr>
+<tr><td>信号台（默认）</td><td>石墨黑 + 琥珀 #f2b441</td><td>暖米灰（工程网格/等宽读数）</td></tr>
+<tr><td>深空蓝</td><td>蓝 #4f8af7</td><td>蓝灰系（与主色同色相）</td></tr>
 <tr><td>森林薄荷</td><td>薄荷绿 #3ecfa3</td><td>冷绿灰</td></tr>
 <tr><td>暗夜紫</td><td>紫 #a78bfa</td><td>紫灰</td></tr>
 <tr><td>墨色琥珀</td><td>琥珀金 #f0a232</td><td><b>暖米灰（低蓝光）</b></td></tr>
@@ -373,11 +374,11 @@ pre code{background:none;color:inherit;padding:0}
 <ul>
 <li><b>路径穿越双重防护</b>：URL 解码 → 相对路径逐段校验（拒绝空/./../首尾空格/非法字符，支持子目录）→ 与共享目录拼接后 canonicalize 校验前缀越界；上传建目录前对最近存在的祖先做越界预检（防符号链接把目录建到界外）；</li>
 <li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost（<b>不再放行 <code>*.local</code></b>——同 Wi-Fi 攻击者可自架 mDNS 应答做 DNS 重绑定绕过访问码，二维码本就下发 IP，收紧无损正常路径）；带 Origin 的请求<b>精确匹配</b>放行自身与 WebView（<code>tauri://localhost</code>、<code>http(s)://tauri.localhost</code>；子串匹配可被 tauri.localhost.evil.com 绕过，禁止使用）；无 Origin 的 curl/局域网 App 不受影响；</li>
-<li><b>控制接口仅限本机</b>：/api/control/*（启停/日志/清空）拒绝非回环来源——局域网任意设备可调用的话人人能关停服务、读走全部活动日志；网页端状态走 /api/info，不受影响；<b>安全模式（open_lan=false）</b>下服务只监听 127.0.0.1，偏好持久化、重启服务生效；</li>
+<li><b>控制接口仅限本机</b>：/api/control/*（启停/日志/清空）拒绝非回环来源——局域网任意设备可调用的话人人能关停服务、读走全部活动日志；网页端状态走 /api/info，不受影响；旧版安全模式偏好不再生效，服务始终开放局域网。</li>
 <li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；Windows 路径长度（MAX_PATH 260，按 UTF-16 计）上传预检；<b>并发闸</b>下载 32 / 上传 16 / WS 64，上传连续 60s 增量 &lt; 16KB 即中止（防慢速滴流占满槽位）；</li>
 <li><b>删除与清理边界</b>：删除符号链接只删链接本身（canonical 目标不删）；启动清理 <code>.ccpart</code> 只认带会话指纹的命名（<code>&lt;name&gt;.&lt;16hex&gt;.ccpart/.meta</code>），同名同后缀的普通用户文件保留；<code>.ccup</code> 只处理合法令牌/"ok"/空标记，用户自建同名文件不触碰；</li>
 <li><b>隐私与垃圾过滤</b>：系统垃圾文件（.DS_Store/._*/Thumbs.db/desktop.ini）不进列表、上传拒绝——.DS_Store 内含目录内曾出现过的文件名元数据；</li>
-<li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（<code>script-src 'self'</code>、<code>object-src 'none'</code> 等），即便出现注入型 XSS 也限制其能力；<code>connect-src</code> 放行 <code>http:/ws:</code>，<code>img-src/media-src</code> 放行 <code>http:</code> 与 <code>blob:</code>，<code>frame-src</code> 放行 <code>http:</code>（<b>不再 'none'</b>）——移动壳既可能连本机节点也可能连电脑，应用内预览要从局域网地址加载图片/音视频/PDF，只留回环会把发版包整端拦死（v1.2.2 已删除各平台 conf 的重复 CSP，统一由基础配置继承）；html/svg/xml 仍由服务端 inline 白名单禁止同源打开（dev 模式无 CSP，必须用发版包验证）；</li>
+<li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（<code>script-src 'self'</code>、<code>object-src 'none'</code> 等），即便出现注入型 XSS 也限制其能力；<code>connect-src</code> 放行 <code>http:/ws:/wss:</code>，<code>img-src/media-src</code> 放行 <code>http:</code> 与 <code>blob:</code>，<code>frame-src</code> 放行 <code>http:</code>（<b>不再 'none'</b>）——移动壳既可能连本机节点也可能连电脑，应用内预览要从局域网地址加载图片/音视频/PDF，只留回环会把发版包整端拦死（v1.2.2 已删除各平台 conf 的重复 CSP，统一由基础配置继承）；html/svg/xml 仍由服务端 inline 白名单禁止同源打开（dev 模式无 CSP，必须用发版包验证）；</li>
 <li><b>系统命令注入防护（Windows）</b>：打开 URL 走 <code>rundll32 FileProtocolHandler</code>、文件走 <code>explorer</code>，不经 <code>cmd</code> shell（cmd 会解释 <code>&amp;|^</code> 等字符）；</li>
 <li><b>XSS 防护</b>：聊天消息先转义再链接化；</li>
 <li><b>资源上限</b>：聊天 200 条（总字符 200 万）/ 昵称 20 字 / 单条消息 200000 字 / 日志 2000 条；</li>
@@ -440,8 +441,8 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">A</span>附录 · v1.2.4 最新实现补充（2026-11-19 安全加固）</h2>
 <h3>A.1 消息工作台（设备发现并入发送页）</h3>
 <ul>
-<li><b>桌面端</b>：「消息发送」页左侧为 Snapdrop 风格周边设备栏（本机身份卡 + 扫描雷达 + 附近设备列表，在线 / 忙碌 / 最近活跃），宽 200px；点选设备即成为发送目标，输入栏切换为直发，时间线追加本机回执。设备栏底部不再放二维码 / 复制地址，扫码仍走顶栏与服务中心，减少重复入口。</li>
-<li><b>手机 App</b>：底部只有「发送 / 设置」两个标签；聊天头部有「设备」入口，点开展开竖屏整页设备面板（不弹窗）；选中后同样直发并显示回执。设置页承载本机服务、局域网访问、连接电脑、访问令牌等。</li>
+<li><b>桌面端</b>：「消息发送」页左侧为 Snapdrop 风格周边设备栏（本机身份卡 + 雷达盘 + 附近设备列表，在线 / 忙碌 / 最近活跃），宽 200px；点选设备即成为发送目标，输入栏切换为直发，时间线追加本机回执。设备栏底部不再放二维码 / 复制地址，扫码仍走顶栏与服务中心，减少重复入口。</li>
+<li><b>手机 App</b>：底部只有「发送 / 设置」两个标签；聊天头部有「设备」入口，点开展开竖屏整页设备面板（不弹窗）；选中后同样直发并显示回执。设置页承载访问令牌、剪贴板同步与重启服务。</li>
 <li><b>浏览器</b>：电脑 / 手机浏览器都保持原聊天室单页，不做发现、没有「发送 / 设置」标签，也不会出现可点但不可达的设备。</li>
 <li><b>投递语义</b>：直发文本 / 文件走对方节点的 <code>/api/chat</code>、<code>/api/upload</code>；内容进入对方公共聊天与共享目录，同网段可见。目标开启访问令牌时按端点记忆配对码。</li>
 </ul>
@@ -453,7 +454,7 @@ pre code{background:none;color:inherit;padding:0}
 </ul>
 <h3>A.3 桌面布局与响应式</h3>
 <ul>
-<li>侧栏 176px；消息页设备栏 200px；共享文件抽屉 320–380px；窗口宽度 981–1180px 时抽屉改为带遮罩的覆盖层，避免挤压聊天区；≤980px 进入窄屏布局（设备栏收起，聊天头部「设备」入口 + 竖屏整页面板接管，不弹窗）。</li>
+<li>侧栏 176px；消息页设备栏 200px；共享文件抽屉 320–380px；窗口宽度 981–1180px 时抽屉改为带遮罩的覆盖层，避免挤压聊天区；≤980px 进入窄屏布局（设备栏收起，聊天头部「设备」入口接管，不弹窗）：761–980px 为 360px 竖屏侧栏，≤760px 整页覆盖，避免输入栏被挤到不可用。</li>
 <li>桌面浏览器与手机浏览器保留原聊天室；手机 App 两标签；文件列表、消息、剪贴板共用同一条时间线。</li>
 </ul>
 <h3>A.4 本轮可靠性修复</h3>
@@ -466,14 +467,14 @@ pre code{background:none;color:inherit;padding:0}
 </ul>
 <h3>A.5 2026-11-19 安全与稳定性补丁（需求口径）</h3>
 <ul>
-<li><b>默认值变更</b>：系统剪贴板自动同步默认关闭；桌面始终开放局域网（CC设置不再提供开关）；移动端自动生成本机访问令牌，loopback 请求同样校验。</li>
+<li><b>默认值变更</b>：系统剪贴板自动同步默认关闭；桌面始终开放局域网（CC设置不再提供开关）；移动端自动生成本机访问令牌，启用后对所有来源（含本机网卡 IP）强制校验。</li>
 <li><b>剪贴板不限制内容</b>：开启后包括令牌/验证码在内的所有文本都会同步；paste 回传仍限定聊天输入框。</li>
 <li><b>发布口径</b>：未签名构建保持草稿并不公开，应用内更新只认正式版（跳过 prerelease）。</li>
 <li><b>稳定性</b>：WS 退避修复、下载空闲超时 + 单来源并发配额、限流固定窗口与 IPv6 /64 聚合、偏好/聊天历史原子写、启动清理不再误删、审计日志防洪水。</li>
 </ul>
 </section>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 需求设计文档 · 2026-11-19 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 需求设计文档 · 2026-11-21 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 </body>

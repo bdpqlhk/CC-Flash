@@ -8,6 +8,11 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 TAG="${1:?用法: $0 <标签名>}"
 
 BASE=$(git rev-parse origin/main)
+REMOTE_HEAD=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+if [ "$REMOTE_HEAD" != "$BASE" ]; then
+  echo "✘ 远端 main 已变化($REMOTE_HEAD)，本地 origin/main=$BASE 陈旧；先 git fetch 后重试，拒绝非 fast-forward 覆盖" >&2
+  exit 1
+fi
 BASE_TREE=$(gh api "repos/$REPO/commits/$BASE" --jq .commit.tree.sha)
 MSG=$(cat .git-commit-msg.txt 2>/dev/null || git log -1 --format=%B HEAD)
 
@@ -61,8 +66,28 @@ NEW_COMMIT=$(gh api "repos/$REPO/git/commits" -f message="$MSG" -f tree="$NEW_TR
 gh api -X PATCH "repos/$REPO/git/refs/heads/main" -f sha="$NEW_COMMIT" --jq .object.sha >/dev/null
 echo "✔ main 已通过 API 更新: $NEW_COMMIT"
 
-# 远程同名标签若存在则删除后重建, 指向新提交
-gh api -X DELETE "repos/$REPO/git/refs/tags/$TAG" >/dev/null 2>&1 || true
+# 已存在 tag / 已公开 Release 时默认拒绝重写, 避免资产与 tag 代码不一致。
+# 只有明确设置 CCFLASH_ALLOW_TAG_MOVE=1 才允许移动旧 tag（仍会先确认 Release 是草稿）。
+if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+  if [ "${CCFLASH_ALLOW_TAG_MOVE:-0}" != "1" ]; then
+    echo "✘ tag $TAG 已存在；拒绝覆盖。请使用新版本 tag，或显式设置 CCFLASH_ALLOW_TAG_MOVE=1" >&2
+    exit 1
+  fi
+  if RELEASE_DRAFT=$(gh api "repos/$REPO/releases/tags/$TAG" --jq .draft 2>/tmp/cc-api-push-release.err); then
+    :
+  elif grep -qiE 'not found|404' /tmp/cc-api-push-release.err; then
+    RELEASE_DRAFT=missing
+  else
+    echo "✘ 无法确认 Release 状态（网络/API/权限错误），拒绝移动 tag" >&2
+    cat /tmp/cc-api-push-release.err >&2
+    exit 1
+  fi
+  if [ "$RELEASE_DRAFT" = "false" ]; then
+    echo "✘ Release $TAG 已公开，拒绝移动 tag/替换线上资产" >&2
+    exit 1
+  fi
+  gh api -X DELETE "repos/$REPO/git/refs/tags/$TAG" >/dev/null
+fi
 TS=$(gh api "repos/$REPO/git/tags" -f tag="$TAG" -f message="$TAG" -f object="$NEW_COMMIT" -f type=commit --jq .sha)
 gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$TS" --jq .ref >/dev/null
 echo "✔ 标签 $TAG 已指向 $NEW_COMMIT, 构建将自动触发"

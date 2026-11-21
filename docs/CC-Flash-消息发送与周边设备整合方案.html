@@ -448,7 +448,7 @@
 </head>
 
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 192px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
 
 <header class="topbar"><div class="topbar-in">
   <a class="brand" href="#top"><span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span>CC-Flash <small>Workspace Merge</small></a>
@@ -610,10 +610,10 @@
 
 <div class="wrap" id="final-diff" style="padding-bottom:44px">
   <div class="sec-head"><div><div class="no">11 · Final</div><h2>最终落地差异（v1.2.3）</h2></div><p>方案主体已按本文实现；以下是与原稿的几处收敛。</p></div>
-  <div class="callout"><b>1. 设备栏不再重复扫码 / 复制</b>最终版左栏为本机身份卡 + 扫描雷达 + 附近设备列表（在线 / 忙碌 / 最近活跃），底部二维码与复制地址已移除——顶栏、服务中心、二维码弹窗已经覆盖，重复入口反而增加视觉负担。</div>
+  <div class="callout"><b>1. 设备栏不再重复扫码 / 复制</b>最终版左栏为本机身份卡 + 雷达盘 + 附近设备列表（在线 / 忙碌 / 最近活跃），底部二维码与复制地址已移除——顶栏、服务中心、二维码弹窗已经覆盖，重复入口反而增加视觉负担。</div>
   <div class="callout" style="margin-top:10px"><b>2. 手机 App 两标签</b>底部只有「发送 / 设置」；聊天头部「设备」入口 + 竖屏整页设备面板。手机浏览器不渲染标签，仍是原聊天室单页。</div>
   <div class="callout" style="margin-top:10px"><b>3. 直发范围</b>桌面 / 手机 App 选中设备后，文本走对方 <code>/api/chat</code>、文件走对方 <code>/api/upload</code>，本机时间线追加回执；共享剪贴板仍走共享槽，不绑定单台设备。</div>
-  <div class="callout" style="margin-top:10px"><b>4. 布局</b>桌面侧栏 192px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层，≤980px 进入窄屏。</div>
+  <div class="callout" style="margin-top:10px"><b>4. 布局</b>桌面侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层，≤980px 进入窄屏。</div>
 </div>
 
 <script>
