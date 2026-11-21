@@ -344,6 +344,9 @@ jobs:
             case "$abi" in                        # flavor → 标准 ABI 名
               arm64) abi="arm64-v8a" ;;
               arm)   abi="armeabi-v7a" ;;
+              # 当前只跑 `--target aarch64`, Tauri 产物名是 app-universal-release.apk,
+              # 但包内只有 lib/arm64-v8a; 统一按 arm64-v8a 命名, 避免 Release 资产名误导。
+              universal) abi="arm64-v8a" ;;
             esac
             dest="CC-Flash-${{ github.ref_name }}-android-${abi}.apk"
             echo "打包: $apk → $dest"
