@@ -443,14 +443,18 @@ jobs:
           printf '%s\n' "$assets" | grep -qE '\.exe$' || { echo "::error::Release 缺少 Windows NSIS exe"; exit 1; }
           apk_count=$(printf '%s\n' "$assets" | grep -cE 'android-.*\.apk$' || true)
           [ "$apk_count" -ge 1 ] || { echo "::error::Release 缺少 Android arm64 APK(当前 $apk_count 个)"; exit 1; }
-          # 未签名/未公证的包不得公开: macOS Gatekeeper 会直接拦截, Windows SmartScreen
-          # 也会警告; 且应用内更新检查会把 prerelease 也当新版本推给用户, 等于把
-          # "下载后打不开"的包推给全量用户。缺签名时保持草稿并让 job 失败(明确可见),
-          # 由维护者补齐 Secrets 后重跑。
-          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ] \
-             || [ -z "$WINDOWS_CERTIFICATE" ] || [ -z "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
-            echo "::error::签名/公证 Secrets 不完整（Apple 证书+ID+专用密码+Team、Windows 证书+密码），Release 保持草稿不公开"
-            exit 1
+          # 缺签名证书时不再阻断发布(与 v1.2.5 之前的流程一致): 只打 warning,
+          # 继续发布未签名/未公证包。维护者需在 Release 说明中注明 macOS 右键打开、
+          # Windows SmartScreen。有证书时 desktop job 已做 codesign/stapler/Authenticode 复核。
+          missing=""
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            missing="$missing Apple(证书/ID/专用密码/Team)"
+          fi
+          if [ -z "$WINDOWS_CERTIFICATE" ] || [ -z "$WINDOWS_CERTIFICATE_PASSWORD" ]; then
+            missing="$missing Windows(证书/密码)"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::warning::缺少签名/公证 Secrets:$missing。本次发布未签名/未公证包，请在 Release 说明中注明打开方式"
           fi
           gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
           echo "✔ ${{ github.ref_name }} 已发布"

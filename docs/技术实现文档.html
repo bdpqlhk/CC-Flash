@@ -49,7 +49,7 @@ pre code{background:none;color:inherit;padding:0}
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、未签名构建不再发布/进入更新通道。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>、本文附录 A 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>、本文附录 A 与仓库 README 为准。</div>
 
 <div class="layout">
 <nav class="toc">
@@ -539,7 +539,7 @@ safe_rel_path → safe_join_existing → file_op_lock 内复查在途 → 删除
 </ul>
 <h3>9.10 版本更新检查（update.js）</h3>
 <ul>
-<li><code>fetchLatestRelease()</code>：直连 <code>repos/{repo}/releases?per_page=10</code> <b>列表</b>（免鉴权、支持跨域、AbortController 8s 超时）——按发布时间倒序跳过草稿与 <b>prerelease</b>（未签名产物保持草稿，不再作为更新候选），<code>/latest</code> 不返回，会永远收不到更新）；只接受本仓库 Releases 前缀的跳转地址，<b>任何失败返回 null 由调用方静默处理</b>；</li>
+<li><code>fetchLatestRelease()</code>：直连 <code>repos/{repo}/releases?per_page=10</code> <b>列表</b>（免鉴权、支持跨域、AbortController 8s 超时）——按发布时间倒序跳过草稿与 <b>prerelease</b>（构建产物发布为正式 Release；更新检查跳过 prerelease），<code>/latest</code> 不返回，会永远收不到更新）；只接受本仓库 Releases 前缀的跳转地址，<b>任何失败返回 null 由调用方静默处理</b>；</li>
 <li><code>isNewer()</code>：语义化比较（剥 v 前缀、分段数值、短方补 0；支持四段构建号；预发布后缀按 semver 规则判旧）；</li>
 <li>触发：启动 3s 后静默检查 + localStorage 24h 频控（<code>wft-update-check</code>）；「关于」卡手动检查（失败有明确提示）；发现新版弹框，「前往下载」走 <code>open_url_cmd</code> 打开 Release 页。</li>
 </ul>
@@ -691,7 +691,7 @@ npm run tauri build
 <tr><td>并发与限流</td><td>上传/下载在全局许可外增加单来源配额（4 / 8，IPv6 /64 聚合）；下载流每块 45s 空闲超时；聊天/开票/探测限流改为固定窗口（不再"突发 60 次后整窗封禁"）；失败请求日志按来源限流。</td></tr>
 <tr><td>数据安全</td><td>共享目录/端口/局域网/设备缓存偏好改用原子写 + fsync；聊天历史损坏改名 <code>.bad-*</code> 保留；启动清理对"无声明大小"的上传残留改名 <code>.incomplete</code> 保留而非删除；旧共享目录迁移失败回退旧目录并告警；聊天/剪贴板落盘移出 async worker 并按序号串行。</td></tr>
 <tr><td>网络</td><td><code>lan_ip()</code> 扩充虚拟网卡过滤（VirtualBox/VMware/Hyper-V/ZeroTier/WireGuard 等），link-local 降为末位候选；IPv6 link-local probe 回包保留 scope id；UDP 设备 id 不允许跨 IP 覆盖（防身份劫持）。</td></tr>
-<tr><td>协议/发布</td><td><code>Content-Disposition</code> 使用 basename + 完整百分号编码；浏览器版静态页下发完整脚本级 CSP；分享票据 TTL 改单调时钟；未签名构建保持草稿且 publish 失败，更新检查跳过 prerelease；Android 16/17 运行时申请本地网络权限；Android 前台服务超时先发通知。</td></tr>
+<tr><td>协议/发布</td><td><code>Content-Disposition</code> 使用 basename + 完整百分号编码；浏览器版静态页下发完整脚本级 CSP；分享票据 TTL 改单调时钟；缺少证书时 publish 仅告警并发布未签名包，更新检查跳过 prerelease；Android 16/17 运行时申请本地网络权限；Android 前台服务超时先发通知。</td></tr>
 <tr><td>构建瘦身</td><td>前端移除未引用资源、生产包 drop console/debugger；Rust 显式 <code>lto=fat / strip / opt-level=z / panic=abort / debug=false / incremental=false</code>，构建脚本单独优化；重新统计 dist 与二进制体积。</td></tr>
 </table>
 <h3>A.4 已知边界</h3>

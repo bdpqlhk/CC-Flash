@@ -25,7 +25,7 @@
 - 🗂 **原生目录选择**：共享目录点「选择」弹出系统目录框，即选即存
 - 🎨 **主题系统**：亮色 / 暗色 / 跟随系统三种模式（随系统外观自动切换）× **6 套配色**（**信号台** / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），默认**信号台暗色**，即点即换、即时生效，桌面对话气泡跟随主题
 - 🛡 **安全防护**：路径穿越双重防护、浏览器跨源拦截（DNS 重绑定/CSRF，Host 仅认 IP/localhost；控制接口额外拒绝 `Sec-Fetch-Site: cross-site`，防 `<a ping>` 停服/清日志）、聊天消息转义防 XSS、静态页面补 `nosniff / SAMEORIGIN` 与**完整脚本级 CSP**（`script-src 'self'`、`connect-src 'self' ws: wss:`、`object-src 'none'`、`frame-ancestors 'self'`）防点击劫持/XSS、上传磁盘预检 + 256MB 安全余量、可选**访问令牌**（6 位配对码 + 按来源 IP 指数退避 + **公网来源全局失败预算**防前缀轮换爆破，输一次全端透明，本机豁免；配对码走请求头，轮换后旧码自动清除、不再自锁；配对码文件读取失败时 fail-closed 重新生成并原子写入）、分享链接**一次性票据**（12 位十六进制 token、绑定文件大小/ETag、10 分钟有效、下载即焚；文件删除或同名重传后立即失效；满额拒绝新票而非驱逐旧票）、上传 / 下载 / WebSocket 并发闸（16 / 32 / 64）并叠加**单来源并发配额**（上传 4、下载 8；IPv6 按 /64 聚合）与**下载 45s 空闲超时；看门狗独立持有许可，半开/不读响应也会释放**、票据/文件指纹/删除标记检查走 `spawn_blocking` 不阻塞 tokio worker、审计日志对失败/成功高频请求按来源限流防洪水、聊天读取/写入分别限并发且落盘失败不推进序号、聊天/剪贴板落盘移出 async worker 且按序号串行、启动清理对损坏残留改名 `.incomplete` 不直接删除、偏好原子写、删除不跟随符号链接、**系统剪贴板同步默认关闭**（开启后任何文本都会同步，不做内容过滤）、**桌面始终开放局域网（CC设置不再提供开关）**、**移动 App 始终开放局域网且自动生成本机访问令牌；启用令牌后对所有来源（含本机网卡 IP）强制校验**（同机其他 App 也无法绕过）
-- 🔄 **自动更新检查**：读取 GitHub Releases 列表并**只认正式版（跳过 prerelease）**，发现新版本弹框提示、一键前往下载；未签名构建不再发布/进入更新通道
+- 🔄 **自动更新检查**：读取 GitHub Releases 列表并**只认正式版（跳过 prerelease）**，发现新版本弹框提示、一键前往下载；缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式
 - 📘 **软件介绍页**：侧边栏「介绍」入口，全屏介绍（功能 / 三步上手 / 技术实现 / FAQ），锚点导航平滑滚动
 - 🖥 **托盘唤窗 & 单实例**：关窗收托盘服务不停；左键托盘图标 / 点程序坞(macOS) / 重复启动均唤起同一主窗口，不再堆积托盘图标
 - ⏱ **开机自启（手动开启）**：CC设置里打开开关才注册登录项，登录后后台启动不弹窗；默认关闭
@@ -105,7 +105,7 @@ Android 产物说明：
 - 必须配置 `ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD` 四个 Secrets，走 **release 签名**（证书固定，版本间可覆盖安装），只构建 `arm64-v8a` 单包；**四个任一缺失 CI 直接失败** —— 正式 Release 绝不允许 debug 包混入（debuggable、每次签名不同，用户无法覆盖升级）；
 - Release 采用「**全部构建成功才发布**」策略：desktop 与 APK 先上传到草稿，两者全绿后自动 Publish；任一失败则保持草稿（修复后重跑 publish job 或手动 Publish）；Android 上传前会校验 Release 仍为草稿，避免重跑已发布 tag 时把新 APK 写进线上正式版；
 - R8 已配置 keep 规则与 `SourceFile,LineNumberTable`，崩溃栈保留可读行号；Gradle 的 NDK 版本跟随 `NDK_HOME`，与 Rust 侧编译保持一致。
-- **代码签名：未签名不发布**。workflow 预留 `APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID` 与 `WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD`；配置后自动签名/公证，桌面 job 再用 `codesign/stapler/signtool` 复核。任一缺失时 publish job **保持草稿并明确失败**，不会把未签名包公开，也不会进入应用内更新通道（未签名 macOS DMG 会被 Gatekeeper 拦截、Windows 包会触发 SmartScreen）。空 Secret 不会注入构建环境，避免 Tauri 对空证书报 `Unable to decode`；桌面 job 构建后还会用 `codesign/stapler`（macOS）与 Authenticode（Windows）复核，Release 查询只把 404 当 missing，第三方 Actions 固定 commit SHA。**当前仓库实际只配置了 Android 签名 Secrets；Apple / Windows 证书补齐前，CI 会保持草稿，维护者若手动公开未签名包需在 Release 说明中明确标注。**
+- **代码签名：有证书则签名/公证，缺证书时照常发布并标注**。workflow 预留 `APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID` 与 `WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD`；配置后自动签名/公证，桌面 job 再用 `codesign/stapler/signtool` 复核。**缺少证书时 publish job 只打 `::warning::` 并继续发布未签名/未公证包**，Release 说明中需注明 macOS 首次打开右键「打开」、Windows SmartScreen 选「更多信息 → 仍要运行」。空 Secret 不会注入构建环境，避免 Tauri 对空证书报 `Unable to decode`；Release 查询只把 404 当 missing，第三方 Actions 固定 commit SHA。**当前仓库只配置了 Android 签名 Secrets，macOS/Windows 产物为未签名包。**
 - 本地 `./scripts/build-all.sh android` 的 release 构建会校验 `CC_KEYSTORE_*`；缺证书直接失败，不再把 unsigned APK 当成功产物。
 
 macOS 按架构出**双包**：`_aarch64.dmg`（Apple Silicon）与 `_x64.dmg`（Intel），单包约 2.72 MiB；Windows 只出 **NSIS exe**，Android 只出 **arm64-v8a APK**。
