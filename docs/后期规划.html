@@ -53,13 +53,13 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>规划状态已按 v1.2.4 更新 · 2026-11-21</b>　2026-11-21 收尾：复审修复（令牌全来源校验、WS/请求超时、手动发送可取消、下载许可回收、并发闸、浏览器不提供跨设备直发、Android 7.0+、发布链路 fail-closed）。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。　消息工作台、双向共享剪贴板、浏览器去发现等已落地；设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　尚未实施项仍以本文标注为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>规划状态已按 v1.2.5+ 更新 · 2026-11-22</b>　2026-11-21 收尾：复审修复（令牌全来源校验、WS/请求超时、手动发送可取消、下载许可回收、并发闸、浏览器不提供跨设备直发、Android 7.0+、发布链路 fail-closed）。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。　消息工作台、双向共享剪贴板、浏览器去发现等已落地；设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　尚未实施项仍以本文标注为准。</div>
 
 <div class="layout">
 
 <nav class="toc">
 <h3>目 录</h3>
-<a href="#s1">一、基线：v1.2.4 现状</a>
+<a href="#s1">一、基线：v1.2.5 现状</a>
 <a href="#s2">二、规划总览与版本节奏</a>
 <a href="#s3">三、v1.2.x · 质量与安全打磨</a>
 <a href="#s4">四、v1.3 · 能力扩展</a>
@@ -75,8 +75,8 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC Flash · 后期规划</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-21（v1.2.4 收尾修订）</b></span>
-<span>基线：<b>v1.2.4 已发布</b>（消息工作台：设备发现并入桌面「消息发送」/手机 App「发送」；手机 App「发送 / 设置」两标签；浏览器回原聊天室、无发现；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；侧栏 176px / 设备栏 200px / 文件抽屉 320–380px；继承 v1.2.2：移动 App 独立节点、UDP 多播发现、访问令牌、一次性票据、并发闸、应用内预览 / Markdown / 六套配色，默认信号台）</span>
+<span>文档日期：<b>2026-11-22（v1.2.5+ 复审修订）</b></span>
+<span>基线：<b>v1.2.5 已发布</b>（消息工作台：设备发现并入桌面「消息发送」/手机 App「发送」；手机 App「发送 / 设备 / 文件 / 设置」四页；浏览器回原聊天室、无发现；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；侧栏 176px / 设备栏 200px / 文件抽屉 320–380px；继承 v1.2.2：移动 App 独立节点、UDP 多播发现、访问令牌、一次性票据、并发闸、应用内预览 / Markdown / 六套配色，默认信号台）</span>
 <span>约束：<b>不做分片上传（红线）· 全线轻量化</b></span>
 <span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
 </div>
@@ -84,7 +84,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 
 <!-- ============ 1 ============ -->
 <section id="s1">
-<h2><span class="no">一</span>基线：v1.2.4 现状</h2>
+<h2><span class="no">一</span>基线：v1.2.5 现状</h2>
 <table>
 <tr><th>维度</th><th>状态</th></tr>
 <tr><td>平台</td><td>macOS / Windows / Android（单包 arm64-v8a + release 签名）；Linux 可源码构建；iOS 用 Safari 访问网页版</td></tr>
@@ -235,16 +235,38 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <tr><td>v1.2.1</td><td class="muted">已发布（2026-11-09）</td><td><b>安全与数据一致性收口</b>：WS 断线日志不再刷屏、上传占位/删除 TOCTOU、停服等待在途上传、配对码轮换自锁、票据猜码限流与轮换作废、移动端服务命令门控、Windows 混合 DPI 落位、发布链路加固（debug 包拒绝进入正式 Release / 重跑已发布 tag 不改线上资产 / 图标与 R8 规则）</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.1.1</td><td class="muted">已发布（2026-11-11）</td><td><b>体验补齐与传输安全加固</b>：应用内预览（图片/PDF/文本/音视频）与 CSP 放行、聊天 Markdown + 多行输入、顶栏/共享文件抽屉打磨、5 套配色 × 亮/暗/跟随、桌面气泡跟随主题；服务端下载 32/上传 16/WS 64 并发闸、上传低速闸、.ccup 状态机、长文件名 marker 预检、符号链接删除保护、.ccpart 只清会话指纹命名、open_lan 持久化、IPv6 /64 锁窗封顶 10 分钟；四段 tag 与重发保护</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.2</td><td class="muted">已发布（2026-11-16）</td><td><b>移动端独立节点 + 附近设备</b>：Android/iOS 本机服务与聊天、始终开放局域网 + 本机令牌、前台服务保活与 MulticastLock；UDP 多播/广播设备发现与点对点投递；上传清理防"半截转正"、下载 ETag/If-Range、票据绑定 size/ETag 并随删除/重传失效、公网 PIN 全局失败预算、控制接口拒绝跨站、静态页防点击劫持、聊天 id 单调、macOS 11+ 本地网络权限；`npm ci` 与四处版本一致性门禁</td><td><span class="tag t-done">✔ 已发</span></td></tr>
-<tr><td>v1.2.3</td><td class="muted">已发布（2026-11-18）</td><td><b>消息工作台 + 双向剪贴板</b>：桌面设备栏并入消息发送、手机 App 两标签、浏览器回原聊天室；共享剪贴板 GET/POST/DELETE 与双向自动同步（无开关、可见性闸）；侧栏 176px / 设备栏 200px / 文件抽屉 320–380px；访问令牌 fail-closed、票据与文件指纹异步校验、静态资源 404、PDF 一次性票据、Android onResume 重启服务</td><td><span class="tag t-done">✔ 已发</span></td></tr>
+<tr><td>v1.2.3</td><td class="muted">已发布（2026-11-18）</td><td><b>消息工作台 + 双向剪贴板</b>：桌面设备栏并入消息发送、手机 App 四页、浏览器回原聊天室；共享剪贴板 GET/POST/DELETE 与双向自动同步（无开关、可见性闸）；侧栏 176px / 设备栏 200px / 文件抽屉 320–380px；访问令牌 fail-closed、票据与文件指纹异步校验、静态资源 404、PDF 一次性票据、Android onResume 重启服务</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.4</td><td class="muted">已落地（2026-11-19）</td><td><b>全量深查修复</b>：剪贴板同步默认关闭 + 凭据黑名单 + 远端需访问令牌；移动端自动本机访问令牌；桌面始终开放局域网（CC设置不再提供开关）；WS 退避修复；下载 45s 空闲超时 + 单来源并发配额；限流窗口与 IPv6 /64 聚合；偏好/聊天历史原子写与损坏保留；启动清理不再误删；未签名构建不公开；Android 17 本地网络权限；前端/二进制瘦身与消息提醒胶囊美化</td><td><span class="tag t-done">✔ 已落地</span></td></tr>
 <tr><td>v1.2.4（收尾）</td><td class="muted">已落地（2026-11-21）</td><td><b>全量复审收尾</b>：移动端令牌全来源校验（含本机 Wi-Fi IP）、WS 半开看门狗、请求头+响应体完整超时、手动发送可取消且失败保留草稿、下载许可由看门狗回收、聊天/文件并发闸与聊天历史借用序列化、浏览器不提供跨设备直发、CSP 增加 wss、Android 7.0+ / minSdk 24、发布链路 fail-closed 与签名复核</td><td><span class="tag t-done">✔ 已落地</span></td></tr>
+<tr><td>v1.2.5</td><td class="muted">已发布（2026-11-21）</td><td><b>手机 App 信号台四页</b>：底部 SEND / DEVICES / FILES / CONFIG 四标签；设备页雷达 + 设备清单 + 单播探测 / 手动发送；文件页 manifest 列表 + 拖入文件；设置页扁平行；手机端首次统一信号台；桌面 / 浏览器保持原布局；同步 CI 签名门禁告警与 Android APK 统一 arm64-v8a 命名</td><td><span class="tag t-done">✔ 已发</span></td></tr>
 <tr><td>v1.2.x</td><td class="muted">+2 个月</td><td>HTTPS 自签扫码信任 + 传输历史 + 轻量增强包（系统通知 / 回收站 / 列表搜索）；小尾巴清零 / 诊断包导出（断网自愈、路径安全测试集、在线预览均已落地）</td><td>公共 Wi-Fi 场景可用且文档口径更新</td></tr>
 <tr><td>v1.3.0</td><td class="muted">+3 ~ 5 月</td><td>临时分享链接增强（可选时长/多文件/链接管理；基础一次性票据已在 v1.2.0 落地）+ UDP 广播发现 + 共享文件夹监控（上传断点续传已列入红线不做）</td><td>链接管理与发现能力上线</td></tr>
 <tr><td>v2.0.0</td><td class="muted">+6 月起</td><td>iOS / 应用内自更新 / 商店上架 / i18n</td><td>四平台齐 + 自更新闭环</td></tr>
 </table>
-<div class="callout"><b>已提前落地（2026-11-10）</b>对话式合并入口（微信式）：文件与消息合并为唯一「传输」，文件即卡片、共享文件收进右侧抽屉 / 手机底部面板，桌面壳 / 电脑浏览器 / 手机浏览器 / 手机端 App 四端同构。设计见 <a href="文件与消息合并入口-全端整体设计方案.html">全端整体设计方案</a>。</div>
+<div class="callout"><b>已提前落地（2026-11-10）</b>对话式合并入口（微信式）：文件与消息合并为唯一「传输」，文件即卡片、共享文件收进右侧抽屉 / 手机 App「文件」页，桌面壳 / 电脑浏览器 / 手机浏览器 / 手机端 App 四端同构。设计见 <a href="文件与消息合并入口-全端整体设计方案.html">全端整体设计方案</a>。</div>
 <div class="callout c-info"><b>与推广方案的联动</b>v1.2.x 的「公共 Wi-Fi 安全感」（HTTPS 自签扫码信任）是推广阶段三大量曝光前的必要前置——先修城墙，再开城门；v1.2.1 已先落地配对码退避、控制接口回环限制与 open_lan 安全模式。手机↔手机互传若在 v2.0 前原型验证成功，将成为推广阶段五「破圈」的头号素材。</div>
-<p class="small" style="text-align:center;padding:14px 0 4px">CC Flash · 后期规划 · 2026-11-21 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
+<section id="round-2026-11-22">
+<h2>2026-11-22 复审收尾与后续</h2>
+<h3>本轮已完成</h3>
+<ul>
+<li>Windows 文件名别名防护（尾随点/空格/ADS/8.3）与 canonical 删除保护。</li>
+<li>上传大小强制校验、上传/取消的阻塞 IO 移出 tokio worker；Range 后缀区间。</li>
+<li>PIN CSPRNG + 独立 enabled 标记 fail-closed；缩略图/预览媒体会话令牌；审计日志 WARN 预留区。</li>
+<li>手机 App 宽屏 FILES 页、FILES 本机上传、设备/文件互斥、发送面板层级与批量重试、未读语义、显式粘贴回写、剪贴板口径校正。</li>
+<li><code>.ccpart</code> 用户文件可见/不误删；UDP bye 会话令牌；静态检查与 <b>24 项</b>后端测试通过。</li>
+<li>全功能自测（真实 API/浏览器 UI/Tauri WebView）与全端 UX 校准：手机四标签中文化、宽屏 1080px 居中、横屏压缩、触控热区、设备操作前置、FILES 表头/文案修正。</li>
+<li>产物瘦身：移除 <code>tokio-util</code>/<code>chrono</code>，dialog/notification 仅桌面打包，CSS lightningcss + 死样式清理；<code>dist</code> 543,163 B，arm64 .app 4.10 MiB / dmg 2.72 MiB，x64 .app 5.03 MiB / dmg 2.83 MiB。</li>
+</ul>
+<h3>仍保留的边界 / 后续可做</h3>
+<ul>
+<li><b>iOS 原生</b>：仍未交付（无 gen/apple、签名、multicast/后台模式）；先走 Safari 网页版。若启动 iOS 适配，优先补 open_url/下载落地、本地网络权限、键盘/安全区与文件夹入口。</li>
+<li><b>发现协议强认证</b>：本轮只给 bye 加了进程会话令牌；announce 仍可伪造。彻底解决需要设备配对/公钥签名，列入中期。</li>
+<li><b>跨 App 剪贴板自动互通</b>：仍不做自动转发（隐私与节点模型），跨 App 使用发送面板「剪贴板」投递；如后续要做，需设计配对节点白名单与回环抑制。</li>
+<li><b>媒体会话令牌</b>：已实现 <code>POST /api/media-session</code>（10min、绑定来源 IP、可重复 HEAD/GET/Range），缩略图/预览共用；分享链接仍为一次性票据。后续可评估文件级/设备级更细的绑定。</li>
+<li><b>审计面板可读性</b>：WARN 已保留在环形队列；如日志面板仍只显示最近 300 条，后续可加“只看安全事件”筛选。</li>
+</ul>
+</section>
+<p class="small" style="text-align:center;padding:14px 0 4px">CC Flash · 后期规划 · 2026-11-22 · 与《推广营销方案》《需求设计文档》《技术实现文档》配套阅读</p>
 </section>
 
 </main>

@@ -60,8 +60,9 @@ export const API = {
 export const LS = { theme: "wft-theme", mode: "wft-mode", nick: "lft-nick", nickAuto: "lft-nick-auto", updateCheck: "wft-update-check", pin: "wft-access-pin", chatDel: "wft-chat-del" };
 
 /* ---------- 展示 ---------- */
-export const IMG_EXTS = ["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico"];
+export const IMG_EXTS = ["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico", "avif"];
 export const ICON_MAP = {
+  jpg: "IMG", jpeg: "IMG", png: "IMG", gif: "IMG", webp: "IMG", bmp: "IMG", svg: "IMG", ico: "IMG", avif: "IMG",
   pdf: "PDF", doc: "DOC", docx: "DOC", xls: "XLS", xlsx: "XLS", ppt: "PPT", pptx: "PPT",
   exe: "EXE", msi: "MSI", dmg: "DMG", apk: "APK", mp4: "VID", mov: "VID", avi: "VID", mkv: "VID", webm: "VID",
   mp3: "AUD", wav: "AUD", flac: "AUD", aac: "AUD", ogg: "AUD", zip: "ZIP", rar: "RAR", "7z": "7Z", tar: "TAR", gz: "GZ",
@@ -101,7 +102,7 @@ export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
 // /latest 不返回预发布版, 更新检查会永远收不到新版本。
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
-export const APP_VERSION_FALLBACK = "1.2.5";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
+export const APP_VERSION_FALLBACK = "1.2.6";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次
 export const UPDATE_CHECK_TIMEOUT_MS = 8000;             // 请求超时; 任何失败一律静默

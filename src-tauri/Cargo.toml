@@ -1,6 +1,6 @@
 [package]
 name = "wlan-flash-transfer-tauri"
-version = "1.2.5"
+version = "1.2.6"
 description = "局域网高速文件互传工具"
 edition = "2021"
 
@@ -38,8 +38,6 @@ tauri = { version = "2", default-features = false, features = [
     "dynamic-acl",
     "tray-icon",
 ] }
-tauri-plugin-notification = "2"
-tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -47,15 +45,13 @@ getrandom = "0.2"
 # 裁掉默认特性(form/matched-path/original-uri/tracing 栈均未用到): 二进制瘦身,
 # 仅保留实际用到的 http1/json/query/tokio/ws
 axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "time", "sync", "io-util"] }
 tower-http = { version = "0.6", features = ["cors"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-tokio-util = { version = "0.7", features = ["io"] }
 # compression: 前端 dist 以 DEFLATE 嵌入二进制, 静态资源体积约减半
 rust-embed = { version = "8", features = ["compression"] }
 percent-encoding = "2"
 fs2 = "0.4"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 if-addrs = { version = "0.15.0", features = ["link-local"] }
 # 逐网卡指定多播出口(IP_MULTICAST_IF): std 的 UdpSocket 没有这个 setter
 socket2 = "0.6"
@@ -64,6 +60,9 @@ socket2 = "0.6"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+# 对话框/通知只在桌面壳使用: 移动端目录选择走 HTML input, 通知走原生前台服务
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 
 # IPv6 多播发现需要把组播出口钉到具体网卡; socket2 只接收 interface index
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -81,4 +80,4 @@ tauri = { version = "2", default-features = false, features = [
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper"] }
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_System_SystemInformation"] }

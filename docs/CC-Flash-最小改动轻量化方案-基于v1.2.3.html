@@ -397,7 +397,7 @@
 <body>
 <div style="margin:0;padding:10px 18px;background:#3a2a12;color:#ffe9c7;border-bottom:1px solid #6b4d1f;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>实现更新 · 2026-11-19</b>　本文关于共享剪贴板「无开关 / 默认始终开启」的设计已调整：现为<b>默认关闭</b>，可在 CC设置「系统剪贴板自动同步」开启；所有文本（含令牌/验证码）都会同步，不做内容过滤。其余内容以《技术实现文档》《需求设计文档》为准。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3 · 2026-11-22 校对）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
 
 <header class="topbar">
   <div class="topbar-in">
@@ -432,7 +432,7 @@
     <h1>保留聊天室，浏览器回原页，<br />剪贴板 <em>双向互通</em></h1>
     <p class="lead">
       桌面 App 菜单进一步收敛：侧栏不再保留「周边设备」独立入口，设备栏并入「消息发送」页；浏览器不再出现底部三标签（发现/发送/设置）与设置页，回到原来的聊天室单页；
-      共享剪贴板不建模块、<b>不加开关</b>，电脑复制手机能粘、手机复制电脑能粘，双向自动同步。
+      共享剪贴板不建模块、<b>不加开关</b>，电脑复制手机浏览器能粘、手机浏览器复制电脑能粘；桌面 App 与手机 App 不自动互通，跨 App 用发送面板「剪贴板」投递。
       只同步文本，不改聊天、不改文件、Rust 后端 0 改动。
     </p>
     <div class="hero-badges">
@@ -489,7 +489,7 @@
         </div>
       </div>
       <div class="desk-legend">
-        <span><b>侧栏</b> 消息发送（含周边设备栏） / 服务中心 / CC设置 / 介绍；手机 App 两标签</span>
+        <span><b>侧栏</b> 消息发送（含周边设备栏） / 服务中心 / CC设置 / 介绍；手机 App 四页</span>
         <span><b>顶栏</b> 状态 / 复制链接 / 二维码 / 浏览器</span>
         <span><b>聊天室</b> 清空 / 共享文件 / 更多 / 昵称</span>
         <span><b>输入栏</b> 文件 / 文件夹 / 粘贴 / 共享文件</span>
@@ -575,13 +575,13 @@ CC-Flash 桌面 App
         <div class="no">02 · Scope</div>
         <h2>这次只动“不该有的路径”</h2>
       </div>
-      <p>四条边界：聊天室不动；浏览器回原聊天室；剪贴板双向且无开关；桌面端设备栏并入「消息发送」，手机 App 收为「发送 / 设置」两标签，浏览器不做发现。</p>
+      <p>四条边界：聊天室不动；浏览器回原聊天室；剪贴板双向且无开关；桌面端设备栏并入「消息发送」，手机 App 收为「发送 / 设备 / 文件 / 设置」四页，浏览器不做发现。</p>
     </div>
     <div class="grid2">
       <div class="node main"><div class="node-k">Keep · 聊天室</div><h4>聊天室保持现状</h4><ul><li>时间线、Markdown、引用、未读、文件卡片全部保留</li><li>不改消息模型、不改历史、不做迁移</li><li>桌面/手机浏览器的主页面仍是聊天室</li></ul></div>
       <div class="node"><div class="node-k">Browser · 回原页</div><h4>浏览器不再有三标签</h4><ul><li>没有发现/发送/设置底部标签</li><li>没有设置页、没有附近设备</li><li>只保留原聊天室单页（聊天/文件/输入框）</li><li>不再请求 <code>/api/devices</code>、<code>/api/hello</code></li></ul></div>
-      <div class="node main"><div class="node-k">Clipboard · 双向</div><h4>电脑 ↔ 手机互相粘贴</h4><ul><li>电脑复制 → 手机自动可粘</li><li>手机复制/输入 → 电脑自动可粘</li><li>不建模块、不加开关、不新增页面</li><li>只同步文本，20k 字上限</li></ul></div>
-      <div class="node"><div class="node-k">App · 不动</div><h4>桌面/手机 App 菜单不变</h4><ul><li>桌面侧栏不再保留独立「周边设备」，设备栏并入「消息发送」；服务中心、CC设置保持</li><li>手机 App「发送 / 设置」两标签；发现并入发送页</li><li>发现/投递逻辑保持</li><li>Rust 后端 0 改动</li></ul></div>
+      <div class="node main"><div class="node-k">Clipboard · 双向</div><h4>电脑 ↔ 手机浏览器互相粘贴（本机服务内）</h4><ul><li>电脑复制 → 手机浏览器自动可粘</li><li>手机浏览器复制/输入 → 电脑自动可粘</li><li>桌面 App 与手机 App 不自动互通，跨 App 用发送面板「剪贴板」投递</li><li>不建模块、不加开关、不新增页面</li><li>只同步文本，20k 字上限</li></ul></div>
+      <div class="node"><div class="node-k">App · 不动</div><h4>桌面/手机 App 菜单不变</h4><ul><li>桌面侧栏不再保留独立「周边设备」，设备栏并入「消息发送」；服务中心、CC设置保持</li><li>手机 App「发送 / 设备 / 文件 / 设置」四页；发现并入发送页</li><li>发现/投递逻辑保持</li><li>Rust 后端 0 改动</li></ul></div>
     </div>
   </section>
 
@@ -636,7 +636,7 @@ CC-Flash 桌面 App
         <div class="wire-body">
           <div class="mini-head"><span class="mini-logo">CC</span><b>CC-Flash <small>浏览器</small></b><span class="mini-status">● 实时</span></div>
           <div class="mini-card"><div class="k">发现</div><div class="row"><span class="mini-lines" style="flex:1"><i></i><i></i></span><span style="font-size:8px;color:var(--danger)">/api/devices</span></div></div>
-          <div class="mini-drop"><b>发送 / 设置</b><small>底部还有两个标签</small></div>
+          <div class="mini-drop"><b>发送 / 设备 / 文件 / 设置</b><small>底部还有两个标签</small></div>
           <div class="mini-tabs"><span class="on">发现</span><span>发送</span><span>设置</span></div>
           <div class="mini-note" style="color:var(--danger)">发现请求 + 设备条 + 设置页，浏览器并不需要这些路径。</div>
         </div>
@@ -660,7 +660,7 @@ CC-Flash 桌面 App
   <!-- ================= 双向剪贴板 ================= -->
   <section id="clipboard">
     <div class="sec-head">
-      <div><div class="no">06 · Clipboard</div><h2>双向互通：电脑 ↔ 手机，零开关</h2></div>
+      <div><div class="no">06 · Clipboard</div><h2>双向互通：电脑 ↔ 手机浏览器，本机服务内</h2></div>
       <p>复用 v1.2.3 的 <code>/api/clipboard</code> 与 WS <code>clipboard:changed</code>；桌面/手机 App 自动双向写，浏览器用两个按钮补齐系统权限限制。</p>
     </div>
 
@@ -804,7 +804,7 @@ CC-Flash 桌面 App
       <div style="max-width:800px">
         <p style="margin:0;font-size:15px;line-height:1.85;color:var(--ink2)">
           桌面 App 的菜单一个不动（仅「发现」更名「周边设备」）；手机/电脑浏览器只保留原聊天室单页（无三标签/发现/设置）；
-          电脑复制手机能粘、手机复制电脑能粘，<b>双向自动同步、不加开关、不做模块</b>。
+          电脑复制手机浏览器能粘、手机浏览器复制电脑能粘；桌面 App 与手机 App 不自动互通，跨 App 用发送面板「剪贴板」投递。
           Rust 后端 0 改动，只加一条 Tauri 剪贴板写权限；约 2.5–3.5 人日可上线。
         </p>
       </div>
@@ -865,7 +865,7 @@ CC-Flash 桌面 App
 <ul style="margin:0;padding-left:20px">
 <li>聊天室、Markdown、文件卡片、未读全部保留；文件 / 消息 / 共享剪贴板同一条时间线。</li>
 <li>桌面侧栏 176px；设备栏并入「消息发送」页左侧（200px），只保留本机共享 + 附近设备 + 刷新；底部二维码 / 复制地址已移除。</li>
-<li>手机 App 只有「发送 / 设置」两标签；发送页顶部目标横条 +「全部设备」面板；手机浏览器无标签、无发现、无设置页。</li>
+<li>手机 App 分为「发送 / 设备 / 文件 / 设置」四页；发送页顶部目标横条 +「全部设备」面板；手机浏览器无标签、无发现、无设置页。</li>
 <li>共享剪贴板双向、默认关闭（CC设置可选开启）、无独立模块；只在页面可见时同步；浏览器在「粘贴」面板里回退操作。</li>
 <li>文件抽屉 320–380px；981–1180px 改带遮罩覆盖层；≤980px 进入窄屏。</li>
 <li>后端新增 <code>/api/clipboard</code> GET/POST/DELETE 与 <code>clipboard:changed</code> 事件；票据 / 文件指纹校验走 <code>spawn_blocking</code>。</li>

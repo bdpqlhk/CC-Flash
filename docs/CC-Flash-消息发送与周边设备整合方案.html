@@ -448,7 +448,7 @@
 </head>
 
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3 · 2026-11-22 校对）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
 
 <header class="topbar"><div class="topbar-in">
   <a class="brand" href="#top"><span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span>CC-Flash <small>Workspace Merge</small></a>
@@ -464,7 +464,7 @@
     <div class="hero-badges"><span class="pill"><b>一个页面</b> 设备 / 目标 / 聊天 / 文件</span><span class="pill red"><b>去掉</b> 周边设备独立页 + 直发弹窗</span><span class="pill blue"><b>保留</b> 聊天室 / 文件 / 剪贴板</span><span class="pill"><b>改动</b> 前端为主 · 2–3 人日</span></div>
   </section>
 
-  <div class="callout" style="margin-top:14px"><b>已落地：</b>桌面消息页左侧设备栏 + 设备入口/目标提示 + 直发回执；手机 App 两标签（发送 / 设置）+ 聊天头部「设备」入口 + 竖屏整页设备面板；浏览器保持原聊天室。聊天、文件、共享剪贴板不变，后端 0 改动。</div>
+  <div class="callout" style="margin-top:14px"><b>已落地：</b>桌面消息页左侧设备栏 + 设备入口/目标提示 + 直发回执；手机 App 四页（发送 / 设备 / 文件 / 设置）+ 底部「设备」页（雷达 + 设备清单 + 手动发送）；浏览器保持原聊天室。聊天、文件、共享剪贴板不变，后端 0 改动。</div>
 
   <section id="pain">
     <div class="sec-head"><div><div class="no">01 · Current Pain</div><h2>为什么现在看起来“散”</h2></div><p>同一件事被拆成三套上下文，每套都有自己的入口、返回和状态。</p></div>
@@ -522,9 +522,9 @@
   </section>
 
   <section id="mobile">
-    <div class="sec-head"><div><div class="no">04 · Mobile</div><h2>手机端：设备入口 + 竖屏设备面板</h2></div><p>推荐把「发现」并进「发送」：底部只留「发送 / 设置」，周边设备成为发送页顶部的目标横条与可展开设备面板。</p></div>
+    <div class="sec-head"><div><div class="no">04 · Mobile</div><h2>手机端：设备入口 + 竖屏设备面板</h2></div><p>推荐把「发现」并进「发送」：底部只留「发送 / 设备 / 文件 / 设置」，周边设备成为发送页顶部的目标横条与可展开设备面板。</p></div>
     <div class="grid2">
-      <div class="wire phone-merge"><div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">推荐 · 发送 / 设置</span></div><div class="wire-body">
+      <div class="wire phone-merge"><div class="wire-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="wire-title">推荐 · 发送 / 设备 / 文件 / 设置</span></div><div class="wire-body">
         <div class="mini-head"><span class="mini-logo">CC</span><b>发送 <small>已连接 · 3 台设备</small></b><span class="mini-status">● 实时</span></div>
         <div class="mobile-target"><span class="on">本机共享</span><span>MacBook</span><span>iPhone</span><span>全部设备</span></div>
         <div class="mini-drop"><b>聊天 / 文件 / 直发</b><small>输入栏跟随目标切换</small></div>
@@ -537,7 +537,7 @@
         <div class="mini-note">没有独立「发现」Tab；设备面板就是原来的周边设备页，收起后回到发送页。</div>
       </div></div>
     </div>
-    <div class="callout" style="margin-top:14px"><b>保守变体：</b>如果暂时不想动底部三标签，可保留「发现 / 发送 / 设置」，但「发现」只作为设备目录；点设备后进入「发送」并自动选中该目标，不再打开直发弹窗。推荐版本少一个 Tab，路径更短。</div>
+    <div class="callout" style="margin-top:14px"><b>保守变体：</b>如果暂时不想动底部三标签，可保留「发现 / 发送 / 设备 / 文件 / 设置」，但「发现」只作为设备目录；点设备后进入「发送」并自动选中该目标，不再打开直发弹窗。推荐版本少一个 Tab，路径更短。</div>
   </section>
 
   <section id="states">
@@ -565,7 +565,7 @@
       <tr><td><b>设备栏/目标条</b></td><td>新增 `sendTarget`（null=本机共享，设备对象=直发）；左栏/横条读取 `peersSorted`；点设备只设置目标。</td><td><span class="tag keep">+120 行</span></td><td><span class="tag keep">低</span></td></tr>
       <tr><td><b>输入栏路由</b></td><td>`sendChat` / 文件选择按 `sendTarget` 分流：本机共享走房间，目标设备走现有 peer 投递；发送后追加回执。</td><td><span class="tag slim">+80 行</span></td><td><span class="tag keep">低</span></td></tr>
       <tr><td><b>去独立页/弹窗</b></td><td>删除侧栏「周边设备」入口与 `view === 'discover'` 页面；删除 peer send 弹窗；桌面设备条并入左栏。</td><td><span class="tag remove">-400 行</span></td><td><span class="tag slim">中（导航变化）</span></td></tr>
-      <tr><td><b>手机端</b></td><td>推荐：底部 2 标签（发送/设置）；聊天头部「设备」入口 + 竖屏整页设备面板；点设备进入发送并选中。保守：保留 3 标签，发现只做目录。</td><td><span class="tag keep">+100 行</span></td><td><span class="tag slim">中</span></td></tr>
+      <tr><td><b>手机端</b></td><td>推荐：底部 2 标签（发送/设置）；底部「设备」页（雷达 + 设备清单 + 手动发送）；点设备进入发送并选中。保守：保留 3 标签，发现只做目录。</td><td><span class="tag keep">+100 行</span></td><td><span class="tag slim">中</span></td></tr>
       <tr><td><b>浏览器</b></td><td>不变：无发现、无设备栏、原始聊天室单页。</td><td><span class="tag keep">0</span></td><td><span class="tag keep">无</span></td></tr>
       <tr><td><b>后端</b></td><td>0 改动：继续使用 `/api/devices`、`/api/hello`、`/api/chat`、`/api/upload`、`/api/clipboard`。</td><td><span class="tag keep">0</span></td><td><span class="tag keep">无</span></td></tr>
     </tbody></table></div>
@@ -578,7 +578,7 @@
       <div class="item"><div class="k">桌面入口</div><div class="v">1 <em>个</em></div><div class="d">消息发送（设备栏内置）</div></div>
       <div class="item"><div class="k">独立周边设备页</div><div class="v">0 <em>个</em></div><div class="d">并入左栏/设备面板</div></div>
       <div class="item"><div class="k">直发弹窗</div><div class="v">0 <em>个</em></div><div class="d">输入栏目标状态替代</div></div>
-      <div class="item"><div class="k">手机底部标签</div><div class="v">2 <em>个</em></div><div class="d">发送 / 设置（推荐）</div></div>
+      <div class="item"><div class="k">手机底部标签</div><div class="v">2 <em>个</em></div><div class="d">发送 / 设备 / 文件 / 设置（推荐）</div></div>
       <div class="item"><div class="k">选设备到发送</div><div class="v">≤ 3 <em>步</em></div><div class="d">点设备 → 输入 → 发送</div></div>
       <div class="item"><div class="k">目标可见</div><div class="v">始终 <em>✓</em></div><div class="d">顶部目标条 + 输入栏 chip</div></div>
       <div class="item"><div class="k">发送回执</div><div class="v">同页 <em>✓</em></div><div class="d">时间线本地回执</div></div>
@@ -601,7 +601,7 @@
 
   <section id="conclusion">
     <div class="sec-head"><div><div class="no">10 · Conclusion</div><h2>一句话版本</h2></div><p>把“设备”变成输入栏的目标，把“直发”变成发送页的一种状态，把“回执”留在同一条时间线。</p></div>
-    <div class="panel" style="display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap"><div style="max-width:800px"><p style="margin:0;font-size:15px;line-height:1.85;color:var(--ink2)">桌面：消息发送页 = 左侧设备栏 + 顶部目标条 + 聊天时间线 + 共享文件抽屉；点设备只切换目标，直发不弹窗。手机：聊天头部「设备」入口 + 竖屏整页设备面板；推荐底部只留「发送 / 设置」。浏览器：保持无发现的原始聊天室。聊天、文件、剪贴板全部不动，后端 0 改动。</p></div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill"><b>一个工作台</b></span><span class="pill"><b>目标始终可见</b></span><span class="pill"><b>无直发弹窗</b></span></div></div>
+    <div class="panel" style="display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap"><div style="max-width:800px"><p style="margin:0;font-size:15px;line-height:1.85;color:var(--ink2)">桌面：消息发送页 = 左侧设备栏 + 顶部目标条 + 聊天时间线 + 共享文件抽屉；点设备只切换目标，直发不弹窗。手机：底部「设备」页（雷达 + 设备清单 + 手动发送）；推荐底部只留「发送 / 设备 / 文件 / 设置」。浏览器：保持无发现的原始聊天室。聊天、文件、剪贴板全部不动，后端 0 改动。</p></div><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill"><b>一个工作台</b></span><span class="pill"><b>目标始终可见</b></span><span class="pill"><b>无直发弹窗</b></span></div></div>
   </section>
 
   <footer class="foot"><span><b>CC Flash · 消息发送与周边设备整合方案</b> · 2026-11-18</span><span>设备 / 目标 / 直发 / 回执，收进同一屏。</span></footer>
@@ -611,7 +611,7 @@
 <div class="wrap" id="final-diff" style="padding-bottom:44px">
   <div class="sec-head"><div><div class="no">11 · Final</div><h2>最终落地差异（v1.2.3）</h2></div><p>方案主体已按本文实现；以下是与原稿的几处收敛。</p></div>
   <div class="callout"><b>1. 设备栏不再重复扫码 / 复制</b>最终版左栏为本机身份卡 + 雷达盘 + 附近设备列表（在线 / 忙碌 / 最近活跃），底部二维码与复制地址已移除——顶栏、服务中心、二维码弹窗已经覆盖，重复入口反而增加视觉负担。</div>
-  <div class="callout" style="margin-top:10px"><b>2. 手机 App 两标签</b>底部只有「发送 / 设置」；聊天头部「设备」入口 + 竖屏整页设备面板。手机浏览器不渲染标签，仍是原聊天室单页。</div>
+  <div class="callout" style="margin-top:10px"><b>2. 手机 App 四页</b>底部只有「发送 / 设备 / 文件 / 设置」；底部「设备」页（雷达 + 设备清单 + 手动发送）。手机浏览器不渲染标签，仍是原聊天室单页。</div>
   <div class="callout" style="margin-top:10px"><b>3. 直发范围</b>桌面 / 手机 App 选中设备后，文本走对方 <code>/api/chat</code>、文件走对方 <code>/api/upload</code>，本机时间线追加回执；共享剪贴板仍走共享槽，不绑定单台设备。</div>
   <div class="callout" style="margin-top:10px"><b>4. 布局</b>桌面侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层，≤980px 进入窄屏。</div>
 </div>

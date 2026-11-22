@@ -44,7 +44,8 @@ export default defineConfig({
     // ≤200KB 的图片直接内联为 base64: 失联提示图必须在断网前就在页面内存里, 不能靠断连后的请求
     assetsInlineLimit: 200 * 1024,
     minify: "esbuild",
-    cssMinify: "esbuild",
+    // lightningcss 的 CSS 压缩比 esbuild 更彻底(不改变选择器语义)
+    cssMinify: "lightningcss",
     sourcemap: false,
     reportCompressedSize: false,
   },

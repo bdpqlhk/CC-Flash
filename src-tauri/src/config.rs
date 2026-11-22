@@ -109,3 +109,6 @@ pub const PORT_PREF_FILE: &str = ".ccflash-port";
 /// 访问码持久化文件(内容为码值; 文件存在即开启): 静默失效比没有保护更危险 ——
 /// 用户开了访问码, 重启后若保护自动消失, 局域网在无感知下裸奔
 pub const PIN_PREF_FILE: &str = ".ccflash-pin";
+/// 访问码是否开启的独立标记(与码值分开持久化): 仅凭码值文件无法区分
+/// “从未开启”和“文件暂时不可读/丢失”，后者必须 fail-closed 重新生成令牌
+pub const PIN_ENABLED_PREF_FILE: &str = ".ccflash-pin-enabled";

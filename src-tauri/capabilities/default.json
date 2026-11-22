@@ -7,8 +7,6 @@
     "qr-pet"
   ],
   "permissions": [
-    "notification:default",
-    "dialog:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-image",
@@ -30,7 +28,6 @@
     "core:window:allow-set-focus",
     "core:event:allow-listen",
     "core:event:allow-emit",
-    "dialog:allow-ask",
     "core:event:allow-unlisten"
   ]
 }

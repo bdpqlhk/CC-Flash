@@ -19,7 +19,7 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 </head>
 <body>
 <h1>CC Flash · 整个过程历史改动记录</h1>
-<div class="meta">时段：<b>2026-11-20 至 2026-11-21</b> · 版本：<b>v1.2.4 全量复审收尾</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="meta">当前最新：<b>v1.2.5+（2026-11-22 全量复审修复）</b> · 时段：<b>2026-11-20 至 2026-11-21</b> · 版本：<b>v1.2.4 全量复审收尾</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
 <div class="callout"><b>本段主题</b>对桌面壳、手机 App、电脑/手机浏览器与服务端做全量复审，按「安全 → 可用性 → 平台/发布 → 文档」修复审查项。同时把 README、docs 全目录与应用内介绍页校准到最新代码：侧栏 176px、Windows 仅 NSIS exe、Android 7.0+、雷达去掉「扫描雷达」标题、浏览器不提供跨设备直发。</div>
 
 <h2>一、安全</h2>
@@ -69,7 +69,18 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <li><b>状态与日志</b>：已停止状态收成单个静态灰点（三灰点与加载中太像）；服务日志强制换行，不再横向裁切；运行中介绍页顶部按钮改为「打开服务中心」。</li>
 </ul>
 
-<h2>六、验证</h2>
+<h2>六、手机 App 信号台四页改造（2026-11-21）</h2>
+<ul>
+<li><b>导航</b>：手机 App 从「发送 / 设置」两标签改为 <b>SEND / DEVICES / FILES / CONFIG</b> 四标签，底部等宽、等宽字体、琥珀下划线；桌面壳与浏览器不渲染这组标签。</li>
+<li><b>发送页</b>：左侧标题改为「空间 / 目标」两层读数（ROOM / LOCAL 或 TARGET / 设备名），副标题显示对端 IP:端口 + LOCKED；保留实时状态、消息时间线、直发目标条与输入栏。</li>
+<li><b>设备页</b>：新增页头（UDP / 端口、设备数、HISTORY）、雷达表盘、设备 / 端口 / 状态三格读数、设备清单；底部「单播探测 / 手动发送」两个操作；选中设备后自动回到发送页并显示目标。</li>
+<li><b>文件页</b>：独立整页 manifest 列表（01/02… 编号、类型图标、名称 / 大小 / 时间、每行 ⋯ 操作），底部「＋ DROP FILES」；默认隐藏桌面排序 / 勾选行，点「选择」仍可进入批量模式，保留全选 / 批量删除。</li>
+<li><b>设置页</b>：改为扁平行分区（LOCAL / CONFIG、访问令牌、剪贴板、重启服务、外观 / 配色、关于），去掉卡片边框与阴影。</li>
+<li><b>视觉</b>：石墨黑 + 琥珀信号色、32px 工程网格、等宽读数、安全区适配；手机端首次进入统一信号台（一次性迁移，之后可在 CONFIG 切换）。</li>
+<li><b>范围</b>：只改移动端 App；桌面壳仍为 176px 侧栏 + 200px 设备栏 + 抽屉，浏览器仍为原聊天室单页。</li>
+</ul>
+
+<h2>七、验证</h2>
 <ul>
 <li><code>cargo test --lib</code>：21/21 通过（含 UDP 发现端到端；该测试改用临时回环端口，避免发现广播 53318-53321 的时序竞争）。</li>
 <li><code>npm run build</code>：通过，主包 290.97 KB（gzip 115.6 KB）、CSS 114.2 KB（gzip 20.7 KB）、二维码分块 24.5 KB（gzip 9.6 KB）。</li>
@@ -79,6 +90,6 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <li><code>release.yml</code> 通过 YAML 解析，Android 步骤 <code>with</code> 同时包含 <code>toolchain: stable</code> 与 <code>targets: aarch64-linux-android</code>；<code>api-push.sh</code> / <code>build-all.sh</code> 通过 <code>bash -n</code>。</li>
 </ul>
 
-<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 历史改动记录 · 2026-11-21 · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 历史改动记录 · 2026-11-22 · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</p>
 </body>
 </html>

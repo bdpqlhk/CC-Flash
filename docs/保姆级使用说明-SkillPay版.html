@@ -326,7 +326,7 @@ svg{display:block}
 <noscript><style>.reveal{opacity:1 !important;transform:none !important}.faq-a{max-height:none !important}</style></noscript>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.4 · 2026-11-21</b>　本文已按最新代码校对。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.5+ · 2026-11-22</b>　本文已按最新代码校对。　2026-11-22 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 543,163 B，arm64 .app 4.10 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-22.html">历史改动记录 2026-11-22</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 
 <!-- ================= 顶栏 ================= -->
@@ -649,7 +649,7 @@ svg{display:block}
       <span class="brand"><span class="mark"></span>CC-Flash</span>
       <span class="foot-tag">同一个 Wi-Fi，就能把文件传过去</span>
     </div>
-    <div class="foot-line">Copyright © 2026-现在 by hangkun.li ｜ CC Flash（曹操是快😂）｜ 适用于 v1.2.4（四段 tag v1.2.4.x） ｜ 开源许可：<a href="https://github.com/bdpqlhk/CC-Flash/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></div>
+    <div class="foot-line">Copyright © 2026-现在 by hangkun.li ｜ CC Flash（曹操是快😂）｜ 适用于 v1.2.5+（四段 tag v1.2.5.x） ｜ 开源许可：<a href="https://github.com/bdpqlhk/CC-Flash/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a></div>
     <div class="foot-line">反馈与建议：如遇问题或想要新功能，请发送至 <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">github.com/bdpqlhk/CC-Flash/issues</a>，我们将在看到后尽快跟进处理。</div>
   </div>
 </footer>
@@ -771,16 +771,29 @@ document.querySelectorAll('.faq-item.open .faq-a').forEach(function(a){a.style.m
 </script>
 
 <section id="v123-update" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.4 最新变化（2026-11-21 收尾校准）</h2>
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.5+ 最新变化（2026-11-22 复审修复）</h2>
 <ul style="margin:0;padding-left:20px">
 <li><b>2026-11-20/21 复审收尾</b>：移动端开启访问令牌后对所有来源（含本机 Wi-Fi IP）强制校验；WS 半开看门狗、响应体完整超时、手动发送可取消且失败保留草稿；下载许可看门狗回收、聊天/文件并发闸；聊天历史改为借用序列化；浏览器不提供跨设备直发；CSP 增加 <code>wss:</code>；Android 7.0+ / minSdk 24；发布链路仅 404 视为 missing、Actions 固定 SHA、构建后复核签名。</li>
-<li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 只有「发送 / 设置」两标签，聊天头部「设备」入口点开后展开竖屏整页设备面板（不弹窗）。选中设备后输入栏切换直发，并显示本机回执。</li>
+<li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 分为「发送 / 设备 / 文件 / 设置」四页，底部「设备」页（雷达 + 设备清单 + 手动发送）。选中设备后输入栏切换直发，并显示本机回执。</li>
 <li><b>浏览器保持原聊天室</b>：手机 / 电脑浏览器都不做发现、不加底部标签、不提供设置页，避免"点得到、连不上"。</li>
-<li><b>共享剪贴板双向同步</b>：电脑复制手机粘贴，手机发布电脑更新；系统剪贴板自动同步默认关闭，可在 CC设置「系统剪贴板自动同步」开启；开启后仅在页面可见时同步，所有文本（含令牌/验证码）都会同步。浏览器受安全上下文限制时，点「粘贴」直接回填电脑端文本；在聊天输入框长按粘贴的文本会自动回传电脑。</li>
+<li><b>共享剪贴板（本机服务内）</b>：自动同步默认关闭，可在 CC设置「系统剪贴板自动同步」开启；开启后 App 把本机剪贴板写入本机服务的共享槽，并把共享槽变化写回本机；浏览器打开同一地址时共用这个槽。电脑 App 与手机 App 是两个独立节点，不会自动互通；跨 App 请在设备页用发送面板「剪贴板」投递。浏览器受安全上下文限制时，点「粘贴」直接回填本机服务共享文本；在聊天输入框长按粘贴的文本会自动回传共享槽。所有文本（含令牌/验证码）都会同步。</li>
 <li><b>布局</b>：桌面侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改为带遮罩的覆盖层。</li>
-<li><b>细节</b>：设备栏底部不再重复二维码 / 复制地址；PDF 预览走一次性票据；访问令牌损坏时自动重新生成；静态资源缺失返回 404。</li>
+<li><b>细节</b>：设备栏底部不再重复二维码 / 复制地址；PDF 预览走媒体会话令牌（失败回退一次性票据）；访问令牌损坏时自动重新生成；静态资源缺失返回 404。</li>
 </ul>
 </section>
 
+<section id="round-2026-11-22">
+<h2>本轮更新（2026-11-22）</h2>
+<ul>
+<li><b>手机 App「文件」页</b>：平板/折叠屏横屏也能正常打开；“上传文件”固定加入本机共享，不会因为之前选过直发目标而发给别人；文件页顶部标注“本机共享”。</li>
+<li><b>发送面板</b>：对方开启访问令牌或离线时，错误提示与“需要对方配对码”弹框现在显示在面板之上；输入配对码后再次发送即可。批量发送部分失败时，重试只补未成功的文件，不会重复发送已成功的。</li>
+<li><b>剪贴板</b>：自动同步只在本机服务的共享槽与打开本机地址的浏览器/客户端之间生效；<b>电脑 App 与手机 App 不会自动互通</b>，跨 App 请在设备页点“手动发送/发送面板 → 剪贴板”投递。输入栏显式点「粘贴」也会把文本回写到共享槽。</li>
+<li><b>预览</b>：缩略图与图片/视频/PDF 预览使用短时媒体会话令牌（10 分钟、绑定来源 IP），长期配对码不会再出现在图片/预览地址里；文本超过 2MB 会提示下载。</li>
+<li><b>上传</b>：客户端必须声明文件大小（App/浏览器会自动带）；缺失会被服务端拒绝，避免把截断文件当完整文件。下载支持 <code>bytes=-N</code> 后缀区间。</li>
+<li><b>Windows</b>：以 <code>foo.</code>、<code>foo::$DATA</code> 等别名删除/下载会被拒绝；在途上传与完整性标记的保护按真实文件名生效。</li>
+<li><b>全端体验</b>：手机底部四标签统一为中文「发送 / 设备 / 文件 / 设置」，字号与触控热区加大；平板/折叠屏横屏保持当前页，文件页不再被挤掉。桌面与平板主内容区最宽 1080px 居中，超宽屏不拉散；手机横屏压缩面板高度，输入栏和关闭入口始终可见。设备页操作按钮移到列表上方，文件页表头不再截断；发送面板文案明确“发送后进入对方共享目录与聊天”。</li>
+<li><b>iOS</b>：原生包仍未交付；iOS 请用 Safari 打开电脑地址。原生壳的下载/PDF 预览/键盘适配不在本轮交付范围内，后续适配时按文档处理。</li>
+</ul>
+</section>
 </body>
 </html>

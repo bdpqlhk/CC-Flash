@@ -332,7 +332,7 @@
 <body>
 <div style="margin:0;padding:10px 18px;background:#3a2a12;color:#ffe9c7;border-bottom:1px solid #6b4d1f;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>实现更新 · 2026-11-19</b>　本文关于共享剪贴板「无开关 / 默认始终开启」的设计已调整：现为<b>默认关闭</b>，可在 CC设置「系统剪贴板自动同步」开启；所有文本（含令牌/验证码）都会同步，不做内容过滤。其余内容以《技术实现文档》《需求设计文档》为准。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3 · 2026-11-22 校对）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
 
 <header class="topbar">
   <div class="topbar-in">
@@ -410,9 +410,9 @@
       </div>
       <div class="node">
         <div class="node-k">Mobile · Done</div>
-        <h4>手机 App「发送 / 设置」两标签已就位</h4>
+        <h4>手机 App「发送 / 设备 / 文件 / 设置」四页已就位</h4>
         <ul>
-          <li>发现 / 发送 / 设置</li>
+          <li>发现 / 发送 / 设备 / 文件 / 设置</li>
           <li>发现页只展示 App 侧设备</li>
           <li>轻量版保留 App 三标签，浏览器不再复用</li>
         </ul>
@@ -518,7 +518,7 @@
         <div class="no">02 · Architecture</div>
         <h2>一个内核，三种壳</h2>
       </div>
-      <p>桌面端与手机 App 共用同一个轻量 HTTP 内核；手机浏览器只是这个内核的静态页面客户端。发现能力只在内核的 App 侧启用。v1.2.3 已有共享剪贴板；App 最终收敛为「发送 / 设置」两标签，本方案主要把浏览器从发现链路摘出去，并删除聊天室。</p>
+      <p>桌面端与手机 App 共用同一个轻量 HTTP 内核；手机浏览器只是这个内核的静态页面客户端。发现能力只在内核的 App 侧启用。v1.2.3 已有共享剪贴板；App 最终收敛为「发送 / 设备 / 文件 / 设置」四页，本方案主要把浏览器从发现链路摘出去，并删除聊天室。</p>
     </div>
 
     <div class="panel">
@@ -564,7 +564,7 @@
             <ul>
               <li>与桌面共用 HTTP 内核与文件/剪贴板 API</li>
               <li>参与 UDP 发现：可被桌面/其他 App 发现</li>
-              <li>「发送 / 设置」两标签（最终落地；原方案曾设想三标签）</li>
+              <li>「发送 / 设备 / 文件 / 设置」四页（最终落地；原方案曾设想三标签）</li>
               <li>默认独立轻节点（参与发现）；可切换「连接电脑」，切换后不参与发现</li>
             </ul>
           </div>
@@ -776,7 +776,7 @@
         <div class="no">05 · Surfaces</div>
         <h2>三端都只保留“一眼能懂”的操作</h2>
       </div>
-      <p>桌面端单窗口、手机 App「发送 / 设置」两标签、手机浏览器单页。浏览器没有“发现”入口，也不出现附近设备。v1.2.3 已在手机 App 落地三标签；本方案保留 App 三标签，把浏览器收回单页。</p>
+      <p>桌面端单窗口、手机 App「发送 / 设备 / 文件 / 设置」四页、手机浏览器单页。浏览器没有“发现”入口，也不出现附近设备。v1.2.3 已在手机 App 落地三标签；本方案保留 App 三标签，把浏览器收回单页。</p>
     </div>
 
     <div class="wire-grid">
@@ -1054,7 +1054,7 @@
 <h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">最终落地修正（以 v1.2.3 代码为准）</h2>
 <ul style="margin:0;padding-left:20px">
 <li><b>聊天室保留</b>：用户明确要求不删除聊天室；文件、消息、剪贴板共用同一条时间线。本方案中「移除聊天室、把文字收敛成一格剪贴板」未采纳。</li>
-<li><b>手机 App 两标签</b>：最终只有「发送 / 设置」，不是「传输 / 发现 / 设置」三标签；发现并进发送页的目标横条 + 设备面板。</li>
+<li><b>手机 App 四页</b>：最终只有「发送 / 设备 / 文件 / 设置」，不是「传输 / 发现 / 设置」三标签；发现并进发送页的目标横条 + 设备面板。</li>
 <li><b>桌面不再有独立「周边设备」入口</b>：设备栏并入「消息发送」页左侧（200px），底部只保留刷新，不再重复二维码 / 复制地址。</li>
 <li><b>浏览器</b>：保持原聊天室单页，不调用 <code>/api/devices</code>、不发 <code>/api/hello</code>、无底部标签与设置页——这部分按方案落地。</li>
 <li><b>共享剪贴板</b>：双向、无开关、无独立模块，只在页面可见时同步；浏览器回退到「粘贴」面板。</li>

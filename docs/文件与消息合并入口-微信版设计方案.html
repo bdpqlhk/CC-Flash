@@ -475,7 +475,7 @@
 </style>
 </head>
 <body>
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送」页（两标签：发送 / 设置）；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板电脑↔手机双向、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>方案状态 · 已落地 / 部分落地（v1.2.3 · 2026-11-22 校对）</b>　以下为设计推演，实际实现可能更细或已调整。当前形态：设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　与代码不一致处，以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 和仓库 README 为准。</div>
 
 <a class="skip" href="#decision">跳到方案结论</a>
 
@@ -1066,7 +1066,7 @@
           <p>一次选择 / 拖入多个文件，时间线只出现一张「文件组」卡：显示数量、总大小、前几个图标，展开看全部。避免 100 个文件刷满对话。</p>
         </div>
         <div class="card">
-          <div class="c-k">HISTORY</div>
+          <div class="c-k">历史</div>
           <h3>只把本次会话的上传当消息</h3>
           <p>不伪造历史文件的发送者与时间。刷新后，历史文件回到共享文件抽屉；时间线只保留本次会话真实发生的上传与聊天。</p>
         </div>
@@ -1286,7 +1286,7 @@
           <li><b>移动端键盘与安全区</b>：输入栏需要 <span class="mono">env(safe-area-inset-bottom)</span> 与键盘弹起处理；＋面板与键盘互斥，避免顶起两层。</li>
           <li><b>长按与文本选择</b>：文件行动作不要依赖长按，统一用「⋯」显式按钮，避免与消息文本选择冲突。</li>
           <li><b>未读口径</b>：消息与文件分开计数；文件只点绿点，不把文件数混进消息未读，避免“3 条消息”变成“3 个文件+消息”。</li>
-          <li><b>预览与 Range</b>：音视频 / PDF 会发多次 Range，一次性票据首个 206 即失效；应用内预览改用长期 PIN 直连，且不写进浏览器历史。</li>
+          <li><b>预览与 Range</b>：音视频 / PDF 会发多次 Range；当前服务端对已消费票据的同 IP + 同文件 + 同指纹 Range 续传/媒体分段在 TTL 内复用，应用内预览使用短时媒体会话令牌（10 分钟、IP 绑定、可重复 Range），长期 PIN 不进入媒体 URL。</li>
           <li><b>内联安全</b>：html / svg / xml 不得 inline 打开；服务端 <span class="mono">is_inline_safe</span> 与 CSP 的 <span class="mono">media-src</span> 同时兜底。</li>
           <li><b>主题与可读性</b>：桌面壳气泡用主题变量跟随皮肤；浏览器 / 移动端保持浅底黑字，避免深色主题下出现深底深字。</li>
         </ul>
@@ -1386,7 +1386,7 @@
 <h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.3 最终形态（以此为准）</h2>
 <ul style="margin:0;padding-left:20px">
 <li>桌面侧栏 176px，不再有独立「周边设备」入口；设备栏并入「消息发送」页左侧（200px，本机共享 + 附近设备 + 刷新）。</li>
-<li>手机 App 只有「发送 / 设置」两标签；聊天头部「设备」入口 + 竖屏整页设备面板。</li>
+<li>手机 App 分为「发送 / 设备 / 文件 / 设置」四页；底部「设备」页（雷达 + 设备清单 + 手动发送）。</li>
 <li>手机 / 电脑浏览器保持原聊天室单页，无底部标签、无发现、无设置页；不请求 <code>/api/devices</code>、不发 <code>/api/hello</code>。</li>
 <li>共享剪贴板默认关闭，可在 CC设置 开启；不再有独立模块；只在页面可见时同步；浏览器回退到输入栏「粘贴」面板。</li>
 <li>文件抽屉 320–380px；981–1180px 改带遮罩覆盖层；≤980px 窄屏布局。</li>

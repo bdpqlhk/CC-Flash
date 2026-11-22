@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>CC Flash · 整个过程历史改动记录（2026-11-22）</title>
+<style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}
+h1{font-size:24px} h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:34px}
+h3{font-size:15.5px;margin:20px 0 8px}
+.meta{color:#5a6474;font-size:13px;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}
+td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e8f0fe;color:#2b6cb0;white-space:nowrap}
+ul{padding-left:22px} li{margin:5px 0}
+code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.callout{background:#fff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:12px 0;font-size:13.5px}
+.small{font-size:12.5px;color:#5a6474;text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<h1>CC Flash · 整个过程历史改动记录</h1>
+<div class="meta">时段：<b>2026-11-22</b> · 版本：<b>v1.2.5+ 全量复审修复（未发新 tag）</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="callout"><b>本段主题</b>按“全量代码 + 全平台”做一次深度复审，覆盖后端、桌面壳、Android 壳、iOS 条件路径、电脑/手机浏览器与 PWA。修复安全/数据完整性、上传下载、PIN、剪贴板、移动四页、发送面板、未读语义、审计日志等问题；随后同步 README、README.en、docs 全目录与应用内介绍页。没有新增版本 tag，所有改动在 v1.2.5 之上。</div>
+
+<h2>一、后端安全与数据完整性</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>Windows 可用 <code>foo.</code>、<code>foo </code>、<code>foo::$DATA</code>、8.3 短名等别名绕过 <code>active_uploads</code> 与 <code>.{名}.ccup</code> 标记；慢速上传期间删掉标记后，半截文件会以完整文件出现在列表并可 200 下载。</td><td><code>safe_rel_path</code> 读路径在 Windows 拒绝段内冒号/尾随点/尾随空格；<code>delete_file</code> 新增 <code>canonical_rel_name</code>，从 canonical 真实路径反推相对名，active key、marker、system <code>.ccup</code> 判定全部基于真实名。8.3 短名同样被 canonical 归一。</td></tr>
+<tr><td>上传在 async handler 里同步 <code>exists()</code>、读 marker，<code>upload_cancel</code> 持锁做同步文件操作；共享目录在 NFS/SMB/休眠盘时 16 个并发上传即可阻塞 tokio worker。</td><td>目录探测改 <code>tokio::fs::metadata</code>；marker 读取与 <code>upload_cancel</code> 的 metadata/remove_file 移入 <code>spawn_blocking</code>；仍保留占位→标记→在途登记的临界区语义。</td></tr>
+<tr><td>缺失/损坏 <code>X-File-Size</code> 时按“未知大小”接收，干净结束的截断体回 200。</td><td>同时读取 <code>X-File-Size</code> 与 <code>Content-Length</code>；不一致 400，都缺失 411；声明大小为硬上限，末尾仍校验 <code>written == size</code>。</td></tr>
+<tr><td>PIN 用时间/pid/序号生成；桌面端 <code>NotFound</code> 被当作“从未开启”，网络 home 未挂载/文件被清理时保护静默消失；移动端关闭令牌重启后又自动复活。</td><td><code>new_pin</code> 改用 <code>fill_random</code> CSPRNG；新增 <code>.ccflash-pin-enabled</code> 独立标记与 <code>install_pin/write_pin_enabled</code>；读取时区分“从未开启 / 明确关闭 / 开启但码值丢失 / 读取失败”，后两者 fail-closed 重新生成；关闭时先写 0 再删码值，重启不复活。</td></tr>
+<tr><td>缩略图/预览把长期 PIN 拼进 <code>&lt;img&gt;/&lt;video&gt;/&lt;iframe&gt;</code> URL；分享/下载已用一次性票据，两套口径不一致。</td><td>新增 <code>/api/media-session</code>：10min、绑定来源 IP、可重复 HEAD/GET/Range；前端 <code>ensureMediaToken</code> 单飞去重，<code>thumbSrcs</code>/<code>authedPreviewUrl</code> 共用；令牌过期/IP 变化时 <code>@error</code> 重开；分享链接仍为一次性票据。</td></tr>
+<tr><td>成功下载/上传/删除的 handler 日志无准入，普通请求可刷满 2000 条审计环，把 PIN 锁定等事件挤掉。</td><td><code>push_log_lvl</code> 为 WARN 预留 200 条；成功下载/上传/删除日志过 <code>log_admit</code>；普通 INFO/OK 最多占 1800 条。</td></tr>
+<tr><td>普通用户 <code>*.ccpart</code> 文件被列表隐藏，带 16hex 的旧断点 7 天后可能被静默删除。</td><td><code>is_part_artifact(path,fname)</code> 只把能对上会话 meta 指纹的断点视为内部产物；普通 <code>.ccpart</code> 可见、不会被清理；<code>clean_stale_parts</code> 额外校验 meta 首行 id 的 FNV 指纹。</td></tr>
+<tr><td>UDP <code>bye</code> 可被同网段伪造，驱逐真实设备。</td><td>announce 携带每进程 <code>tok</code>，bye 必须回带同一令牌；<code>DeviceInfo.token</code> 不序列化。发现协议仍无强身份认证，假 announce 风险作为已知边界保留。</td></tr>
+<tr><td>Range 后缀区间 <code>bytes=-N</code> 被忽略，播放器读取文件尾部时退化成 200 全量。</td><td>解析后缀区间为末尾 N 字节；0 字节/0 后缀返回 416；保留单区间、If-Range、take 截断。</td></tr>
+<tr><td>下载可通过精确文件名取到 <code>.DS_Store</code>、系统 <code>.ccup</code>、会话断点等列表隐藏文件。</td><td>download 在 canonical 基名上拒绝系统垃圾/内部产物；用户自建 <code>.ccup</code> 仍允许。</td></tr>
+</table>
+
+<h2>二、前端与多端交互</h2>
+<ul>
+<li><b>手机 App 四页宽屏修复</b>：<code>filePanelIsSheet() = isNarrow || mobileTabbed</code>，FILES 页不再依赖 980px 断点；<code>.tx-files.sheet:not(.open){display:none}</code>；平板/折叠屏横屏可正常打开，旋转后 <code>onMqChange</code> 不再把 DEVICES/FILES 弹回 SEND；DEVICES 与 FILES 互斥。</li>
+<li><b>FILES 页上传归属</b>：文件页“上传文件 / 拖入 / 粘贴文件”固定走本机共享，不再沿用发送页残留的直发目标；文件页头部标注“本机共享”。</li>
+<li><b>发送面板层级</b>：z-index 1100 → 1006，低于配对码弹框（1008）与 toast（1010）；401/离线时错误可见、可输入对方配对码；移动端用 <code>--app-vh/--app-vv-top</code>，输入字号 16px，iOS 文件夹入口给出明确提示。</li>
+<li><b>批量直发重试</b>：<code>directSendFiles</code> 返回 <code>{allOk,sent}</code>；部分失败时只保留未成功文件，重试不再重复发送已成功项。</li>
+<li><b>未读语义</b>：新增 <code>chatCovered</code>，DEVICES/FILES/发送面板/预览/配对/删除/昵称/历史/诊断/二维码等覆盖聊天时不标记已读；首拉与断网恢复也走 <code>markChatSeen</code>。</li>
+<li><b>剪贴板口径</b>：自动同步只在本机服务的共享槽与打开该地址的浏览器/客户端之间生效；电脑 App 与手机 App 不自动互通，跨 App 使用发送面板「剪贴板」投递。显式“粘贴”按钮也会 <code>publishSharedClip</code>，不再只填输入框。</li>
+<li><b>文本预览</b>：文本先 HEAD 拿 <code>Content-Length</code>（列表没有 meta 也能拦住 >2MB），超过 2MB 提示下载；预览地址统一票据。</li>
+<li><b>昵称与监听器</b>：昵称统一按服务端 20 字符截断，避免自己的消息被误判为他人；补齐 contextmenu/click/scroll/resize 监听器的卸载。</li>
+<li><b>系统设置入口</b>：<code>open_url_cmd</code> 严格放行 <code>x-apple.systempreferences:</code> 与 <code>ms-settings:</code>（Windows 走 rundll32），诊断页“打开网络设置”不再必然失败。</li>
+</ul>
+
+<h2>三、文档与介绍页</h2>
+<ul>
+<li><b>README / README.en</b>：版本日期改为 2026-11-22；补充上传大小强制、Range 后缀、Windows 别名、CSPRNG/ENABLED 标记、媒体会话令牌、审计预留、发现 bye 令牌；剪贴板改为本机服务内共享口径；历史记录索引新增 11-22。</li>
+<li><b>docs 全目录</b>：统一顶部“最新实现 v1.2.5+ · 2026-11-22”、文档日期与页脚；设计/方案文档的“当前形态”补齐四页与剪贴板边界；需求/技术/保姆级/软件介绍/规划/推广追加本轮详细说明。</li>
+<li><b>应用内介绍页</b>：安全 FAQ、消息工作台卡片、剪贴板卡片与安全说明同步；补充文件页本机上传、发送面板错误/配对码可见、媒体会话令牌、CSPRNG/enabled 标记。</li>
+</ul>
+
+<h2>四、验证与已知边界</h2>
+<ul>
+<li><code>cargo check --manifest-path src-tauri/Cargo.toml</code>：通过。</li>
+<li><code>cargo test --manifest-path src-tauri/Cargo.toml</code>：<b>24/24</b> 通过（含 <code>bytes=-3</code> 后缀 Range、普通 <code>.ccpart</code> 保留、媒体会话 IP 绑定/过期、媒体会话下载 E2E、PIN/CSPRNG）。</li>
+<li><code>npm run build</code>：通过；<code>dist</code> 合计 543,163 B（主 JS 329,232 B、CSS 129,398 B、QR 24,533 B、dialog 分块 1,248 B）。</li>
+<li><b>Windows 别名</b>：尾随点/空格/ADS/8.3 的攻击路径为代码级推演，未在 Windows 实机复现；已通过读路径拒绝 + canonical 真实名双重防护，建议发布前在 Windows 实机做一次慢速上传+删除回归。</li>
+<li><b>iOS 原生</b>：仍未交付（无 gen/apple、签名、multicast/后台模式）；iOS 使用 Safari 网页版。原生壳的下载/PDF 预览/键盘适配留待 iOS 适配时处理。</li>
+<li><b>发现协议</b>：bye 已加会话令牌，但 announce 仍可伪造；强认证需要设备配对/公钥签名，列入后续规划。</li>
+<li><b>跨 App 剪贴板</b>：不做自动转发（隐私与节点模型），用发送面板「剪贴板」投递。</li>
+</ul>
+
+<h2>五、全功能自测（2026-11-22 同日）</h2>
+<table>
+<tr><th>范围</th><th>结果</th></tr>
+<tr><td>Rust 单测</td><td><code>cargo test</code> <b>24/24</b> 通过。</td></tr>
+<tr><td>真实 API</td><td>上传（正常/重名 <code>(1)</code>/空文件/缺大小 411/大小不一致 400/路径穿越/保留名）、HEAD/Range <code>-5</code>、分享票据、媒体会话、聊天发送/引用/删除、剪贴板 POST/GET/DELETE、设备、文件删除、<code>/api/control/stop</code>、WS <code>live</code> 通过。stop 后 HTTP 入口按设计下线，需桌面壳/托盘重新启动。</td></tr>
+<tr><td>浏览器 UI</td><td>上传、聊天、图片/文本预览、分享链接、下载、分页/排序、单条删除、显式粘贴、主题切换、文件选择模式通过；多视口无横向溢出。</td></tr>
+<tr><td>未实机</td><td>Windows 别名/安装包、Android APK（本机缺 NDK/JDK17）、iOS 原生壳、双机跨设备直发与真实 PIN 远程配对；按代码路径、单测和模拟壳层验证，发布前补真机回归。</td></tr>
+</table>
+
+<h2>六、产物瘦身</h2>
+<table>
+<tr><th>项</th><th>改动/结果</th></tr>
+<tr><td>Rust 依赖</td><td>移除 <code>tokio-util</code>、<code>chrono</code>；本地时间改用 <code>libc::localtime_r</code> / Windows <code>GetLocalTime</code>；tokio 显式 features。</td></tr>
+<tr><td>插件与 capability</td><td><code>dialog</code>/<code>notification</code> 只在桌面依赖并注册；移动端 capability 不再声明；前端 <code>@tauri-apps/plugin-dialog</code> 动态分块。</td></tr>
+<tr><td>前端</td><td>CSS 改用 lightningcss；清理 <code>.manual-*</code>、<code>.tx-sec-label</code>、<code>.tx-radar-empty</code>、<code>.tx-idcard-sheet</code> 等死样式；最终 <code>dist</code> 543,163 B、CSS 129,398 B、主 JS 329,232 B、QR 24,533 B、dialog 1,248 B。</td></tr>
+<tr><td>macOS</td><td>arm64 二进制 4,067,760 B、.app 4.10 MiB、dmg 2,855,817 B；x64 二进制 5,037,136 B、.app 5.03 MiB、dmg 2,975,838 B。</td></tr>
+<tr><td>未本机构建</td><td>Windows 安装包、Android APK、iOS 包；配置已减少移动端插件与资源，需在对应工具链复测最终体积。</td></tr>
+</table>
+
+<h2>七、全端 UX 校准</h2>
+<ul>
+<li>手机底部四标签统一中文「发送 / 设备 / 文件 / 设置」，字号 11px、触控热区 ≥32px；DEVICES/FILES 互斥，横屏/折叠屏保持当前页。</li>
+<li>桌面/平板主内容区 <code>max-width:1080px</code> 居中；设置页外观控件 <code>max-width:560px</code>；手机横屏面板 <code>max-height:520px</code>。</li>
+<li>DEVICES 操作按钮前置到列表上方；FILES 表头不截断，上传固定本机共享并标注；空设备不再双 emoji。</li>
+<li>发送面板文案改为“发送后进入对方共享目录与聊天”；层级 1006，低于配对码弹框 1008 与 toast 1010；移动端输入 16px、用 <code>--app-vh/--app-vv-top</code>。</li>
+</ul>
+
+
+<h2>八、Impeccable 全端设计审计修复</h2>
+<ul>
+<li><b>视觉结构</b>：移除手机四页与介绍页标题上方的 eyebrow/kicker；侧栏选中态去掉单侧色条，改为完整描边 + 着色底；去掉 toast 单侧色条与渐变文字，弹性曲线改为指数 ease-out。</li>
+<li><b>介绍页</b>：六张同尺寸功能卡改为双栏编辑式列表（移动端单栏），卡片标题从信号台 9.5px 小标签恢复为 17px 标题；移除 hero 上方重复价值标签；示意图文件色块压深，移动端不再出现大段小字。</li>
+<li><b>可读性与对比度</b>：所有主题 <code>--text3</code> 提升到 ≥4.5:1；亮色信号台错误/成功色压深；移动页头副标题、设备读数、设置说明、文件元信息整体提字号；时间/大小使用等宽数字。</li>
+<li><b>触控与操作</b>：主要按钮/主题色板/空态上传/发送开关扩大热区；设置开关改为 42×24；文件行支持点文件名直接打开操作面板；文件页空态隐藏无效的“选择/底部长按上传”入口。</li>
+<li><b>多端布局</b>：修正移动页头操作组被 <code>flex:1</code> 拉宽的问题；文件页/设备页操作回到右侧；320px 隐藏文件页冗余“本机共享”前缀；平板/横屏设备页改为独立整页，不与聊天并排；横屏设备页压缩雷达并把“单播探测/手动发送”留在首屏。</li>
+<li><b>亮色与图标</b>：亮色信号台“外观”控件不再出现黑底孤岛；空态/设备/文件/主题/加号菜单/提示卡等 emoji 改为统一线性 SVG；补齐图片 alt、toast live region、开关 aria-label、模式按钮 aria-pressed。</li>
+<li><b>交互修复</b>：文件首次提示卡增加关闭按钮并在 12s 后自动收起；修复提示卡嵌套 button 的无效结构；toast 在手机文件/设备页移到底部空白区，不再遮挡页头。</li>
+</ul>
+
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 历史改动记录 · 2026-11-22 · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</p>
+</body>
+</html>
