@@ -460,11 +460,13 @@ jobs:
             echo "::warning::缺少签名/公证 Secrets:$missing。本次发布未签名/未公证包，请在 Release 说明中注明打开方式"
           fi
           # 精确校验本次 tag 的完整资产集，不只数扩展名：避免复用草稿里的旧架构/旧提交。
-          # 四段 tag(vX.Y.Z.W) 的第四段只是构建号, Tauri 产物名用应用版本(前三段);
-          # 不剥离会把正常的重建包误判为"缺少资产"(与 prepare 的 base 逻辑保持一致)。
+          # 四段 tag(vX.Y.Z.W) 的第四段只是构建号: dmg/exe 由 Tauri 按应用版本(前三段)命名,
+          # APK 由 android job 的重命名步骤用完整 tag(dest=CC-Flash-${ref_name}-android-*.apk)。
+          # 两者不区分会把正常重建包误判为"缺少资产"(dmg/exe 与 prepare 的 base 逻辑对齐)。
           ver="${GITHUB_REF_NAME#v}"
+          tagver="$ver"
           case "$ver" in *.*.*.*) ver="${ver%.*}" ;; esac
-          for want in "CC-Flash_${ver}_aarch64.dmg" "CC-Flash_${ver}_x64.dmg" "CC-Flash_${ver}_x64-setup.exe" "CC-Flash-v${ver}-android-arm64-v8a.apk"; do
+          for want in "CC-Flash_${ver}_aarch64.dmg" "CC-Flash_${ver}_x64.dmg" "CC-Flash_${ver}_x64-setup.exe" "CC-Flash-v${tagver}-android-arm64-v8a.apk"; do
             printf '%s\n' "$assets" | grep -Fxq "$want" || { echo "::error::Release 缺少资产 $want"; exit 1; }
           done
           gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
