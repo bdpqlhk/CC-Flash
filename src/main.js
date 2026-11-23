@@ -3,6 +3,24 @@ import App from "./App.vue";
 import "./style.css";
 import { LS, THEME_MIGRATE } from "./config";
 
+// Android Tauri 壳已在 MainActivity 里把系统栏/刘海 inset 加到内容根节点；
+// 再叠加 CSS 的 safe-area + 18px 页头内边距会形成明显空白。这里标记平台，
+// 只让 Android 壳使用更紧凑的顶部间距；iOS/浏览器仍走 safe-area。
+if (("__TAURI_INTERNALS__" in window) && /Android/i.test(navigator.userAgent)) {
+  document.documentElement.dataset.androidApp = "1";
+}
+
+// 普通 Android 浏览器（vivo/Chrome/微信等）自己已经处理状态栏和地址栏；
+// 若继续叠加 env(safe-area-inset-top)，vivo 等内核会多留一整条空白。
+// 仅非 Tauri、非 standalone 的 Android 浏览器标记，页面头部不再吃 safe-area-top。
+if (!("__TAURI_INTERNALS__" in window) && /Android/i.test(navigator.userAgent)) {
+  try {
+    if (!window.matchMedia("(display-mode: standalone)").matches) {
+      document.documentElement.dataset.androidBrowser = "1";
+    }
+  } catch (e) {}
+}
+
 // 挂载前先恢复上次选择的主题与明暗模式, 避免闪默认色
 try {
   let t = localStorage.getItem(LS.theme) || "signal";

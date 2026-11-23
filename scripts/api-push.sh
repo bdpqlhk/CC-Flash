@@ -9,6 +9,16 @@ TAG="${1:?用法: $0 <标签名>}"
 
 BASE=$(git rev-parse origin/main)
 REMOTE_HEAD=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+# API 兜底只允许“本地 HEAD 在远端 main 之上”的 fast-forward。
+# 否则会把远端 main 回退到旧 tree，或把 tag 指向与本地不同的提交。
+git merge-base --is-ancestor "$BASE" HEAD || {
+  echo "✘ 本地 HEAD 未包含 origin/main($BASE)，拒绝用 API 推送（先 fetch/rebase）" >&2
+  exit 1
+}
+[ "$BASE" != "$(git rev-parse HEAD)" ] || {
+  echo "✘ 本地 HEAD 与 origin/main 相同，没有可推送提交" >&2
+  exit 1
+}
 if [ "$REMOTE_HEAD" != "$BASE" ]; then
   echo "✘ 远端 main 已变化($REMOTE_HEAD)，本地 origin/main=$BASE 陈旧；先 git fetch 后重试，拒绝非 fast-forward 覆盖" >&2
   exit 1

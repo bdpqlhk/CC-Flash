@@ -18,8 +18,10 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 </style>
 </head>
 <body>
+<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
+
 <h1>CC Flash · 整个过程历史改动记录</h1>
-<div class="meta">当前最新：<b>v1.2.5+（2026-11-22 全量复审修复）</b> · 时段：<b>2026-11-20 至 2026-11-21</b> · 版本：<b>v1.2.4 全量复审收尾</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="meta">当前最新：<b>v1.2.6（2026-11-22 全量复审修复）</b> · 时段：<b>2026-11-20 至 2026-11-21</b> · 版本：<b>v1.2.4 全量复审收尾</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
 <div class="callout"><b>本段主题</b>对桌面壳、手机 App、电脑/手机浏览器与服务端做全量复审，按「安全 → 可用性 → 平台/发布 → 文档」修复审查项。同时把 README、docs 全目录与应用内介绍页校准到最新代码：侧栏 176px、Windows 仅 NSIS exe、Android 7.0+、雷达去掉「扫描雷达」标题、浏览器不提供跨设备直发。</div>
 
 <h2>一、安全</h2>
@@ -84,7 +86,7 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <ul>
 <li><code>cargo test --lib</code>：21/21 通过（含 UDP 发现端到端；该测试改用临时回环端口，避免发现广播 53318-53321 的时序竞争）。</li>
 <li><code>npm run build</code>：通过，主包 290.97 KB（gzip 115.6 KB）、CSS 114.2 KB（gzip 20.7 KB）、二维码分块 24.5 KB（gzip 9.6 KB）。</li>
-<li><code>npm run tauri build</code>：macOS 发布二进制 <b>3.9 MB</b>、<code>CC-Flash.app</code> <b>4.10 MiB</b>、<code>CC-Flash_1.2.4_aarch64.dmg</code> <b>2.72 MiB</b>；release 已开启 strip + fat LTO + opt-level=z + panic=abort + codegen-units=1，Android 单 arm64 包 / R8 / 中英文资源过滤、Windows NSIS exe + WebView2 downloadBootstrapper 均已在构建配置中生效，无可安全再裁的未使用依赖。</li>
+<li><code>npm run tauri build</code>：macOS 发布二进制 <b>3.9 MB</b>、<code>CC-Flash.app</code> <b>4.12 MiB</b>、<code>CC-Flash_1.2.4_aarch64.dmg</code> <b>2.72 MiB</b>；release 已开启 strip + fat LTO + opt-level=z + panic=abort + codegen-units=1，Android 单 arm64 包 / R8 / 中英文资源过滤、Windows NSIS exe + WebView2 downloadBootstrapper 均已在构建配置中生效，无可安全再裁的未使用依赖。</li>
 <li><b>功能自测</b>：Chromium / WebKit 的电脑浏览器与手机浏览器（1180/900/480/430/390/360）、桌面壳（1180/900/800/700/600/560）、手机 App 模拟（430/390/360）完成聊天/Markdown/引用/删除/清空/20 万字上限、单/多/大文件上传与分组、预览/下载/Range/分享票据/删除、共享文件抽屉排序/分页/全选、双端实时消息、设备发现/收藏/直发文本与文件/手动发送/取消与草稿、传输历史、服务启停与无信号恢复、昵称/主题/介绍页/PWA/剪贴板上限等回归；未发现新的阻断问题。</li>
 <li>说明：PIN 与一次性分享票据的“非本机来源”强制校验依赖第二台设备，本机回环/本机网卡属于设计内豁免；该路径已由代码审查与服务端单测覆盖，未做跨机实机联调。</li>
 <li><code>release.yml</code> 通过 YAML 解析，Android 步骤 <code>with</code> 同时包含 <code>toolchain: stable</code> 与 <code>targets: aarch64-linux-android</code>；<code>api-push.sh</code> / <code>build-all.sh</code> 通过 <code>bash -n</code>。</li>

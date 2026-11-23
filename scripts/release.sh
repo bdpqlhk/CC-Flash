@@ -104,6 +104,7 @@ rm -f package.json.bak
 # 映射 major*1e7 + minor*1e5 + patch*1e2 + build, 上限 2.1e9。
 IFS=. read -r vM vN vP vB <<< "$VERSION"
 vB=${vB:-0}
+for part in "$vM" "$vN" "$vP" "$vB"; do [[ "$part" -ge 0 && "$part" -lt 100 ]] || { echo "✘ 版本段需在 0-99: $VERSION"; exit 1; }; done
 NEW_VCODE=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
 node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$NEW_VCODE"
 # 同步 package-lock 根 version(两处): 勿用全局 sed(lock 里有几千行依赖 version 字段)
@@ -126,16 +127,19 @@ git add -A
 # git diff 吃 SIGPIPE 以 141 退出, pipefail 下整条 if 为假 —— 守卫恰好在
 # "发版夹带大量改动+私钥"这种该触发的场景被绕过(已实测复现)
 staged_files=$(git diff --cached --name-only)
-if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64)$|(^|/)\.env($|\.)' >/dev/null; then
+if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)' >/dev/null; then
   echo "✘ 暂存区含签名私钥/环境密钥文件, 已中止(请移出仓库目录并从暂存区移除)"
-  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64)$|(^|/)\.env($|\.)'
+  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)'
   exit 1
 fi
 # 私钥内容守卫: 改扩展名(如把 keystore 命名成 .txt)可绕过上面的文件名检查。
 # 在暂存区内容里直接扫 PEM 私钥头(仓库为 Public, 一旦推上去即泄露)
-if git grep --cached -IlE 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' >/dev/null 2>&1; then
+# 模式写成字符类而非 ".*": 本文件自身就含这行守卫文本, 用 .* 会把 release.sh
+# 自己判成私钥文件(已实测发版被自己拦下)。[A-Z ]* 仍覆盖 RSA/EC/OPENSSH/
+# ENCRYPTED 等全部标准 PEM 头, 且不会匹配到本行字面量。
+if git grep --cached -IlE 'BEGIN [A-Z ]*PRIVATE KEY' >/dev/null 2>&1; then
   echo "✘ 暂存文件内容含私钥(PEM PRIVATE KEY), 已中止:"
-  git grep --cached -IlE 'BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY' || true
+  git grep --cached -IlE 'BEGIN [A-Z ]*PRIVATE KEY' || true
   exit 1
 fi
 # 二进制 keystore 守卫: JKS 魔数 FE ED FE ED / PKCS12 DER 30 82 / base64 证书 MII

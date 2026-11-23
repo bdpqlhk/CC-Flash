@@ -15,3 +15,10 @@ src-tauri/gen/*
 .env
 .env.*
 *.b64
+design-demos/
+*.p8
+*.cer
+*.der
+*.pfx
+*.pem
+.git-commit-msg.txt

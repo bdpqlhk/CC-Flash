@@ -405,6 +405,9 @@ pub fn run() {
         .inner_size(96.0, 96.0)
         .decorations(false)
         .transparent(true)
+        // 仅 transparent(true) 不够: WKWebView 默认画布仍是黑色, 会在圆点周围
+        // 留下整块黑底。把 webview/window 的背景色显式设为全透明, 才能看到桌面。
+        .background_color(tauri::webview::Color(0, 0, 0, 0))
         // 关闭系统窗口阴影: macOS 会按透明窗口的内容 alpha 投影 —— 收拢态内容是
         // 圆环(粉环), 阴影就投成一个偏下的大灰环, 叠在下方窗口上像"多出一个透明
         // 圆环"(screencapture -l 验证: 窗口自身像素无灰环, 屏幕合成才有)。

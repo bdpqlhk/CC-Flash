@@ -206,7 +206,9 @@ fn chat_log() -> &'static Mutex<VecDeque<ChatMsg>> {
 // 不引入 UDP/mDNS, 复用现有 HTTP/WS; 浏览器端仍以扫码/手动地址作为入口兜底
 // ---------------------------------------------------------------- //
 
-const DEVICE_TTL_SECS: f64 = 15.0;
+// 对方每 3s 宣告一次; 30s 允许短暂丢包/休眠而不把设备从列表直接移除。
+// 前端在线态另有 12s 宽限, 避免 15s TTL 与 3s 轮询之间出现状态抖动。
+const DEVICE_TTL_SECS: f64 = 30.0;
 
 #[derive(Clone, Serialize, Debug)]
 pub struct DeviceInfo {
@@ -373,6 +375,8 @@ fn local_name() -> String {
 struct IngestResult {
     new_device: bool,
     changed: bool,
+    /// 本条报文是否被接受并刷新了 last_seen（即使字段未变）。
+    heard: bool,
 }
 
 /// 解析并登记一条发现报文。返回是否首次出现/状态变化(用于广播 devices:changed)。
@@ -424,16 +428,25 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
     let previous = map.get(&id).cloned();
     // 已登记设备 id 只允许从原 IP 续期: id 是明文广播的, 否则同网段任意主机
     // 可用"已知 id + 自己的 IP"覆盖目标条目(列表显示真设备名, 发送却落到攻击者)。
-    // 真实设备换 IP(DHCP)时最多等旧条目 TTL(120s)自然过期后重新登记。
+    // 真实设备换 IP(DHCP)时最多等旧条目 TTL(30s)自然过期后重新登记。
     if let Some(prev) = &previous {
         if prev.ip != ip {
             return IngestResult::default();
         }
+        // 同 id 但令牌变化：只接受空令牌的旧版对端；否则伪造者可用已知 id
+        // 改掉端口/昵称。设备正常重启会先让旧条目 TTL 过期。
+        if !prev.token.is_empty() && !token.is_empty() && prev.token != token {
+            return IngestResult::default();
+        }
     }
     let same_ip_other = map.values().any(|d| d.ip == ip && d.id != id);
-    // 同 IP 换 id 是"替换"而非新增, 不占新容量; 否则满额时会先把旧条目删掉、
-    // 再把新条目拒掉, 设备会凭空从列表消失。
-    if !known && !same_ip_other && map.len() >= DISCOVERY_PEERS_MAX {
+    // 同一 IP 已有一个未过期 id 时，不允许"新 id"直接把真实设备挤掉：
+    // UDP 源 IP 可伪造，否则攻击者可用随机 id 驱逐目标并伪造名称/端口。
+    // 真设备换 id/换 DHCP 地址时，旧条目最多 30s 自然过期后再登记。
+    if !known && same_ip_other {
+        return IngestResult::default();
+    }
+    if !known && map.len() >= DISCOVERY_PEERS_MAX {
         return IngestResult::default();
     }
     // 同一源 IP 只保留最新 id: 设备重启换 id 时不堆重复项, 也挡住单 IP 用
@@ -462,7 +475,7 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
     );
     drop(map);
     remember_peer_ip(&ip);
-    IngestResult { new_device: is_new, changed: is_new || changed }
+    IngestResult { new_device: is_new, changed: is_new || changed, heard: true }
 }
 
 /// 单测兼容: 只关心是否首次出现
@@ -471,7 +484,11 @@ fn ingest_peer_packet(v: &serde_json::Value, src_ip: std::net::IpAddr) -> bool {
     ingest_peer_packet_ex(v, std::net::SocketAddr::new(src_ip, 0)).new_device
 }
 
-/// 设备列表快照: 剔除 120s 未更新的条目, 按最后活跃排序, 同一 ip:port 只留最新一条。
+/// 在线判定与服务端 TTL 分开: 12s 无声宣告只表示"暂时失联", 30s 才从列表移除。
+/// 前端直接使用服务端下发的 online, 不再用浏览器时钟自行推算。
+const PEER_ONLINE_GRACE_SECS: f64 = 12.0;
+
+/// 设备列表快照: 剔除 30s 未更新的条目, 按最后活跃排序, 同一 ip:port 只留最新一条。
 fn device_snapshot(now: f64) -> Vec<DeviceInfo> {
     let mut list: Vec<DeviceInfo> = {
         let mut peers = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
@@ -487,6 +504,65 @@ fn device_snapshot(now: f64) -> Vec<DeviceInfo> {
 
 /// 广播准入: 服务在跑、开放了局域网、且已绑定端口才广播。
 /// 安全模式(仅 127.0.0.1)下必须为 false —— 否则别人会看到手机却连不上。
+/// 设备 JSON: 在 DeviceInfo 的公开字段上补一个服务端计算的 online，
+/// 避免各客户端时钟/网络延迟导致在线态判断不一致。
+fn device_json(d: &DeviceInfo, now: f64) -> serde_json::Value {
+    let mut v = serde_json::to_value(d).unwrap_or_else(|_| serde_json::json!({}));
+    v["online"] = serde_json::json!(now - d.last_seen < PEER_ONLINE_GRACE_SECS);
+    v
+}
+
+fn device_list_json(now: f64) -> Vec<serde_json::Value> {
+    device_snapshot(now).iter().map(|d| device_json(d, now)).collect()
+}
+
+fn schedule_devices_presence() {
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    static LAST_MS: AtomicU64 = AtomicU64::new(0);
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    const MIN_GAP_MS: u64 = 1000;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let last = LAST_MS.load(std::sync::atomic::Ordering::Relaxed);
+    if now_ms.saturating_sub(last) >= MIN_GAP_MS {
+        LAST_MS.store(now_ms, std::sync::atomic::Ordering::Relaxed);
+        broadcast_devices_presence();
+        return;
+    }
+    // 高频报文合并: 1s 内只再补一次尾包，保证最终状态一定送达。
+    if PENDING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let wait = std::time::Duration::from_millis(
+        MIN_GAP_MS.saturating_sub(now_ms.saturating_sub(last)),
+    );
+    std::thread::spawn(move || {
+        std::thread::sleep(wait);
+        LAST_MS.store(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        PENDING.store(false, std::sync::atomic::Ordering::Relaxed);
+        broadcast_devices_presence();
+    });
+}
+
+/// 实时在线态推送: 每条有效宣告/bye 后把所有设备连同 online 一起发给订阅端，
+/// 前端直接应用，不再等 3s 轮询或自己算时间差。
+fn broadcast_devices_presence() {
+    let now = now_f64();
+    let payload = serde_json::json!({
+        "type": "devices:presence",
+        "devices": device_list_json(now),
+    });
+    let _ = event_bus().send(payload.to_string());
+}
+
 fn broadcast_allowed(running: bool, lan_active: bool, port: u16) -> bool {
     running && lan_active && port != 0
 }
@@ -642,6 +718,83 @@ fn send_probe_to(ip: std::net::IpAddr) -> bool {
                 let _ = sock.send_to(&packet, (v6, port));
             }
             true
+        }
+    }
+}
+
+/// 已发现 peer 的单播心跳：有些 Android/企业 Wi-Fi 会单向过滤多播/广播，
+/// 双方首次能发现，但后续 announce 收不到，设备状态就会在在线/离线间跳。
+/// 已知 peer IP 时每 3s 直接单播一份 announce，不再依赖组播通路。
+fn send_unicast_announcements() {
+    let Some(packet) = announce_packet_bytes() else { return };
+    let Ok(v4) = UdpSocket::bind(("0.0.0.0", 0)) else { return };
+    let mut v6: Option<UdpSocket> = None;
+    for raw in cached_peer_ips() {
+        let (host, zone) = raw.split_once('%').unwrap_or((raw.as_str(), ""));
+        if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+            if ip.is_loopback() { continue; }
+            for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                let _ = v4.send_to(&packet, (ip, port));
+            }
+        } else if let Ok(ip) = host.parse::<std::net::Ipv6Addr>() {
+            if ip.is_loopback() { continue; }
+            let idx = if zone.is_empty() { 0 } else { iface_index(zone).unwrap_or(0) };
+            if ip.is_unicast_link_local() && idx == 0 { continue; }
+            if v6.is_none() { v6 = UdpSocket::bind(("::", 0)).ok(); }
+            if let Some(sock) = v6.as_ref() {
+                for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                    let dst = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, idx));
+                    let _ = sock.send_to(&packet, dst);
+                }
+            }
+        }
+    }
+}
+
+/// 多播/广播都被交换机或系统过滤时的兜底: 向本机所在 IPv4 /24 逐个主机
+/// 发 unicast probe。两台新装设备还没有 peer-cache, 只靠多播+广播会互相等不到;
+/// 单播探测不依赖组播组，能穿过常见的企业 Wi-Fi 组播过滤。只扫私网/链路本地，
+/// 每个网卡最多 1024 个地址，避免误扫公网或大网段。
+fn send_subnet_probes() {
+    let Some(packet) = probe_packet_bytes() else { return };
+    let Ok(ifaces) = if_addrs::get_if_addrs() else { return };
+    let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else { return };
+    let mut seen = std::collections::HashSet::new();
+    for it in ifaces {
+        if discovery_iface_skipped(&it.name) {
+            continue;
+        }
+        let if_addrs::IfAddr::V4(v4) = it.addr else { continue };
+        if v4.ip.is_loopback() || !is_lan_peer(std::net::IpAddr::V4(v4.ip)) {
+            continue;
+        }
+        let ip = u32::from(v4.ip);
+        let mask = u32::from(v4.netmask);
+        if mask == 0 {
+            continue;
+        }
+        let prefix = mask.count_ones();
+        // 大网段只扫自己所在 /24；/24 及更小网段按真实 host 范围扫。
+        let (start, end) = if prefix < 24 {
+            let base = ip & 0xffff_ff00;
+            (base + 1, base + 254)
+        } else {
+            let network = ip & mask;
+            let broadcast = network | !mask;
+            (network.saturating_add(1), broadcast.saturating_sub(1))
+        };
+        if end < start {
+            continue;
+        }
+        let count = (end - start + 1).min(1024);
+        for off in 0..count {
+            let host = Ipv4Addr::from(start.saturating_add(off));
+            if host == v4.ip || !seen.insert(host) {
+                continue;
+            }
+            for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                let _ = sock.send_to(&packet, (host, port));
+            }
         }
     }
 }
@@ -950,6 +1103,7 @@ fn ensure_discovery_v6(port: u16) {
                     if same && map.remove(id).is_some() {
                         drop(map);
                         broadcast_event("devices:changed");
+                        broadcast_devices_presence();
                     }
                 }
                 continue;
@@ -957,6 +1111,12 @@ fn ensure_discovery_v6(port: u16) {
             let res = ingest_peer_packet_ex(&v, src);
             if res.new_device || res.changed {
                 broadcast_event("devices:changed");
+            }
+            // 新设备/字段变化立即推；普通 valid 心跳进入 1s 合并器，尾包必达。
+            if res.new_device || res.changed {
+                broadcast_devices_presence();
+            } else if res.heard {
+                schedule_devices_presence();
             }
             if !is_lan_peer(src.ip()) {
                 continue;
@@ -1059,7 +1219,7 @@ fn ensure_discovery() {
             let mut last_probe_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
             loop {
                 // 切 Wi-Fi / 插拔网卡后, 新接口需要重新 join 组播组, 否则只能发广播、
-                // 收不到别人(设备列表 15s 后清空, 直到重启 App)。每 30s 幂等 rejoin。
+                // 收不到别人(设备列表 30s 后清空, 直到重启 App)。每 30s 幂等 rejoin。
                 if last_rescan.elapsed() >= Duration::from_secs(30) {
                     last_rescan = std::time::Instant::now();
                     let mut any = false;
@@ -1126,6 +1286,7 @@ fn ensure_discovery() {
                         if same && map.remove(id).is_some() {
                             drop(map);
                             broadcast_event("devices:changed");
+                            broadcast_devices_presence();
                         }
                     }
                     continue;
@@ -1133,6 +1294,11 @@ fn ensure_discovery() {
                 let res = ingest_peer_packet_ex(&v, src);
                 if res.new_device || res.changed {
                     broadcast_event("devices:changed");
+                }
+                if res.new_device || res.changed {
+                    broadcast_devices_presence();
+                } else if res.heard {
+                    schedule_devices_presence();
                 }
                 // 单播回包只发给局域网来源: 公网伪造包不回, 避免把本机信息发到外网。
                 if !is_lan_peer(src.ip()) { continue; }
@@ -1170,7 +1336,14 @@ fn ensure_discovery() {
                     let _ = sock.send_to(&bytes, (Ipv4Addr::new(255, 255, 255, 255), port));
                 }
             }
-            if last_unicast.elapsed() >= Duration::from_secs(30) {
+            // 已知 peer 直接单播心跳：绕过 Android/企业 Wi-Fi 的单向组播过滤。
+            send_unicast_announcements();
+            // 即使没有新报文，也每 3s 推一次权威在线态：保证设备静默 12s 后，
+            // 前端不依赖 HTTP 轮询也能准时从 online 切成 offline。
+            broadcast_devices_presence();
+            // 单播 probe 兼容旧版对端：新 peer 直接收 announce，旧 peer 只有
+            // probe 回包才会主动回 announce；5s 一次确保 last_seen 不会被 12s 宽限判离线。
+            if last_unicast.elapsed() >= Duration::from_secs(5) {
                 last_unicast = std::time::Instant::now();
                 send_unicast_probes();
             }
@@ -1203,9 +1376,9 @@ async fn device_hello(
 }
 
 async fn device_list() -> Response {
-    let list = device_snapshot(now_f64());
+    let now = now_f64();
     Json(serde_json::json!({
-        "devices": list,
+        "devices": device_list_json(now),
         "discovery": discovery_status_json(),
     }))
     .into_response()
@@ -1269,6 +1442,8 @@ fn discovery_probe_allow(peer: std::net::IpAddr) -> bool {
 #[derive(serde::Deserialize)]
 struct ProbeIn {
     ip: Option<String>,
+    /// 仅用户主动点击「扫描」时允许扫本机 /24；WS 重连/自动探测不扫。
+    scan: Option<bool>,
 }
 
 async fn discovery_probe(
@@ -1281,7 +1456,8 @@ async fn discovery_probe(
     }
     // 手动探测: 指定局域网 IP 时只向该地址发单播 probe, 用于绕过交换机/防火墙
     // 对多播与广播的过滤; 不填则沿用全局多播+广播+历史地址探测。
-    if let Some(raw) = body.and_then(|Json(b)| b.ip) {
+    let body = body.map(|Json(b)| b);
+    if let Some(raw) = body.as_ref().and_then(|b| b.ip.clone()) {
         let Ok(ip) = raw.trim().parse::<std::net::IpAddr>() else {
             return err(StatusCode::BAD_REQUEST, "IP 格式不正确");
         };
@@ -1300,10 +1476,13 @@ async fn discovery_probe(
         }))
         .into_response();
     }
-    // UDP 发送很快; 直接在当前线程执行, 避免为一个 probe 再起任务
+    // 自动探测只走多播/广播/缓存 peer；/24 全扫仅由用户显式 scan:true 触发。
     tokio::task::spawn_blocking(send_discovery_probe)
         .await
         .ok();
+    if body.as_ref().and_then(|b| b.scan).unwrap_or(false) {
+        tokio::task::spawn_blocking(send_subnet_probes).await.ok();
+    }
     Json(serde_json::json!({ "ok": true, "port": discovery_active_port() })).into_response()
 }
 
@@ -3180,6 +3359,8 @@ struct RecentTicket {
     etag: String,
     peer: std::net::IpAddr,
     used_at: std::time::Instant,
+    /// 不能超过原始一次性票据的过期时间；否则“下载一次”可被续到签发后 20 分钟。
+    expires_at: std::time::Instant,
 }
 
 const RECENT_TICKET_TTL_SECS: u64 = 10 * 60;
@@ -3192,7 +3373,9 @@ fn recent_tickets() -> &'static Mutex<HashMap<String, RecentTicket>> {
 fn remember_ticket(id: &str, t: &ShareTicket, peer: std::net::IpAddr) {
     let now = std::time::Instant::now();
     let mut m = recent_tickets().lock().unwrap_or_else(|e| e.into_inner());
-    m.retain(|_, r| now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS);
+    m.retain(|_, r| {
+        now < r.expires_at && now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS
+    });
     if m.len() >= 2048 {
         if let Some(k) = m.keys().next().cloned() {
             m.remove(&k);
@@ -3206,8 +3389,20 @@ fn remember_ticket(id: &str, t: &ShareTicket, peer: std::net::IpAddr) {
             etag: t.etag.clone(),
             peer,
             used_at: now,
+            expires_at: t.expires_at,
         },
     );
+}
+
+/// 是否是 `bytes=0-...` 整包 Range：已消费票据不允许再用它重放整文件。
+fn range_starts_at_zero(req: &axum::extract::Request) -> bool {
+    let Some(v) = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let Some(raw) = v.strip_prefix("bytes=") else { return false; };
+    let first = raw.split(',').next().unwrap_or("").trim();
+    let Some((a, _)) = first.split_once('-') else { return false; };
+    !a.trim().is_empty() && a.trim().parse::<u64>() == Ok(0)
 }
 
 /// 已消费票据的 Range 复用校验: 同票据 + 同来源 IP + 同文件 + 文件内容未变。
@@ -3216,9 +3411,11 @@ async fn recent_ticket_allows(id: &str, name: &str, peer: std::net::IpAddr) -> b
     // 锁守卫不能跨 await: 先取出指纹再释放锁, 否则中间件 future 不是 Send
     let (size, etag) = {
         let mut m = recent_tickets().lock().unwrap_or_else(|e| e.into_inner());
-        m.retain(|_, r| now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS);
+        m.retain(|_, r| {
+            now < r.expires_at && now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS
+        });
         let Some(r) = m.get(id) else { return false; };
-        if r.peer != peer || r.name != name {
+        if r.peer != peer || r.name != name || now >= r.expires_at {
             return false;
         }
         (r.size, r.etag.clone())
@@ -5702,12 +5899,19 @@ fn pin_admit(peer: std::net::IpAddr, ok: bool) -> bool {
 #[tauri::command]
 pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     let mut slot = access_pin().lock().unwrap_or_else(|e| e.into_inner());
+    if !enable && mobile_client_only() {
+        return serde_json::json!({
+            "ok": false,
+            "error": "移动端必须保留访问令牌，避免同一 Wi-Fi 设备直接读取本机文件；请关闭 App 停止共享"
+        });
+    }
     if !enable {
         *slot = None;
         // 先写关闭标记再撤码值: 即使删码失败, 标记 0 也能保证重启后不会复活保护
         write_pin_enabled(false);
         let _ = std::fs::remove_file(pin_pref_file());   // 同步撤盘, 重启后不再回载
         clear_share_tickets();                           // 关闭保护: 已签发的下载凭证一并作废
+        let _ = ws_kick().send(());                       // 关闭/开启令牌都重新握手: 旧 WS 不得继续订阅
         push_log_warn("访问令牌已关闭 —— 局域网设备不再需要配对".into());
         return serde_json::json!({ "ok": true });
     }
@@ -5725,6 +5929,7 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     *slot = Some(pin.clone());
     // 轮换配对码 = 旧凭证作废: 必须真的清掉票据, 否则日志宣称的"旧分享链接失效"是假的
     clear_share_tickets();
+    let _ = ws_kick().send(());                           // 新码生效: 旧连接必须重新认证
     push_log_ok("访问令牌已开启（已生成新配对码，旧分享链接随之失效）".into());
     serde_json::json!({ "ok": true, "pin": pin })
 }
@@ -6346,6 +6551,7 @@ async fn log_middleware(
             // 文件内容未变才放行; 无 Range 的第二次整包下载仍然 401。
             if method == "GET"
                 && req.headers().get(header::RANGE).is_some()
+                && !range_starts_at_zero(&req)
                 && query.split('&').any(|kv| kv.starts_with("ticket="))
             {
                 let reusable = match query_ticket_value(&query).zip(ticket_path_name(raw_path)) {
@@ -6542,6 +6748,33 @@ async fn log_middleware(
 // 路由组装
 // ---------------------------------------------------------------- //
 
+/// JSON/表单请求在进入 handler 前就会缓冲 body；限大小之外再加一层全局许可，
+/// 避免大量小请求同时把 axum 的 body 缓冲堆到内存上限。
+fn body_gate() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| tokio::sync::Semaphore::new(32))
+}
+async fn body_gate_mw(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = req.uri().path();
+    let body_route = matches!(
+        path,
+        "/api/chat" | "/api/discovery/probe" | "/api/clipboard" | "/api/share-ticket"
+            | "/api/media-session" | "/api/hello"
+    ) && req.method() == axum::http::Method::POST;
+    if body_route {
+        let Ok(permit) = body_gate().try_acquire() else {
+            return err(StatusCode::TOO_MANY_REQUESTS, "请求过多，请稍后重试");
+        };
+        let res = next.run(req).await;
+        drop(permit);
+        return res;
+    }
+    next.run(req).await
+}
+
 fn router(share: PathBuf) -> Router {
     Router::new()
         .route("/api/files", get(files))
@@ -6551,14 +6784,14 @@ fn router(share: PathBuf) -> Router {
         .route("/api/upload_cancel", post(upload_cancel))
         .route("/api/delete/*name", delete(delete_file))
         // 单条消息上限 20 万字(UTF-8 最多 800KB) + 引用快照/JSON 转义余量 → 4MB
-        .route("/api/chat", get(chat_get).post(chat_post).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
+        .route("/api/chat", get(chat_get).post(chat_post).layer(DefaultBodyLimit::max(256 * 1024)))
         .route("/api/chat/:id", delete(chat_delete))
         .route("/api/clipboard", get(clipboard_get).post(clipboard_post).delete(clipboard_delete).layer(DefaultBodyLimit::max(128 * 1024)))
         .route("/api/share-ticket", post(share_ticket).layer(DefaultBodyLimit::max(16 * 1024)))
         .route("/api/media-session", post(media_session).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/api/hello", post(device_hello).layer(DefaultBodyLimit::max(16 * 1024)))
         .route("/api/devices", get(device_list))
-        .route("/api/discovery/probe", post(discovery_probe))
+        .route("/api/discovery/probe", post(discovery_probe).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/ws", get(ws_handler))
         .route("/api/info", get(info))
         .route("/api/control/status", get(ctrl_status))
@@ -6571,6 +6804,7 @@ fn router(share: PathBuf) -> Router {
         // 替换的 fallback, 否则静态页面完全绕过 Host/Origin 校验与请求日志。
         .fallback(static_handler)
         .layer(axum::middleware::from_fn(log_middleware))
+        .layer(axum::middleware::from_fn(body_gate_mw))
         .layer(tower_http::cors::CorsLayer::permissive()) // 桌面窗口跨源调用 API
         .with_state(share)
 }
@@ -7162,13 +7396,13 @@ mod tests {
         multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
         let ip: std::net::IpAddr = "192.168.60.5".parse().unwrap();
         assert!(ingest_peer_packet(&udp_packet("old-id", 1688, "old"), ip));
-        assert!(ingest_peer_packet(&udp_packet("new-id", 1689, "new"), ip));
+        assert!(!ingest_peer_packet(&udp_packet("new-id", 1689, "new"), ip), "同 IP 新 id 不得替换真实设备");
 
         {
             let guard = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(guard.values().filter(|d| d.ip == "192.168.60.5").count(), 1);
-            assert!(guard.contains_key("new-id"));
-            assert!(!guard.contains_key("old-id"));
+            assert!(guard.contains_key("old-id"));
+            assert!(!guard.contains_key("new-id"));
         }
 
         for i in 0..70u8 {
@@ -7178,14 +7412,14 @@ mod tests {
         let len = multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).len();
         assert_eq!(len, DISCOVERY_PEERS_MAX, "peers 应恰好填满上限");
 
-        // 满额时"同 IP 换 id"必须允许替换(不新增容量), 不能先删后拒
+        // 满额时同 IP 的新 id 也不能驱逐原条目
         let same_ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
-        assert!(ingest_peer_packet(&udp_packet("flood-0-new", 1688, "n"), same_ip));
+        assert!(!ingest_peer_packet(&udp_packet("flood-0-new", 1688, "n"), same_ip));
         {
             let guard = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(guard.len(), DISCOVERY_PEERS_MAX);
-            assert!(guard.contains_key("flood-0-new"));
-            assert!(!guard.contains_key("flood-0"));
+            assert!(guard.contains_key("flood-0"));
+            assert!(!guard.contains_key("flood-0-new"));
         }
         // 满额时新 IP 仍拒绝
         assert!(

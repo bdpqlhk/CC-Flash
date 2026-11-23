@@ -406,9 +406,7 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* ===== 主区 ===== */
 .main { flex: 1; overflow-y: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; }
 
-.main > * { animation: viewIn 0.28s ease; }
 
-@keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* 视图内容撑满视口, 消除底部空白 */
 /* 视图内容撑满视口, 消除底部空白 */
@@ -835,6 +833,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 再窄就舍弃副标题(纯装饰), 优先保证品牌与状态可读 */
 /* 再窄就舍弃副标题(纯装饰), 优先保证品牌与状态可读 */
 @media (max-width: 340px) {
+  /* 超窄屏优先保住「消息发送」标题：状态胶囊只留呼吸点 */
+  .tx-room-head .chip-label { display: none; }
+  .tx-room-head .chip { padding: 4px 7px; gap: 0; }
 }
 
 /* Toast / 弹窗 */
@@ -1184,7 +1185,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 /* 通用区块节奏(eyebrow → h2 → lead) */
 /* 通用区块节奏(eyebrow → h2 → lead) */
-.intro-overlay .sec { max-width: 1080px; margin: 0 auto; padding: 88px 24px; }
+.intro-overlay .sec { max-width: 1080px; margin: 0 auto; padding: 64px 24px; }
 
 .intro-overlay .sec + .sec { border-top: 1px solid var(--card-border); }
 
@@ -1195,7 +1196,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 /* Hero */
 /* Hero */
-.intro-overlay .hero { max-width: 1080px; margin: 0 auto; padding: 84px 24px 76px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 52px; align-items: center; }
+.intro-overlay .hero { max-width: 1080px; margin: 0 auto; padding: 64px 24px 38px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 52px; align-items: center; }
 
 .intro-overlay .hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1.22; margin-bottom: 18px; }
 
@@ -1453,7 +1454,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     .intro-overlay .inav { display: none; }
     .intro-overlay .steps { grid-template-columns: 1fr; }
     .intro-overlay .points, .intro-overlay .codes { grid-template-columns: 1fr; }
-    .intro-overlay .sec { padding: 64px 22px; }
+    .intro-overlay .sec { padding: 48px 22px; }
     .intro-overlay .sec h2 { font-size: 25px; }
 }
 
@@ -2286,7 +2287,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
     .tx-head { height: 52px; padding: 0 11px; gap: 7px; }
 
-    .tx-room { width: 28px; height: 28px; font-size: 7px; }
+    .tx-room { width: 32px; height: 32px; font-size: 16px; }
 
     .tx-room-title h2 { font-size: 15px; }
 
@@ -2756,7 +2757,7 @@ button:focus-visible, [role="button"]:focus-visible {
 .m-pagehead { display: flex; align-items: flex-start; gap: 8px; }
 
 .m-pagehead > div { min-width: 0; }
-.m-pagehead > div:not(.m-head-acts):not(.m-files-acts) { flex: 1; }
+.m-pagehead > div:not(.m-files-acts) { flex: 1; }
 
 .m-back {
     width: 30px; height: 34px; flex-shrink: 0; border: none; background: none;
@@ -3310,7 +3311,7 @@ button:focus-visible, [role="button"]:focus-visible {
 /* 全屏设备面板/文件 sheet 打开时，Toast 同样移到顶部，不遮住底部列表/操作 */
 body:has(.tx-devices.is-inline) .toast-container,
 body:has(.tx-files.sheet.open) .toast-container { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); }
-/* 手机四页的页头是信息与操作入口: 文件/设备页的 toast 下移到页头下方, 不再盖住标题和「选择/历史」 */
+/* 手机四页的页头是信息与操作入口: 文件/设备页的 toast 下移到页头下方, 不再盖住标题和「选择」 */
 body:has(.shell.has-mobile-tabs):has(.tx-files.sheet.open) .toast-container,
 body:has(.shell.has-mobile-tabs):has(.tx-devices.is-inline) .toast-container {
     top: auto; bottom: calc(148px + env(safe-area-inset-bottom, 0px));
@@ -3417,18 +3418,6 @@ body:has(.shell.has-mobile-tabs):has(.tx-devices.is-inline) .toast-container {
     color: var(--text2);
     letter-spacing: .04em;
 }
-.shell.has-mobile-tabs .m-head-acts { display: flex; gap: 6px; align-items: center; }
-.shell.has-mobile-tabs .m-head-acts button {
-    height: 28px;
-    padding: 0 9px;
-    border: 1px solid var(--card-border);
-    border-radius: 6px;
-    background: var(--card);
-    color: var(--text2);
-    font: 8.5px/1 var(--mono);
-    letter-spacing: .08em;
-}
-.shell.has-mobile-tabs .m-head-acts button:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--card-border)); }
 .shell.has-mobile-tabs .m-dev-stats {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -3526,7 +3515,6 @@ body:has(.shell.has-mobile-tabs):has(.tx-devices.is-inline) .toast-container {
 .shell.has-mobile-tabs .m-pagehead p { margin: 0; font: 9.5px/1.3 var(--mono); color: var(--text2); letter-spacing: .04em; }
 
 /* 手机 App · DEVICES 页头只保留 HISTORY（雷达本身可点扫描），避免副标题被按钮挤断 */
-.shell.has-mobile-tabs .m-dev-head .m-head-acts button[title="主动扫描"] { display: none; }
 .shell.has-mobile-tabs .m-dev-head .m-sub { font-size: 9px; letter-spacing: .02em; }
 
 /* 手机 App · 保留真实状态栏/刘海安全区（覆盖上面为桌面视觉写死的 padding-top） */
@@ -3748,7 +3736,6 @@ body:has(.shell.has-mobile-tabs):has(.tx-devices.is-inline) .toast-container {
 .shell.has-mobile-tabs .mtab-label { font-size: 11px; }
 .shell.has-mobile-tabs .m-sub { font-size: 11px; }
 .shell.has-mobile-tabs .m-dev-head .m-sub { font-size: 10.5px; }
-.shell.has-mobile-tabs .m-head-acts button,
 .shell.has-mobile-tabs .m-files-acts button { height: 36px; font-size: 11px; }
 .shell.has-mobile-tabs .m-file-no { font-size: 9px; }
 .shell.has-mobile-tabs .m-drop { font-size: 11px; }
@@ -3878,4 +3865,272 @@ body:has(.shell.has-mobile-tabs):has(.tx-devices.is-inline) .toast-container {
     .intro-overlay .cards { grid-template-columns: 1fr; }
     .intro-overlay .cards .card { border-right: 0; padding: 24px 0 26px; }
     .intro-overlay .cards .card:hover { background: transparent; }
+}
+
+/* Android 壳: 系统状态栏 inset 已由 MainActivity 处理, 这里只留视觉呼吸位 */
+html[data-android-app="1"] .shell.has-mobile-tabs .m-pagehead,
+html[data-android-app="1"] .shell.has-mobile-tabs .tx-devices.is-inline .m-dev-head,
+html[data-android-app="1"] .shell.has-mobile-tabs .tx-files.sheet.open .m-files-head {
+    padding-top: 8px;
+}
+html[data-android-app="1"] .shell.has-mobile-tabs .tx-head {
+    min-height: 58px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+html[data-android-app="1"] .shell.has-mobile-tabs > .main { padding-top: 0; }
+
+/* ============================================================
+ * 手机 App 设置页 · 按 design-demos/cc-flash-app/dir-3.html 收口
+ * 扁平分隔行 + 短文案 + 外观色板 + 版本尾注；不再用多层卡片。
+ * ============================================================ */
+.shell.has-mobile-tabs > .main { padding-top: 0; }
+.m-settings-head .m-settings-kicker {
+    font: 9px/1 var(--mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 6px;
+}
+.m-settings-head h1 { font-size: 28px; margin-top: 0; }
+.m-settings {
+    padding: 0 20px calc(18px + env(safe-area-inset-bottom, 0px));
+}
+.m-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 0;
+    border-top: 1px solid var(--card-border);
+}
+.m-setting-main { flex: 1; min-width: 0; }
+.m-setting-main b {
+    display: block;
+    font-size: 13.5px;
+    line-height: 1.35;
+    font-weight: 600;
+    color: var(--text);
+}
+.m-setting-main small {
+    display: block;
+    margin-top: 3px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text3);
+}
+.m-setting-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.m-setting-link {
+    border: 0;
+    background: transparent;
+    color: var(--accent-text);
+    font: 500 11px/1.2 var(--sans, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif);
+    padding: 7px 2px;
+    min-height: 32px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.m-setting-link:active { opacity: .65; }
+.m-setting-appearance { display: block; }
+.m-theme-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.m-settings .theme-sw {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+}
+.m-settings .theme-sw.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.m-mode-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.m-mode-btn {
+    min-height: 30px;
+    padding: 0 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text3);
+    font: 500 10.5px/1 var(--sans, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif);
+    cursor: pointer;
+}
+.m-mode-btn.on {
+    color: var(--accent-text);
+    background: var(--accent-bg);
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--card-border));
+}
+.m-version {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 15px 0 2px;
+    margin-top: 2px;
+    border-top: 1px solid var(--card-border);
+    font: 9px/1.3 var(--mono);
+    letter-spacing: .08em;
+    color: var(--text3);
+}
+.m-version b { color: var(--text2); font-weight: 500; letter-spacing: 0; }
+.m-settings .switch {
+    width: 44px;
+    height: 26px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text3) 26%, transparent);
+    border: 1px solid var(--card-border);
+}
+.m-settings .switch .knob {
+    width: 18px;
+    height: 18px;
+    top: 3px;
+    left: 3px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,.28);
+}
+.m-settings .switch.on { background: var(--accent); border-color: var(--accent); }
+.m-settings .switch.on .knob { transform: translateX(18px); background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+@media (max-width: 360px) {
+    .m-settings { padding-left: 16px; padding-right: 16px; }
+    .m-settings-head h1 { font-size: 26px; }
+}
+.m-settings .m-setting-danger { color: var(--danger); }
+
+/* 发送面板跟随当前皮肤：所有色值走主题 token，不再写死墨绿/薄荷绿 */
+.send-dialog {
+    --sd-bg: var(--panel);
+    --sd-panel: var(--card);
+    --sd-line: var(--card-border);
+    --sd-ink: var(--text);
+    --sd-muted: var(--text2);
+    --sd-faint: var(--text3);
+    --sd-accent: var(--accent);
+    --sd-btn-ink: #0b0f0d;
+    background: var(--sd-bg);
+    border-color: var(--sd-line);
+}
+[data-mode="light"][data-theme="signal"] .send-dialog { --sd-btn-ink: #fff; }
+.send-dialog-overlay { background: rgba(0, 0, 0, .56); }
+.send-tabs button.on {
+    color: var(--accent-text);
+    background: var(--accent-bg);
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border));
+    box-shadow: none;
+}
+.send-drop {
+    border-color: var(--sd-line);
+    background:
+        radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+        var(--sd-panel);
+}
+.send-drop:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--sd-line)); }
+.send-drop-ic {
+    color: var(--accent-text);
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--sd-line));
+    background: var(--accent-bg);
+}
+.send-quick button {
+    border-color: var(--sd-line);
+    background: var(--sd-panel);
+    color: var(--sd-muted);
+}
+.send-quick button:hover { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 45%, var(--sd-line)); }
+.send-file-ic { background: var(--accent-bg); color: var(--accent-text); }
+.send-file button:hover { color: var(--danger); }
+.send-clip-load { border-color: var(--sd-line); background: var(--accent-bg); color: var(--accent-text); }
+.send-dialog-send { color: var(--sd-btn-ink); }
+.send-dialog-send:hover { background: var(--accent); filter: brightness(1.08); }
+
+/* 侧栏品牌行：给「介绍」胶囊留出稳定空间，避免右侧被裁切/滚动条压住 */
+.brand { gap: 4px; padding-left: 0; padding-right: 0; }
+.brand .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.intro-entry { gap: 3px; padding-left: 6px; padding-right: 6px; }
+
+/* Pet 是独立透明窗口，主题的 body 背景规则不能把它重新刷成 --bg。
+   这条必须放在所有 [data-theme] body 规则之后。 */
+body:has(.qr-pet),
+body.pet-bg-clear {
+    background: transparent !important;
+}
+
+/* 配对码弹框: 取消是低优先级出口，做成居中的轻量文字按钮，不和主 CTA 抢视觉 */
+.pin-box .pin-cancel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 38px;
+    margin-top: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text3);
+    font: 500 12.5px/1 var(--sans, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif);
+    cursor: pointer;
+    border-radius: 8px;
+}
+.pin-box .pin-cancel:hover { color: var(--text); background: color-mix(in srgb, var(--card) 60%, transparent); }
+.pin-box .pin-cancel:active { opacity: .7; }
+
+/* 附近设备卡：主体是发送按钮，右侧独立动作栏（收藏上、传输历史下），
+   避免在 <button> 内嵌套可点击元素。 */
+.tx-device {
+    align-items: stretch;
+    padding: 5px 6px 5px 9px;
+}
+.tx-device-pick {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 1px 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+.tx-device-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.tx-device-actions {
+    flex: none;
+    width: 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2px;
+}
+.tx-device-fav,
+.tx-device-history {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text3);
+    cursor: pointer;
+}
+.tx-device-fav:hover,
+.tx-device-history:hover { color: var(--accent-text); background: var(--accent-bg); }
+.tx-device-fav.on { color: var(--warning); }
+.tx-device-fav.on svg { fill: currentColor; }
+.tx-device-fav svg,
+.tx-device-history svg { display: block; }
+
+/* 空 toast 容器不得吞掉弹框点击；弹框态同时清掉移动端遗留的 bottom，
+   否则 top:12 + bottom:148 会把容器拉成整屏高。 */
+.toast-container { pointer-events: none; }
+.toast-msg { pointer-events: auto; }
+body:has(.dialog-overlay) .toast-container {
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    bottom: auto !important;
+    height: auto;
+}
+
+/* Android 手机浏览器：浏览器自身已占用状态栏/地址栏，头部不再重复加 safe-area */
+html[data-android-browser="1"] .tx-head {
+    height: 52px;
+    padding-top: 0;
 }

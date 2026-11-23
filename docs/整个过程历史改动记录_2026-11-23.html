@@ -1,0 +1,51 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-23 实时同步与全端校准</title>
+<style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
+<h1>CC Flash · 2026-11-23 实时同步与全端校准</h1>
+<div class="meta">版本：v1.2.6+ · 本文件记录本轮全量复审后的修复与验证；与《技术实现文档》《需求设计文档》《保姆级使用说明》配套阅读。</div>
+<div class="callout"><b>本轮重点</b>设备在线态改为服务端权威 + WebSocket 实时同步；发送面板跟随皮肤；移动设置页按 dir-3 设计稿收口；悬浮窗透明背景、昵称弹框点击、配对取消按钮和附近设备收藏/历史入口修复；同时补齐发布与安全边界。</div>
+
+<h2>一、设备发现与在线态</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>两台设备频繁在在线/离线切换：前端 6s 阈值、后端 15s TTL，3s 轮询/多播丢包就会跳变。</td><td>后端 TTL 30s，服务端按 12s 宽限计算 <code>online</code>；前端直接使用服务端字段，不再用浏览器时钟猜状态。</td></tr>
+<tr><td>WS 在线时事件触发的加载失败无重试，时间线/文件列表可能长期停在旧数据。</td><td>聊天/文件加载失败安排 2s 补拉；WS 仍保留 3s 轮询兜底。</td></tr>
+<tr><td>多播/广播被 Android/企业 Wi-Fi 单向过滤，首次发现后心跳断。</td><td>已知 peer 每 3s 单播 announce；每 5s 单播 probe 兼容旧版本；子网 /24 扫描改为仅用户显式「扫描」触发。</td></tr>
+<tr><td>每条 UDP 报文都广播完整设备列表，存在放大风险。</td><td>仅新增/字段变化立即推 <code>devices:presence</code>；普通心跳合并为 3s 周期全量 presence。</td></tr>
+<tr><td>设备列表在设备静默后仍显示 online。</td><td>3s 周期 presence 重算 <code>online</code>，12s 无心跳准时变离线，30s 才移除。</td></tr>
+</table>
+
+<h2>二、发送面板、设置与设备卡片</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>发送面板固定墨绿，和当前皮肤不一致。</td><td>面板所有颜色改用主题 token：背景、边框、Tab、拖拽区、文件图标、发送按钮；信号台/玫瑰/薄荷/亮色均已验证。</td></tr>
+<tr><td>手机设置页卡片多、说明长。</td><td>按 <code>design-demos/cc-flash-app/dir-3.html</code> 改为扁平行：令牌、剪贴板、重启、外观、版本行；开关文案精简，外观保留配色芯片与亮/暗/跟随系统。</td></tr>
+<tr><td>附近设备只有星标，操作入口不清晰。</td><td>设备卡右侧独立动作栏：右上收藏、右下传输历史；主体选择按钮与动作分离，避免嵌套按钮。</td></tr>
+<tr><td>配对码弹框取消按钮贴左、视觉过重。</td><td>改为居中的轻量文字按钮；toast 空容器设为 <code>pointer-events:none</code> 且弹框时 <code>bottom:auto</code>，避免整屏透明层吞点击。</td></tr>
+<tr><td>悬浮二维码底部黑块。</td><td>主题 <code>body</code> 背景覆盖了 Pet 透明规则；在样式末尾强制透明，并给 Pet WebView 设置 alpha=0 背景。</td></tr>
+<tr><td>桌面主区在窗口切后台/未聚焦时整块空白，只剩侧栏。</td><td>移除 <code>.main &gt; *</code> 的 opacity 淡入动画；WKWebView 在窗口不可见时会暂停动画，停在 opacity:0。主内容现在始终可见，不再依赖动画首帧。</td></tr>
+<tr><td>手机浏览器（vivo 等）顶部出现整条空白，输入框占位文字换行。</td><td>仅在可视高度缩小（键盘）时使用 <code>visualViewport.offsetTop</code>；普通 Android 浏览器标记 <code>data-android-browser</code>，页头不再叠加 <code>env(safe-area-inset-top)</code>，地址栏/状态栏不会形成整条空白；移动浏览器占位文案缩短为「说点什么…」。</td></tr>
+</table>
+
+<h2>三、安全与发布</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>开启/轮换 PIN 后旧 WS 仍订阅事件。</td><td><code>set_access_pin_cmd</code> 调用 <code>ws_kick</code>，旧连接重新认证。</td></tr>
+<tr><td>移动端开启令牌后本机请求先 401。</td><td><code>toggleAccessPin</code> 成功后立即把返回 PIN 写入 <code>accessPin</code>，媒体/列表刷新不再弹配对框。</td></tr>
+<tr><td>对端 PIN 以 <code>ip:port</code> 记忆，地址复用可能把 PIN 发给冒名设备。</td><td>改为稳定设备 <code>id</code> 键，地址/端口变化不会命中旧 PIN。</td></tr>
+<tr><td>聊天/探测 body 在限流前缓冲，存在内存耗尽风险。</td><td>chat body 上限 256KB、probe 4KB；新增全局 body 许可（32），先于 handler 限制并发。</td></tr>
+<tr><td>一次性票据可借 Range 重放；<code>bytes=0-</code> 可整包重复。</td><td>RecentTicket 取原始票据过期时间上限，拒绝已消费票据的 <code>bytes=0-</code> 整包 Range。</td></tr>
+<tr><td>同 IP 随机新 id 可驱逐真实设备。</td><td>同 IP 已有未过期 id 时拒绝新 id，旧条目 30s TTL 后再登记。</td></tr>
+<tr><td>发版未签名包会自动公开；资产只按扩展名检查；密钥守卫漏加密 PEM。</td><td>缺签名 Secrets 时 publish 失败并保持草稿；精确校验四个资产名；私钥守卫补加密 PEM 与 <code>.p8/.key/.cer/.der/.pfx/.pem</code>；<code>design-demos/</code> 加入忽略。</td></tr>
+<tr><td>API 兜底生成提交与本地 refs 分叉。</td><td><code>api-push.sh</code> 增加祖先/fast-forward 校验；后续发版前仍需按脚本提示同步本地 refs。</td></tr>
+</table>
+
+<h2>四、验证</h2>
+<ul>
+<li><code>cargo test</code>：24/24 通过；<code>cargo check</code> 通过。</li>
+<li><code>npm run build</code>：通过。</li>
+<li>发送面板：信号台、石墨玫瑰、森林薄荷、亮色信号台均验证为主题色。</li>
+<li>昵称弹框：手机端填写并保存后头像更新、弹框关闭、localStorage 写入；空 toast 容器不再拦截按钮。</li>
+<li>设备在线态：服务端 <code>online</code> 字段 + 3s 周期 presence；设备静默 12s 切离线、30s 移除。</li>
+</ul>
+<p class="small">CC Flash · 2026-11-23 · 本文件为当前实现的同步说明</p>
+</body></html>

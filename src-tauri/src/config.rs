@@ -36,7 +36,7 @@ pub const CHAT_MAX: usize = 200;
 pub const NICK_MAX_CHARS: usize = 20;
 /// 单条消息长度上限 [同步: config.js MSG_MAX] —— 随 /api/info 下发, 前端运行时以服务端为准。
 /// 超过上限直接 400, 不再静默截断(用户必须知道尾部没有发送出去)。
-pub const MSG_MAX_CHARS: usize = 200_000;
+pub const MSG_MAX_CHARS: usize = 20_000;
 /// 聊天历史总字符预算: 保留 200 条的条数上限之外再限总量, 防止 200 条 × 20 万字
 /// (≈数千万字符)把内存、历史落盘和全量拉取撑爆; 超限从最旧的开始淘汰。
 pub const CHAT_TOTAL_MAX_CHARS: usize = 2_000_000;

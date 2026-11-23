@@ -19,8 +19,10 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 </style>
 </head>
 <body>
+<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
+
 <h1>CC Flash · 整个过程历史改动记录</h1>
-<div class="meta">时段：<b>2026-11-22</b> · 版本：<b>v1.2.5+ 全量复审修复（未发新 tag）</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
+<div class="meta">时段：<b>2026-11-22</b> · 版本：<b>v1.2.6 全量复审修复（未发新 tag）</b> · 与《技术实现文档》《需求设计文档》《后期规划》配套阅读</div>
 <div class="callout"><b>本段主题</b>按“全量代码 + 全平台”做一次深度复审，覆盖后端、桌面壳、Android 壳、iOS 条件路径、电脑/手机浏览器与 PWA。修复安全/数据完整性、上传下载、PIN、剪贴板、移动四页、发送面板、未读语义、审计日志等问题；随后同步 README、README.en、docs 全目录与应用内介绍页。没有新增版本 tag，所有改动在 v1.2.5 之上。</div>
 
 <h2>一、后端安全与数据完整性</h2>
@@ -54,7 +56,7 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <h2>三、文档与介绍页</h2>
 <ul>
 <li><b>README / README.en</b>：版本日期改为 2026-11-22；补充上传大小强制、Range 后缀、Windows 别名、CSPRNG/ENABLED 标记、媒体会话令牌、审计预留、发现 bye 令牌；剪贴板改为本机服务内共享口径；历史记录索引新增 11-22。</li>
-<li><b>docs 全目录</b>：统一顶部“最新实现 v1.2.5+ · 2026-11-22”、文档日期与页脚；设计/方案文档的“当前形态”补齐四页与剪贴板边界；需求/技术/保姆级/软件介绍/规划/推广追加本轮详细说明。</li>
+<li><b>docs 全目录</b>：统一顶部“最新实现 v1.2.6 · 2026-11-22”、文档日期与页脚；设计/方案文档的“当前形态”补齐四页与剪贴板边界；需求/技术/保姆级/软件介绍/规划/推广追加本轮详细说明。</li>
 <li><b>应用内介绍页</b>：安全 FAQ、消息工作台卡片、剪贴板卡片与安全说明同步；补充文件页本机上传、发送面板错误/配对码可见、媒体会话令牌、CSPRNG/enabled 标记。</li>
 </ul>
 
@@ -62,7 +64,7 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <ul>
 <li><code>cargo check --manifest-path src-tauri/Cargo.toml</code>：通过。</li>
 <li><code>cargo test --manifest-path src-tauri/Cargo.toml</code>：<b>24/24</b> 通过（含 <code>bytes=-3</code> 后缀 Range、普通 <code>.ccpart</code> 保留、媒体会话 IP 绑定/过期、媒体会话下载 E2E、PIN/CSPRNG）。</li>
-<li><code>npm run build</code>：通过；<code>dist</code> 合计 543,163 B（主 JS 329,232 B、CSS 129,398 B、QR 24,533 B、dialog 分块 1,248 B）。</li>
+<li><code>npm run build</code>：通过；<code>dist</code> 合计 541,530 B（主 JS 322,224 B、CSS 134,734 B、QR 24,533 B、dialog 分块 1,248 B）。</li>
 <li><b>Windows 别名</b>：尾随点/空格/ADS/8.3 的攻击路径为代码级推演，未在 Windows 实机复现；已通过读路径拒绝 + canonical 真实名双重防护，建议发布前在 Windows 实机做一次慢速上传+删除回归。</li>
 <li><b>iOS 原生</b>：仍未交付（无 gen/apple、签名、multicast/后台模式）；iOS 使用 Safari 网页版。原生壳的下载/PDF 预览/键盘适配留待 iOS 适配时处理。</li>
 <li><b>发现协议</b>：bye 已加会话令牌，但 announce 仍可伪造；强认证需要设备配对/公钥签名，列入后续规划。</li>
@@ -83,8 +85,8 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 <tr><th>项</th><th>改动/结果</th></tr>
 <tr><td>Rust 依赖</td><td>移除 <code>tokio-util</code>、<code>chrono</code>；本地时间改用 <code>libc::localtime_r</code> / Windows <code>GetLocalTime</code>；tokio 显式 features。</td></tr>
 <tr><td>插件与 capability</td><td><code>dialog</code>/<code>notification</code> 只在桌面依赖并注册；移动端 capability 不再声明；前端 <code>@tauri-apps/plugin-dialog</code> 动态分块。</td></tr>
-<tr><td>前端</td><td>CSS 改用 lightningcss；清理 <code>.manual-*</code>、<code>.tx-sec-label</code>、<code>.tx-radar-empty</code>、<code>.tx-idcard-sheet</code> 等死样式；最终 <code>dist</code> 543,163 B、CSS 129,398 B、主 JS 329,232 B、QR 24,533 B、dialog 1,248 B。</td></tr>
-<tr><td>macOS</td><td>arm64 二进制 4,067,760 B、.app 4.10 MiB、dmg 2,855,817 B；x64 二进制 5,037,136 B、.app 5.03 MiB、dmg 2,975,838 B。</td></tr>
+<tr><td>前端</td><td>CSS 改用 lightningcss；清理 <code>.manual-*</code>、<code>.tx-sec-label</code>、<code>.tx-radar-empty</code>、<code>.tx-idcard-sheet</code> 等死样式；最终 <code>dist</code> 541,530 B、CSS 134,734 B、主 JS 322,224 B、QR 24,533 B、dialog 1,248 B。</td></tr>
+<tr><td>macOS</td><td>arm64 二进制 4,084,368 B、.app 4.12 MiB、dmg 2,857,564 B；x64 二进制 5,045,392 B、.app 5.03 MiB、dmg 2,975,643 B。</td></tr>
 <tr><td>未本机构建</td><td>Windows 安装包、Android APK、iOS 包；配置已减少移动端插件与资源，需在对应工具链复测最终体积。</td></tr>
 </table>
 

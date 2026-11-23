@@ -5,7 +5,7 @@
  * 注意: Service Worker 只在 https 或 localhost 下可用。http://局域网IP
  * 不是安全上下文, 浏览器会直接拒绝注册 —— 这属于浏览器策略, 不是应用 bug。
  */
-const CACHE = "ccflash-shell-v2";
+const CACHE = "ccflash-shell-v3";
 const SHELL = ["/", "/logo.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -48,7 +48,7 @@ self.addEventListener("fetch", (e) => {
         .then((r) => {
           if (r && r.ok) {
             const copy = r.clone();
-            caches.open(CACHE).then((c) => c.put("/", copy)).catch(() => {});
+            e.waitUntil(caches.open(CACHE).then((c) => c.put("/", copy)).catch(() => {}));
           }
           return r;
         })
@@ -63,7 +63,7 @@ self.addEventListener("fetch", (e) => {
       caches.match(req).then((hit) => hit || fetch(req).then((r) => {
         if (r && r.ok) {
           const copy = r.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          e.waitUntil(caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {}));
         }
         return r;
       }))
@@ -77,7 +77,7 @@ self.addEventListener("fetch", (e) => {
       const net = fetch(req).then((r) => {
         if (r && r.ok) {
           const copy = r.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          e.waitUntil(caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {}));
         }
         return r;
       }).catch(() => hit);
