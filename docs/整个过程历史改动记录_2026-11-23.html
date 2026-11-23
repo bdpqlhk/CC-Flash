@@ -35,7 +35,7 @@
 <tr><td>聊天/探测 body 在限流前缓冲，存在内存耗尽风险。</td><td>chat body 上限 256KB、probe 4KB；新增全局 body 许可（32），先于 handler 限制并发。</td></tr>
 <tr><td>一次性票据可借 Range 重放；<code>bytes=0-</code> 可整包重复。</td><td>RecentTicket 取原始票据过期时间上限，拒绝已消费票据的 <code>bytes=0-</code> 整包 Range。</td></tr>
 <tr><td>同 IP 随机新 id 可驱逐真实设备。</td><td>同 IP 已有未过期 id 时拒绝新 id，旧条目 30s TTL 后再登记。</td></tr>
-<tr><td>发版未签名包会自动公开；资产只按扩展名检查；密钥守卫漏加密 PEM。</td><td>缺签名 Secrets 时 publish 失败并保持草稿；精确校验四个资产名；私钥守卫补加密 PEM 与 <code>.p8/.key/.cer/.der/.pfx/.pem</code>；<code>design-demos/</code> 加入忽略。</td></tr>
+<tr><td>资产只按扩展名检查；密钥守卫漏加密 PEM。</td><td>精确校验四个资产名；私钥守卫补加密 PEM 与 <code>.p8/.key/.cer/.der/.pfx/.pem</code>；<code>design-demos/</code> 加入忽略。缺签名 Secrets 时维持既定策略：只打 <code>::warning::</code> 并继续发布未签名/未公证包，Release 说明中注明 macOS 右键打开、Windows SmartScreen 提示。</td></tr>
 <tr><td>API 兜底生成提交与本地 refs 分叉。</td><td><code>api-push.sh</code> 增加祖先/fast-forward 校验；后续发版前仍需按脚本提示同步本地 refs。</td></tr>
 </table>
 

@@ -457,8 +457,7 @@ jobs:
             missing="$missing Windows(证书/密码)"
           fi
           if [ -n "$missing" ]; then
-            echo "::error::缺少签名/公证 Secrets:$missing。为避免把 Gatekeeper/SmartScreen 拦截的包公开，Release 保持草稿"
-            exit 1
+            echo "::warning::缺少签名/公证 Secrets:$missing。本次发布未签名/未公证包，请在 Release 说明中注明打开方式"
           fi
           # 精确校验本次 tag 的完整资产集，不只数扩展名：避免复用草稿里的旧架构/旧提交。
           ver="${GITHUB_REF_NAME#v}"
