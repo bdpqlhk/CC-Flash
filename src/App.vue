@@ -2207,7 +2207,7 @@ function onDocShareHover(e) {
    预先开好前 8 张票, 分享点击才能同步复制 */
 function prefetchPageTickets() {
   if (!(accessPin.value || pinCode.value || pinEnabled.value)) return;
-  for (const f of pageFiles.value) prefetchShareTicket(f.name);
+  for (const f of pageFiles.value.slice(0, 8)) prefetchShareTicket(f.name);
 }
 
 /* 浏览器旧页面/图片预览仍使用 PIN；壳内走回环豁免。 */
@@ -2363,7 +2363,11 @@ async function retryPreview() {
   const now = Date.now();
   if (now - previewRetryAt < 2500) return;
   previewRetryAt = now;
-  const url = await authedPreviewUrl(previewName.value);
+  const seq = previewSeq;
+  const name = previewName.value;
+  const url = await authedPreviewUrl(name);
+  // 期间切到别的文件/关闭预览: 迟到的旧地址不得写进新预览
+  if (seq !== previewSeq || name !== previewName.value) return;
   if (url) { previewUrl.value = url; previewErr.value = ""; }
   else previewErr.value = "加载失败";
 }
@@ -2606,6 +2610,11 @@ function onPickDir(e) {
 }
 function handleFiles(list) {
   if (!list || !list.length) return;
+  if (serviceDown()) {
+    // 服务未启动时不要把整批文件入队逐个失败: 一个提示, 不产生 N 个 toast/请求
+    showToast(running.value ? "服务正在重连，请稍后重试" : "服务未启动，无法上传", "error");
+    return;
+  }
   const arr = Array.from(list);
   const now = Date.now();
   // 同一批选择 / 拖入 / 粘贴共享一个 batch；60s 内的连续上传继续归入同一批。
@@ -3516,12 +3525,28 @@ async function directSendFiles(p, files, opts = {}) {
           xhr.setRequestHeader("X-Nickname", encodeURIComponent(curNick.value));
           if (pin) xhr.setRequestHeader("X-Access-Pin", pin);
           xhr.timeout = 10 * 60 * 1000;
-          xhr.onload = () => (xhr.status === 200 ? resolve() : reject(new Error(String(xhr.status))));
-          xhr.onerror = () => reject(new Error("network"));
-          xhr.ontimeout = () => reject(new Error("timeout"));
+          // 半开连接时 XHR 既不 error 也不 timeout: 125s 无上传进展就中止,
+          // 否则 directSending 会锁死 10 分钟并阻塞后续直发。
+          let lastTick = Date.now();
+          let settled = false;
+          const done = (err) => {
+            if (settled) return;
+            settled = true;
+            clearInterval(stall);
+            err ? reject(err) : resolve();
+          };
+          const stall = setInterval(() => {
+            if (Date.now() - lastTick <= 125000) return;
+            try { xhr.abort(); } catch (_) {}
+            done(new Error("timeout"));
+          }, 5000);
+          xhr.upload.onprogress = () => { lastTick = Date.now(); };
+          xhr.onload = () => done(xhr.status === 200 ? null : new Error(String(xhr.status)));
+          xhr.onerror = () => done(new Error("network"));
+          xhr.ontimeout = () => done(new Error("timeout"));
           const abort = () => {
             try { xhr.abort(); } catch (_) {}
-            reject(new Error("aborted"));
+            done(new Error("aborted"));
           };
           if (opts.signal) {
             if (opts.signal.aborted) abort();
@@ -4635,6 +4660,7 @@ let toastSeq = 0;
 function showToast(msg, type = "success", action = null) {
   const id = ++toastSeq;
   toasts.value.push({ id, msg, type, action });
+  if (toasts.value.length > 5) toasts.value.splice(0, toasts.value.length - 5);
   // 带操作(如"撤销")的提示停留更久, 给用户反应时间
   setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, action ? 4000 : TOAST_MS);
 }
@@ -5473,6 +5499,11 @@ async function refreshStatus() {
       connectWs();
     }
     running.value = d.running;
+    // 移动壳本机服务停止时 control_status_cmd 仍正常返回 running:false,
+    // 不会进入 catch; 必须显式进入失联层, 否则没有"重新启动本机服务"入口。
+    if (mobileShell && isLocalAddr(serverAddr.value) && !d.running) {
+      offline.value = true;
+    }
     port.value = d.port;
     if (typeof d.openLan === "boolean") openLanEnabled.value = d.openLan;
     if (typeof d.lanActive === "boolean") lanActive.value = d.lanActive;
