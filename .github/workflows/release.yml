@@ -226,7 +226,7 @@ jobs:
         run: |
           set -e
           if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-            echo "::notice::未配置 Apple 证书，跳过签名校验（publish 会失败并保持草稿）"
+            echo "::notice::未配置 Apple 证书，跳过签名校验（publish 会继续发布未签名包）"
             exit 0
           fi
           APP=$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d | head -1)
@@ -243,7 +243,7 @@ jobs:
         shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            Write-Host "::notice::未配置 Windows 证书，跳过签名校验（publish 会保持草稿）"
+            Write-Host "::notice::未配置 Windows 证书，跳过签名校验（publish 会继续发布未签名包）"
             exit 0
           }
           $exe = Get-ChildItem -Path src-tauri/target -Recurse -Filter '*-setup.exe' | Select-Object -First 1
@@ -251,6 +251,40 @@ jobs:
           $sig = Get-AuthenticodeSignature $exe.FullName
           if ($sig.Status -ne 'Valid') { throw "Windows 签名无效: $($sig.Status) $($sig.StatusMessage)" }
           Write-Host "✔ Windows Authenticode 校验通过"
+
+      # 四段 tag(vX.Y.Z.W) 的第四段是构建号, 但 Tauri 应用版本必须是 semver(仅三段),
+      # bundle 默认文件名只带 1.2.7。这里把本地产物复制成四段名(与 tag 完全一致),
+      # 删除默认名资产后重新上传; 三段 tag 时新旧名相同, 直接跳过。
+      - name: 资产名补齐四段构建号
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          BUILDVER: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          APPVER=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$BUILDVER" = "$APPVER" ]; then
+            echo "三段 tag(v$BUILDVER), 资产名无需调整"
+            exit 0
+          fi
+          case "$RUNNER_OS" in
+            macOS)   pattern='*/release/bundle/dmg/*.dmg' ;;
+            Windows) pattern='*/release/bundle/nsis/*.exe' ;;
+            *)       exit 0 ;;
+          esac
+          files=()
+          while IFS= read -r -d '' f; do files+=("$f"); done < <(find src-tauri/target -path "$pattern" -type f -print0)
+          [ ${#files[@]} -gt 0 ] || { echo "::error::未找到待改名的产物($pattern)"; exit 1; }
+          for f in "${files[@]}"; do
+            old=$(basename "$f")
+            new=${old//"_${APPVER}_"/"_${BUILDVER}_"}
+            if [ "$old" = "$new" ]; then echo "跳过 $old"; continue; fi
+            cp "$f" "$RUNNER_TEMP/$new"
+            gh release delete-asset "$TAG" "$old" --yes
+            gh release upload "$TAG" "$RUNNER_TEMP/$new"
+            echo "✔ $old → $new"
+          done
 
   # ---- Android: arm64-v8a 单包(必须用发布证书 Secrets 走 release 签名; 缺失则 job 失败) ----
   android:
@@ -460,13 +494,11 @@ jobs:
             echo "::warning::缺少签名/公证 Secrets:$missing。本次发布未签名/未公证包，请在 Release 说明中注明打开方式"
           fi
           # 精确校验本次 tag 的完整资产集，不只数扩展名：避免复用草稿里的旧架构/旧提交。
-          # 四段 tag(vX.Y.Z.W) 的第四段只是构建号: dmg/exe 由 Tauri 按应用版本(前三段)命名,
-          # APK 由 android job 的重命名步骤用完整 tag(dest=CC-Flash-${ref_name}-android-*.apk)。
-          # 两者不区分会把正常重建包误判为"缺少资产"(dmg/exe 与 prepare 的 base 逻辑对齐)。
-          ver="${GITHUB_REF_NAME#v}"
-          tagver="$ver"
-          case "$ver" in *.*.*.*) ver="${ver%.*}" ;; esac
-          for want in "CC-Flash_${ver}_aarch64.dmg" "CC-Flash_${ver}_x64.dmg" "CC-Flash_${ver}_x64-setup.exe" "CC-Flash-v${tagver}-android-arm64-v8a.apk"; do
+          # 四段 tag(vX.Y.Z.W) 的构建号会由 desktop/android job 补进文件名:
+          # dmg/exe 在 desktop 尾部改名为完整 tag 版本, APK 由 android job 用完整 tag 重命名;
+          # 因此四项都以 tagver 校验, 不再假设 Tauri 产物名只带前三段。
+          tagver="${GITHUB_REF_NAME#v}"
+          for want in "CC-Flash_${tagver}_aarch64.dmg" "CC-Flash_${tagver}_x64.dmg" "CC-Flash_${tagver}_x64-setup.exe" "CC-Flash-v${tagver}-android-arm64-v8a.apk"; do
             printf '%s\n' "$assets" | grep -Fxq "$want" || { echo "::error::Release 缺少资产 $want"; exit 1; }
           done
           gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false

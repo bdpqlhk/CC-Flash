@@ -96,7 +96,7 @@ npm run tauri build    # 发布构建：自动产出 .app / .dmg / .exe
 ./scripts/release.sh 1.2.2.1 "feat: 更新说明"
 ```
 
-版本号支持 `X.Y.Z` 与四段 `X.Y.Z.W`：**git tag 使用完整四段（如 `v1.2.2.1`）**，第四段是同一应用版本内的构建号；应用版本（Cargo.toml / 安装包）取前三段（`1.2.2`），CI 会校验四段 tag 的前三位与 `Cargo.toml` 一致，并额外校验 `package.json`、`config.js` 兜底版本与 Android `versionCode` 是否同步。`release.sh` 同时按 `major×10^7 + minor×10^5 + patch×10^2 + build` 计算 Android `versionCode`（上限 2.1e9），保证同版本迭代可覆盖安装。
+版本号支持 `X.Y.Z` 与四段 `X.Y.Z.W`：**git tag 使用完整四段（如 `v1.2.2.1`）**，第四段是同一应用版本内的构建号；应用版本（Cargo.toml / 安装包）取前三段（`1.2.2`），CI 会校验四段 tag 的前三位与 `Cargo.toml` 一致，并额外校验 `package.json`、`config.js` 兜底版本与 Android `versionCode` 是否同步。`release.sh` 同时按 `major×10^7 + minor×10^5 + patch×10^2 + build` 计算 Android `versionCode`（上限 2.1e9），保证同版本迭代可覆盖安装。**交付文件名统一使用完整四段版本**（如 `CC-Flash_1.2.2.1_aarch64.dmg`、`CC-Flash_1.2.2.1_x64-setup.exe`、`CC-Flash-v1.2.2.1-android-arm64-v8a.apk`）；Android 的 `versionName` 同步为该版本（缺省不再是 `1.0`），安装器里可直接看到构建号。
 
 自动完成：升版本（Cargo.toml 唯一来源）→ 同步兜底版本 / `package.json` / Android `versionCode` → 提交 → 打标签 → 推送 → CI 三平台构建并挂到 Release。
 

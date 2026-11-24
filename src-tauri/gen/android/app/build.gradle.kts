@@ -30,8 +30,25 @@ android {
         applicationId = "com.ccflash.app"
         minSdk = 24
         targetSdk = 37
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        val tauriVersionCode =
+            tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        // Tauri CLI 在 Android 上固定写入 versionName=1.0(与桌面/应用版本无关),
+        // 安装器里就会显示 "1.0"。优先使用发版流程注入的完整构建版本(四段 tag 去 v);
+        // 本地构建没有该变量时, 按 versionCode 的编码规则
+        // (major*1e7 + minor*1e5 + patch*1e2 + build) 反解, 保证与 Release 版本一致。
+        val derivedVersionName = listOf(
+            tauriVersionCode / 10_000_000,
+            (tauriVersionCode / 100_000) % 100,
+            (tauriVersionCode / 100) % 100,
+            tauriVersionCode % 100
+        ).joinToString(".")
+        versionCode = tauriVersionCode
+        versionName = (
+            System.getenv("CCFLASH_BUILD_VERSION")?.takeIf { it.isNotBlank() }
+                ?: tauriProperties.getProperty("tauri.android.versionName", "1.0")
+                    .takeIf { it != "1.0" }
+                ?: derivedVersionName
+            )
     }
     // 发布证书: 从 CI 注入的 CC_KEYSTORE_* 环境变量读取(见 .github/workflows/release.yml)。
     // 本地未设置这些变量时 storeFile 为空 → release 产出 unsigned 包, 与模板默认行为一致。
