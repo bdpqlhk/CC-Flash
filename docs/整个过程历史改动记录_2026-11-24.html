@@ -77,5 +77,19 @@
 <tr><td>真实渲染审查需要手动改代码才能看到移动壳。</td><td>新增仅开发态生效的 <code>?mobilePreview=1</code> 预览开关（支持 <code>tab</code> / <code>mode</code> / <code>theme</code> 参数），生产构建 tree-shake；本轮用 390×844 真实视口截图逐页复核。</td></tr>
 </table>
 
+<h2>十一、全量代码审查（全平台）</h2>
+<table>
+<tr><th>问题</th><th>处理</th></tr>
+<tr><td>全平台 <code>--mono</code>/<code>--sans</code> 等 token 未定义，font 简写静默失效，信号台读数回退 14px。</td><td>补齐 <code>:root</code> token；移动三页功能字号 11–13px、输入框 16px、未读/危险角标对比度修正。</td></tr>
+<tr><td>body 闸门在鉴权前占许可，32 条慢 POST body 可让聊天/剪贴板/分享全部 429。</td><td>鉴权先于闸门；按来源限 4 条 + 30s 超时，超时/断连释放许可。</td></tr>
+<tr><td>IPv6 link-local（fe80::/64）被所有设备共用，限流按 /64 聚合导致一台设备拖累全体。</td><td>link-local 改用完整地址做限流 key；全局/ULA 仍保留 /64 聚合。</td></tr>
+<tr><td>剪贴板 DELETE 无任何限流且每次空删除也落盘/广播。</td><td>复用 <code>clip_admit</code>；空槽直接返回，不写盘不广播。</td></tr>
+<tr><td>发现协议的 IPv6→IPv4 迁移只要求“有一方令牌为空”，可被已知 id 劫持。</td><td>迁移必须双方令牌非空且一致；空令牌旧版不迁移。</td></tr>
+<tr><td>release.sh 的私钥守卫漏 base64 JKS；FORCE_REPUBLISH 无法重建已存在 tag。</td><td>补 base64 解码魔数检查 + <code>key.properties</code> 文件名；重发前确认 Release 未公开并删除远端旧 tag。</td></tr>
+<tr><td>macOS 只配证书、缺公证凭据时 stapler 必然失败。</td><td>公证四件套只注入非空值；缺凭据时跳过 stapler 并 warning。</td></tr>
+<tr><td>移动壳本机服务停止后没有失联层/恢复入口；服务停时批量上传刷屏；预览重试竞态；直发无停滞看门狗；票据预取打满配额。</td><td>running=false 置 offline 并恢复“重新启动本机服务”；上传前拦截 + toast 上限 5；预览重试复检 seq/文件名；直发 125s 看门狗；预取限前 8 个。</td></tr>
+</table>
+<p><b>仍未处理（需产品/平台决策或实机验证）：</b>axum 连接数/请求头读超时（未认证空连接 DoS）；<code>set_share_dir_cmd</code> 与 start 的异步竞态；Windows PFX 签名未接入 Tauri（配置 Secrets 会导致 Authenticode 复核失败）；未签名桌面产物仍以正式版公开（macOS 15+ 安装成本高）；Android 15+ dataSync 6h 配额；Windows WebView2 在线下载依赖；剪贴板粘贴回传为既有设计（默认关闭自动同步不等于粘贴不外发）；直发进行中第二批文件仍会被拒（仅提示）。</p>
+
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>
