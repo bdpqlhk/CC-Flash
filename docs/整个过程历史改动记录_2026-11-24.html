@@ -63,5 +63,12 @@
 <tr><td>设备显示在线，但桌面端直发一直失败（提示离线/疑似配对码）。</td><td>根因之一：同一设备同时发 IPv4 与 IPv6 link-local 宣告，先到的 <code>fe80::%zone</code> 被锁定后另一族会被「换 IP」保护拒绝，而 WebView 直连带 zone 的 IPv6 URL 往往直接失败。现允许同 id / 同令牌从 link-local v6 迁移到 IPv4 并优先 IPv4；失败提示带上目标地址，便于区分「IPv6 地址 / 熄屏冻结 / 配对码」。</td></tr>
 </table>
 
+<h2>九、手机三页 dir-2 信号台改造</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>手机发送 / 设备 / 文件页仍是旧的聊天与抽屉布局，与 dir-2 信号台设计稿不一致。</td><td>三页按 dir-2 重构：TARGET / UDP / MANIFEST 读数页头、<code>min(236px,62vw)</code> 刻度雷达盘、DEVICES / PORT / LINK 状态格、RSSI 设备行、左昵称时间右正文的消息分栏、方形输入与琥珀发送键、manifest 序号 + 进度条 + 虚线投放区；HISTORY 改为底部 sheet。样式全部限定 <code>.shell.has-mobile-tabs</code>，桌面端与浏览器不受影响。</td></tr>
+<tr><td>审查发现：iOS 输入框 &lt;16px 会缩放整页；浅色主题按钮文字对比度不足；目标栏长设备名溢出；文件排序 / 刷新 / 收藏 / 昵称 / 清空入口被样式隐藏；文件行键盘不可达；历史搜索缺少标签。</td><td>输入框 16px；琥珀按钮文字改 <code>#0b0e0d</code>（浅色 4.59:1）；目标栏省略号 + 雷达盘小屏收缩；保留排序 / 刷新 / 收藏并把昵称、清空、复制、二维码、手动发送收进 ●●● 菜单；文件行补 <code>role=button</code> 与 Enter/Space；历史搜索补 <code>aria-label</code>；设备选择补 <code>aria-pressed</code>。</td></tr>
+</table>
+
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>

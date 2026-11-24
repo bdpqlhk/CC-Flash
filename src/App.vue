@@ -3244,6 +3244,11 @@ function radarStyle(i) {
   const [x, y] = RADAR_SLOTS[i % RADAR_SLOTS.length];
   return { left: x + "%", top: y + "%" };
 }
+/* dir-2 设备行的信号格: 在线 4 格 / 忙碌 2 格 / 离线 1 格 */
+function peerRssi(p) {
+  const st = peerState(p);
+  return st === "online" ? 4 : st === "busy" ? 2 : 1;
+}
 function peerState(p) {
   if (!p) return "away";
   if (p.busy) return "busy";
@@ -5615,12 +5620,14 @@ async function refreshStatus() {
              @drop.prevent="onDrop">
           <!-- 桌面工作台: 左侧设备栏 = Snapdrop 风格身份卡 + 雷达 + 设备列表 -->
           <aside v-if="showDeviceRail" class="tx-devices" :class="{ 'is-inline': devicePanelInline }">
-            <!-- 手机 App · DEVICES 页头 -->
+            <!-- 手机 App · DEVICES 页头（dir-2 信号台） -->
             <div v-if="mobileTabbed" class="m-pagehead m-dev-head">
               <div>
+                <div class="m-kicker">UDP / 53318</div>
                 <h1>设备</h1>
-                <div class="m-sub">{{ peers.length + 1 }} 台设备 · 同一子网</div>
+                <div class="m-sub">{{ peers.length + 1 }} DEVICES · SAME SUBNET</div>
               </div>
+              <button class="m-head-act" @click="historyOpen = true">HISTORY</button>
             </div>
             <div class="tx-devices-head">
               <b>周边设备</b><span>{{ peers.length }}</span>
@@ -5661,7 +5668,7 @@ async function refreshStatus() {
                       :class="[peerState(p), { on: isPeerSelected(p) }]"
                       :style="radarStyle(i)" :title="p.nickname || '设备'"
                       :aria-label="'发送到 ' + (p.nickname || '设备')"
-                      @click.stop="pickPeer(p)"></button>
+                      :aria-pressed="isPeerSelected(p)" @click.stop="pickPeer(p)"></button>
             </div>
             <div class="tx-dev-legend" aria-label="设备状态图例">
               <span><i class="online"></i>在线</span>
@@ -5670,9 +5677,9 @@ async function refreshStatus() {
             </div>
             </div>
             <div v-if="mobileTabbed" class="m-dev-stats">
-              <div><small>设备</small><b>{{ peers.length + 1 }}</b></div>
-              <div><small>端口</small><b>{{ port }}</b></div>
-              <div><small>状态</small><b>{{ running ? "在线" : "停止" }}</b></div>
+              <div><small>DEVICES</small><b>{{ peers.length + 1 }}</b></div>
+              <div><small>PORT</small><b>{{ port }}</b></div>
+              <div><small>LINK</small><b>{{ running ? "ON" : "OFF" }}</b></div>
             </div>
             <div v-if="mobileTabbed" class="m-dev-actions">
               <button :disabled="!running" @click="mobileProbe">单播探测</button>
@@ -5687,10 +5694,26 @@ async function refreshStatus() {
               </button>
             </div>
             <div class="tx-devices-list">
+              <button v-if="mobileTabbed" type="button" class="tx-device tx-device-self" :class="{ on: !sendTargets.length }"
+                      :aria-pressed="!sendTargets.length" @click="selectSendTarget(null)">
+                <span class="m-dev-st online"></span>
+                <span class="m-dev-nm"><b>{{ curNick }}</b><small>THIS DEVICE · SELF</small></span>
+                <span class="m-rssi" aria-hidden="true"><i class="on" style="height:4px"></i><i class="on" style="height:7px"></i><i class="on" style="height:9px"></i><i class="on" style="height:12px"></i></span>
+              </button>
               <div v-for="p in peersSorted" :key="p.id" class="tx-device" :class="{ on: isPeerSelected(p), busy: p.busy, multi: multiSelectMode }">
-                <button class="tx-device-pick" :title="'发送到 ' + (p.nickname || '设备')" @click="pickPeer(p)">
-                  <span class="tx-device-ava"><svg v-if="peerPlatformKind(p) === 'phone'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 5h3"/><circle cx="12" cy="18.2" r=".8" fill="currentColor" stroke="none"/></svg><svg v-else-if="peerPlatformKind(p) === 'laptop'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg><svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8"/><path d="M12 16.5v4"/></svg><i class="tx-device-dot" :class="peerState(p)"></i></span>
-                  <span class="tx-device-info"><b>{{ p.nickname || "未命名设备" }}</b><small>{{ peerStatusText(p) }}</small></span>
+                <button class="tx-device-pick" :title="'发送到 ' + (p.nickname || '设备')"
+                        :aria-pressed="multiSelectMode ? isPeerSelected(p) : undefined" @click="pickPeer(p)">
+                  <template v-if="mobileTabbed">
+                    <span class="m-dev-st" :class="peerState(p)"></span>
+                    <span class="m-dev-nm"><b>{{ p.nickname || "未命名设备" }}</b><small>{{ peerStatusText(p) }} · {{ p.ip }}</small></span>
+                    <span class="m-rssi" aria-hidden="true">
+                      <i :class="{ on: peerRssi(p) >= 1 }" style="height:4px"></i><i :class="{ on: peerRssi(p) >= 2 }" style="height:7px"></i><i :class="{ on: peerRssi(p) >= 3 }" style="height:9px"></i><i :class="{ on: peerRssi(p) >= 4 }" style="height:12px"></i>
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span class="tx-device-ava"><svg v-if="peerPlatformKind(p) === 'phone'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 5h3"/><circle cx="12" cy="18.2" r=".8" fill="currentColor" stroke="none"/></svg><svg v-else-if="peerPlatformKind(p) === 'laptop'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg><svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8"/><path d="M12 16.5v4"/></svg><i class="tx-device-dot" :class="peerState(p)"></i></span>
+                    <span class="tx-device-info"><b>{{ p.nickname || "未命名设备" }}</b><small>{{ peerStatusText(p) }}</small></span>
+                  </template>
                   <span v-if="multiSelectMode" class="tx-device-check" :class="{ on: isPeerSelected(p) }" aria-hidden="true">
                     <svg v-if="isPeerSelected(p)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </span>
@@ -5743,15 +5766,23 @@ async function refreshStatus() {
               </div>
               <span v-if="!isRealDesktop && !mobileShell" class="tx-room">CC</span>
               <div v-if="!isRealDesktop" class="tx-room-title">
-                <div class="tx-room-head">
-                  <component :is="mobileTabbed ? 'h1' : 'h2'">{{ mobileTabbed ? "发送" : "消息发送" }}</component>
-                  <span class="chip" :class="running ? 'run' : 'stop'">
-                    <i class="live-dot" aria-hidden="true"></i><span class="chip-label">{{ running ? "实时" : "已停止" }}</span>
-                  </span>
-                </div>
-                <p v-if="mobileTabbed">{{ sendTargets.length ? (sendTargets.length > 1 ? `已选 ${sendTargets.length} 台设备 · 直发` : `${sendTarget.ip}:${sendTarget.port} · LOCKED`) : (running ? (lanActive ? "同一 Wi-Fi · 局域网实时互通" : "仅本机模式") : "服务未启动") }}</p>
-                <p v-else>{{ running ? (lanActive ? "同一 Wi-Fi · 局域网实时互通" : "仅本机模式") : "服务未启动" }}</p>
+                <template v-if="mobileTabbed">
+                  <div class="m-kicker">TARGET / {{ sendTargets.length ? targetLabel : "LOCAL ROOM" }}</div>
+                  <h1>发送</h1>
+                  <p>{{ sendTargets.length ? `${sendTarget.ip}:${sendTarget.port} · LOCKED` : (running ? "LOCAL ROOM · 本机共享" : "服务未启动") }}</p>
+                </template>
+                <template v-else>
+                  <div class="tx-room-head">
+                    <h2>消息发送</h2>
+                    <span class="chip" :class="running ? 'run' : 'stop'">
+                      <i class="live-dot" aria-hidden="true"></i><span class="chip-label">{{ running ? "实时" : "已停止" }}</span>
+                    </span>
+                  </div>
+                  <p>{{ running ? (lanActive ? "同一 Wi-Fi · 局域网实时互通" : "仅本机模式") : "服务未启动" }}</p>
+                </template>
               </div>
+              <button v-if="mobileTabbed" class="m-head-act m-head-dots" title="更多" aria-label="更多"
+                      :aria-expanded="moreOpen ? 'true' : 'false'" @click.stop="toggleMore">●●●</button>
               <div class="tx-acts">
                 <button class="tx-hbtn tx-clear-btn" title="清空本窗口的消息显示（不影响其他设备）" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
                 <div class="tx-file-entry">
@@ -5785,6 +5816,7 @@ async function refreshStatus() {
                 <span class="tx-me" :title="'昵称：' + curNick" @click="openNick">{{ avatarFor(curNick) }}</span>
               </div>
               <div v-if="moreOpen" class="tx-more" @click.stop>
+                <button v-if="mobileShell" @click="openNick(); moreOpen = false">修改昵称</button>
                 <button v-if="isNarrow" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
                 <button v-if="!isRealDesktop" @click="copyUrl(); moreOpen = false">复制地址</button>
                 <button v-if="!isRealDesktop" @click="openQr(); moreOpen = false">显示二维码</button>
@@ -5793,6 +5825,14 @@ async function refreshStatus() {
                 <button v-if="isRealDesktop && isNarrow" @click="setView('service'); moreOpen = false">服务中心</button>
               </div>
             </header>
+            <div v-if="mobileTabbed" class="m-target-bar">
+              <span class="m-sig" aria-hidden="true">
+                <i :class="{ off: !running }"></i><i :class="{ off: !running }"></i><i :class="{ off: !running }"></i><i :class="{ off: !running }"></i><i class="off"></i>
+              </span>
+              <span class="m-tb-name">发送到 <b>{{ targetLabel }}</b></span>
+              <span class="m-ip">{{ sendTargets.length > 1 ? `${sendTargets.length} 台` : (sendTargets.length ? `${sendTarget.ip}:${sendTarget.port}` : `本机 :${port}`) }}</span>
+              <button v-if="sendTargets.length" class="m-tb-clear" title="切回本机共享" aria-label="切回本机共享" @click="clearSendTarget">✕</button>
+            </div>
             <div v-if="moreOpen" class="tx-menu-backdrop" @click="moreOpen = false"></div>
 
             <div class="tx-list" ref="chatBox" @scroll="onTimelineScroll" @click.self="activeMsgKey = ''">
@@ -5979,7 +6019,7 @@ async function refreshStatus() {
                         :title="touchOnly ? '点右侧按钮发送' : 'Enter 发送，Shift+Enter 换行'"
                         @focus="onInputFocus" @keydown.enter="onChatEnter" @input="onChatInput"></textarea>
               <span v-if="chatInput" class="tx-char-count" :class="{ over: chatCharCount > cfg.msgMax }">{{ chatCharCount }} / {{ cfg.msgMax }}</span>
-              <button class="tx-send" :disabled="!chatInput.trim() || sending || chatCharCount > cfg.msgMax" @click="sendChat">{{ sending ? "发送中…" : (sendTarget ? "直发" : "发送") }}</button>
+              <button class="tx-send" :disabled="!chatInput.trim() || sending || chatCharCount > cfg.msgMax" @click="sendChat">{{ sending ? "发送中…" : (mobileTabbed ? "发送" : (sendTarget ? "直发" : "发送")) }}</button>
             </footer>
 
             <input type="file" id="fileInput" multiple style="display:none" @change="onPick" />
@@ -5997,11 +6037,13 @@ async function refreshStatus() {
             <!-- 手机 App · FILES 页头 -->
             <div v-if="mobileTabbed" class="m-pagehead m-files-head">
               <div>
+                <div class="m-kicker">MANIFEST / ROOM</div>
                 <h1>文件</h1>
-                <div class="m-sub"><span class="m-files-local">本机共享 · </span>{{ stats.count }} 个文件 · {{ stats.size }}</div>
+                <div class="m-sub">{{ stats.count }} ITEMS · {{ stats.size }}</div>
               </div>
-              <div v-if="stats.count" class="m-files-acts">
-                <button @click="mobileFileSelect = !mobileFileSelect">{{ mobileFileSelect ? "完成" : "选择" }}</button>
+              <div class="m-files-acts">
+                <span class="m-count">{{ String(stats.count).padStart(2, "0") }}</span>
+                <button v-if="stats.count" class="m-head-act" @click="mobileFileSelect = !mobileFileSelect">{{ mobileFileSelect ? "完成" : "选择" }}</button>
               </div>
             </div>
             <div class="tx-grab" @click="fileSheetOpen = false"><i></i></div>
@@ -6042,9 +6084,14 @@ async function refreshStatus() {
                   <span>{{ iconFor(f.name) }}</span>
                   <img v-if="isImage(f.name) && thumbSrcs[f.name]" :src="thumbSrcs[f.name]" loading="lazy" decoding="async" alt="" @load="$event.target.style.display = ''" @error="$event.target.style.display = 'none'; retryThumb(f.name)" />
                 </div>
-                <div class="tx-finfo2" :class="{ 'mobile-tap': isNarrow }" @click="isNarrow && openFileMenu(f.name)">
+                <div class="tx-finfo2" :class="{ 'mobile-tap': isNarrow }"
+                     :role="isNarrow ? 'button' : undefined" :tabindex="isNarrow ? 0 : undefined"
+                     @click="isNarrow && openFileMenu(f.name)"
+                     @keydown.enter.prevent="isNarrow && openFileMenu(f.name)"
+                     @keydown.space.prevent="isNarrow && openFileMenu(f.name)">
                   <div class="tx-fname2" :title="f.name">{{ f.name }}</div>
                   <div class="tx-fmeta2">{{ fmtSize(f.size) }} · {{ fmtTime(f.modified) }}</div>
+                  <div v-if="mobileTabbed" class="m-pbar" aria-hidden="true"><i style="width:100%"></i></div>
                 </div>
                 <div class="tx-frow-acts">
                   <button v-if="isNarrow" title="更多" :aria-label="'更多操作：' + f.name" @click="openFileMenu(f.name)">⋯</button>
@@ -6075,7 +6122,7 @@ async function refreshStatus() {
                 </div>
               </div>
             </div>
-            <button v-if="mobileTabbed && stats.count" class="m-drop" @click="pickFiles(true)"><b>＋ 上传文件</b><span>支持多文件 / 文件夹</span></button>
+            <button v-if="mobileTabbed" class="m-drop" @click="pickFiles(true)"><b>＋ DROP FILES</b><span>上传文件 / 文件夹</span></button>
             <div class="tx-files-foot">
               <button v-if="selectedCount" class="tx-del" @click="confirmDeleteSelected">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
@@ -6916,7 +6963,7 @@ async function refreshStatus() {
   </div>
 
   <!-- 传输历史: 入口在本机身份卡右侧, 不再占用设备栏底部空间 -->
-  <div v-if="historyOpen" class="dialog-overlay" @click.self="historyOpen = false">
+  <div v-if="historyOpen" class="dialog-overlay history-overlay" @click.self="historyOpen = false">
     <div class="dialog-box history-box">
       <div class="history-head">
         <div>
@@ -6930,7 +6977,7 @@ async function refreshStatus() {
         </button>
       </div>
       <div class="history-tools">
-        <input class="history-search" v-model="historyQuery" placeholder="搜索设备、内容或类型"
+        <input class="history-search" v-model="historyQuery" placeholder="搜索设备、内容或类型" aria-label="搜索传输历史"
                autocomplete="off" spellcheck="false" @keydown.esc="historyQuery = ''" />
         <button class="history-clear" :disabled="!transferHistory.length" @click="clearTransferHistory">清空</button>
       </div>
