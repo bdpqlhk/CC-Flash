@@ -55,5 +55,12 @@
 <tr><td>v1.2.8 构建验证。</td><td>CI 全绿、publish 自动发布；四个资产名均带 <code>1.2.8</code>；APK <code>versionCode=10200800</code>、<code>versionName=1.2.8</code>。</td></tr>
 </table>
 
+<h2>八、设备多选与熄屏保活</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>只能选一台设备；点附近设备卡片会自动弹出「发送到设备」面板。</td><td>附近设备新增「多选」：<code>sendTargets</code> 数组 + <code>pickPeer</code>，勾选后文本与拖入文件依次直发每台设备；点设备卡片只选中并切换直发，不再弹面板（面板仅由「手动发送」打开）。</td></tr>
+<tr><td>手机熄屏后桌面端找不到手机；给手机 App 发消息超时（荣耀等厂商省电策略冻结后台线程/Wi-Fi）。</td><td>Android 前台服务新增 <code>WifiLock(LOW_LATENCY/HIGH_PERF)</code> + <code>PARTIAL_WAKE_LOCK</code>，首次启动申请忽略电池优化；发送失败提示区分「网络不可达」并提示关闭电池优化。</td></tr>
+</table>
+
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>

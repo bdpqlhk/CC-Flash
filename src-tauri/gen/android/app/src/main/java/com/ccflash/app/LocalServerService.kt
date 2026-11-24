@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.annotation.RequiresApi
 
 /**
@@ -19,10 +20,13 @@ import androidx.annotation.RequiresApi
  */
 class LocalServerService : Service() {
   private var multicastLock: WifiManager.MulticastLock? = null
+  private var wifiLock: WifiManager.WifiLock? = null
+  private var wakeLock: PowerManager.WakeLock? = null
 
   override fun onCreate() {
     super.onCreate()
     acquireMulticastLock()
+    acquireBackgroundLocks()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val nm = getSystemService(NotificationManager::class.java)
       val ch = NotificationChannel(CHANNEL_ID, "本机服务", NotificationManager.IMPORTANCE_LOW)
@@ -61,6 +65,40 @@ class LocalServerService : Service() {
     }
   }
 
+  /**
+   * 熄屏保活: 荣耀/华为等系统的省电策略会在锁屏后冻结后台线程、让 Wi-Fi 休眠,
+   * 表现为"手机放着不动, 桌面端就找不到它/发消息超时"。前台服务只保进程优先级,
+   * 还需要:
+   * - PARTIAL_WAKE_LOCK: 锁屏后 CPU 仍按时驱动发现心跳线程;
+   * - WifiLock(LOW_LATENCY/HIGH_PERF): Wi-Fi 不进入省电休眠, 收发不被延迟。
+   * 两把锁都不做引用计数, onDestroy 释放; 进程被杀时系统自动回收。
+   */
+  private fun acquireBackgroundLocks() {
+    try {
+      val wifi = applicationContext.getSystemService(WifiManager::class.java)
+      val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+      } else {
+        @Suppress("DEPRECATION")
+        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+      }
+      wifiLock = wifi?.createWifiLock(mode, "ccflash-wifi")?.apply {
+        setReferenceCounted(false)
+        acquire()
+      }
+    } catch (_: Throwable) {
+      // 无 Wi-Fi/权限受限: 降级为系统默认省电策略
+    }
+    try {
+      val pm = getSystemService(PowerManager::class.java)
+      wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ccflash:discovery")?.apply {
+        setReferenceCounted(false)
+        acquire()
+      }
+    } catch (_: Throwable) {
+    }
+  }
+
   @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
   override fun onTimeout(startId: Int) {
     // Android 15+ 对 dataSync 前台服务有 6h/24h 配额, 到点后系统要求主动停止。
@@ -90,6 +128,10 @@ class LocalServerService : Service() {
   override fun onDestroy() {
     try { multicastLock?.release() } catch (_: Throwable) {}
     multicastLock = null
+    try { wifiLock?.release() } catch (_: Throwable) {}
+    wifiLock = null
+    try { wakeLock?.release() } catch (_: Throwable) {}
+    wakeLock = null
     super.onDestroy()
   }
 

@@ -547,7 +547,30 @@ const expandedGroups = ref({});       // 文件组展开状态
 const atBottom = ref(true);           // 时间线是否贴底
 const jumpCount = ref(0);             // 上翻期间的新消息数
 /* ---------- 消息工作台: 目标设备(本机共享 / 直发) ---------- */
-const sendTarget = ref(null);         // null = 本机共享; device = 直发
+const sendTargets = ref([]);          // [] = 本机共享; 单选或多选设备(直发)
+const multiSelectMode = ref(false);   // 附近设备多选模式: 点卡片只切换选中, 不弹发送面板
+const sendTarget = computed({         // 兼容既有单目标逻辑: 返回第一个选中设备
+  get: () => sendTargets.value[0] || null,
+  set: (p) => { sendTargets.value = p ? [p] : []; },
+});
+function isPeerSelected(p) { return !!p && sendTargets.value.some((t) => t.id === p.id); }
+function pickPeer(p) {
+  if (!p) { selectSendTarget(null); return; }
+  if (!multiSelectMode.value) { selectSendTarget(p); return; }
+  // 多选: 已选则取消, 未选则追加; 不关闭设备面板, 便于连续勾选
+  const exists = isPeerSelected(p);
+  const next = exists
+    ? sendTargets.value.filter((t) => t.id !== p.id)
+    : [...sendTargets.value, p];
+  sendTargets.value = next;
+}
+function toggleMultiSelect() {
+  multiSelectMode.value = !multiSelectMode.value;
+  if (!multiSelectMode.value && sendTargets.value.length > 1) {
+    // 退出多选时只保留第一个目标, 输入栏回到常规"发送到单台设备"
+    sendTargets.value = sendTargets.value.slice(0, 1);
+  }
+}
 const historyOpen = ref(false);        // 传输历史弹框(入口在本机身份卡右侧)
 // 窄屏设备面板: 复用宽屏设备栏的同一套内容, 竖屏整页展开(不是弹框)
 const deviceInlineOpen = ref(false);
@@ -617,10 +640,15 @@ const showDeviceRail = computed(() => {
   if (deviceInlineOpen.value) return true;
   return isRealDesktop && !isNarrow.value && !deviceRailCollapsed.value;
 });
-const targetLabel = computed(() => (sendTarget.value ? (sendTarget.value.nickname || "设备") : "本机共享"));
+const targetLabel = computed(() => {
+  const ts = sendTargets.value;
+  if (!ts.length) return "本机共享";
+  if (ts.length === 1) return ts[0].nickname || "设备";
+  return `${ts[0].nickname || "设备"} 等 ${ts.length} 台`;
+});
 function selectSendTarget(p) {
   if (!p) {
-    sendTarget.value = null;
+    sendTargets.value = [];
     deviceInlineOpen.value = false;
     return;
   }
@@ -628,11 +656,12 @@ function selectSendTarget(p) {
     showToast("设备地址不可用，请刷新设备列表", "error");
     return;
   }
-  sendTarget.value = p;
+  sendTargets.value = [p];
   deviceInlineOpen.value = false;   // 选完收起面板
-  openDeviceSend(p);                // 设计稿: 选中设备后弹出「发送到设备」面板
+  // 选中即生效: 输入栏/拖文件直接直发, 不再自动弹出「发送到设备」面板;
+  // 面板只保留给顶部/更多菜单里的「手动发送」入口。
 }
-function clearSendTarget() { sendTarget.value = null; }
+function clearSendTarget() { sendTargets.value = []; }
 function addReceipt(text, ok = true) {
   directReceipts.value.push({ id: ++directReceiptSeq, ts: Date.now() / 1000, text, ok });
   if (directReceipts.value.length > 40) directReceipts.value.splice(0, directReceipts.value.length - 40);
@@ -2532,7 +2561,14 @@ function handleIncomingFiles(list) {
   });
   if (tooDeep) showToast(`已跳过 ${tooDeep} 个超出 8 层目录限制的文件`, "error");
   if (!arr.length) return;
-  if (sendTarget.value) { directSendFiles(sendTarget.value, arr); return; }
+  if (sendTargets.value.length) {
+    // 多选: 依次发往每台设备; manual=true 让每批不被"目标切换"中断
+    const targets = sendTargets.value.slice();
+    (async () => {
+      for (const p of targets) await directSendFiles(p, arr, { manual: true });
+    })();
+    return;
+  }
   handleFiles(arr);
 }
 function onPick(e) {
@@ -3178,14 +3214,16 @@ const chatBox = ref(null);
 const PEER_FAVS_KEY = "wft-peer-favs";
 const peers = ref([]);
 watch(peers, (list) => {
-  if (!sendTarget.value) return;
-  const fresh = (list || []).find(p => p.id === sendTarget.value.id);
-  if (!fresh) {
-    sendTarget.value = null;
-    showToast("目标设备已离线，已切回本机共享", "error");
-  } else {
-    sendTarget.value = fresh;   // 刷新 IP/端口/忙碌状态
+  if (!sendTargets.value.length) return;
+  const byId = new Map((list || []).map((p) => [p.id, p]));
+  const fresh = sendTargets.value.map((t) => byId.get(t.id)).filter(Boolean);
+  const gone = sendTargets.value.length - fresh.length;
+  if (gone > 0) {
+    showToast(fresh.length ? `有 ${gone} 台目标设备已离线，已移除` : "目标设备已离线，已切回本机共享", "error");
   }
+  const changed = fresh.length !== sendTargets.value.length
+    || fresh.some((p, i) => p !== sendTargets.value[i]);
+  if (changed) sendTargets.value = fresh;   // 刷新 IP/端口/忙碌状态
 });
 const peerFavs = ref((() => {
   try { return new Set(JSON.parse(localStorage.getItem(PEER_FAVS_KEY) || "[]")); } catch (e) { return new Set(); }
@@ -3420,6 +3458,7 @@ async function directSendText(p, text, opts = {}) {
     else if (e?.message === "peer-pin") showToast("配对码不正确，请重新输入后发送", "error");
     else if (e?.message === "peer-pin-locked") showToast("配对码错误次数过多，已被对方临时限流，请稍后再试", "error");
     else if (e?.message === "peer-forbidden") showToast("浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App", "error");
+    else if (e?.name === "TypeError") showToast("无法连接设备：请确认手机 App 未被系统冻结（可在手机设置中关闭电池优化）", "error");
     else showToast("发送失败：对方可能已离线或开启访问令牌", "error");
     return false;
   } finally { clearTimeout(timer); }
@@ -3491,7 +3530,7 @@ async function directSendFiles(p, files, opts = {}) {
     showToast(unauthorized ? "配对码不正确，请重新输入后重试"
       : rateLimited ? "对方拒绝了本次发送（尝试过于频繁），请稍后再试"
       : forbidden ? "浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App"
-      : "发送失败：对方可能已离线", "error");
+      : "发送失败：无法连接设备，请确认手机 App 未被系统冻结（可关闭电池优化）", "error");
     return fail();
   }
   if (forbidden || unauthorized || rateLimited) {
@@ -3622,15 +3661,6 @@ const sendDialogReady = computed(() => {
   const p = sendDialogTarget.value || parseManualTarget(manualAddr.value);
   return !!(p && (manualFiles.value.length || manualText.value.trim()));
 });
-function openDeviceSend(p) {
-  if (!p) return;
-  sendDialogTarget.value = p;
-  sendTab.value = "files";
-  manualFiles.value = [];
-  manualText.value = "";
-  manualAddr.value = `${p.ip}:${p.port}`;
-  manualSendOpen.value = true;
-}
 function pickManualFiles() { document.getElementById("manualFileInput")?.click(); }
 function pickManualFolder() {
   if (isIOS) { showToast("iOS 不支持选择文件夹，请改用「文件」多选", "error"); return; }
@@ -4511,18 +4541,26 @@ async function sendChat() {
     showToast(`消息超过 ${cfg.value.msgMax} 字符上限（当前 ${chars}），请删减后再发送`, "error");
     return;
   }
-  // 目标设备: 直发, 不进入房间时间线, 只追加本机回执
-  if (sendTarget.value) {
+  // 目标设备: 直发, 不进入房间时间线, 只追加本机回执; 多选时依次发往每台
+  if (sendTargets.value.length) {
     saveNick();
     sending.value = true;
     try {
-      if (await directSendText(sendTarget.value, text)) {
+      const targets = sendTargets.value.slice();
+      let ok = 0;
+      for (const p of targets) {
+        if (await directSendText(p, text)) ok++;
+      }
+      if (ok) {
         chatInput.value = "";
         quoting.value = null;
         atBottom.value = true;
         jumpCount.value = 0;
         nextTick(scrollChats);
         setTimeout(scrollChats, 150);
+      }
+      if (ok < targets.length) {
+        showToast(`已发送到 ${ok}/${targets.length} 台设备`, "error");
       }
     } finally {
       sending.value = false;
@@ -5612,10 +5650,10 @@ async function refreshStatus() {
                 <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg>
               </span>
               <button v-for="(p, i) in radarPeers" :key="'r' + p.id" class="tx-radar-dot"
-                      :class="[peerState(p), { on: sendTarget && sendTarget.id === p.id }]"
+                      :class="[peerState(p), { on: isPeerSelected(p) }]"
                       :style="radarStyle(i)" :title="p.nickname || '设备'"
                       :aria-label="'发送到 ' + (p.nickname || '设备')"
-                      @click.stop="selectSendTarget(p)"></button>
+                      @click.stop="pickPeer(p)"></button>
             </div>
             <div class="tx-dev-legend" aria-label="设备状态图例">
               <span><i class="online"></i>在线</span>
@@ -5633,15 +5671,21 @@ async function refreshStatus() {
               <button class="primary" @click="openManualSend">手动发送</button>
             </div>
             <div class="tx-devices-sub"><span>附近设备</span>
+              <button class="tx-devices-multi" :class="{ on: multiSelectMode }"
+                      :title="multiSelectMode ? '完成多选' : '多选附近设备，同时发送'"
+                      @click="toggleMultiSelect">{{ multiSelectMode ? "完成" : "多选" }}</button>
               <button class="tx-devices-scan" :disabled="!running" :title="running ? '主动扫描（发送 UDP probe）' : '服务未启动'" aria-label="重新扫描" @click="refreshDiscover">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7L21 16"/><path d="M21 21v-5h-5"/></svg>
               </button>
             </div>
             <div class="tx-devices-list">
-              <div v-for="p in peersSorted" :key="p.id" class="tx-device" :class="{ on: sendTarget && sendTarget.id === p.id, busy: p.busy }">
-                <button class="tx-device-pick" :title="'发送到 ' + (p.nickname || '设备')" @click="selectSendTarget(p)">
+              <div v-for="p in peersSorted" :key="p.id" class="tx-device" :class="{ on: isPeerSelected(p), busy: p.busy, multi: multiSelectMode }">
+                <button class="tx-device-pick" :title="'发送到 ' + (p.nickname || '设备')" @click="pickPeer(p)">
                   <span class="tx-device-ava"><svg v-if="peerPlatformKind(p) === 'phone'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 5h3"/><circle cx="12" cy="18.2" r=".8" fill="currentColor" stroke="none"/></svg><svg v-else-if="peerPlatformKind(p) === 'laptop'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg><svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8"/><path d="M12 16.5v4"/></svg><i class="tx-device-dot" :class="peerState(p)"></i></span>
                   <span class="tx-device-info"><b>{{ p.nickname || "未命名设备" }}</b><small>{{ peerStatusText(p) }}</small></span>
+                  <span v-if="multiSelectMode" class="tx-device-check" :class="{ on: isPeerSelected(p) }" aria-hidden="true">
+                    <svg v-if="isPeerSelected(p)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
                 </button>
                 <div class="tx-device-actions">
                   <button class="tx-device-fav" :class="{ on: isFavPeer(p) }"
@@ -5697,7 +5741,7 @@ async function refreshStatus() {
                     <i class="live-dot" aria-hidden="true"></i><span class="chip-label">{{ running ? "实时" : "已停止" }}</span>
                   </span>
                 </div>
-                <p v-if="mobileTabbed">{{ sendTarget ? `${sendTarget.ip}:${sendTarget.port} · LOCKED` : (running ? (lanActive ? "同一 Wi-Fi · 局域网实时互通" : "仅本机模式") : "服务未启动") }}</p>
+                <p v-if="mobileTabbed">{{ sendTargets.length ? (sendTargets.length > 1 ? `已选 ${sendTargets.length} 台设备 · 直发` : `${sendTarget.ip}:${sendTarget.port} · LOCKED`) : (running ? (lanActive ? "同一 Wi-Fi · 局域网实时互通" : "仅本机模式") : "服务未启动") }}</p>
                 <p v-else>{{ running ? (lanActive ? "同一 Wi-Fi · 局域网实时互通" : "仅本机模式") : "服务未启动" }}</p>
               </div>
               <div class="tx-acts">
@@ -5915,7 +5959,7 @@ async function refreshStatus() {
               <button title="取消引用" aria-label="取消引用" @click="quoting = null">✕</button>
             </div>
 
-            <div v-if="sendTarget" class="tx-target-note">
+            <div v-if="sendTargets.length" class="tx-target-note">
               <span class="tx-target-note-txt">发送到 <b>{{ targetLabel }}</b>{{ directSending ? " · 正在发送…" : "" }}</span>
               <button @click="clearSendTarget">切回本机共享</button>
             </div>

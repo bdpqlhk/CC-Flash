@@ -31,6 +31,7 @@ class MainActivity : TauriActivity() {
       ViewCompat.requestApplyInsets(content)
     }
     startLocalService()
+    ensureBatteryOptimizationExemption()
     // 运行时权限: 通知(Android 13+) + 本地网络(Android 16/17 的 LNP)。
     // 本地网络权限缺失时, 连接电脑地址、UDP 多播发现、上传下载会被系统拦截,
     // 表现为"一直连不上"; 拒绝也不崩溃, 用户可在系统设置里补授权。
@@ -89,6 +90,28 @@ class MainActivity : TauriActivity() {
     // 回到仍存活的 Activity 时 onCreate 不会再走, 这里补一次拉起, 否则进程
     // 失去前台服务保护后会被 Doze/省电策略冻结, 传输与发现静默中断。
     startLocalService()
+  }
+
+  /**
+   * 荣耀/华为/小米等系统会在锁屏后冻结后台应用(即使有前台服务): 典型表现是
+   * 手机熄屏一段时间后, 桌面端发现不到它、发消息超时。首次启动申请"忽略电池优化";
+   * 用户拒绝不影响前台使用, 只提示一次(记录在本地偏好)。
+   */
+  private fun ensureBatteryOptimizationExemption() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    try {
+      val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+      if (pm.isIgnoringBatteryOptimizations(packageName)) return
+      val prefs = getSharedPreferences("ccflash", MODE_PRIVATE)
+      if (prefs.getBoolean("battery-opt-asked", false)) return
+      prefs.edit().putBoolean("battery-opt-asked", true).apply()
+      startActivity(
+        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+          .setData(android.net.Uri.parse("package:$packageName"))
+      )
+    } catch (_: Throwable) {
+      // 部分厂商没有该设置页或限制直接申请: 保持前台服务 + Wi-Fi/CPU 锁降级运行
+    }
   }
 
   /** 本机 HTTP 服务由 Rust 线程启动; 前台服务只负责让进程在后台不被立即冻结。 */
