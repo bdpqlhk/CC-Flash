@@ -5899,12 +5899,8 @@ fn pin_admit(peer: std::net::IpAddr, ok: bool) -> bool {
 #[tauri::command]
 pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     let mut slot = access_pin().lock().unwrap_or_else(|e| e.into_inner());
-    if !enable && mobile_client_only() {
-        return serde_json::json!({
-            "ok": false,
-            "error": "移动端必须保留访问令牌，避免同一 Wi-Fi 设备直接读取本机文件；请关闭 App 停止共享"
-        });
-    }
+    // 移动端同样允许关闭(用户在设置页二次确认风险后执行): 关闭后同 Wi-Fi 设备
+    // 无需配对码即可读写本机共享; 回环地址的安全边界由用户显式选择承担。
     if !enable {
         *slot = None;
         // 先写关闭标记再撤码值: 即使删码失败, 标记 0 也能保证重启后不会复活保护

@@ -417,12 +417,15 @@ function resolveConfirm(ok) {
 
 async function toggleAccessPin() {
   try {
-    // 移动端关闭令牌会让 127.0.0.1 重新对同机其他 App 开放(Android 回环不按应用隔离),
-    // 必须二次确认, 不能一键静默解除本机沙箱保护
+    // 移动端允许关闭令牌, 但必须二次确认: 关闭后同 Wi-Fi 设备无需配对码即可读写
+    // 本机共享, 且 Android 的回环地址不按应用隔离, 同机其他 App 也可直接访问。
     if (mobileShell && pinEnabled.value) {
-      // 移动端始终监听局域网；关闭唯一令牌会让同 Wi-Fi 任意设备直接读写本机数据。
-      showToast("移动端必须保留访问令牌；如需停止共享，请关闭 App", "error");
-      return;
+      const yes = await appConfirm({
+        title: "关闭访问令牌保护",
+        message: "关闭后同一 Wi-Fi 下的设备无需配对码即可读写本机共享文件与聊天；Android 的本机回环地址也不按应用隔离。确定关闭吗？",
+        confirmText: "关闭保护", danger: true, icon: "shield",
+      });
+      if (!yes) return;
     }
     const d = await tauriInvoke("set_access_pin_cmd", { enable: !pinEnabled.value });
     if (d.ok) {
@@ -6031,9 +6034,9 @@ async function refreshStatus() {
       <div v-if="!isRealDesktop && view === 'settings'" class="m-pagehead" :class="{ 'm-settings-head': mobileTabbed }">
         <button v-if="!mobileTabbed" class="m-back" title="返回发送" aria-label="返回发送" @click="setView('transfer')">‹</button>
         <div>
-          <div v-if="mobileTabbed" class="m-settings-kicker">LOCAL / PREFERENCES</div>
+          <div v-if="mobileTabbed" class="m-settings-kicker">LOCAL / CONFIG</div>
           <component :is="mobileTabbed ? 'h1' : 'h2'">设置</component>
-          <p>本机服务、外观与关于</p>
+          <p>{{ mobileTabbed ? "ACCESS · SYNC · THEME" : "本机服务、外观与关于" }}</p>
         </div>
       </div>
 
@@ -6149,26 +6152,23 @@ async function refreshStatus() {
             </button>
           </div>
         </div>
-        <!-- Android/iOS App: 独立本机节点；按 dir-3 设计稿使用扁平行与短文案 -->
+        <!-- Android/iOS App: 按 dir-5 设计稿（LOCAL / CONFIG）收口 -->
         <div v-else-if="mobileShell" class="m-settings">
           <div class="m-setting-row">
             <div class="m-setting-main">
               <b>访问令牌保护</b>
-              <small>同 Wi-Fi 设备需配对码 · 移动端必须保留</small>
+              <small>同 Wi-Fi 设备需配对码</small>
             </div>
-            <div class="m-setting-side">
-              <button v-if="pinEnabled || pinCode" class="m-setting-link" @click="copyText(pinCode, '令牌已复制')">复制</button>
-              <button class="switch" :class="{ on: pinEnabled }" role="switch" :aria-checked="pinEnabled"
-                      :aria-label="pinEnabled ? '关闭访问令牌保护' : '开启访问令牌保护'"
-                      :title="pinEnabled ? '点击关闭' : '点击开启'" @click="toggleAccessPin">
-                <span class="knob"></span>
-              </button>
-            </div>
+            <button class="switch" :class="{ on: pinEnabled }" role="switch" :aria-checked="pinEnabled"
+                    :aria-label="pinEnabled ? '关闭访问令牌保护' : '开启访问令牌保护'"
+                    :title="pinEnabled ? '点击关闭' : '点击开启'" @click="toggleAccessPin">
+              <span class="knob"></span>
+            </button>
           </div>
           <div class="m-setting-row">
             <div class="m-setting-main">
               <b>系统剪贴板自动同步</b>
-              <small>与打开本机地址的页面共享文本</small>
+              <small>电脑 ↔ 手机复制文本</small>
             </div>
             <button class="switch" :class="{ on: clipSyncEnabled }" role="switch" :aria-checked="clipSyncEnabled"
                     :aria-label="clipSyncEnabled ? '关闭系统剪贴板自动同步' : '开启系统剪贴板自动同步'"
@@ -6178,10 +6178,12 @@ async function refreshStatus() {
           </div>
           <div class="m-setting-row">
             <div class="m-setting-main">
-              <b>重启本机服务</b>
-              <small>令牌变更后需重启</small>
+              <b>本机访问令牌</b>
+              <small>当前令牌</small>
+              <button v-if="pinEnabled && pinCode" class="m-token" title="点击复制令牌"
+                      :aria-label="'复制令牌 ' + pinCode" @click="copyText(pinCode, '令牌已复制')">{{ pinCode }}</button>
+              <span v-else class="m-token m-token-off">未开启</span>
             </div>
-            <button class="m-setting-link m-setting-danger" @click="restartMobileService">重启</button>
           </div>
           <div class="m-setting-row m-setting-appearance">
             <div class="m-setting-main">

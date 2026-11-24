@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-24 发版链路、Android 版本与交互修复</title>
 <style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
 <h1>CC Flash · 2026-11-24 发版链路、Android 版本与交互修复</h1>
-<div class="meta">版本：v1.2.7.3 · 本文件记录 v1.2.7 → v1.2.7.3 的重建、发版流水线修复、Android 安装包版本字段排查，以及对端配对码与传输历史交互修复；与《技术实现文档》《需求设计文档》配套阅读。</div>
+<div class="meta">版本：v1.2.7.3 · 本文件记录 v1.2.7 → v1.2.7.3 的重建、发版流水线修复、Android 安装包版本字段排查、对端配对码与传输历史交互修复，以及手机设置页 dir-5 改造与访问令牌开关；与《技术实现文档》《需求设计文档》配套阅读。</div>
 <div class="callout"><b>本轮重点</b>恢复「缺签名仅告警继续发布」的既定策略；四段 tag 的交付文件名与 publish 校验全程兼容；修复 Android 安装包长期显示 <code>versionName=1.0</code>、<code>versionCode=1</code> 的根因；完成 v1.2.7.3 全链路验证。</div>
 
 <h2>一、发布流水线</h2>
@@ -32,6 +32,13 @@
 <tr><th>问题</th><th>修复</th></tr>
 <tr><td>输入错误配对码并保存后，后续发送继续复用缓存错码：401 只弹框不清缓存，每次发送都重复提交错码，累计失败触发服务端指数限流（429）；429 又被当作“离线/需要配对”，表现为一直失败且不再提示重新输入。</td><td>保存前先请求对方 <code>/api/devices</code> 验证：401/429 立即反馈且不落盘；发送遇 401 清除缓存码并重新弹框（输入框留空），遇 429 明确提示“错误次数过多，已被对方临时限流”；文件批量发送按 401/429/403 区分失败原因。</td></tr>
 <tr><td>传输历史只有列表，无法按设备/内容查找，也不能清理。</td><td>新增搜索框（设备名、内容摘要、消息/文件类型），实时过滤并显示匹配数；新增「清空」按钮，使用应用内确认框二次确认；关闭弹框自动清空搜索词，避免下次打开误以为记录变少。</td></tr>
+</table>
+
+<h2>五、手机设置页与访问令牌开关</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>手机 App 设置页仍是 dir-3 的扁平卡片风格，与 dir-5 设计稿不一致（缺少 LOCAL / CONFIG 页头、发丝分隔行、等宽读数、宋体令牌与方色板）。</td><td>按 dir-5 重构：页头 <code>LOCAL / CONFIG</code> + <code>ACCESS · SYNC · THEME</code>；四行（访问令牌保护 / 系统剪贴板自动同步 / 本机访问令牌 / 外观）+ 版本尾注；方形开关、22px 方色板、宋体大号令牌（点击复制）；保留亮 / 暗 / 跟随系统模式切换。</td></tr>
+<tr><td>移动端访问令牌此前被后端硬性禁止关闭（<code>set_access_pin_cmd</code> 直接返回错误），用户无法按需关闭。</td><td>移除后端限制；设置页开关可关可开，关闭前用应用内确认框提示风险（同 Wi-Fi 无码访问、Android 回环不按应用隔离）；关闭状态写 <code>enabled=0</code> 持久化，重启不复活；重新开启立即生成新码。</td></tr>
 </table>
 
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>

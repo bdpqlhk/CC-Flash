@@ -153,7 +153,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-12</td><td>消息支持<b>轻量 Markdown</b>（标题、列表、引用、分割线、围栏代码块；行内代码、链接、粗体、斜体、删除线），URL 自动识别为可点击链接（先整体转义防 XSS，桌面端点击走系统浏览器）；输入框为多行 textarea（自动长高，桌面 Enter 发送 / Shift+Enter 换行，手机 Enter 换行、点发送提交）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-13</td><td>「清空数据」仅清空本窗口显示，不影响服务端与他人；新消息到达后自动恢复</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止（桌面与移动 App 均可；移动端始终开放局域网并自动生成本机访问令牌，启用后对所有来源（含本机网卡 IP）校验；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）；停止服务会先中止并回滚在途上传，不会出现"停服后文件被启动清理误删"；移动端为独立本机节点</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-20</td><td rowspan="7">服务控制</td><td>一键启动/停止（桌面与移动 App 均可；移动端始终开放局域网并自动生成本机访问令牌（可在设置页关闭，关闭前二次确认），启用后对所有来源（含本机网卡 IP）校验；端口可指定，被占用自动顺延（首选段 +1…+20，再扫 1688–1707）；停止服务会先中止并回滚在途上传，不会出现"停服后文件被启动清理误删"；移动端为独立本机节点</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-21</td><td>共享目录可查看与更换：手动输入或点「选择」弹原生目录框直接选取（运行中锁定，修改需重启服务生效）；展示可用/总空间</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-22</td><td>运行状态徽标常驻（三圆点波浪动效），出现在桌面顶栏、网页顶栏与服务控制卡</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-23</td><td>二维码弹窗 / 服务页二维码卡：地址（IP:端口）或运行状态任一变化自动重生成，停服即清空防残留，生成失败由状态轮询兜底重试</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -298,7 +298,7 @@ pre code{background:none;color:inherit;padding:0}
 <h2><span class="no">9</span>移动端适配模块</h2>
 <table>
 <tr><th>交互</th><th>需求描述</th></tr>
-<tr><td>布局</td><td>手机 App 底部仅「发送 / 设备 / 文件 / 设置」四页；发送页单列：聊天头部 + 时间线 + 贴底输入栏；设备页是雷达 + 设备清单；文件页是共享文件清单；设置页承载令牌 / 剪贴板 / 重启服务；不再有独立聊天悬浮球。手机浏览器仍是原聊天室单页，无标签</td></tr>
+<tr><td>布局</td><td>手机 App 底部仅「发送 / 设备 / 文件 / 设置」四页；发送页单列：聊天头部 + 时间线 + 贴底输入栏；设备页是雷达 + 设备清单；文件页是共享文件清单；设置页（dir-5）承载令牌开关 / 剪贴板 / 本机令牌 / 外观；不再有独立聊天悬浮球。手机浏览器仍是原聊天室单页，无标签</td></tr>
 <tr><td>共享文件面板</td><td>底部 86dvh 抽屉、上圆角 18px、下拉手柄/「完成」/蒙层均可收起；含排序、分页、全选、批量删除</td></tr>
 <tr><td>滚动隔离</td><td>面板打开锁定 body 滚动；消息区/面板滚动到边界不穿透（overscroll-behavior: contain）</td></tr>
 <tr><td>安全区</td><td>输入区、底部四标签与「文件」页适配 iOS 底部安全区（env(safe-area-inset-bottom)）</td></tr>
@@ -445,7 +445,7 @@ pre code{background:none;color:inherit;padding:0}
 <h3>A.1 消息工作台（设备发现并入发送页）</h3>
 <ul>
 <li><b>桌面端</b>：「消息发送」页左侧为 Snapdrop 风格周边设备栏（本机身份卡 + 雷达盘 + 附近设备列表，在线 / 忙碌 / 最近活跃），宽 200px；点选设备即成为发送目标，输入栏切换为直发，时间线追加本机回执。设备栏底部不再放二维码 / 复制地址，扫码仍走顶栏与服务中心，减少重复入口。</li>
-<li><b>手机 App</b>：底部只有「发送 / 设备 / 文件 / 设置」四页；设备页是雷达 + 设备清单 + 手动发送；文件页是共享文件清单；设置页承载访问令牌、剪贴板同步与重启服务。选中设备后同样直发并显示回执。</li>
+<li><b>手机 App</b>：底部只有「发送 / 设备 / 文件 / 设置」四页；设备页是雷达 + 设备清单 + 手动发送；文件页是共享文件清单；设置页按 dir-5 承载访问令牌（可关可开）、剪贴板同步、本机令牌与外观。选中设备后同样直发并显示回执。</li>
 <li><b>浏览器</b>：电脑 / 手机浏览器都保持原聊天室单页，不做发现、没有「发送 / 设备 / 文件 / 设置」标签，也不会出现可点但不可达的设备。</li>
 <li><b>投递语义</b>：直发文本 / 文件走对方节点的 <code>/api/chat</code>、<code>/api/upload</code>；内容进入对方公共聊天与共享目录，同网段可见。目标开启访问令牌时按端点记忆配对码。</li>
 </ul>
@@ -470,7 +470,7 @@ pre code{background:none;color:inherit;padding:0}
 </ul>
 <h3>A.5 2026-11-19 安全与稳定性补丁（需求口径）</h3>
 <ul>
-<li><b>默认值变更</b>：系统剪贴板自动同步默认关闭；桌面始终开放局域网（CC设置不再提供开关）；移动端自动生成本机访问令牌，启用后对所有来源（含本机网卡 IP）强制校验。</li>
+<li><b>默认值变更</b>：系统剪贴板自动同步默认关闭；桌面始终开放局域网（CC设置不再提供开关）；移动端自动生成本机访问令牌（设置页可关闭，关闭前二次确认），启用后对所有来源（含本机网卡 IP）强制校验。</li>
 <li><b>剪贴板不限制内容</b>：开启后包括令牌/验证码在内的所有文本都会同步；paste 回传仍限定聊天输入框。</li>
 <li><b>发布口径</b>：缺少证书时仍发布未签名包，并在 Release 说明中注明打开方式，应用内更新只认正式版（跳过 prerelease）。</li>
 <li><b>稳定性</b>：WS 退避修复、下载空闲超时 + 单来源并发配额、限流固定窗口与 IPv6 /64 聚合、偏好/聊天历史原子写、启动清理不再误删、审计日志防洪水。</li>

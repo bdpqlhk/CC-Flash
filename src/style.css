@@ -3888,8 +3888,8 @@ html[data-android-app="1"] .shell.has-mobile-tabs .tx-head {
 html[data-android-app="1"] .shell.has-mobile-tabs > .main { padding-top: 0; }
 
 /* ============================================================
- * 手机 App 设置页 · 按 design-demos/cc-flash-app/dir-3.html 收口
- * 扁平分隔行 + 短文案 + 外观色板 + 版本尾注；不再用多层卡片。
+ * 手机 App 设置页 · 按 design-demos/cc-flash-app/dir-5.html 收口
+ * 发丝分隔行 + 等宽读数 + 方形开关 + 宋体令牌 + 方色板 + 版本尾注。
  * ============================================================ */
 .shell.has-mobile-tabs > .main { padding-top: 0; }
 .m-settings-head .m-settings-kicker {
@@ -3900,100 +3900,31 @@ html[data-android-app="1"] .shell.has-mobile-tabs > .main { padding-top: 0; }
     margin-bottom: 6px;
 }
 .m-settings-head h1 { font-size: 28px; margin-top: 0; }
-.m-settings {
-    padding: 0 20px calc(18px + env(safe-area-inset-bottom, 0px));
-}
-.m-setting-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 14px 0;
-    border-top: 1px solid var(--card-border);
-}
-.m-setting-main { flex: 1; min-width: 0; }
-.m-setting-main b {
-    display: block;
-    font-size: 13.5px;
-    line-height: 1.35;
-    font-weight: 600;
-    color: var(--text);
-}
-.m-setting-main small {
-    display: block;
-    margin-top: 3px;
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--text3);
-}
-.m-setting-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.m-setting-link {
-    border: 0;
-    background: transparent;
-    color: var(--accent-text);
-    font: 500 11px/1.2 var(--sans, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif);
-    padding: 7px 2px;
-    min-height: 32px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-.m-setting-link:active { opacity: .65; }
-.m-setting-appearance { display: block; }
-.m-theme-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.m-settings .theme-sw {
-    width: 26px;
-    height: 26px;
-    border-radius: 6px;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
-}
-.m-settings .theme-sw.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
-.m-mode-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-.m-mode-btn {
-    min-height: 30px;
-    padding: 0 9px;
-    border: 1px solid transparent;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text3);
-    font: 500 10.5px/1 var(--sans, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif);
-    cursor: pointer;
-}
-.m-mode-btn.on {
-    color: var(--accent-text);
-    background: var(--accent-bg);
-    border-color: color-mix(in srgb, var(--accent) 32%, var(--card-border));
-}
-.m-version {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 15px 0 2px;
-    margin-top: 2px;
-    border-top: 1px solid var(--card-border);
-    font: 9px/1.3 var(--mono);
-    letter-spacing: .08em;
-    color: var(--text3);
-}
+.m-settings { padding: 0 20px calc(18px + env(safe-area-inset-bottom, 0px)); }
+/* dir-5：发丝分隔行 + 等宽读数 + 方形开关 + 宋体令牌 + 方色板 + 版本尾注 */
+.m-settings .m-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid var(--card-border); }
+.m-settings .m-setting-main { flex: 1; min-width: 0; }
+.m-settings .m-setting-main b { display: block; font: 600 12.5px/1.4 var(--mono); letter-spacing: .02em; color: var(--text); }
+.m-settings .m-setting-main small { display: block; margin-top: 3px; font: 10px/1.5 var(--mono); letter-spacing: .02em; color: var(--text3); }
+.m-settings .m-setting-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.m-settings .m-setting-link { border: 0; background: transparent; color: var(--accent-text); font: 500 11px/1.2 var(--mono); padding: 7px 2px; min-height: 32px; cursor: pointer; white-space: nowrap; }
+.m-settings .m-setting-link:active { opacity: .65; }
+.m-settings .m-setting-appearance { align-items: flex-start; }
+.m-theme-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.m-settings .theme-sw { width: 22px; height: 22px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+.m-settings .theme-sw.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent); }
+.m-mode-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.m-mode-btn { min-height: 24px; padding: 0; border: 0; background: transparent; color: var(--text3); font: 500 9.5px/1 var(--mono); letter-spacing: .06em; cursor: pointer; }
+.m-mode-btn.on { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
+.m-token { display: block; margin: 7px 0 0; padding: 0; border: 0; background: none; color: var(--accent-text); font: 400 26px/1.15 "Songti SC", "Noto Serif SC", serif; letter-spacing: .18em; cursor: pointer; }
+.m-token:active { opacity: .65; }
+.m-token-off { color: var(--text3); font: 400 13px/1.4 var(--mono); letter-spacing: .08em; cursor: default; }
+.m-version { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 0 2px; margin-top: 6px; font: 9px/1.3 var(--mono); letter-spacing: .08em; color: var(--text3); }
 .m-version b { color: var(--text2); font-weight: 500; letter-spacing: 0; }
-.m-settings .switch {
-    width: 44px;
-    height: 26px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--text3) 26%, transparent);
-    border: 1px solid var(--card-border);
-}
-.m-settings .switch .knob {
-    width: 18px;
-    height: 18px;
-    top: 3px;
-    left: 3px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,.28);
-}
-.m-settings .switch.on { background: var(--accent); border-color: var(--accent); }
-.m-settings .switch.on .knob { transform: translateX(18px); background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.m-settings .switch { width: 36px; height: 20px; border-radius: 4px; background: color-mix(in srgb, var(--text3) 16%, transparent); border: 1px solid var(--card-border); }
+.m-settings .switch .knob { width: 14px; height: 14px; top: 2px; left: 2px; border-radius: 2px; background: var(--text3); box-shadow: none; }
+.m-settings .switch.on { background: transparent; border-color: var(--accent); }
+.m-settings .switch.on .knob { transform: translateX(16px); background: var(--accent); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent); }
 @media (max-width: 360px) {
     .m-settings { padding-left: 16px; padding-right: 16px; }
     .m-settings-head h1 { font-size: 26px; }
