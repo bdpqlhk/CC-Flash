@@ -165,13 +165,13 @@ jobs:
             printf '%s\n' "$APPLE_CERTIFICATE_PASSWORD"
             echo "CC_EOF"
           } >> "$GITHUB_ENV"
-          {
-            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
-            echo "APPLE_ID=$APPLE_ID"
-            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
-            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
-          } >> "$GITHUB_ENV"
-          echo "已注入 Apple 签名/公证环境"
+          # 公证四件套只在非空时注入: 只配了证书、还没配公证账号时,
+          # Tauri 不会拿空凭据去公证, 也避免 stapler 必然失败。
+          [ -n "${APPLE_SIGNING_IDENTITY:-}" ] && echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          [ -n "${APPLE_ID:-}" ] && echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+          [ -n "${APPLE_PASSWORD:-}" ] && echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+          [ -n "${APPLE_TEAM_ID:-}" ] && echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+          echo "已注入 Apple 签名环境（公证凭据按需注入）"
 
       # Windows 签名变量同样只在非空时注入: Tauri 对"存在但为空"的证书变量
       # 可能按待导入处理并报 Unable to decode, 与 Apple 的空值规避保持一致
@@ -223,6 +223,9 @@ jobs:
         if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -e
           if [ -z "${APPLE_CERTIFICATE:-}" ]; then
@@ -233,8 +236,12 @@ jobs:
           DMG=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -type f | head -1)
           [ -n "$APP" ] || { echo "::error::未找到 macOS .app"; exit 1; }
           codesign --verify --deep --strict "$APP"
-          [ -n "$DMG" ] && xcrun stapler validate "$DMG"
-          echo "✔ macOS 签名/公证校验通过"
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            [ -n "$DMG" ] && xcrun stapler validate "$DMG"
+            echo "✔ macOS 签名/公证校验通过"
+          else
+            echo "::warning::已签名但缺少公证凭据（APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID），跳过 stapler；本次发布未公证"
+          fi
 
       - name: 校验 Windows Authenticode
         if: runner.os == 'Windows'

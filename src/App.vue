@@ -2575,7 +2575,10 @@ function handleIncomingFiles(list) {
     // 多选: 依次发往每台设备; manual=true 让每批不被"目标切换"中断
     const targets = sendTargets.value.slice();
     (async () => {
-      for (const p of targets) await directSendFiles(p, arr, { manual: true });
+      for (const p of targets) {
+        const r = await directSendFiles(p, arr, { manual: true });
+        if (!r.allOk) break;   // 失败中断, 避免连续弹出多个配对框/长时间挂起
+      }
     })();
     return;
   }
@@ -3710,7 +3713,7 @@ async function loadClipboardForSend() {
 function openManualSend() {
   // 浏览器跨源直发会先被 connect-src 'self' 拦截；不放开 CSP，改为明确提示，
   // 浏览器保留聊天室/共享文件，跨设备直发走桌面端或手机 App。
-  if (!isDesktop) {
+  if (!isDesktop && !PREVIEW_MOBILE) {
     showToast("浏览器端不支持跨设备直发，请使用桌面端或手机 App", "error");
     return;
   }
@@ -4572,7 +4575,10 @@ async function sendChat() {
       const targets = sendTargets.value.slice();
       let ok = 0;
       for (const p of targets) {
-        if (await directSendText(p, text)) ok++;
+        // 失败即停: 多台设备同时缺配对码时, 继续发下一台会覆盖正在输入的
+        // 配对码弹框; 先让用户处理失败设备, 再重试剩余目标。
+        if (!(await directSendText(p, text))) break;
+        ok++;
       }
       if (ok) {
         chatInput.value = "";

@@ -46,7 +46,13 @@ if [ -n "$remote_tag" ]; then
     echo "  重发会覆盖已发布产物；确认该 tag 尚无公开 Release 后可设置 FORCE_REPUBLISH=1 重跑。"
     exit 1
   fi
-  echo "⚠ FORCE_REPUBLISH=1: 允许重发 v$TAG_VERSION"
+  # 重发必须重建 tag 才能重新触发 Actions: 已公开的 Release 绝不允许移动 tag
+  if gh release view "v$TAG_VERSION" --json isDraft -q .isDraft 2>/dev/null | grep -qx false; then
+    echo "✘ Release v$TAG_VERSION 已公开，拒绝删除/移动 tag（资产会与代码错位）"
+    exit 1
+  fi
+  FORCE_TAG=1
+  echo "⚠ FORCE_REPUBLISH=1: 允许重发 v$TAG_VERSION（稍后删除远端旧 tag）"
 fi
 
 BRANCH="$(git branch --show-current)"
@@ -127,9 +133,9 @@ git add -A
 # git diff 吃 SIGPIPE 以 141 退出, pipefail 下整条 if 为假 —— 守卫恰好在
 # "发版夹带大量改动+私钥"这种该触发的场景被绕过(已实测复现)
 staged_files=$(git diff --cached --name-only)
-if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)' >/dev/null; then
+if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)|(^|/)key\.properties$|(^|/)keystore\.properties$' >/dev/null; then
   echo "✘ 暂存区含签名私钥/环境密钥文件, 已中止(请移出仓库目录并从暂存区移除)"
-  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)'
+  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)|(^|/)key\.properties$|(^|/)keystore\.properties$'
   exit 1
 fi
 # 私钥内容守卫: 改扩展名(如把 keystore 命名成 .txt)可绕过上面的文件名检查。
@@ -163,6 +169,23 @@ while IFS= read -r f; do
       exit 1
       ;;
   esac
+  # base64 编码的 JKS: 文件是纯 ASCII, 以 /u3+7Q== 开头, 扩展名/裸魔数/MII
+  # 都匹配不到。取前 8 个 base64 字符解码, 检查 FEEDFEED 魔数。
+  head_b64=$(git show ":$f" 2>/dev/null | sed '/^[[:space:]]*#/d' | head -c 8192 | tr -d ' \t\r\n')
+  if [ "${#head_b64}" -ge 512 ]; then
+    case "$head_b64" in
+      *[!A-Za-z0-9+/=]*) ;;
+      *)
+        b64magic=$(printf '%s' "${head_b64:0:8}" | base64 -d 2>/dev/null | head -c 4 | od -An -tx1 | tr -d ' \n')
+        case "$b64magic" in
+          feedfeed)
+            echo "✘ 暂存文件 $f 是 base64 编码的 JKS keystore, 已中止"
+            exit 1
+            ;;
+        esac
+        ;;
+    esac
+  fi
 done <<< "$staged_files"
 set -o pipefail
 # 发版提交会带走全部改动(git add -A): 明示数量, 避免"一锅端"夹带
@@ -205,6 +228,12 @@ push_retry() {
 # 推当前分支(而非硬编码 main): 在特性分支发版时不会把 main 误推到远端
 push_retry "$BRANCH" || { echo "✘ $BRANCH 推送失败, 网络恢复后手动执行: git push origin $BRANCH"; exit 1; }
 
+if [ "${FORCE_TAG:-0}" = "1" ]; then
+  echo "删除远端旧 tag v$TAG_VERSION，以重新触发构建..."
+  git push origin ":refs/tags/v$TAG_VERSION" >/dev/null 2>&1 \
+    || gh api -X DELETE "repos/$REPO/git/refs/tags/v$TAG_VERSION" >/dev/null 2>&1 \
+    || { echo "✘ 删除远端旧 tag 失败，请手动处理"; exit 1; }
+fi
 if push_retry "v$TAG_VERSION"; then
   echo "✔ 标签已推送, 应已触发构建"
 else

@@ -530,7 +530,9 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
             // 反向（IPv4 → link-local）忽略，保持 IPv4 优先。
             let prev_link_local_v6 = prev.ip.starts_with("fe80:") || prev.ip.contains('%');
             let new_ipv4 = !ip.contains(':');
-            let token_ok = prev.token.is_empty() || token.is_empty() || prev.token == token;
+            // 迁移必须证明是同一进程: 双方令牌都非空且一致。旧版空令牌不迁移,
+            // 否则局域网伪造者可用公开的 id 把发送目标劫持到自己的 IPv4。
+            let token_ok = !prev.token.is_empty() && prev.token == token;
             if !(prev_link_local_v6 && new_ipv4 && token_ok) {
                 return IngestResult::default();
             }
@@ -5482,12 +5484,24 @@ async fn clipboard_post(
     Json(serde_json::json!({ "ok": true, "updatedAt": updated })).into_response()
 }
 
-async fn clipboard_delete() -> Response {
-    let save = {
+async fn clipboard_delete(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+) -> Response {
+    let peer = normalize_peer(addr.ip());
+    // 与 POST 共用限流: 每次清空都会落盘 + 广播, 不能无限循环调用
+    if !clip_admit(peer) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "剪贴板更新过于频繁，请稍后再试");
+    }
+    let (had_content, save) = {
         let mut c = shared_clip().lock().unwrap_or_else(|e| e.into_inner());
+        let had = !c.text.is_empty() || !c.from.is_empty();
         *c = SharedClip::default();
-        serde_json::to_vec(&*c).ok()
+        (had, serde_json::to_vec(&*c).ok())
     };
+    if !had_content {
+        // 已经是空槽: 跳过磁盘写与广播, 高频空删除不再制造 I/O/广播风暴
+        return Json(serde_json::json!({ "ok": true })).into_response();
+    }
     schedule_clip_save(save);
     push_log("共享剪贴板已清空".into());
     broadcast_event("clipboard:changed");
@@ -5895,6 +5909,12 @@ fn pin_global_fail(now: std::time::Instant) {
 fn pin_prefix6(ip: std::net::IpAddr) -> Option<std::net::IpAddr> {
     match ip {
         std::net::IpAddr::V6(v6) => {
+            // 链路本地 fe80::/64 在同一个二层网络里被所有设备共用: 按 /64 聚合
+            // 会让一台设备的发现/上传/配对失败把全体 IPv6 邻居一起限流。
+            // link-local 接口标识天然稳定, 直接用完整地址做 key 更公平。
+            if v6.is_unicast_link_local() {
+                return None;
+            }
             let o = v6.octets();
             let mut p = [0u8; 16];
             p[..8].copy_from_slice(&o[..8]);
@@ -6874,6 +6894,27 @@ fn body_gate() -> &'static tokio::sync::Semaphore {
     static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     S.get_or_init(|| tokio::sync::Semaphore::new(32))
 }
+/// 单来源 body 许可: 只靠全局 32 个许可时, 一个 IP 开 32 条慢 body 就能
+/// 把所有聊天/剪贴板/分享请求挤成 429。按来源再限 4 条, 并给 handler 30s
+/// 超时, 超时/断连时许可随 Drop 释放。
+const BODY_PEER_MAX: u32 = 4;
+fn body_peer_gate() -> &'static Mutex<HashMap<std::net::IpAddr, u32>> {
+    static M: OnceLock<Mutex<HashMap<std::net::IpAddr, u32>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+struct BodyPeerGuard(Option<std::net::IpAddr>);
+impl Drop for BodyPeerGuard {
+    fn drop(&mut self) {
+        let Some(p) = self.0 else { return };
+        let mut m = body_peer_gate().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = m.get_mut(&p) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                m.remove(&p);
+            }
+        }
+    }
+}
 async fn body_gate_mw(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -6885,10 +6926,29 @@ async fn body_gate_mw(
             | "/api/media-session" | "/api/hello"
     ) && req.method() == axum::http::Method::POST;
     if body_route {
+        let peer = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<SocketAddr>>()
+            .map(|ci| normalize_peer(ci.0.ip()));
+        if let Some(p) = peer {
+            let mut m = body_peer_gate().lock().unwrap_or_else(|e| e.into_inner());
+            if m.len() > 1024 {
+                m.retain(|_, n| *n > 0);
+            }
+            let n = m.entry(p).or_insert(0);
+            if *n >= BODY_PEER_MAX {
+                return err(StatusCode::TOO_MANY_REQUESTS, "该设备请求过多，请稍后重试");
+            }
+            *n += 1;
+        }
+        let _peer_guard = BodyPeerGuard(peer);
         let Ok(permit) = body_gate().try_acquire() else {
             return err(StatusCode::TOO_MANY_REQUESTS, "请求过多，请稍后重试");
         };
-        let res = next.run(req).await;
+        let res = match tokio::time::timeout(std::time::Duration::from_secs(30), next.run(req)).await {
+            Ok(r) => r,
+            Err(_) => err(StatusCode::REQUEST_TIMEOUT, "请求处理超时"),
+        };
         drop(permit);
         return res;
     }
@@ -6923,8 +6983,10 @@ fn router(share: PathBuf) -> Router {
         // fallback 必须在 layer 之前注册: axum 的 Router::layer 不会包裹之后才
         // 替换的 fallback, 否则静态页面完全绕过 Host/Origin 校验与请求日志。
         .fallback(static_handler)
-        .layer(axum::middleware::from_fn(log_middleware))
+        // 鉴权(log_middleware)必须早于 body 闸门: 未通过 PIN/Origin 的
+        // 慢请求不能占用全局 body 许可。
         .layer(axum::middleware::from_fn(body_gate_mw))
+        .layer(axum::middleware::from_fn(log_middleware))
         .layer(tower_http::cors::CorsLayer::permissive()) // 桌面窗口跨源调用 API
         .with_state(share)
 }
