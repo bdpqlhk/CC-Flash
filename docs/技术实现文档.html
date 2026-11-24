@@ -744,7 +744,7 @@ npm run tauri build
 <tr><td>实时同步</td><td>新增 <code>devices:presence</code> 全量列表；每条有效宣告触发 presence（1s 合并、尾包必达），另有 3s 全量兜底；WS 在线时加载失败 2s 补拉，轮询兜底保留。</td></tr>
 <tr><td>发现链路</td><td>已知 peer 每 3s 单播 announce，5s 单播 probe 兼容旧版；子网 /24 扫描改为仅用户显式 scan 触发；同 IP 新 id 不再驱逐真实设备。</td></tr>
 <tr><td>发送面板</td><td>所有颜色改主题 token，移除固定墨绿/薄荷。</td></tr>
-<tr><td>设置页</td><td>手机端按 dir-3 改为扁平行：令牌、剪贴板、重启、外观、版本行；文案精简。</td></tr>
+<tr><td>设置页</td><td>手机端先按 dir-3 改为扁平行（令牌、剪贴板、重启、外观、版本行）；v1.2.7.3 起改按 dir-5：LOCAL / CONFIG 页头 + 访问令牌开关 / 剪贴板同步 / 本机令牌 / 外观 + 版本尾注，方形开关与方色板，移动端令牌可关可开。</td></tr>
 <tr><td>安全</td><td>PIN 变更踢旧 WS；移动端开启令牌立即同步 accessPin；对端 PIN 以稳定 id 记忆；chat body 256KB/probe 4KB + body 许可；已消费票据拒绝 bytes=0- 整包 Range。</td></tr>
 <tr><td>悬浮窗</td><td>所有主题规则之后强制 Pet body 透明，WebView 背景色 alpha=0。</td></tr>
 <tr><td>主区可见性</td><td>移除 <code>.main &gt; *</code> 的 opacity 淡入动画，避免 WKWebView 窗口后台暂停动画时主区永远停在 opacity:0。</td></tr>
