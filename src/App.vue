@@ -75,6 +75,10 @@ function applyServerConfig(c) {
 // 诊断落盘默认关闭: 需要排查时执行 localStorage.setItem("wft-diag","1") 并重启
 const DIAG_ENABLED = (() => { try { return localStorage.getItem("wft-diag") === "1"; } catch (e) { return false; } })();
 const isDesktop = "__TAURI_INTERNALS__" in window;
+// 仅开发态: ?mobilePreview=1 在浏览器里模拟手机 App 壳(390/360 宽度做设计审查)。
+// 生产构建 import.meta.env.DEV 为 false, 这段分支会被 tree-shake。
+const _previewQ = (() => { try { return new URLSearchParams(location.search); } catch (e) { return new URLSearchParams(); } })();
+const PREVIEW_MOBILE = import.meta.env.DEV && _previewQ.has("mobilePreview");
 // 真实桌面 OS: isDesktop 在 Android/iOS 的 Tauri WebView 里同样为 true, 但 autostart/托盘
 // 等桌面插件按 #[cfg(desktop)] 未注册 —— 依赖这些插件的 UI 必须用 isRealDesktop 门控
 // iPadOS 13+ 伪装桌面 UA("Macintosh"), 单看 UA 会把 iPad 网页误判为真实桌面:
@@ -82,7 +86,7 @@ const isDesktop = "__TAURI_INTERNALS__" in window;
 const isIOSFamily = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isRealDesktop = isDesktop && !isIOSFamily && !/Android/.test(navigator.userAgent);
-const mobileShell = isDesktop && !isRealDesktop;
+const mobileShell = PREVIEW_MOBILE || (isDesktop && !isRealDesktop);
 /* PWA: 仅浏览器端显示安装入口; 桌面/移动壳已有原生 App。
    http://局域网IP 不是安全上下文, 浏览器内核直接关闭 Service Worker 与安装能力;
    https / localhost 下才是完整 PWA。这里把两种路径都做成明确可操作的状态,
@@ -205,6 +209,7 @@ function resetSessionState() {
   uploads.value = [];
   updateWakeLock().catch(() => {});   // 清空上传后释放屏幕常亮/静音保活
   remoteFiles.value = [];
+  fileEvents.value = [];
   peers.value = [];
   sendTarget.value = null;
   directReceipts.value = [];
@@ -219,6 +224,7 @@ function resetSessionState() {
   loadFiles._sig = null;
   loadChat._sig = null;
   loadChat._lastSig = null;
+  loadChat._filesSig = null;
   loadChat._init = false;
   clearedTs.value = 0;
   timelineStart.value = 0;
@@ -623,7 +629,7 @@ function recordTransfer(p, kind, name) {
 }
 let directReceiptSeq = 0;
 const directSending = ref(false);
-const canTargetDevices = computed(() => isDesktop && !isQrPetWindow);
+const canTargetDevices = computed(() => (isDesktop || PREVIEW_MOBILE) && !isQrPetWindow);
 const DEVICE_RAIL_KEY = "wft-device-rail-collapsed";
 const deviceRailCollapsed = ref((() => {
   try { return localStorage.getItem(DEVICE_RAIL_KEY) === "1"; } catch (e) { return false; }
@@ -841,6 +847,10 @@ const THEME_MODES = [
     { id: "dark",   name: "暗色" },
     { id: "system", name: "跟随系统" },
 ];
+if (PREVIEW_MOBILE) {
+  const _pt = _previewQ.get("theme");
+  if (_pt) setTheme(_pt);
+}
 const systemDarkMq = window.matchMedia("(prefers-color-scheme: dark)");
 const themeMode = ref((() => {
     try {
@@ -3559,8 +3569,8 @@ const discoveryInfo = ref({ started: false, joined: false, error: "" });
 const peersRefreshing = ref(false);
 let peersSeq = 0;
 async function refreshPeers() {
-  // 设备发现只属于桌面/手机 App; 浏览器不请求 /api/devices
-  if (!isDesktop) { peers.value = []; return; }
+  // 设备发现只属于桌面/手机 App; 浏览器不请求 /api/devices(设计预览除外)
+  if (!isDesktop && !PREVIEW_MOBILE) { peers.value = []; return; }
   // 浏览器端 apiBase 为空表示相对路径; 移动壳服务未就绪时才跳过
   if (serviceDown() || (isDesktop && !apiBase.value)) { peers.value = []; return; }
   const epoch = sessionEpoch;   // 切换电脑后旧服务的迟到列表不得写回新会话
@@ -4907,6 +4917,12 @@ function stopPolling() {
   wsLiveState = null;   // 计时器已被清空: 下次 applyWsMode 必须重新排程
 }
 onMounted(() => {
+  if (PREVIEW_MOBILE) {
+    const tab = _previewQ.get("tab");
+    if (tab) setMobileTab(tab);
+    const mode = _previewQ.get("mode");
+    if (mode) setThemeMode(mode);
+  }
   // 移动端时间线窗口起点: 必须在挂载后注册 —— setup 阶段 watch 会立即求值
   // timelineItems, 而 chatMsgs/clearedTs 在后面才定义(TDZ 会导致整页白屏)。
   watch([timelineItems, atBottom, isNarrow], () => {
@@ -5535,7 +5551,7 @@ async function refreshStatus() {
 
 <template>
   <!-- 移动 App 启动门: 本机服务就绪前短暂等待; 失败时必须给出可点的重试出路 -->
-  <div v-if="mobileShell && !serverAddr" class="connect-gate">
+  <div v-if="mobileShell && !serverAddr && !PREVIEW_MOBILE" class="connect-gate">
     <div class="connect-card">
       <h3>{{ mobileBootFailed ? "本机服务启动失败" : "正在启动本机服务…" }}</h3>
       <p v-if="!mobileBootFailed">手机作为独立节点运行本地文件服务与聊天，附近设备会自动发现，无需输入电脑地址。</p>
@@ -6121,14 +6137,14 @@ async function refreshStatus() {
                   </template>
                 </div>
               </div>
+              <button v-if="mobileTabbed" class="m-drop" @click="pickFiles(true)"><b>＋ DROP FILES</b><span>上传文件 / 文件夹</span></button>
             </div>
-            <button v-if="mobileTabbed" class="m-drop" @click="pickFiles(true)"><b>＋ DROP FILES</b><span>上传文件 / 文件夹</span></button>
             <div class="tx-files-foot">
               <button v-if="selectedCount" class="tx-del" @click="confirmDeleteSelected">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 删除选中 ({{ selectedCount }})
               </button>
-              <span v-else-if="isNarrow && pageFiles.length" class="tx-files-tip">点文件或 ⋯ 操作</span>
+              <span v-else-if="isNarrow && pageFiles.length" class="tx-files-tip">{{ mobileTabbed ? "点文件打开操作" : "点文件或 ⋯ 操作" }}</span>
               <div class="tx-pg" v-if="totalPages > 1">
                 <button :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
                 <template v-for="(it, i) in pageItems" :key="i">

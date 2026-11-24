@@ -70,5 +70,12 @@
 <tr><td>审查发现：iOS 输入框 &lt;16px 会缩放整页；浅色主题按钮文字对比度不足；目标栏长设备名溢出；文件排序 / 刷新 / 收藏 / 昵称 / 清空入口被样式隐藏；文件行键盘不可达；历史搜索缺少标签。</td><td>输入框 16px；琥珀按钮文字改 <code>#0b0e0d</code>（浅色 4.59:1）；目标栏省略号 + 雷达盘小屏收缩；保留排序 / 刷新 / 收藏并把昵称、清空、复制、二维码、手动发送收进 ●●● 菜单；文件行补 <code>role=button</code> 与 Enter/Space；历史搜索补 <code>aria-label</code>；设备选择补 <code>aria-pressed</code>。</td></tr>
 </table>
 
+<h2>十、全平台字体 token 与可读性修复</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>app 的 <code>style.css</code> 从未定义 <code>--mono</code>，但桌面与移动信号台大量使用 <code>font: … var(--mono)</code>：整个 font 简写无效，字号/字重回退 14px，移动端发送按钮换行、读数失去等宽体系。</td><td>在 <code>:root</code> 定义 <code>--mono</code>（SF Mono / Menlo / Consolas / Cascadia Code / monospace）；移动三页功能字号统一到 11–13px，输入框 16px 防 iOS 缩放，未读角标改深色（对比度 6.3:1）；消息行收紧、雷达与目标栏小屏适配；恢复文件排序/刷新、设备收藏、昵称/清空/复制/二维码入口。</td></tr>
+<tr><td>真实渲染审查需要手动改代码才能看到移动壳。</td><td>新增仅开发态生效的 <code>?mobilePreview=1</code> 预览开关（支持 <code>tab</code> / <code>mode</code> / <code>theme</code> 参数），生产构建 tree-shake；本轮用 390×844 真实视口截图逐页复核。</td></tr>
+</table>
+
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>

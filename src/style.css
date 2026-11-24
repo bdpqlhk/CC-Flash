@@ -13,6 +13,9 @@
     --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.3);
     --shadow-lg: 0 4px 32px rgba(0,0,0,0.5);
     --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+    /* 等宽字体: 信号台读数/日志/时间戳统一使用。此前只在本文件个别规则里
+       var(--mono) 但变量从未定义, 导致所有 font 简写失效并回退 14px。 */
+    --mono: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
 }
 
 
@@ -2657,7 +2660,7 @@ button:focus-visible, [role="button"]:focus-visible {
 
 .mtab-dot {
     position: absolute; top: -3px; right: -8px; min-width: 15px; height: 15px;
-    padding: 0 4px; border-radius: 8px; background: var(--accent); color: #fff;
+    padding: 0 4px; border-radius: 8px; background: var(--accent); color: #0b0e0d;
     font-size: 9px; font-style: normal; font-weight: 700; line-height: 15px; text-align: center;
     border: 1.5px solid var(--panel);
 }
@@ -4086,21 +4089,21 @@ html[data-android-browser="1"] .tx-head {
  * 桌面端 / 浏览器保持原布局。
  * ============================================================ */
 .shell.has-mobile-tabs .m-kicker {
-    font: 9px/1 var(--mono);
+    font: 11px/1 var(--mono);
     letter-spacing: .15em;
     text-transform: uppercase;
     color: var(--text3);
 }
 .shell.has-mobile-tabs .m-head-act {
     flex-shrink: 0;
-    height: 30px;
+    height: 32px;
     padding: 0 10px;
     border: 1px solid var(--card-border);
     border-radius: 3px;
     background: transparent;
     color: var(--text2);
-    font: 9px/1 var(--mono);
-    letter-spacing: .08em;
+    font: 11px/1 var(--mono);
+    letter-spacing: .04em;
     cursor: pointer;
 }
 .shell.has-mobile-tabs .m-head-act:active { color: var(--accent-text); border-color: var(--accent); }
@@ -4124,11 +4127,11 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .m-dev-head .m-sub,
 .shell.has-mobile-tabs .m-files-head .m-sub {
     margin: 4px 0 0;
-    font: 10px/1.5 var(--mono);
+    font: 11px/1.5 var(--mono);
     color: var(--text2);
 }
 .shell.has-mobile-tabs .m-files-acts { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.shell.has-mobile-tabs .m-count { font: 9.5px/1 var(--mono); letter-spacing: .08em; color: var(--accent-text); }
+.shell.has-mobile-tabs .m-count { font: 11px/1 var(--mono); letter-spacing: .08em; color: var(--accent-text); }
 
 .shell.has-mobile-tabs .tx-devices-head,
 .shell.has-mobile-tabs .tx-idcard,
@@ -4190,14 +4193,14 @@ html[data-android-browser="1"] .tx-head {
 }
 .shell.has-mobile-tabs .m-dev-stats small {
     display: block;
-    font: 9px/1 var(--mono);
-    letter-spacing: .08em;
+    font: 11px/1 var(--mono);
+    letter-spacing: .06em;
     color: var(--text3);
 }
 .shell.has-mobile-tabs .m-dev-stats b {
     display: block;
     margin-top: 5px;
-    font: 500 14px/1 var(--mono);
+    font: 500 16px/1 var(--mono);
     color: var(--accent-text);
 }
 .shell.has-mobile-tabs .m-dev-actions { display: flex; gap: 6px; padding: 10px 20px 4px; }
@@ -4208,8 +4211,8 @@ html[data-android-browser="1"] .tx-head {
     border-radius: 0;
     background: transparent;
     color: var(--text2);
-    font: 10px/1 var(--mono);
-    letter-spacing: .04em;
+    font: 11px/1 var(--mono);
+    letter-spacing: .02em;
     cursor: pointer;
 }
 .shell.has-mobile-tabs .m-dev-actions button.primary {
@@ -4220,11 +4223,11 @@ html[data-android-browser="1"] .tx-head {
 }
 .shell.has-mobile-tabs .tx-devices-sub {
     padding: 12px 20px 4px;
-    font: 9.5px/1 var(--mono);
-    letter-spacing: .12em;
+    font: 11px/1 var(--mono);
+    letter-spacing: .08em;
     color: var(--text3);
 }
-.shell.has-mobile-tabs .tx-devices-sub .tx-devices-multi { margin-left: auto; height: 30px; border-radius: 3px; }
+.shell.has-mobile-tabs .tx-devices-sub .tx-devices-multi { margin-left: auto; height: 30px; border-radius: 3px; font-size: 11px; }
 .shell.has-mobile-tabs .tx-devices-list { padding: 0 20px 12px; gap: 0; }
 .shell.has-mobile-tabs .tx-device {
     width: 100%;
@@ -4251,8 +4254,8 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .m-dev-nm { flex: 1; min-width: 0; }
 .shell.has-mobile-tabs .m-dev-nm b {
     display: block;
-    font: 12px/1.4 var(--mono);
-    letter-spacing: .02em;
+    font: 13px/1.4 var(--mono);
+    letter-spacing: .01em;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
@@ -4260,7 +4263,7 @@ html[data-android-browser="1"] .tx-head {
 }
 .shell.has-mobile-tabs .m-dev-nm small {
     display: block;
-    font: 10px/1.5 var(--mono);
+    font: 11px/1.5 var(--mono);
     color: var(--text3);
     white-space: nowrap;
     overflow: hidden;
@@ -4282,11 +4285,11 @@ html[data-android-browser="1"] .tx-head {
     letter-spacing: -.04em;
     color: var(--text);
 }
-.shell.has-mobile-tabs .tx-room-title p { margin: 4px 0 0; font: 10px/1.5 var(--mono); color: var(--text2); }
+.shell.has-mobile-tabs .tx-room-title p { margin: 4px 0 0; font: 11px/1.5 var(--mono); color: var(--text2); }
 .shell.has-mobile-tabs .tx-acts { display: none; }
 .shell.has-mobile-tabs .m-head-dots { margin-top: 8px; letter-spacing: .1em; }
 .shell.has-mobile-tabs .tx-more { top: 58px; border-radius: 0; background: var(--bg2); }
-.shell.has-mobile-tabs .tx-more button { border-radius: 0; font: 10.5px/1.2 var(--mono); }
+.shell.has-mobile-tabs .tx-more button { border-radius: 0; font: 12px/1.2 var(--mono); }
 .shell.has-mobile-tabs .m-target-bar {
     display: flex;
     align-items: center;
@@ -4295,7 +4298,7 @@ html[data-android-browser="1"] .tx-head {
     padding: 8px 9px;
     border: 1px solid var(--card-border);
     background: color-mix(in srgb, var(--bg2) 75%, transparent);
-    font: 10.5px/1 var(--mono);
+    font: 11.5px/1 var(--mono);
     color: var(--text2);
 }
 .shell.has-mobile-tabs .m-target-bar b { color: var(--accent-text); font-weight: 500; }
@@ -4314,8 +4317,8 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-list { padding: 8px 20px 10px; }
 .shell.has-mobile-tabs .tx-date {
     margin: 8px 0 12px;
-    font: 9.5px/1 var(--mono);
-    letter-spacing: .1em;
+    font: 11px/1 var(--mono);
+    letter-spacing: .08em;
     color: var(--text3);
     text-align: left;
 }
@@ -4329,20 +4332,20 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-msg .tx-ava { display: none; }
 .shell.has-mobile-tabs .tx-msg .tx-col {
     display: grid;
-    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-columns: 80px minmax(0, 1fr);
     column-gap: 10px;
     width: 100%;
 }
 .shell.has-mobile-tabs .tx-msg .tx-name { grid-column: 1; grid-row: 1; display: block; margin: 0; }
 .shell.has-mobile-tabs .tx-msg .tx-name .nm {
     display: block;
-    font: 10px/1.5 var(--mono);
+    font: 11px/1.5 var(--mono);
     color: var(--success);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.shell.has-mobile-tabs .tx-msg .tx-name .tm { display: block; margin: 2px 0 0; font: 9px/1.4 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .tx-msg .tx-name .tm { display: block; margin: 2px 0 0; font: 11px/1.4 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .tx-msg.out .tx-name .nm { color: var(--accent-text); }
 .shell.has-mobile-tabs .tx-msg .tx-bubble {
     grid-column: 2;
@@ -4353,12 +4356,14 @@ html[data-android-browser="1"] .tx-head {
     border-radius: 0;
     background: transparent;
     color: var(--text);
-    font-size: 12.5px;
+    font-size: 13px;
     line-height: 1.65;
 }
 .shell.has-mobile-tabs .tx-msg .tx-foot { grid-column: 2; grid-row: 2; }
+.shell.has-mobile-tabs .tx-msg .tx-foot { display: none; }
+.shell.has-mobile-tabs .tx-msg.active .tx-foot { display: flex; }
 .shell.has-mobile-tabs .tx-receipt-block { margin: 12px 0; }
-.shell.has-mobile-tabs .tx-receipt-time { font: 9.5px/1 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .tx-receipt-time { font: 11px/1 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .tx-receipt {
     display: flex;
     justify-content: space-between;
@@ -4367,7 +4372,7 @@ html[data-android-browser="1"] .tx-head {
     border-bottom: 1px dashed var(--card-border);
     border-radius: 0;
     background: transparent;
-    font: 9.5px/1.5 var(--mono);
+    font: 11px/1.5 var(--mono);
     color: var(--text3);
 }
 .shell.has-mobile-tabs .tx-composer {
@@ -4402,10 +4407,12 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-send {
     width: 54px;
     height: 38px;
+    padding: 0;
+    white-space: nowrap;
     border-radius: 0;
     background: var(--accent);
     color: #0b0e0d;
-    font: 700 11px/1 var(--mono);
+    font: 700 12px/1 var(--mono);
 }
 
 /* ---------- 文件页 ---------- */
@@ -4413,7 +4420,7 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-grab,
 .shell.has-mobile-tabs .tx-files-head { display: none; }
 /* 保留排序/全选/刷新功能，但收成 dir-2 的等宽小控件 */
-.shell.has-mobile-tabs .tx-files-tools { display: flex; align-items: center; gap: 10px; padding: 6px 20px 2px; }
+.shell.has-mobile-tabs .tx-files-tools { align-items: center; gap: 10px; padding: 6px 20px 2px; }
 .shell.has-mobile-tabs .tx-sort { display: flex; gap: 10px; }
 .shell.has-mobile-tabs .tx-sort button { padding: 4px 0; border: 0; background: transparent; color: var(--text3); font: 9.5px/1 var(--mono); letter-spacing: .04em; cursor: pointer; }
 .shell.has-mobile-tabs .tx-sort button.on { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
@@ -4437,32 +4444,33 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-files.m-select .tx-frow { grid-template-columns: 16px 28px minmax(0, 1fr); }
 .shell.has-mobile-tabs .tx-files.m-select .tx-check { display: grid; grid-column: 2; grid-row: 1; }
 .shell.has-mobile-tabs .tx-files.m-select .tx-finfo2 { grid-column: 3; }
-.shell.has-mobile-tabs .m-file-no { display: block; font: 9.5px/1 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .m-file-no { display: block; font: 11px/1 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .tx-finfo2 { min-width: 0; }
 .shell.has-mobile-tabs .tx-fname2 {
-    font: 11.5px/1.4 var(--mono);
+    font: 12px/1.4 var(--mono);
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.shell.has-mobile-tabs .tx-fmeta2 { font: 9.5px/1.5 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .tx-fmeta2 { font: 11px/1.5 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .m-pbar { height: 2px; margin-top: 5px; background: var(--card-border); }
 .shell.has-mobile-tabs .m-pbar i { display: block; height: 100%; background: var(--accent); }
 .shell.has-mobile-tabs .m-drop {
     display: flex;
+    width: 100%;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 4px;
     height: 52px;
-    margin: 10px 20px 14px;
+    margin: 10px 0 14px;
     border: 1px dashed var(--card-border);
     border-radius: 0;
     background: transparent;
 }
-.shell.has-mobile-tabs .m-drop b { font: 10px/1.4 var(--mono); letter-spacing: .1em; color: var(--accent-text); }
-.shell.has-mobile-tabs .m-drop span { font: 9px/1.4 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .m-drop b { font: 11.5px/1.4 var(--mono); letter-spacing: .1em; color: var(--accent-text); }
+.shell.has-mobile-tabs .m-drop span { font: 11px/1.4 var(--mono); color: var(--text3); }
 
 /* HISTORY: 手机端按 dir-2 改为底部 sheet */
 .shell.has-mobile-tabs .history-overlay { align-items: flex-end; padding: 0; }
@@ -4481,9 +4489,9 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-file { margin: 0; padding: 9px 0; border-top: 1px solid var(--card-border); }
 .shell.has-mobile-tabs .tx-file .tx-ava { display: none; }
 .shell.has-mobile-tabs .tx-file .tx-file-col { max-width: 100%; }
-.shell.has-mobile-tabs .tx-file .tx-name .nm { font: 10px/1.5 var(--mono); color: var(--success); }
+.shell.has-mobile-tabs .tx-file .tx-name .nm { font: 11px/1.5 var(--mono); color: var(--success); }
 .shell.has-mobile-tabs .tx-file.out .tx-name .nm { color: var(--accent-text); }
-.shell.has-mobile-tabs .tx-file .tx-name .tm { font: 9px/1.4 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .tx-file .tx-name .tm { font: 10.5px/1.4 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .tx-filecard,
 .shell.has-mobile-tabs .tx-groupcard {
     border-radius: 0;
@@ -4494,7 +4502,16 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-group-head,
 .shell.has-mobile-tabs .tx-gtitle b,
 .shell.has-mobile-tabs .tx-gtitle small { font-family: var(--mono); }
-.shell.has-mobile-tabs .tx-file-actions button { border-radius: 0; font-size: 9.5px; }
+.shell.has-mobile-tabs .tx-file-actions button { border-radius: 0; font-size: 12px; }
 .shell.has-mobile-tabs .tx-files-empty .btn-primary { border-radius: 0; font-family: var(--mono); font-size: 10px; }
 .shell.has-mobile-tabs .tx-upload-strip,
 .shell.has-mobile-tabs .tx-jump { font-family: var(--mono); }
+
+.shell.has-mobile-tabs .tx-file .tx-fmeta { font-size: 11.5px; }
+.shell.has-mobile-tabs .tx-fname { font-size: 12.5px; }
+
+.shell.has-mobile-tabs .tx-ficon { font-size: 11px; }
+.shell.has-mobile-tabs .tx-file .tx-name .tm { font-size: 11px; }
+
+/* iOS 聚焦 <16px 输入框会缩放整页: 手机端历史搜索统一 16px */
+.shell.has-mobile-tabs .history-search { font-size: 16px; }
