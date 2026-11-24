@@ -1,0 +1,31 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-24 发版链路与 Android 版本修复</title>
+<style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
+<h1>CC Flash · 2026-11-24 发版链路与 Android 版本修复</h1>
+<div class="meta">版本：v1.2.7.3 · 本文件记录 v1.2.7 → v1.2.7.3 的重建、发版流水线修复与 Android 安装包版本字段排查；与《技术实现文档》《需求设计文档》配套阅读。</div>
+<div class="callout"><b>本轮重点</b>恢复「缺签名仅告警继续发布」的既定策略；四段 tag 的交付文件名与 publish 校验全程兼容；修复 Android 安装包长期显示 <code>versionName=1.0</code>、<code>versionCode=1</code> 的根因；完成 v1.2.7.3 全链路验证。</div>
+
+<h2>一、发布流水线</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>v1.2.7 批次误把「缺签名 Secrets 仅告警」改回 <code>::error</code> + <code>exit 1</code>，publish 失败、Release 停在草稿（与 <code>8115947</code> 及 README 的既定策略冲突）。</td><td>恢复为只打 <code>::warning::</code> 并继续发布未签名/未公证包；资产名精确校验保留；同步更正历史记录表述（<code>9df9327</code>）。</td></tr>
+<tr><td>四段 tag（<code>vX.Y.Z.W</code>）的 dmg/exe 文件名只带前三段，与 APK 的完整 tag 命名不一致，publish 精确校验误判「缺少资产」。</td><td><code>tauri.conf.json</code> 的 version 必须是 semver（仅三段），故在 desktop job 构建后把 dmg/exe 复制为完整四段 tag 名，删除默认名资产后重传（<code>--clobber</code>）；publish 四项资产统一按完整 tag 校验（<code>a3ebc41</code>、<code>45dabe7</code>）。</td></tr>
+<tr><td>API 兜底推送后远端 commit 与本地 refs 哈希分叉，<code>api-push.sh</code> 的 fast-forward 校验拒绝继续。</td><td>按 GitHub commit JSON 在本地重建远端提交对象，rebase 后重新推送；网络恢复后用正常 <code>git fetch</code> 校准 refs 与标签。</td></tr>
+</table>
+
+<h2>二、Android 安装包版本字段</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>安装器显示 <code>1.0</code>：Tauri CLI 在 Android 上默认写 <code>versionName=1.0</code>，与桌面/应用版本无关。</td><td><code>build.gradle.kts</code> 优先读取 CI 注入的 <code>CCFLASH_BUILD_VERSION</code>（完整四段 tag），本地构建按 <code>versionCode</code> 的编码规则反解，安装器显示真实版本。</td></tr>
+<tr><td>更隐蔽的问题：<code>versionCode</code> 一直是 <code>1</code>。<code>gen/android</code> 已入库，CI 跳过 <code>tauri android init</code>，<code>tauri.properties</code> 从未生成，Gradle 两个字段都落到模板默认值。</td><td><code>versionCode</code> 依次取 <code>tauri.properties</code> → <code>tauri.conf.json > bundle.android.versionCode</code>（<code>release.sh</code> 写入的唯一来源）→ 最后才回退 1；与 <code>versionName</code> 共用同一来源（<code>379f60d</code>）。</td></tr>
+</table>
+
+<h2>三、验证</h2>
+<table>
+<tr><th>版本</th><th>结果</th></tr>
+<tr><td><code>v1.2.7.2</code></td><td>CI 全绿、publish 自动发布；四个资产名已带 <code>1.2.7.2</code>；APK <code>versionName=1.2.7.2</code>，但 <code>versionCode</code> 仍为 1。</td></tr>
+<tr><td><code>v1.2.7.3</code></td><td>CI 全绿、publish 自动发布；四个资产名均带 <code>1.2.7.3</code>；解析 APK 清单：<code>versionCode=10200703</code>、<code>versionName=1.2.7.3</code>。</td></tr>
+</table>
+<p>推荐使用 <b>v1.2.7.3</b>。v1.2.7.1 / v1.2.7.2 的 Android 包 <code>versionCode=1</code>，系统会把它们视为同一版本，不建议继续分发。</p>
+
+<div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
+</body></html>

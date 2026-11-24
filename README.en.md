@@ -121,7 +121,7 @@ Docs are currently in Chinese:
 
 - [Requirements Design](docs/需求设计文档.html) · [Technical Implementation](docs/技术实现文档.html) · [User Guide](docs/保姆级使用说明.html)
 - [User Guide · PixPin-style edition](docs/保姆级使用说明-PixPin版.html) (also [UU edition](docs/保姆级使用说明-UU版.html) / [SkillPay edition](docs/保姆级使用说明-SkillPay版.html))
-- [History Log 2026-11-23](docs/整个过程历史改动记录_2026-11-23.html) · [2026-11-22 full review](docs/整个过程历史改动记录_2026-11-22.html) · [2026-11-20 ~ 11-21](docs/整个过程历史改动记录_2026-11-20至2026-11-21.html) · [2026-11-19](docs/整个过程历史改动记录_2026-11-19.html) · [11-17 ~ 11-18](docs/整个过程历史改动记录_2026-11-17至2026-11-18.html) · [11-13 ~ 11-16](docs/整个过程历史改动记录_2026-11-13至2026-11-16.html) · [11-03 ~ 11-12](docs/整个过程历史改动记录_2026-11-03至2026-11-12.html) · [10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) · [10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) · [Marketing Plan](docs/推广营销方案.html) · [Roadmap](docs/后期规划.html)
+- [History Log 2026-11-24 release pipeline & Android version fixes](docs/整个过程历史改动记录_2026-11-24.html) · [History Log 2026-11-23](docs/整个过程历史改动记录_2026-11-23.html) · [2026-11-22 full review](docs/整个过程历史改动记录_2026-11-22.html) · [2026-11-20 ~ 11-21](docs/整个过程历史改动记录_2026-11-20至2026-11-21.html) · [2026-11-19](docs/整个过程历史改动记录_2026-11-19.html) · [11-17 ~ 11-18](docs/整个过程历史改动记录_2026-11-17至2026-11-18.html) · [11-13 ~ 11-16](docs/整个过程历史改动记录_2026-11-13至2026-11-16.html) · [11-03 ~ 11-12](docs/整个过程历史改动记录_2026-11-03至2026-11-12.html) · [10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) · [10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) · [Marketing Plan](docs/推广营销方案.html) · [Roadmap](docs/后期规划.html)
 
 <!-- 🖼 Screenshots (阶段一素材): save under assets/ and place here, e.g.
 - assets/screenshot-desktop.png   — desktop window (files view)
