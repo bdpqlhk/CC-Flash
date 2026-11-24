@@ -14,7 +14,9 @@ import androidx.annotation.RequiresApi
 
 /**
  * 仅用于保活: 前台服务让进程在切后台/锁屏时不被 Doze 立即冻结。
- * 真正的网络监听与文件传输仍由 Rust 侧的本地 HTTP 服务完成。
+ * 使用 connectedDevice 类型（局域网连接外部设备），而不是 dataSync：
+ * Android 15+ 对 dataSync 有 6h/24h 配额，长时间后台会被系统停止；
+ * connectedDevice 没有该时限。真正的网络监听与传输仍由 Rust 侧完成。
  * MulticastLock 放在 Service 而不是 Activity: 系统回收 Activity 时
  * (后台内存压力 / 不保留活动) 多播发现不会静默失效。
  */
@@ -46,7 +48,7 @@ class LocalServerService : Service() {
       .setOngoing(true)
       .build()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+      startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
     } else {
       startForeground(NOTIF_ID, notif)
     }
@@ -101,7 +103,7 @@ class LocalServerService : Service() {
 
   @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
   override fun onTimeout(startId: Int) {
-    // Android 15+ 对 dataSync 前台服务有 6h/24h 配额, 到点后系统要求主动停止。
+    // 保留 onTimeout 兜底: 若厂商/系统仍对 connectedDevice 触发超时, 用可见通知告知用户。
     // 静默 stopSelf 会让用户完全无感(其他设备再也发现/连不上手机), 这里先发一条
     // 普通通知说明原因, 用户重新打开 App 时 onResume 会再次拉起前台服务。
     try {

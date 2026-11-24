@@ -9,8 +9,11 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- 本机服务常驻: 前台服务避免切后台/锁屏即被 Doze 冻结 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- connectedDevice 前台服务的准入权限: 本应用通过局域网连接外部设备 -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- 熄屏保活: 锁屏后仍需运行发现心跳并保持 Wi-Fi 收发, 见 LocalServerService -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 首次启动申请"忽略电池优化": 荣耀/华为等省电策略会冻结后台进程 -->
@@ -44,7 +47,7 @@
         <service
             android:name=".LocalServerService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="connectedDevice" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

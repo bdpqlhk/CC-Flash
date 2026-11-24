@@ -8,7 +8,7 @@
 [![CC Flash 演示](assets/demo.gif)](assets/demo.gif)
 -->
 
-技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.6**，2026-11-23 全量复审 + 全功能自测 + 产物瘦身）。前端主包 **322,224 B（约 315 KiB）**，二维码库按需另加载 24,533 B，CSS **134,734 B（约 132 KiB）**，`dist` 合计 **541,530 B（约 529 KiB）**；Rust 二进制 **arm64 4,084,368 B / x64 5,045,392 B**（strip + fat LTO + opt-level=z + panic=abort）。Windows 安装包改用 WebView2 **downloadBootstrapper**（不再内嵌 ~1.8 MB 引导器），Android 仅保留中英文资源并只发 arm64-v8a 单包；macOS 分架构 dmg **2.73–2.85 MiB** / .app **4.12 MiB（arm64）/ 5.03 MiB（x64）**（以 Release 产物为准）。
+技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.8**，含 2026-11-25 全量审查修复（待发 1.2.9））。前端主包 **333,758 B（约 326 KiB）**，二维码库按需另加载 24,533 B，CSS **151,194 B（约 148 KiB）**，`dist` 合计 **约 580 KiB**；Rust 二进制约 4–5 MiB（strip + fat LTO + opt-level=z + panic=abort）。Windows 安装包内置 WebView2 **离线安装器**（安装体积约 +127 MB，无外网也能安装），Android 仅保留中英文资源并只发 arm64-v8a 单包；macOS 分架构 dmg **2.73–2.85 MiB** / .app **4.12 MiB（arm64）/ 5.03 MiB（x64）**（以 Release 产物为准）。
 
 ## 功能特性
 
@@ -17,15 +17,15 @@
 - 🔍 **应用内文件预览**：图片 / PDF / 文本（txt/md/log/csv）/ 音视频点击缩略图或「预览」即全屏查看，右上角「关闭」或 Esc 直接回到聊天；Office 文档、压缩包等浏览器无法渲染的类型仍需下载；html/svg/xml 不会以网页形式内联打开
 - 💠 **桌面悬浮码**：置顶透明呼吸圆点吸附屏幕边缘（默认左侧中部，**位置持久化重启不丢**），珊瑚呼吸环 + 取景框 CC 徽章；指针停留 1.5 秒滑出「浏览器扫一扫」预览卡、移开即收；**外圈呼吸 = 服务运行中、静止 = 已停止**；外圈绿点（与呼吸环同组随环缩放）提示新文件 / 新消息（主窗打开自动隐藏并清零）；按住拖动自动吸附最近边，**支持扩展屏**（拖到哪块屏吸哪块屏，位置连同显示器一起记忆、重启回原屏；Windows 混合 DPI 下也按目标屏缩放正确落位），关闭入口仅在 CC设置
 - 🖥 **服务中心**：启停/端口/磁盘空间一目了然，**loguru 风格结构化日志**（INFO·SUCCESS·WARNING·ERROR 级别着色 / 来源 文件:行号 / 贴底跟随），问题一眼定位
-- 📱 **四种运行形态**：桌面壳（侧栏 + 共享文件抽屉 + 托盘/悬浮码；顶栏标题居左，运行状态 + 地址 + 复制 / 二维码 / 浏览器按钮整组靠右上，地址宽度随内容、窄屏自动换行）/ 电脑浏览器（顶部栏 + 抽屉）/ 手机浏览器（单列 + 原聊天室单页，无底部标签/发现/设置）/ 手机端 App（**独立节点**：本机运行文件服务与聊天，可被同网段设备发现），共用同一条时间线与同一套组件；桌面端支持 macOS 11+ / Windows / Linux（Linux 从源码构建），手机端提供 Android APK，iOS 不提供安装包、用 Safari 打开电脑地址；微信内置浏览器会提示点右上角「在浏览器打开」；手机 App 始终开放局域网，首次启动自动生成本机访问令牌（同网段设备需配对码，可在设置页关闭），不再提供「局域网访问」开关；Android 用前台服务保活，iOS 未交付
+- 📱 **四种运行形态**：桌面壳（侧栏 + 共享文件抽屉 + 托盘/悬浮码；顶栏标题居左，运行状态 + 地址 + 复制 / 二维码 / 浏览器按钮整组靠右上，地址宽度随内容、窄屏自动换行）/ 电脑浏览器（顶部栏 + 抽屉）/ 手机浏览器（单列 + 原聊天室单页，无底部标签/发现/设置）/ 手机端 App（**独立节点**：本机运行文件服务与聊天，可被同网段设备发现），共用同一条时间线与同一套组件；桌面端支持 macOS 11+ / Windows / Linux（Linux 从源码构建），手机端提供 Android APK，iOS 不提供安装包、用 Safari 打开电脑地址；微信内置浏览器会提示点右上角「在浏览器打开」；手机 App 始终开放局域网，首次启动自动生成本机访问令牌（同网段设备需配对码，可在设置页关闭），不再提供「局域网访问」开关；Android 用 **connectedDevice 前台服务 + Wi-Fi/CPU 锁**保活（不再受 dataSync 6h 配额限制），iOS 未交付
 - 📱 **消息工作台（设备选择并入发送页）**：桌面「消息发送」左侧是 Snapdrop 风格周边设备栏（本机身份卡 + 雷达盘 + 附近设备列表，在线 / 忙碌 / 最近活跃），点设备即选中发送目标（支持「多选」同时发给多台），输入栏切换为「直发」，时间线追加本机回执；手机 App 为「发送 / 设备 / 文件 / 设置」四页（底部四标签）：发送页是对话与直发，设备页是雷达 + 设备清单 + 手动发送，文件页是共享文件 manifest（发送 / 设备 / 文件三页按 dir-2 信号台改造：TARGET·UDP·MANIFEST 读数页头、刻度雷达盘、RSSI 设备行、manifest 序号 + 进度条、方形输入与琥珀发送键），设置页按 dir-5 承载访问令牌开关 / 剪贴板同步 / 本机令牌 / 外观；窄窗桌面在聊天头部显示「设备」入口：761–980px 展开 360px 竖屏侧栏，≤760px 整页覆盖（聊天列表/输入栏隐藏，不弹窗），选中设备自动收起；宽屏桌面仍用左侧 200px 设备栏。聊天室、文件和共享剪贴板仍在同一条时间线；设备栏顶部可收起/展开，附近设备区有独立扫描按钮；本机身份卡右上角的时钟按钮打开传输历史弹框；点设备只选中目标、不再自动弹面板；「手动发送」才会打开统一发送面板（文件 / 文件夹 / 文本 / 剪贴板四标签，拖入区 + 已选状态 + 发送按钮），手动模式可输入 IP:端口；附近设备支持「多选」，勾选后消息与拖入文件会依次发往每台设备；发送失败提示与对方配对码弹框显示在面板之上；手机 App 文件页的上传固定加入本机共享，不会沿用发送页的直发目标；文件投递事件持久化到本机服务（`file-history.json`，最近 200 条），刷新浏览器/重启 App 后聊天时间线仍保留发送过的文件卡片；手机/电脑浏览器保持无发现的原始聊天室单页；桌面侧栏收窄到 176px、设备栏 200px、共享文件抽屉 320~380px，981~1180px 宽度下抽屉改为带遮罩的覆盖层
-- 📋 **共享剪贴板（本机服务内共享，可选）**：系统剪贴板自动同步**默认关闭**，在 CC设置「系统剪贴板自动同步」打开后，App 在页面可见时把本机剪贴板写进**本机服务**的共享槽，并把共享槽变化写回本机剪贴板；浏览器访问同一台电脑/手机的地址时共用这个槽（电脑复制 → 手机浏览器可粘贴；手机浏览器在聊天框粘贴 → 回传电脑）。**电脑 App 与手机 App 是两个独立节点，不会自动互通**：需要跨 App 投递时，用设备页发送面板的「剪贴板」标签发给对方。所有文本（含令牌/验证码）都会同步；公共网络请自行判断是否开启。浏览器在 `http://` 局域网地址下不能自动读写系统剪贴板：点「粘贴」直接把本机服务共享文本回填输入框；在**聊天输入框**长按粘贴的文本会回传共享槽（其他输入框不外发）。2 万字上限，只同步文本
+- 📋 **共享剪贴板（本机服务内共享，可选）**：系统剪贴板自动同步**默认关闭**，在 CC设置「系统剪贴板自动同步」打开后，App 在页面可见时把本机剪贴板写进**本机服务**的共享槽，并把共享槽变化写回本机剪贴板；浏览器访问同一台电脑/手机的地址时共用这个槽（电脑复制 → 手机浏览器可粘贴；开启自动同步后，手机浏览器在聊天框粘贴 → 回传电脑）。**电脑 App 与手机 App 是两个独立节点，不会自动互通**：需要跨 App 投递时，用设备页发送面板的「剪贴板」标签发给对方。所有文本（含令牌/验证码）都会同步；公共网络请自行判断是否开启。浏览器在 `http://` 局域网地址下不能自动读写系统剪贴板：点「粘贴」直接把本机服务共享文本回填输入框；开启自动同步时，在**聊天输入框**长按粘贴的文本才会回传共享槽（其他输入框不外发）；关闭时粘贴只填充输入框，不写共享槽。2 万字上限，只同步文本
 - 📲 **PWA**：`https` 或 `localhost` 下可安装为独立应用（manifest + Service Worker 离线壳 + 更新提示）；`http://局域网IP` 不是安全上下文，浏览器内核直接禁用 Service Worker 与安装能力，此时提供「添加到主屏幕」快捷方式指引（iOS Safari 同样支持）
 - 📡 **附近设备**：同一 Wi-Fi 下的 CC Flash 节点通过 UDP 多播（IPv4 `239.255.42.99:53318` + IPv6 link-local `ff02::ccf1:53318`）+ 广播自动发现，**逐网卡指定多播出口**（Wi-Fi + VPN/虚拟网卡时不再走错接口），每 3s 宣告自身，启动/手动刷新立即主动 probe；30s TTL + 正常退出 bye；新设备/忙碌/昵称变化即时推 `devices:presence`，普通心跳每 3s 合并推，服务端下发 `online`（12s 宽限）；已知 peer 每 3s 单播 announce、5s 单播 probe，前端实时应用并保留轮询兜底；发现端口 53318-53321 自动顺延；对来源地址做单播回包（单向通路的 AP 隔离也能互相补齐）；雷达区域可点击主动扫描，点设备圆点才是选择发送目标；缓存最近设备地址，多播被过滤时会向历史设备发单播心跳/probe；/24 全扫只在用户明确点击扫描时触发；空设备列表按 macOS / Windows 给出网络权限/防火墙指引；设备列表展示在线/忙碌/最近活跃与收藏置顶；**发现只在桌面端和手机 App 内进行**，浏览器不再请求 `/api/devices`、不发 `/api/hello`，也不会出现在可发送列表（避免"点得到、连不上"）；Android 持有 MulticastLock 保证接收；UDP 报文带来源 IP 校验与端口下限，前端只允许向私网地址投递。**浏览器页面不提供跨设备直发入口（跨源请求会被 connect-src 拦截，故 UI 明确隐藏）**；服务端仍对恶意跨域页面只允许投递类 POST，读取、删除、生成分享票据拒绝。桌面/移动 App 壳可直发；对方开启访问令牌时按设备稳定 id 记忆配对码
 - 🗂 **原生目录选择**：共享目录点「选择」弹出系统目录框，即选即存
 - 🎨 **主题系统**：亮色 / 暗色 / 跟随系统三种模式（随系统外观自动切换）× **6 套配色**（**信号台** / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），默认**信号台暗色**，即点即换、即时生效，桌面对话气泡跟随主题
 - 🛡 **安全防护**：路径穿越双重防护、Windows 删除/下载拒绝尾随点/空格/ADS 别名并按 canonical 真实名做在途/标记校验、浏览器跨源拦截（DNS 重绑定/CSRF，Host 仅认 IP/localhost；控制接口额外拒绝 `Sec-Fetch-Site: cross-site`，防 `<a ping>` 停服/清日志）、聊天消息转义防 XSS、静态页面补 `nosniff / SAMEORIGIN` 与**完整脚本级 CSP**（`script-src 'self'`、`connect-src 'self' ws: wss:`、`object-src 'none'`、`frame-ancestors 'self'`）防点击劫持/XSS、上传磁盘预检 + 256MB 安全余量、可选**访问令牌**（6 位 CSPRNG 配对码 + 按来源 IP 指数退避 + **公网来源全局失败预算**防前缀轮换爆破，输一次全端透明，本机豁免；配对码：HTTP 请求走请求头，WebSocket 握手走查询参数（浏览器无法自定义头），轮换后旧码自动清除、不再自锁；独立 enabled 标记与码值分离，读取失败/码值丢失 fail-closed 重新生成并原子写入；明确关闭后重启不再复活）、分享链接**一次性票据**（12 位十六进制 token、绑定文件大小/ETag、10 分钟有效、下载即焚；文件删除或同名重传后立即失效；满额拒绝新票而非驱逐旧票）、缩略图/预览使用短时媒体会话令牌（10 分钟、绑定来源 IP；长期 PIN 不进入 `<img>/<video>/<iframe>` URL），下载响应带 `Referrer-Policy: no-referrer`、上传 / 下载 / WebSocket 并发闸（16 / 32 / 64）并叠加**单来源并发配额**（上传 4、下载 8；IPv6 按 /64 聚合）与**下载 45s 空闲超时；看门狗独立持有许可，半开/不读响应也会释放**、票据/文件指纹/删除标记检查与上传目录预检走 `spawn_blocking`、审计日志为 warn 预留 200 条且成功下载/上传/删除按来源准入、聊天读取/写入分别限并发且落盘失败不推进序号、聊天/剪贴板落盘移出 async worker 且按序号串行、启动清理对损坏残留改名 `.incomplete` 不直接删除、偏好原子写、删除不跟随符号链接、发现 bye 需携带本次 announce 的会话令牌（降低盲伪造驱逐）、**系统剪贴板同步默认关闭**（开启后任何文本都会同步，不做内容过滤）、**桌面始终开放局域网（CC设置不再提供开关）**、**移动 App 始终开放局域网，首次启动自动生成本机访问令牌（设置页可关闭，关闭前二次确认风险）；启用令牌后对所有来源（含本机网卡 IP）强制校验**（同机其他 App 也无法绕过）
-- 🔄 **自动更新检查**：读取 GitHub Releases 列表并**只认正式版（跳过 prerelease）**，发现新版本弹框提示、一键前往下载；缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式
+- 🔄 **自动更新检查**：读取 GitHub Releases 列表并**只认正式版（跳过 prerelease）**，发现新版本弹框提示、一键前往下载；缺少签名时照常公开发布，但标记为 **prerelease**，避免把未签名包当正式更新推送
 - 📘 **软件介绍页**：侧边栏「介绍」入口，全屏介绍（功能 / 三步上手 / 技术实现 / FAQ），锚点导航平滑滚动
 - 🖥 **托盘唤窗 & 单实例**：关窗收托盘服务不停；左键托盘图标 / 点程序坞(macOS) / 重复启动均唤起同一主窗口，不再堆积托盘图标
 - ⏱ **开机自启（手动开启）**：CC设置里打开开关才注册登录项，登录后后台启动不弹窗；默认关闭
@@ -48,7 +48,7 @@
 ### 开发者（源码构建）
 
 ```bash
-# 前置：Rust 1.77+ / Node.js 18+ / macOS 需 Xcode CLT；Windows 需 MSVC Build Tools + WebView2
+# 前置：Rust 1.77+ / Node.js 18+ / macOS 需 Xcode CLT；Windows 需 MSVC Build Tools（安装包已内置 WebView2 离线安装器）
 npm install
 npm run tauri dev      # 开发运行：前端热更 + Rust 增量编译
 npm run check          # cargo check 快速校验 Rust 编译
@@ -75,7 +75,7 @@ npm run tauri build    # 发布构建：自动产出 .app / .dmg / .exe
     ├── tauri.conf.json             # 桌面窗口默认隐藏（防自启闪窗，就绪后 show）；移动壳初始可见；macOS 11.0+
     ├── Info.plist                  # 与默认 Info.plist 合并（macOS 15 本地网络权限用途说明）
     ├── capabilities/desktop.json   # 桌面端插件权限（开机自启）
-    ├── gen/android/                # Android 工程（入库；release 签名读 CI 环境变量；MulticastLock/前台服务）
+    ├── gen/android/                # Android 工程（入库；release 签名读 CI 环境变量；MulticastLock/connectedDevice 前台服务）
     └── src/
         ├── main.rs
         ├── lib.rs                  # Tauri 壳：托盘 + 关窗收纳 + 服务自启
@@ -105,7 +105,7 @@ Android 产物说明：
 - 必须配置 `ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD` 四个 Secrets，走 **release 签名**（证书固定，版本间可覆盖安装），只构建 `arm64-v8a` 单包；**四个任一缺失 CI 直接失败** —— 正式 Release 绝不允许 debug 包混入（debuggable、每次签名不同，用户无法覆盖升级）；
 - Release 采用「**全部构建成功才发布**」策略：desktop 与 APK 先上传到草稿，两者全绿后自动 Publish；任一失败则保持草稿（修复后重跑 publish job 或手动 Publish）；Android 上传前会校验 Release 仍为草稿，避免重跑已发布 tag 时把新 APK 写进线上正式版；
 - R8 已配置 keep 规则与 `SourceFile,LineNumberTable`，崩溃栈保留可读行号；Gradle 的 NDK 版本跟随 `NDK_HOME`，与 Rust 侧编译保持一致。
-- **代码签名：有证书则签名/公证，缺证书时照常发布并标注**。workflow 预留 `APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID` 与 `WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD`；macOS 会自动签名/公证（公证凭据缺失时跳过 stapler 并告警）。**Windows PFX 签名尚未接入 Tauri 流程**：当前 workflow 只注入环境变量、没有导入 PFX 或配置 certificateThumbprint，因此配置 Windows Secrets 后 Authenticode 复核会失败；需要先补 `Import-PfxCertificate` + `bundle.windows.certificateThumbprint`（或 signCommand）再启用。**缺少证书时 publish job 只打 `::warning::` 并继续发布未签名/未公证包**，Release 说明中需注明 macOS 首次打开右键「打开」、Windows SmartScreen 选「更多信息 → 仍要运行」。空 Secret 不会注入构建环境，避免 Tauri 对空证书报 `Unable to decode`；Release 查询只把 404 当 missing，第三方 Actions 固定 commit SHA。**当前仓库只配置了 Android 签名 Secrets，macOS/Windows 产物为未签名包。**
+- **代码签名：有证书则签名/公证，缺证书时照常发布并标注**。workflow 预留 `APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID` 与 `WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD`；macOS 会自动签名/公证（公证凭据缺失时跳过 stapler 并告警）。Windows 通过 `Import-PfxCertificate` 导入 PFX，并以 `bundle.windows.certificateThumbprint` 传给 Tauri 签名。**缺少证书时 publish job 只打 `::warning::` 并继续公开发布未签名/未公证包，但会把 Release 标记为 prerelease**（应用内更新检查跳过），Release 说明中需注明 macOS 首次打开、Windows SmartScreen。空 Secret 不会注入构建环境，避免 Tauri 对空证书报 `Unable to decode`；Release 查询只把 404 当 missing，第三方 Actions 固定 commit SHA。**当前仓库只配置了 Android 签名 Secrets，macOS/Windows 产物为未签名包。**
 - 本地 `./scripts/build-all.sh android` 的 release 构建会校验 `CC_KEYSTORE_*`；缺证书直接失败，不再把 unsigned APK 当成功产物。
 
 macOS 按架构出**双包**：`_aarch64.dmg`（Apple Silicon）与 `_x64.dmg`（Intel），单包约 2.73 MiB；Windows 只出 **NSIS exe**，Android 只出 **arm64-v8a APK**。
@@ -143,7 +143,7 @@ macOS 按架构出**双包**：`_aarch64.dmg`（Apple Silicon）与 `_x64.dmg`�
 - [最小改动轻量化方案 · 基于 v1.2.3](docs/CC-Flash-最小改动轻量化方案-基于v1.2.3.html)
 - [悬浮二维码吊牌设计方案](docs/设计方案-悬浮二维码吊牌.html)
 - [Snapdrop / LocalSend 借鉴方案](docs/CC-Flash-Snapdrop-LocalSend-设计方案与落地效果.html) · [最小改动落地方案](docs/CC-Flash-最小改动借鉴落地方案.html)
-- 历史改动记录：[2026-10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) / [10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) / [11-03 ~ 11-12](docs/整个过程历史改动记录_2026-11-03至2026-11-12.html) / [11-13 ~ 11-16](docs/整个过程历史改动记录_2026-11-13至2026-11-16.html) / [11-17 ~ 11-18](docs/整个过程历史改动记录_2026-11-17至2026-11-18.html) / [11-19 安全加固](docs/整个过程历史改动记录_2026-11-19.html) / [11-20 ~ 11-21 复审收尾](docs/整个过程历史改动记录_2026-11-20至2026-11-21.html) / [11-22 全量复审修复](docs/整个过程历史改动记录_2026-11-22.html) / [11-23 实时同步与全端校准](docs/整个过程历史改动记录_2026-11-23.html) / [11-24 发版链路与 Android 版本修复](docs/整个过程历史改动记录_2026-11-24.html)
+- 历史改动记录：[2026-10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) / [10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) / [11-03 ~ 11-12](docs/整个过程历史改动记录_2026-11-03至2026-11-12.html) / [11-13 ~ 11-16](docs/整个过程历史改动记录_2026-11-13至2026-11-16.html) / [11-17 ~ 11-18](docs/整个过程历史改动记录_2026-11-17至2026-11-18.html) / [11-19 安全加固](docs/整个过程历史改动记录_2026-11-19.html) / [11-20 ~ 11-21 复审收尾](docs/整个过程历史改动记录_2026-11-20至2026-11-21.html) / [11-22 全量复审修复](docs/整个过程历史改动记录_2026-11-22.html) / [11-23 实时同步与全端校准](docs/整个过程历史改动记录_2026-11-23.html) / [11-24 发版链路与 Android 版本修复](docs/整个过程历史改动记录_2026-11-24.html) / [11-25 全量审查与发布/保活加固](docs/整个过程历史改动记录_2026-11-25.html)
 - [推广营销方案](docs/推广营销方案.html)
 - [后期规划](docs/后期规划.html)
 

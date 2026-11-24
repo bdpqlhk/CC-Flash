@@ -2337,11 +2337,61 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         let (tx, rx) = oneshot::channel::<()>();
         let app = router(share).into_make_service_with_connect_info::<SocketAddr>();
         let task = tauri::async_runtime::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async move {
-                    let _ = rx.await;
-                })
-                .await;
+            use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+            use hyper_util::service::TowerToHyperService;
+            use tower::Service as _;
+            // 连接数上限: axum::serve 不限连接, 空连接即可耗尽 fd; 128 条对局域网足够。
+            let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(128));
+            let mut rx = rx;
+            let mut conns = tokio::task::JoinSet::new();
+            loop {
+                tokio::select! {
+                    _ = &mut rx => break,
+                    accepted = listener.accept() => {
+                        let (stream, addr) = match accepted {
+                            Ok(v) => v,
+                            // fd 耗尽等 accept 错误: 短暂让出, 避免空转 100% CPU
+                            Err(_) => { tokio::time::sleep(Duration::from_millis(20)).await; continue; }
+                        };
+                        let Ok(permit) = slots.clone().try_acquire_owned() else {
+                            drop(stream);   // 连接已满: 直接关闭, 不再 spawn 任务
+                            continue;
+                        };
+                        let mut app = app.clone();
+                        conns.spawn(async move {
+                            let svc = match app.call(addr).await {
+                                Ok(s) => s,
+                                Err(_) => return,
+                            };
+                            let svc = TowerToHyperService::new(svc);
+                            let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+                            // 请求头 10s 内必须读完: 挡住"连上不发/发半截 header"的慢连接
+                            builder
+                                .http1()
+                                .timer(TokioTimer::new())
+                                .header_read_timeout(Duration::from_secs(10));
+                            let _ = builder
+                                .serve_connection_with_upgrades(TokioIo::new(stream), svc)
+                                .await;
+                            drop(permit);
+                        });
+                    }
+                    Some(_) = conns.join_next(), if !conns.is_empty() => {}
+                }
+            }
+            // 关闭: 给在途请求 1s 收尾, 然后中止, 避免 stop() 后残留连接
+            if !conns.is_empty() {
+                let grace = tokio::time::sleep(Duration::from_secs(1));
+                tokio::pin!(grace);
+                loop {
+                    tokio::select! {
+                        _ = &mut grace => { conns.abort_all(); break; }
+                        Some(_) = conns.join_next() => {}
+                        else => break,
+                    }
+                }
+                while conns.join_next().await.is_some() {}
+            }
         });
         *running_slot().lock().unwrap_or_else(|e| e.into_inner()) =
             Some(ServerHandle { port, shutdown: tx, task });
@@ -6208,6 +6258,16 @@ pub fn set_share_dir_cmd(path: String, force: Option<bool>) -> serde_json::Value
     if mobile_client_only() {
         return serde_json::json!({ "ok": false, "error": "移动端为客户端模式，不能托管共享目录" });
     }
+    // 与 start/stop 共用生命周期锁: 否则 start 已读取旧目录、running 仍为 false 时,
+    // 这里会放行改目录 —— 路由继续服务旧目录, 而票据/状态用新目录, 造成跨目录授权错位。
+    // 用 try_lock 避免 UI 线程在启动清理(网络盘 read_dir)时被长时间卡住。
+    let _lifecycle = match lifecycle_lock().try_lock() {
+        Ok(g) => g,
+        Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return serde_json::json!({ "ok": false, "error": "服务正在启动或停止，请稍后再更改共享目录" });
+        }
+    };
     // 运行中拒绝: 服务持的是启动时的目录快照, 热改只会造成"UI 显示与实际共享不一致";
     // 也堵住"注入脚本趁服务运行改目录、下次启动静默共享别处"的路径(纵深防御)
     if is_running() {

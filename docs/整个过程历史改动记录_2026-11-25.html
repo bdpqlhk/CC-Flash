@@ -1,0 +1,50 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-25 全量审查与发布/保活加固</title>
+<style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
+<h1>CC Flash · 2026-11-25 全量审查与发布/保活加固</h1>
+<div class="meta">版本：v1.2.8+（本地 main 已含本轮修复，待发 v1.2.9）· 本轮对 Rust 服务端、Vue 前端、Android/iOS/桌面/浏览器与发版链路做全量审查；与《技术实现文档》《需求设计文档》《保姆级使用说明》配套阅读。</div>
+<div class="callout"><b>本轮重点</b>修复未认证慢连接/慢 body 导致的 DoS、IPv6 link-local 限流误伤、剪贴板 DELETE 无限流、发现协议地址迁移劫持；补齐 Windows PFX 签名、未签名 Release prerelease 策略、WebView2 离线安装器、Android connectedDevice 保活；修复移动端失联恢复、上传洪峰、预览竞态、直发看门狗与票据预取；补齐全平台字体 token 并完成三页 dir-2 真实视口复核。</div>
+
+<h2>一、服务端安全与可用性</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>发现协议 IPv6→IPv4 迁移只要求“有一方令牌为空”，已知 id 可把发送目标劫持到攻击者 IP 并窃取配对码。</td><td>迁移必须双方令牌非空且一致；旧版空令牌不迁移。</td></tr>
+<tr><td>body 闸门在鉴权前占许可，32 条慢 POST body 可让聊天/剪贴板/分享全部 429。</td><td>鉴权先于闸门；按来源限 4 条 + 30s 超时，超时/断连释放许可。</td></tr>
+<tr><td><code>axum::serve</code> 无连接数上限、请求头无读超时，未认证空连接即可耗尽 fd。</td><td>自定义 accept 循环：连接信号量 128、HTTP 请求头 10s 超时、关闭时 1s 宽限后中止；WebSocket 升级保持可用。</td></tr>
+<tr><td>IPv6 link-local（fe80::/64）所有设备共用限流桶。</td><td>link-local 改用完整地址做 key；全局/ULA 仍保留 /64 聚合；发现/PIN/上传/下载/聊天/票据同步生效。</td></tr>
+<tr><td>剪贴板 DELETE 无限流，空删除也落盘/广播。</td><td>复用 <code>clip_admit</code>；空槽直接返回，不写盘不广播。</td></tr>
+<tr><td><code>set_share_dir_cmd</code> 与异步 <code>start()</code> 无互斥：路由用旧目录、票据/状态用新目录。</td><td>共享目录切换与 start/stop 共用生命周期锁（try_lock，避免 UI 长时间阻塞），运行中/启动中拒绝切换。</td></tr>
+</table>
+
+<h2>二、发版与平台</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td><code>release.sh</code> 私钥守卫漏 base64 编码 JKS（公开仓库可泄露 Android 发布密钥）。</td><td>增加 base64 解码魔数检查与 <code>key.properties/keystore.properties</code> 文件名拦截。</td></tr>
+<tr><td><code>FORCE_REPUBLISH=1</code> 无法重建已存在 tag，恢复路径失效。</td><td>确认 Release 未公开后删除远端旧 tag 再重建，重新触发 Actions。</td></tr>
+<tr><td>macOS 只配证书、缺公证凭据时 stapler 必然失败。</td><td>公证四件套只注入非空值；缺凭据时跳过 stapler 并 warning。</td></tr>
+<tr><td>Windows PFX 签名未接入 Tauri：只注入环境变量，配置 Secrets 反而让 Authenticode 复核失败。</td><td>workflow 用 <code>Import-PfxCertificate</code> 导入 PFX，生成 <code>certificateThumbprint/digestAlgorithm/timestampUrl</code> 配置并通过 <code>--config</code> 传给 Tauri。</td></tr>
+<tr><td>未签名/未公证桌面产物被当作正式版，更新检查会推给所有用户。</td><td>缺签名时仍公开发布，但 Release 标记为 <b>prerelease</b>，<code>update.js</code> 跳过；说明中注明安装方式。</td></tr>
+<tr><td>Windows 安装器依赖在线下载 WebView2，离线/受限网络装不上。</td><td><code>webviewInstallMode</code> 改为 <b>offlineInstaller</b>（安装包约 +127 MB，无外网可安装）。</td></tr>
+<tr><td>Android 15+ <code>dataSync</code> 前台服务 6h/24h 配额导致数小时后静默停止。</td><td>切换为 <b>connectedDevice</b> 前台服务（声明 <code>FOREGROUND_SERVICE_CONNECTED_DEVICE</code> + <code>CHANGE_WIFI_STATE/CHANGE_NETWORK_STATE</code>），不再受该配额限制；保留 Wi-Fi/CPU 锁与忽略电池优化。</td></tr>
+</table>
+
+<h2>三、前端与交互</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>移动壳本机服务停止后无失联提示/恢复入口。</td><td><code>control_status_cmd</code> 返回 <code>running:false</code> 时显式进入无信号层，恢复「重新启动本机服务」。</td></tr>
+<tr><td>服务停时批量上传逐个失败刷屏；toast 队列无上限。</td><td>入队前 <code>serviceDown()</code> 拦截并单条提示；toast 最多 5 条。</td></tr>
+<tr><td>预览重试迟到响应覆盖新打开的文件。</td><td>重试 await 后复检 <code>previewSeq/previewName</code>。</td></tr>
+<tr><td>直发无停滞看门狗；半开连接锁死 10 分钟；第二批文件被直接丢弃。</td><td>125s 无进展看门狗；第二批排队等待当前批次结束；多目标失败即停，避免配对框互相覆盖。</td></tr>
+<tr><td>票据预取遍历整页，可打满 60 张/分钟配额。</td><td>按注释只预取当前页前 8 个。</td></tr>
+<tr><td>关闭剪贴板自动同步时，粘贴仍回传局域网共享槽。</td><td>仅在 <code>clipSyncEnabled</code> 开启时回传；关闭时粘贴只填充输入框。</td></tr>
+<tr><td><code>--mono/--sans/--card2/--line2</code> 未定义，font 简写失效、字号回退 14px；未读/危险角标对比度不足。</td><td>补齐 <code>:root</code> token；移动三页功能字号 11–13px、输入框 16px；角标按主题切换深浅文字。</td></tr>
+</table>
+
+<h2>四、文档与验证</h2>
+<ul>
+<li>README / README.en、需求设计、技术实现、保姆级使用说明、软件介绍页与在应用内介绍页同步到最新行为；新增本文件并更新索引。</li>
+<li>三页在 <b>390×844 / 360×740 / 320×640</b> 真实视口截图复核；<code>impeccable detect</code> 渲染态 0 warning（仅保留信号台测量面板网格的 advisory）。</li>
+<li><code>cargo test</code> 25/25 通过；<code>npm run build</code> 通过；workflow YAML 与 <code>release.sh</code> shell 语法通过。</li>
+</ul>
+
+<div class="small">CC Flash · 2026-11-25 · 本文件为当前实现的同步说明</div>
+</body></html>

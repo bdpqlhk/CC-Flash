@@ -3507,7 +3507,18 @@ async function directSendFiles(p, files, opts = {}) {
     showToast("设备地址不可用，请刷新设备列表", "error");
     return fail();
   }
-  if (directSending.value) { showToast("正在发送，请稍候", "error"); return fail(); }
+  if (directSending.value) {
+    // 排队等待当前批次结束: 直接丢弃会让用户以为第二批已发出。
+    showToast(`正在发送，已排队 ${list.length} 个文件`, "success");
+    const waitStart = Date.now();
+    while (directSending.value && Date.now() - waitStart < 15 * 60 * 1000) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (directSending.value) {
+      showToast("等待前一批发送超时，请稍后重试", "error");
+      return fail();
+    }
+  }
   directSending.value = true;
   const pin = peerPinOf(p);
   let ok = 0, forbidden = 0, unauthorized = 0, rateLimited = 0;
@@ -4023,6 +4034,8 @@ async function publishSharedClip(text, silent = false) {
 /* 粘贴事件: 浏览器/其他端长按粘贴时, 顺手把文本写回共享剪贴板(电脑可立即粘贴)。
    文件/图片仍走上传, 不参与文本同步。 */
 function publishPastedText(text, target) {
+  // 自动同步关闭时, 粘贴只填充输入框, 不把用户未发送的内容写进局域网共享槽
+  if (!clipSyncEnabled.value) return;
   const t = clampChars(String(text || ""), 20000).trim();
   if (!t || !running.value || isQrPetWindow) return;
   // 只回传"在聊天输入框里粘贴"的文本 —— 全局 paste 监听会把配对码、昵称、
@@ -4565,7 +4578,7 @@ async function pasteFromClipboard() {
       const text = await readClipboardText();
       if (text && text.trim()) {
         _fillChatText(text);
-        publishSharedClip(text, true);   // 显式粘贴: 立即回传共享剪贴板(不依赖 paste 事件)
+        if (clipSyncEnabled.value) publishSharedClip(text, true);   // 仅在自动同步开启时回传
         return;
       }
     } catch (_) {}
@@ -4672,14 +4685,18 @@ function runToastAction(t) {
 /* ---------- 软件介绍页(桌面端全屏 overlay, 设计稿见 docs/软件介绍页设计稿.html) ---------- */
 const introSec = ref("feat");   // scroll spy 当前所在区块
 const INTRO_FAQS = [
-  { q: "手机需要安装 App 吗？", a: "不用。同一 Wi-Fi 下扫码或输入电脑地址，浏览器即可上传、下载、聊天。Android 也可安装 APK，作为独立本机节点。" },
-  { q: "文件会上传到外网吗？", a: "不会。服务只监听你的电脑，所有传输都在局域网内，不经过第三方服务器；断外网也能用。" },
-  { q: "关闭窗口后服务会停吗？", a: "不会。关窗只是收进托盘，服务继续运行；真正退出请走托盘菜单。开机自启可在「CC设置」开启。" },
-  { q: "支持哪些平台？", a: "macOS、Windows、Android App，以及电脑/手机浏览器。iOS 暂无原生包，用 Safari 打开电脑地址即可。" },
+  { q: "手机需要安装 App 吗？", a: "不用。同一 Wi-Fi 下扫码或输入电脑地址，浏览器即可上传、下载、聊天。Android 也可安装 APK，作为独立本机节点；安装包已修复 versionCode/versionName，可正常覆盖升级。" },
+  { q: "文件会上传到外网吗？", a: "不会。服务只监听你的电脑/手机，所有传输都在局域网内，不经过第三方服务器；断外网也能用。" },
+  { q: "关闭窗口后服务会停吗？", a: "不会。关窗只是收进托盘，服务继续运行；真正退出请走托盘菜单。Android 用 connectedDevice 前台服务 + Wi-Fi/CPU 锁保活，并在首次启动申请忽略电池优化。" },
+  { q: "支持哪些平台？", a: "macOS、Windows、Android App，以及电脑/手机浏览器。Windows 安装包内置 WebView2 离线安装器，离线也能装；iOS 暂无原生包，用 Safari 打开电脑地址即可。" },
+  { q: "能同时发给多台设备吗？", a: "可以。设备页/设备栏点「多选」，勾选多台后发送文本或拖入文件，会依次投递到每台设备；某台失败会停下并提示，避免配对框互相覆盖。" },
+  { q: "文件消息刷新后会丢吗？", a: "不会。上传成功的文件会记录为本机服务的文件消息（最近 200 条），刷新浏览器或重启 App 后聊天时间线仍保留；删除文件时卡片同步消失。" },
   { q: "文件列表在哪里？", a: "桌面点房间头文件夹图标，手机 App 点底部「文件」，手机浏览器点顶部文件夹。上传的文件也会同时出现在聊天里。" },
   { q: "能直接预览文件吗？", a: "图片、PDF、文本和音视频可在应用内预览；Office、压缩包等需下载后查看。html/svg/xml 为安全起见不以网页打开。" },
-  { q: "设备发现不到怎么办？", a: "确认两台设备在同一 Wi-Fi/子网；macOS 允许「本地网络」，Windows 防火墙放行 UDP 53318-53321；仍不行可在故障诊断里按 IP 单播探测，或直接手动发送。" },
-  { q: "共享剪贴板怎么用？", a: "默认关闭，在 CC设置 开启后与打开本机地址的页面/设备共享文本。电脑 App 与手机 App 独立，跨 App 请用发送面板「剪贴板」投递。" },
+  { q: "设备发现不到怎么办？", a: "确认两台设备在同一 Wi-Fi/子网；macOS 允许「本地网络」，Windows 防火墙放行 UDP 53318-53321；手机熄屏后要能被发现，请允许忽略电池优化并保持 App 后台运行；仍不行可在故障诊断里按 IP 单播探测，或直接手动发送。" },
+  { q: "共享剪贴板怎么用？", a: "默认关闭；开启后才与打开本机地址的页面/设备共享文本，聊天框粘贴才会回传。关闭时粘贴只填充输入框，不会把未发送内容写进共享槽。电脑 App 与手机 App 独立，跨 App 请用发送面板「剪贴板」投递。" },
+  { q: "访问令牌可以关闭吗？", a: "可以。手机设置页可随时关闭/重新开启访问令牌，关闭前会二次确认风险；关闭后同 Wi-Fi 设备无需配对码即可读写，公共网络不建议关闭。" },
+  { q: "更新检查会提示未签名版本吗？", a: "未签名/未公证的 Release 会公开发布但标记为 prerelease，应用内更新检查会跳过，避免把 Gatekeeper/SmartScreen 拦截的包当正式更新推送。" },
   { q: "访问令牌和分享链接安全吗？", a: "令牌是 6 位 CSPRNG 配对码，失败按来源 IP 退避；分享链接一次性、10 分钟有效，文件删除或重传后立即失效。缩略图/预览使用短时媒体令牌。" },
   { q: "一条消息最多多长？", a: "2 万字符（按 Unicode 字符计）。聊天保留最近 200 条，超出时从最旧消息开始淘汰。" },
 ];
@@ -4954,6 +4971,7 @@ onMounted(() => {
     if (tab) setMobileTab(tab);
     const mode = _previewQ.get("mode");
     if (mode) setThemeMode(mode);
+    if (_previewQ.get("intro") === "1") openIntro();
   }
   // 移动端时间线窗口起点: 必须在挂载后注册 —— setup 阶段 watch 会立即求值
   // timelineItems, 而 chatMsgs/clearedTs 在后面才定义(TDZ 会导致整页白屏)。
@@ -6518,7 +6536,7 @@ async function refreshStatus() {
 
   <!-- 软件介绍页(桌面端全屏 overlay, 按 docs/软件介绍页设计稿.html 实现); v-if 延迟到首次打开才挂载 -->
   <Transition name="intro">
-    <div v-if="isDesktop && introShow" id="introOverlay" class="intro-overlay" role="dialog" aria-label="CC Flash 软件介绍">
+    <div v-if="(isDesktop || PREVIEW_MOBILE) && introShow" id="introOverlay" class="intro-overlay" role="dialog" aria-label="CC Flash 软件介绍">
     <!-- 粘性顶栏 -->
     <header class="ihead">
       <div class="ihead-in">
@@ -6564,9 +6582,9 @@ async function refreshStatus() {
         <div class="hero-feats">
           <span class="feat-chip"><span class="tick">✓</span>手机免装 App</span>
           <span class="feat-chip"><span class="tick">✓</span>拖拽 / 粘贴上传</span>
-          <span class="feat-chip"><span class="tick">✓</span>大文件流式直传</span>
-          <span class="feat-chip"><span class="tick">✓</span>可选本机服务内剪贴板</span>
-          <span class="feat-chip"><span class="tick">✓</span>开机自动启动</span>
+          <span class="feat-chip"><span class="tick">✓</span>多台设备同时发送</span>
+          <span class="feat-chip"><span class="tick">✓</span>文件消息刷新不丢</span>
+          <span class="feat-chip"><span class="tick">✓</span>可选访问令牌</span>
         </div>
       </div>
       <!-- 应用窗口示意(二维码为真实地址, 服务未启动时占位) -->
@@ -6611,8 +6629,8 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
           <h3>文件与消息</h3>
-          <p>文件和文字在同一条对话里：拖入即上传、自动生成文件卡片，支持 Markdown 与图片/PDF/音视频预览。共享文件统一收进文件页，排序、分页、批量删除都在。</p>
-          <div class="tags"><span class="tag">文件即消息</span><span class="tag">Markdown</span><span class="tag">应用内预览</span><span class="tag">共享文件</span></div>
+          <p>文件和文字在同一条对话里：拖入即上传、自动生成文件卡片，支持 Markdown 与图片/PDF/音视频预览。文件消息会持久化，刷新浏览器或重启 App 后仍保留；共享文件统一收进文件页，排序、分页、批量删除都在。</p>
+          <div class="tags"><span class="tag">文件即消息</span><span class="tag">持久化历史</span><span class="tag">Markdown</span><span class="tag">应用内预览</span><span class="tag">共享文件</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
@@ -6623,20 +6641,26 @@ async function refreshStatus() {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
           <h3>CC设置</h3>
-          <p>开机自启、托盘常驻、一键检查更新；关窗不关服务，手机端始终可用。</p>
-          <div class="tags"><span class="tag">开机自启</span><span class="tag">托盘常驻</span><span class="tag">检查更新</span></div>
+          <p>开机自启、托盘常驻、一键检查更新；访问令牌可随时开启/关闭，手机设置页用 dir-5 信号台排版，令牌大号展示、点按即复制。关窗不关服务，手机端始终可用。</p>
+          <div class="tags"><span class="tag">开机自启</span><span class="tag">令牌开关</span><span class="tag">dir-5 设置</span><span class="tag">检查更新</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></div>
           <h3>消息工作台</h3>
-          <p>桌面左侧是周边设备栏，手机 App 四页切换。点设备即可直发文件、文本或剪贴板内容，状态实时同步；窄屏自动收起，浏览器保持简洁聊天室。</p>
-          <div class="tags"><span class="tag">设备即目标</span><span class="tag">直发回执</span><span class="tag">浏览器零打扰</span></div>
+          <p>桌面左侧是周边设备栏，手机 App 四页切换。点设备只选中目标，不再自动弹面板；支持「多选」同时发给多台设备，文本与拖入文件依次投递。状态实时同步，窄屏自动收起，浏览器保持简洁聊天室。</p>
+          <div class="tags"><span class="tag">设备即目标</span><span class="tag">多选直发</span><span class="tag">直发回执</span><span class="tag">浏览器零打扰</span></div>
+        </div>
+        <div class="card">
+          <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 5h3"/><circle cx="12" cy="18.2" r=".8" fill="currentColor" stroke="none"/></svg></div>
+          <h3>手机 App · 信号台</h3>
+          <p>发送 / 设备 / 文件三页按 dir-2 信号台重排：等宽读数、刻度雷达盘、RSSI 设备行、manifest 序号与进度条。Wi-Fi/CPU 锁 + 忽略电池优化，熄屏后仍可被找到。</p>
+          <div class="tags"><span class="tag">dir-2 三页</span><span class="tag">多选发送</span><span class="tag">熄屏保活</span><span class="tag">本机节点</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><path d="M9 12h6"/><path d="M9 16h4"/></svg></div>
           <h3>共享剪贴板</h3>
-          <p><b>默认关闭</b>，可在 CC设置 开启：与打开本机地址的浏览器/设备共享文本。电脑 App 与手机 App 独立，跨 App 请用发送面板「剪贴板」投递。</p>
-          <div class="tags"><span class="tag">本机服务内同步</span><span class="tag">任意文本同步</span><span class="tag">跨 App 用发送面板</span><span class="tag">浏览器兜底</span></div>
+          <p><b>默认关闭</b>；开启后才与打开本机地址的浏览器/设备共享文本，聊天框粘贴才会回传。关闭时粘贴只填充输入框，不会把未发送内容写进共享槽。电脑 App 与手机 App 独立，跨 App 请用发送面板「剪贴板」投递。</p>
+          <div class="tags"><span class="tag">默认关闭</span><span class="tag">开启后才回传</span><span class="tag">跨 App 用发送面板</span><span class="tag">浏览器兜底</span></div>
         </div>
       </div>
     </section>
@@ -6659,7 +6683,7 @@ async function refreshStatus() {
         <div class="step">
           <div class="no">03</div>
           <h3>直接开始互传</h3>
-          <p>拖文件或发消息；在设备栏/设备页选中目标即可直发。文件会同时进入对方共享目录与聊天，电脑关窗服务也不停。</p>
+          <p>拖文件或发消息；在设备栏/设备页选中目标即可直发，支持多选同时发多台。文件会同时进入对方共享目录与聊天并持久化，电脑关窗/手机熄屏服务也不停。</p>
         </div>
       </div>
     </section>
@@ -6682,12 +6706,12 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg></div>
           <h3>服务常驻不断</h3>
-          <p>关窗进托盘，服务继续运行；开机自启可手动开启，真正退出走托盘菜单。</p>
+          <p>关窗进托盘，服务继续运行；Android 使用 connectedDevice 前台服务 + Wi-Fi/CPU 锁，熄屏后仍可被发现；开机自启可手动开启。</p>
         </div>
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
           <h3>多端覆盖</h3>
-          <p>macOS、Windows、Android App，外加电脑/手机浏览器；iOS 用 Safari 网页版即可。</p>
+          <p>macOS、Windows、Android App，外加电脑/手机浏览器；Windows 安装包内置 WebView2 离线安装器，离线也能装；iOS 用 Safari 网页版即可。</p>
         </div>
       </div>
       <div class="codes">
@@ -6696,7 +6720,7 @@ async function refreshStatus() {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             桌面端安装
           </h3>
-          <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需任何额外部署。</p>
+          <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需额外部署。未签名版本会标记为 prerelease，应用内更新检查会跳过，建议签名版发布后再升级。</p>
           <div class="code-box"><button class="code-copy" @click="copyText(RELEASES_PAGE, '已复制')">复制</button><span class="cm"># 打开最新版发布页</span><br />{{ RELEASES_PAGE }}</div>
         </div>
         <div class="code-card">
@@ -6717,7 +6741,7 @@ async function refreshStatus() {
       <div class="faq">
         <div v-for="(f, i) in INTRO_FAQS" :key="i" class="faq-item" :class="{ open: faqOpen === i }">
           <button class="faq-q" @click="toggleFaq(i)">{{ f.q }}<span class="pm">+</span></button>
-          <div class="faq-a" :style="{ maxHeight: faqOpen === i ? '640px' : '0' }"><p>{{ f.a }}</p></div>
+          <div class="faq-a" :style="{ maxHeight: faqOpen === i ? '900px' : '0' }"><p>{{ f.a }}</p></div>
         </div>
       </div>
     </section>

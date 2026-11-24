@@ -51,7 +51,7 @@ pre code{background:none;color:inherit;padding:0}
 <body>
 <div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.8 · 2026-11-24</b>　本文已按最新代码校对。　v1.2.8 合并原 1.2.7.1-1.2.7.4 四个构建（旧 tag/Release 已撤下）。2026-11-24 发版链路与 Android 版本修复：四段 tag 的交付文件名与 publish 校验全程兼容、缺签名恢复「仅告警继续发布」、Android <code>versionCode</code>/<code>versionName</code> 修复（<code>tauri.properties</code> 缺失时以 <code>tauri.conf.json</code> 兜底）、传输历史搜索/清空、对端配对码保存前验证与 401/429 处理、手机设置页按 dir-5 改造并支持关闭/开启访问令牌、文件投递事件持久化（刷新后文件卡片不丢）、附近设备多选与点选不弹面板、Android 熄屏保活（Wi-Fi/CPU 锁 + 忽略电池优化）、手机发送/设备/文件三页按 dir-2 信号台改造、补齐全平台 <code>--mono</code> 字体 token（此前未定义导致 font 简写失效）；全量审查修复 body 闸门慢请求占用、IPv6 link-local 限流、剪贴板 DELETE 限流、发布脚本 base64 私钥守卫/强制重发、macOS 公证缺凭据降级；详情见 <a href="./整个过程历史改动记录_2026-11-24.html">历史改动记录 2026-11-24</a>。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>、本文附录 A 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.8+ · 2026-11-25</b>　本文已按最新代码校对（含 11-25 全量审查修复，待发 1.2.9）。　v1.2.8 合并原 1.2.7.1-1.2.7.4 四个构建（旧 tag/Release 已撤下）。2026-11-24 发版链路与 Android 版本修复：四段 tag 的交付文件名与 publish 校验全程兼容、缺签名恢复「仅告警继续发布」、Android <code>versionCode</code>/<code>versionName</code> 修复（<code>tauri.properties</code> 缺失时以 <code>tauri.conf.json</code> 兜底）、传输历史搜索/清空、对端配对码保存前验证与 401/429 处理、手机设置页按 dir-5 改造并支持关闭/开启访问令牌、文件投递事件持久化（刷新后文件卡片不丢）、附近设备多选与点选不弹面板、Android 熄屏保活（Wi-Fi/CPU 锁 + 忽略电池优化）、手机发送/设备/文件三页按 dir-2 信号台改造、补齐全平台 <code>--mono</code> 字体 token（此前未定义导致 font 简写失效）；全量审查修复：连接数上限 128 + 请求头 10s 超时、body 闸门按来源限流、IPv6 link-local 限流、剪贴板 DELETE 限流、共享目录生命周期锁、发布脚本 base64 私钥守卫/强制重发、Windows PFX 签名（Import-PfxCertificate + certificateThumbprint）、未签名 Release 标 prerelease、Windows WebView2 离线安装器、Android connectedDevice 前台服务；详情见 <a href="./整个过程历史改动记录_2026-11-24.html">历史改动记录 2026-11-24</a>。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>、本文附录 A 与仓库 README 为准。</div>
 
 <div class="layout">
 <nav class="toc">
@@ -73,7 +73,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC Flash · 技术实现文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-24</b></span>
+<span>文档日期：<b>2026-11-25</b></span>
 <span>应用版本：<b>1.2.8</b>（支持四段 tag vX.Y.Z.W）</span>
 <span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
 <span>平台：<b>macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
@@ -84,9 +84,9 @@ pre code{background:none;color:inherit;padding:0}
 <b>v1.2.4 实现状态（2026-11-19 安全加固）</b>
 <ul>
 <li><b>消息工作台（v1.2.3）</b>：设备发现并入桌面「消息发送」左侧设备栏（200px）与手机 App「发送」页；手机 App 分为「发送 / 设备 / 文件 / 设置」四页；浏览器保持原聊天室单页，无发现 / 设置。选中设备后直发文本 / 文件并追加本机回执。</li>
-<li><b>共享剪贴板（v1.2.3 起，2026-11-19 加固）</b>：<code>GET/POST/DELETE /api/clipboard</code>，20,000 字持久化共享槽；系统剪贴板自动同步<b>默认关闭</b>，由 CC设置「系统剪贴板自动同步」开关控制；任何文本（含令牌/验证码）都会同步，不做内容过滤。WS 事件 <code>clipboard:changed</code>，HTTP 4.5s 兜底；浏览器只在聊天输入框粘贴时回传。写入按来源限流。</li>
+<li><b>共享剪贴板（v1.2.3 起，2026-11-19 加固）</b>：<code>GET/POST/DELETE /api/clipboard</code>，20,000 字持久化共享槽；系统剪贴板自动同步<b>默认关闭</b>，由 CC设置「系统剪贴板自动同步」开关控制；任何文本（含令牌/验证码）都会同步，不做内容过滤。WS 事件 <code>clipboard:changed</code>，HTTP 4.5s 兜底；浏览器仅在自动同步开启且粘贴进聊天输入框时回传；关闭时粘贴只填充输入框。写入按来源限流。</li>
 <li><b>布局（v1.2.3）</b>：侧栏 176px、设备栏 200px、文件抽屉 320–380px；981–1180px 抽屉改覆盖层。</li>
-<li><b>移动端改为独立节点</b>：Android App 启动本机 HTTP 服务与聊天（iOS 暂无原生包，走 Safari 网页版）；始终开放局域网并自动生成本机访问令牌（同网段设备需配对码；设置页可关闭，关闭前二次确认），CC设置不再提供「局域网访问」开关；移动端只作为独立本机节点，也不再提供「连接电脑」入口。Android 用前台服务（dataSync）+ MulticastLock + WifiLock + PARTIAL_WAKE_LOCK 保活/收多播，首次启动申请「忽略电池优化」，避免荣耀/华为等省电策略在熄屏后冻结发现与收发，<code>allowBackup=false</code>。</li>
+<li><b>移动端改为独立节点</b>：Android App 启动本机 HTTP 服务与聊天（iOS 暂无原生包，走 Safari 网页版）；始终开放局域网并自动生成本机访问令牌（同网段设备需配对码；设置页可关闭，关闭前二次确认），CC设置不再提供「局域网访问」开关；移动端只作为独立本机节点，也不再提供「连接电脑」入口。Android 用前台服务（connectedDevice）+ MulticastLock + WifiLock + PARTIAL_WAKE_LOCK 保活/收多播，首次启动申请「忽略电池优化」，避免荣耀/华为等省电策略在熄屏后冻结发现与收发，<code>allowBackup=false</code>。</li>
 <li><b>附近设备</b>：IPv4 多播 <code>239.255.42.99:53318</code> + IPv6 link-local <code>ff02::ccf1:53318</code> + 广播，每个节点每 3s 宣告自身；启动/手动刷新主动 probe，正常退出发 bye；最多 64 个 peer、15s TTL；发现端口 53318-53321 自动顺延；新设备与状态变化即时推 <code>devices:changed</code>；<code>/api/hello</code> 不再把浏览器登记为可发送目标；前端只接受私网地址投递，消息/文件落到对方公共聊天/共享目录。</li>
 <li><b>下载完整性</b>：响应带强 <code>ETag</code>（size+mtime），<code>If-Range</code> 不匹配时忽略 Range 回 200 全量，防止断点续传把同名新文件拼坏。</li>
 <li><b>上传清理</b>：<code>abort_upload</code> 与启动清理由"先删标记后删成品"改为"成品确认消失才删标记"，Windows 句柄占用时保留标记等下次启动，半截文件不会转正。</li>
@@ -674,7 +674,7 @@ npm run tauri build
 <li><b>默认关闭</b>：App 壳是否自动同步由 CC设置「系统剪贴板自动同步」控制（<code>wft-clip-sync</code>，移动端同时写 Rust pref）。<code>initClipboardSync</code> 只在开关打开时启动；每 1.5s 调用 <code>syncClipboardTick</code>，与 <code>lastSentClip</code> 比较后 POST；收到 <code>clipboard:changed</code> 立即 <code>GET</code> 并 <code>writeText</code>，另有 4.5s HTTP 兜底。<code>clipSyncBusy</code> 期间远端值进 <code>pendingRemoteApply</code>，忙完再应用。</li>
 
 <li><b>可见性闸</b>：<code>document.visibilityState !== "visible"</code> 时读 / 写同步都直接返回；页面重新可见时把 <code>lastSentClip</code> 重置为当前本地剪贴板并补一次远端应用。远端应用弹 toast「已从 X 同步剪贴板」。</li>
-<li>浏览器：无系统剪贴板权限时，输入栏「粘贴」直接回填共享槽文本；只有 <b>聊天输入框</b> 的 paste 事件会回传共享槽（其他输入框、配对框不再外发）。复制失败回退 <code>execCommand</code>。</li>
+<li>浏览器：无系统剪贴板权限时，输入栏「粘贴」直接回填共享槽文本；只有<b>自动同步开启</b>且发生在 <b>聊天输入框</b> 的 paste 事件才会回传共享槽；关闭时粘贴只填充输入框（其他输入框、配对框不外发）。复制失败回退 <code>execCommand</code>。</li>
 <li><b>服务端</b>：写入按来源限流 240 次/分钟（IPv6 按 /64 聚合）；落盘从 async worker 移到阻塞线程并按序号串行，避免高频写入卡住 tokio。开启同步后不限制文本内容（含令牌/验证码）。</li>
 </ul>
 <h3>A.3 服务端可靠性修复</h3>
@@ -703,7 +703,7 @@ npm run tauri build
 <ul>
 <li>UDP 发现已支持 IPv4 多播/广播与 IPv6 link-local 多播；IPv6 跨网段/全局地址仍依赖手动地址，link-local 需要网卡作用域，自动发现主要面向同一链路。</li>
 <li>共享剪贴板在可信局域网模型下没有加密；系统剪贴板自动同步默认关闭；开启后不限制文本内容（含令牌/验证码），公共网络请自行判断是否开启。</li>
-<li>Android 15+ 对 <code>dataSync</code> 前台服务有 6h/24h 配额，超时后系统会停止保活；当前已在 <code>onTimeout</code> 发通知提示，回到前台会重新拉起服务；熄屏保活依赖 WifiLock / PARTIAL_WAKE_LOCK 与首次启动的忽略电池优化申请，若厂商仍强制冻结，需在系统设置把本应用电池策略设为「无限制」。iOS 仍不提供原生安装包，只能用 Safari 网页版。</li>
+<li>Android 前台服务使用 <code>connectedDevice</code> 类型（声明 <code>FOREGROUND_SERVICE_CONNECTED_DEVICE</code> + <code>CHANGE_WIFI_STATE/CHANGE_NETWORK_STATE</code>），不受 <code>dataSync</code> 6h/24h 配额限制；<code>onTimeout</code> 仍保留为厂商兜底通知。熄屏保活依赖 WifiLock / PARTIAL_WAKE_LOCK 与首次启动的忽略电池优化申请，若厂商仍强制冻结，需在系统设置把本应用电池策略设为「无限制」。iOS 仍不提供原生安装包，只能用 Safari 网页版。</li>
 </ul>
 </section>
 

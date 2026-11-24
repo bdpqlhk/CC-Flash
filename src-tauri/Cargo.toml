@@ -47,6 +47,9 @@ getrandom = "0.2"
 axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "time", "sync", "io-util"] }
 tower-http = { version = "0.6", features = ["cors"] }
+# 自定义 accept 循环: 连接数上限 + HTTP 请求头读超时（防止未认证空连接 DoS）
+hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
+tower = { version = "0.5", features = ["util"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # compression: 前端 dist 以 DEFLATE 嵌入二进制, 静态资源体积约减半
 rust-embed = { version = "8", features = ["compression"] }

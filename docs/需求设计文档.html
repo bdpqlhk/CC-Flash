@@ -58,7 +58,7 @@ pre code{background:none;color:inherit;padding:0}
 <div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-24 同步</b>　传输历史支持搜索/清空；对端配对码保存前验证，401 清缓存并重新弹框、429 明确提示限流；文件投递事件持久化（刷新后文件卡片不丢）；手机设置页按 dir-5 改造且访问令牌可关可开；附近设备支持多选同时发送、点设备不再自动弹面板；Android 熄屏保活（Wi-Fi/CPU 锁 + 忽略电池优化）；手机发送/设备/文件三页按 dir-2 信号台改造；Android <code>versionCode</code>/<code>versionName</code> 与四段交付文件名修复。详情见 <a href="./整个过程历史改动记录_2026-11-24.html" style="color:#7ef0c8">历史改动记录 2026-11-24</a>。</div>
 <div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.8 · 2026-11-24</b>　本文已按最新代码校对。　v1.2.8 合并原 1.2.7.1-1.2.7.4 四个构建（旧 tag/Release 已撤下）。2026-11-24 同步：传输历史搜索/清空、对端配对码保存前验证与 401/429 处理、文件投递事件持久化、手机设置页 dir-5 与令牌开关、Android 版本字段与四段交付文件名修复；详见 <a href="./整个过程历史改动记录_2026-11-24.html">历史改动记录 2026-11-24</a>。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.8+ · 2026-11-25</b>　本文已按最新代码校对（含 11-25 全量审查修复，待发 1.2.9）。　v1.2.8 合并原 1.2.7.1-1.2.7.4 四个构建（旧 tag/Release 已撤下）。2026-11-24 同步：传输历史搜索/清空、对端配对码保存前验证与 401/429 处理、文件投递事件持久化、手机设置页 dir-5 与令牌开关、Android 版本字段与四段交付文件名修复；详见 <a href="./整个过程历史改动记录_2026-11-24.html">历史改动记录 2026-11-24</a>。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 <div class="layout">
 <nav class="toc">
@@ -84,7 +84,7 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-24</b></span>
+<span>文档日期：<b>2026-11-25</b></span>
 <span>状态：<b>已实现，应用版本 1.2.6，macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
@@ -513,9 +513,10 @@ pre code{background:none;color:inherit;padding:0}
 <ul>
 <li><b>设备在线态</b>：服务端权威 <code>online</code>（12s 宽限、30s TTL），WebSocket <code>devices:presence</code> 实时同步；不再用客户端时钟/3s HTTP 轮询猜状态。</li>
 <li><b>发现可靠性</b>：已知设备 3s 单播 announce、5s 单播 probe；/24 扫描只在用户明确点击扫描时触发；每条有效宣告触发 presence，1 秒合并、尾包必达；另有 3 秒全量兜底。</li>
-<li><b>体验</b>：发送面板跟随当前皮肤；手机设置页按 dir-3 扁平化并精简开关文案；设备卡右上收藏、右下传输历史；配对码取消按钮轻量化；昵称弹框空 toast 不再拦截点击；悬浮码收拢态透明。</li>
+<li><b>体验</b>：系统剪贴板自动同步默认关闭，关闭时粘贴只填充输入框不回传共享槽；发送面板跟随当前皮肤；手机设置页按 dir-3 扁平化并精简开关文案；设备卡右上收藏、右下传输历史；配对码取消按钮轻量化；昵称弹框空 toast 不再拦截点击；悬浮码收拢态透明。</li>
 <li><b>传输历史与对端配对码</b>：历史弹框支持按设备 / 内容 / 类型搜索，清空需二次确认；对端配对码保存前请求 <code>/api/devices</code> 验证，错误码不落盘；发送遇 401 自动清除缓存码并重新弹框（输入框留空），遇 429 明确提示限流，不再反复复用错码。</li>
 <li><b>手机三页信号台</b>：发送 / 设备 / 文件按 dir-2 改造为读数式界面（TARGET·UDP·MANIFEST 页头、刻度雷达盘、DEVICES/PORT/LINK 状态格、RSSI 设备行、manifest 序号 + 进度条 + 虚线投放区、方形输入与琥珀发送键）；仅作用于移动壳，桌面端与浏览器保持原布局；HISTORY 改为底部 sheet。</li>
+<li><b>发布与平台加固</b>：未签名/未公证桌面版公开发布但标记 prerelease（更新检查跳过）；Windows 用 Import-PfxCertificate + certificateThumbprint 签名；安装包内置 WebView2 离线安装器；Android 改用 connectedDevice 前台服务（不受 dataSync 6h 配额）；服务端连接数上限 128 + 请求头 10s 超时、body 闸门按来源限流、共享目录与 start/stop 生命周期锁。</li>
 <li><b>设备多选与熄屏保活</b>：附近设备支持「多选」同时发送，文本与拖入文件依次投递到每台设备；点设备只选中，不再自动弹出「发送到设备」面板（面板仅由「手动发送」打开）；Android 前台服务增加 WifiLock / PARTIAL_WAKE_LOCK，并在首次启动申请忽略电池优化，减少熄屏后被厂商省电策略冻结导致「桌面端找不到手机 / 发送超时」。</li>
 <li><b>安全</b>：PIN 变更踢 WS、移动端立即同步 accessPin、PIN 按稳定设备 id 记忆、body 前置许可与上限、已消费票据拒绝整包 Range 重放。</li>
 </ul>

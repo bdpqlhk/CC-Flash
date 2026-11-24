@@ -165,36 +165,49 @@ jobs:
             printf '%s\n' "$APPLE_CERTIFICATE_PASSWORD"
             echo "CC_EOF"
           } >> "$GITHUB_ENV"
-          # 公证四件套只在非空时注入: 只配了证书、还没配公证账号时,
-          # Tauri 不会拿空凭据去公证, 也避免 stapler 必然失败。
+          # 公证凭据必须三件套齐全才注入: 部分配置会让 Tauri 拿半套凭据去公证并失败。
           [ -n "${APPLE_SIGNING_IDENTITY:-}" ] && echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
-          [ -n "${APPLE_ID:-}" ] && echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
-          [ -n "${APPLE_PASSWORD:-}" ] && echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
-          [ -n "${APPLE_TEAM_ID:-}" ] && echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
-          echo "已注入 Apple 签名环境（公证凭据按需注入）"
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            echo "已注入 Apple 签名/公证环境"
+          else
+            echo "::warning::公证凭据不完整（APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID），本次只签名、不公证"
+          fi
 
-      # Windows 签名变量同样只在非空时注入: Tauri 对"存在但为空"的证书变量
-      # 可能按待导入处理并报 Unable to decode, 与 Apple 的空值规避保持一致
+      # Windows 签名: Tauri CLI 不接受 WINDOWS_CERTIFICATE 环境变量, 必须把 PFX
+      # 导入证书库并把 thumbprint 通过 --config 传给 tauri。未配置时写空 args。
       - name: 准备可选 Windows 签名环境
+        id: winsign
         if: runner.os == 'Windows'
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        shell: bash
+        shell: pwsh
         run: |
-          set -e
-          if [ -z "${WINDOWS_CERTIFICATE:-}" ]; then
-            echo "::notice::未配置 Windows 签名证书 Secrets，本次生成未签名 MSI"
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "::notice::未配置 Windows 签名证书 Secrets，本次生成未签名 exe"
             exit 0
-          fi
-          {
-            echo "WINDOWS_CERTIFICATE<<CC_EOF"
-            printf '%s\n' "$WINDOWS_CERTIFICATE"
-            echo "CC_EOF"
-            echo "WINDOWS_CERTIFICATE_PASSWORD<<CC_EOF"
-            printf '%s\n' "$WINDOWS_CERTIFICATE_PASSWORD"
-            echo "CC_EOF"
-          } >> "$GITHUB_ENV"
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "ccflash-sign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pwd = if ([string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            New-Object System.Security.SecureString
+          } else {
+            ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          }
+          $cert = @(Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd)[0]
+          if (-not $cert) { throw "PFX 导入失败" }
+          $cfg = Join-Path $env:RUNNER_TEMP "windows-sign.json"
+          $json = @{ bundle = @{ windows = @{
+            certificateThumbprint = $cert.Thumbprint
+            digestAlgorithm = "sha256"
+            timestampUrl = "http://timestamp.digicert.com"
+          } } } | ConvertTo-Json -Depth 6
+          [IO.File]::WriteAllText($cfg, $json, [Text.UTF8Encoding]::new($false))
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "args=--config `"$cfg`"`n", [Text.UTF8Encoding]::new($false))
+          Write-Host "已导入 Windows 签名证书 $($cert.Thumbprint)"
 
       # tauri-action: vite build → cargo build --release → 打包 → 上传到 Release
       # tagName 对应已推送的标签, Release 不存在则自动创建(草稿)。
@@ -215,7 +228,7 @@ jobs:
           # 桌面矩阵并发 getOrCreateRelease 竞态兜底: 两腿几乎同时完成时可能都"没查到
           # draft 就去创建" → 422 或拆成两个 draft; 重试会重新 list 找到已建好的 draft
           retryAttempts: 3
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.winsign.outputs.args }}
 
       # 证书存在不等于产物真的签名/公证成功：构建后再验一次，失败就让 job 红掉，
       # 避免把 Gatekeeper/SmartScreen 打不开的包交给 publish。
@@ -499,6 +512,7 @@ jobs:
           fi
           if [ -n "$missing" ]; then
             echo "::warning::缺少签名/公证 Secrets:$missing。本次发布未签名/未公证包，请在 Release 说明中注明打开方式"
+            echo "::warning::未签名 Release 将标记为 prerelease：应用内更新检查会跳过，避免把 Gatekeeper/SmartScreen 拦截包当正式更新推送"
           fi
           # 精确校验本次 tag 的完整资产集，不只数扩展名：避免复用草稿里的旧架构/旧提交。
           # 四段 tag(vX.Y.Z.W) 的构建号会由 desktop/android job 补进文件名:
@@ -508,8 +522,14 @@ jobs:
           for want in "CC-Flash_${tagver}_aarch64.dmg" "CC-Flash_${tagver}_x64.dmg" "CC-Flash_${tagver}_x64-setup.exe" "CC-Flash-v${tagver}-android-arm64-v8a.apk"; do
             printf '%s\n' "$assets" | grep -Fxq "$want" || { echo "::error::Release 缺少资产 $want"; exit 1; }
           done
-          gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
-          echo "✔ ${{ github.ref_name }} 已发布"
+          if [ -n "$missing" ]; then
+            # 公开但标记 prerelease: 用户仍可手动下载，update.js 会跳过，不会把未签名包当正式更新推给全端
+            gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --prerelease
+            echo "✔ ${{ github.ref_name }} 已公开发布（prerelease：未签名/未公证）"
+          else
+            gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
+            echo "✔ ${{ github.ref_name }} 已发布"
+          fi
       - name: 未全绿时提示
         if: ${{ needs.desktop.result != 'success' || needs.android.result != 'success' }}
         run: echo "::warning::desktop(${{ needs.desktop.result }})/android(${{ needs.android.result }}) 未全部成功, Release 保持草稿 —— 修复后可重新跑本 job 或手动 Publish"
