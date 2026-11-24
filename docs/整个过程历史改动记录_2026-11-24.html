@@ -60,6 +60,7 @@
 <tr><th>问题</th><th>修复</th></tr>
 <tr><td>只能选一台设备；点附近设备卡片会自动弹出「发送到设备」面板。</td><td>附近设备新增「多选」：<code>sendTargets</code> 数组 + <code>pickPeer</code>，勾选后文本与拖入文件依次直发每台设备；点设备卡片只选中并切换直发，不再弹面板（面板仅由「手动发送」打开）。</td></tr>
 <tr><td>手机熄屏后桌面端找不到手机；给手机 App 发消息超时（荣耀等厂商省电策略冻结后台线程/Wi-Fi）。</td><td>Android 前台服务新增 <code>WifiLock(LOW_LATENCY/HIGH_PERF)</code> + <code>PARTIAL_WAKE_LOCK</code>，首次启动申请忽略电池优化；发送失败提示区分「网络不可达」并提示关闭电池优化。</td></tr>
+<tr><td>设备显示在线，但桌面端直发一直失败（提示离线/疑似配对码）。</td><td>根因之一：同一设备同时发 IPv4 与 IPv6 link-local 宣告，先到的 <code>fe80::%zone</code> 被锁定后另一族会被「换 IP」保护拒绝，而 WebView 直连带 zone 的 IPv6 URL 往往直接失败。现允许同 id / 同令牌从 link-local v6 迁移到 IPv4 并优先 IPv4；失败提示带上目标地址，便于区分「IPv6 地址 / 熄屏冻结 / 配对码」。</td></tr>
 </table>
 
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>

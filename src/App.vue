@@ -3458,7 +3458,15 @@ async function directSendText(p, text, opts = {}) {
     else if (e?.message === "peer-pin") showToast("配对码不正确，请重新输入后发送", "error");
     else if (e?.message === "peer-pin-locked") showToast("配对码错误次数过多，已被对方临时限流，请稍后再试", "error");
     else if (e?.message === "peer-forbidden") showToast("浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App", "error");
-    else if (e?.name === "TypeError") showToast("无法连接设备：请确认手机 App 未被系统冻结（可在手机设置中关闭电池优化）", "error");
+    else if (e?.name === "TypeError") {
+      // 把目标地址带进提示: IPv6 link-local(fe80::%zone)在 WebView 里往往不可用,
+      // 与"手机熄屏被冻结"表现相同, 直接看地址即可区分。
+      const where = p && p.ip ? `${p.ip}:${p.port || port.value}` : "目标设备";
+      const linkLocalV6 = p && /^fe80:/i.test(String(p.ip || ""));
+      showToast(linkLocalV6
+        ? `对方仅以 IPv6 链路本地地址发现（${where}），请点「重新扫描」刷新设备后重试`
+        : `无法连接设备 ${where}：请确认手机 App 未被系统冻结（可在手机设置中关闭电池优化）`, "error");
+    }
     else showToast("发送失败：对方可能已离线或开启访问令牌", "error");
     return false;
   } finally { clearTimeout(timer); }
@@ -3530,7 +3538,7 @@ async function directSendFiles(p, files, opts = {}) {
     showToast(unauthorized ? "配对码不正确，请重新输入后重试"
       : rateLimited ? "对方拒绝了本次发送（尝试过于频繁），请稍后再试"
       : forbidden ? "浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App"
-      : "发送失败：无法连接设备，请确认手机 App 未被系统冻结（可关闭电池优化）", "error");
+      : `发送失败：无法连接设备 ${p.ip}:${p.port || port.value}，请确认手机 App 未被系统冻结（可关闭电池优化）`, "error");
     return fail();
   }
   if (forbidden || unauthorized || rateLimited) {

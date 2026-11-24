@@ -522,7 +522,18 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
     // 真实设备换 IP(DHCP)时最多等旧条目 TTL(30s)自然过期后重新登记。
     if let Some(prev) = &previous {
         if prev.ip != ip {
-            return IngestResult::default();
+            // 同一台设备会同时发出 IPv4 与 IPv6 link-local 宣告。若先到的 IPv6
+            // 包把地址锁定，另一族会被这里的"换 IP"保护永久拒绝：设备显示在线，
+            // 但直发用的 `fe80::%zone` URL 在 WKWebView/WebView2 里往往不可用
+            // （IPv6 zone 不在 URL 规范内），表现为"发送失败：离线/需要配对码"。
+            // 允许 IPv6 link-local → IPv4 的同设备迁移（令牌一致才放行）；
+            // 反向（IPv4 → link-local）忽略，保持 IPv4 优先。
+            let prev_link_local_v6 = prev.ip.starts_with("fe80:") || prev.ip.contains('%');
+            let new_ipv4 = !ip.contains(':');
+            let token_ok = prev.token.is_empty() || token.is_empty() || prev.token == token;
+            if !(prev_link_local_v6 && new_ipv4 && token_ok) {
+                return IngestResult::default();
+            }
         }
         // 同 id 但令牌变化：只接受空令牌的旧版对端；否则伪造者可用已知 id
         // 改掉端口/昵称。设备正常重启会先让旧条目 TTL 过期。
@@ -7449,6 +7460,30 @@ mod tests {
         p["busy"] = serde_json::json!(true);
         let c = ingest_peer_packet_ex(&p, src);
         assert!(!c.new_device && c.changed, "忙碌变化应报告 changed");
+        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    /// 同一设备先经 IPv6 link-local、后经 IPv4 宣告: 应迁移到 IPv4。
+    /// 否则设备一直显示在线，但直发使用 `fe80::%zone` URL 在 WebView 里不可用，
+    /// 表现为"能给手机发消息却一直失败"。
+    #[test]
+    fn udp_ingest_prefers_ipv4_over_link_local_v6() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        let v6: std::net::SocketAddr = "[fe80::1]:5000".parse().unwrap();
+        let v4: std::net::SocketAddr = "192.168.60.21:5000".parse().unwrap();
+        let mut p = udp_packet("dual-stack-device", 1688, "Phone");
+        p["tok"] = serde_json::json!("abc123");
+        assert!(ingest_peer_packet_ex(&p, v6).new_device);
+        let r = ingest_peer_packet_ex(&p, v4);
+        assert!(r.changed, "IPv4 宣告应触发地址迁移");
+        let ip = multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get("dual-stack-device")
+            .map(|d| d.ip.clone())
+            .unwrap_or_default();
+        assert_eq!(ip, "192.168.60.21", "应优先保留 IPv4 地址");
         multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
