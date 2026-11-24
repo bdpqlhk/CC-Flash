@@ -23,7 +23,7 @@
       "infoPlist": "Info.plist"
     },
     "android": {
-      "versionCode": 10200704
+      "versionCode": 10200800
     },
     "windows": {
       "webviewInstallMode": {
