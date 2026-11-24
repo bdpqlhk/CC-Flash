@@ -486,7 +486,7 @@ function setView(v) {
   // 设备/目标已并入消息页: 旧 discover 视图不再存在
   if (v === "discover") v = "transfer";
   // 浏览器没有发现/设置/服务中心: 任何入口都回原聊天室
-  if (!isDesktop && (v === "settings" || v === "service")) v = "transfer";
+  if (!isDesktop && !PREVIEW_MOBILE && (v === "settings" || v === "service")) v = "transfer";
   view.value = v;
   if (!isQrPetWindow) {
     try { localStorage.setItem("wft-mobile-view", v); } catch (e) {}
@@ -6383,7 +6383,7 @@ async function refreshStatus() {
               <small>当前令牌</small>
               <button v-if="pinEnabled && pinCode" class="m-token" title="点击复制令牌"
                       :aria-label="'复制令牌 ' + pinCode" @click="copyText(pinCode, '令牌已复制')">{{ pinCode }}</button>
-              <span v-else class="m-token m-token-off">未开启</span>
+              <span v-else class="m-token m-token-off">{{ pinEnabled ? "读取中…" : "未开启" }}</span>
             </div>
           </div>
           <div class="m-setting-row m-setting-appearance">
@@ -6711,7 +6711,7 @@ async function refreshStatus() {
         <div class="pt">
           <div class="pico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
           <h3>多端覆盖</h3>
-          <p>macOS、Windows、Android App，外加电脑/手机浏览器；Windows 安装包内置 WebView2 离线安装器，离线也能装；iOS 用 Safari 网页版即可。</p>
+          <p>macOS、Windows、Android App，外加电脑与手机浏览器。Windows 安装包内置 WebView2 离线安装器；iOS 没有原生包，用 Safari 打开电脑地址即可。</p>
         </div>
       </div>
       <div class="codes">
@@ -7040,7 +7040,7 @@ async function refreshStatus() {
   </div>
 
   <!-- 传输历史: 入口在本机身份卡右侧, 不再占用设备栏底部空间 -->
-  <div v-if="historyOpen" class="dialog-overlay history-overlay" @click.self="historyOpen = false">
+  <div v-if="historyOpen" class="dialog-overlay history-overlay" :class="{ 'is-mobile': mobileShell }" @click.self="historyOpen = false">
     <div class="dialog-box history-box">
       <div class="history-head">
         <div>
