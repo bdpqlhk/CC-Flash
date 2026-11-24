@@ -48,5 +48,12 @@
 <tr><td>浏览器发送文件后刷新，聊天时间线里的文件卡片消失：文件只存在于前端 <code>uploads</code> / <code>remoteFiles</code> 内存态，<code>/api/chat</code> 只返回文本消息。</td><td>服务端新增独立的文件投递事件存储（<code>file-history.json</code>，最近 200 条，不占文本聊天 200 条/字节预算）；上传成功与删除文件时更新并广播，<code>GET /api/chat</code> 同时下发 <code>files</code>；前端合并为文件卡片，与本机上传卡、临时远端卡按文件名去重，并参与「清空显示」水位。</td></tr>
 </table>
 
+<h2>七、版本合并（v1.2.7.1–v1.2.7.4 → v1.2.8）</h2>
+<table>
+<tr><th>项</th><th>处理</th></tr>
+<tr><td>四个同版本构建（1.2.7.1–1.2.7.4）分散在 Release 列表，不利于分发。</td><td>删除这四个 Release 与 tag，保留 <code>v1.2.7</code>；全部修复合并进正式版本 <code>v1.2.8</code>（含文件消息持久化等最新代码）。</td></tr>
+<tr><td>v1.2.8 构建验证。</td><td>CI 全绿、publish 自动发布；四个资产名均带 <code>1.2.8</code>；APK <code>versionCode=10200800</code>、<code>versionName=1.2.8</code>。</td></tr>
+</table>
+
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>
