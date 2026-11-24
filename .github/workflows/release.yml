@@ -282,7 +282,7 @@ jobs:
             if [ "$old" = "$new" ]; then echo "跳过 $old"; continue; fi
             cp "$f" "$RUNNER_TEMP/$new"
             gh release delete-asset "$TAG" "$old" --yes
-            gh release upload "$TAG" "$RUNNER_TEMP/$new"
+            gh release upload "$TAG" "$RUNNER_TEMP/$new" --clobber
             echo "✔ $old → $new"
           done
 
