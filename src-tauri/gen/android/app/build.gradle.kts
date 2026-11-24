@@ -30,8 +30,17 @@ android {
         applicationId = "com.ccflash.app"
         minSdk = 24
         targetSdk = 37
+        // gen/android 已入库, CI 会跳过 `tauri android init`, tauri.properties 可能
+        // 根本不存在 —— 此时不能落到模板默认 versionCode=1(系统会认为所有版本相同)。
+        // 以 tauri.conf.json 的 bundle.android.versionCode 兜底(release.sh 写入的
+        // 唯一来源), 再不行才回退 1。
+        val configVersionCode = Regex("\"versionCode\"\\s*:\\s*(\\d+)")
+            .find(file("../../../tauri.conf.json").readText())
+            ?.groupValues?.get(1)?.toIntOrNull()
         val tauriVersionCode =
-            tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+            tauriProperties.getProperty("tauri.android.versionCode", "").toIntOrNull()
+                ?: configVersionCode
+                ?: 1
         // Tauri CLI 在 Android 上固定写入 versionName=1.0(与桌面/应用版本无关),
         // 安装器里就会显示 "1.0"。优先使用发版流程注入的完整构建版本(四段 tag 去 v);
         // 本地构建没有该变量时, 按 versionCode 的编码规则
