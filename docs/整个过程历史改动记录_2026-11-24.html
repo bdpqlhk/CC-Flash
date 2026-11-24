@@ -42,5 +42,11 @@
 <tr><td>移动端访问令牌此前被后端硬性禁止关闭（<code>set_access_pin_cmd</code> 直接返回错误），用户无法按需关闭。</td><td>移除后端限制；设置页开关可关可开，关闭前用应用内确认框提示风险（同 Wi-Fi 无码访问、Android 回环不按应用隔离）；关闭状态写 <code>enabled=0</code> 持久化，重启不复活；重新开启立即生成新码。</td></tr>
 </table>
 
+<h2>六、文件消息持久化</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>浏览器发送文件后刷新，聊天时间线里的文件卡片消失：文件只存在于前端 <code>uploads</code> / <code>remoteFiles</code> 内存态，<code>/api/chat</code> 只返回文本消息。</td><td>服务端新增独立的文件投递事件存储（<code>file-history.json</code>，最近 200 条，不占文本聊天 200 条/字节预算）；上传成功与删除文件时更新并广播，<code>GET /api/chat</code> 同时下发 <code>files</code>；前端合并为文件卡片，与本机上传卡、临时远端卡按文件名去重，并参与「清空显示」水位。</td></tr>
+</table>
+
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>

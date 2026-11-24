@@ -2482,6 +2482,9 @@ let lastSelfUploadAt = 0;   // 自己上传完成的 files:changed 不点亮“�
    本机上传走 uploads 卡片; 远端文件只能从服务端列表里"新出现"来识别 ——
    首次拉取只建立基线, 避免历史文件在打开页面时全部刷成新消息。 */
 const remoteFiles = ref([]);
+/* 服务端持久化的文件投递事件(独立 200 条上限): 刷新/重启后时间线仍能看到
+   发送过的文件; 与 remoteFiles(临时新文件卡)和 uploads(本机在途卡)按文件名去重。 */
+const fileEvents = ref([]);
 let knownFileNames = null;   // 上一次文件列表快照; null = 尚未建立基线
 const REMOTE_CARDS_MAX = 100;
 let openBatch = null;       // 60s 内连续上传归入同一文件组
@@ -3027,7 +3030,24 @@ const timelineItems = computed(() => {
     if (m.timestamp <= clearedTs.value) continue;
     items.push({ kind: "msg", key: "m" + m.id, ts: m.timestamp, msg: m, html: chatHtml(m) });
   }
+  // 文件投递事件(持久化): 同名只保留最新一条; 本机在途/完成的上传卡已展示的跳过,
+  // 避免同一文件出现"本机上传卡 + 远端文件卡"两张。
+  const eventByName = new Map();
+  for (const f of fileEvents.value) {
+    if (f.timestamp <= clearedTs.value) continue;
+    const cur = eventByName.get(f.name);
+    if (!cur || (f.timestamp || 0) >= (cur.timestamp || 0)) eventByName.set(f.name, f);
+  }
+  const localUploadNames = new Set(uploads.value.map((u) => uploadName(u)).filter(Boolean));
+  for (const f of eventByName.values()) {
+    if (localUploadNames.has(f.name)) continue;
+    items.push({
+      kind: "remote", key: "fe-" + f.name, ts: f.timestamp || 0,
+      r: { name: f.name, size: f.size, modified: f.timestamp, uploader: f.uploader || "", ts: f.timestamp || 0 },
+    });
+  }
   for (const r of remoteFiles.value) {
+    if (eventByName.has(r.name)) continue;   // 已有持久化事件, 不再重复一张临时卡
     items.push({ kind: "remote", key: r.key, ts: r.ts, r });
   }
   const groups = new Map();
@@ -4270,7 +4290,10 @@ function clearChatDisplay() {
   // 水位取最后一条可见消息的时间戳而非条数: 条数 ≤200 恒成立, "length > 水位条数" 永假 → 满 200 条时
   // 点清空后本机永久空白; 时间戳在服务端重启(消息清零)后依然单调可比。
   // 已处于清空态(可见列表为空)时不得把水位覆盖成 0, 否则重复点清空丢水位、历史整段回归
-  if (chatMsgs.value.length) clearedTs.value = chatMsgs.value[chatMsgs.value.length - 1].timestamp;
+  // 文件投递事件也参与水位: 否则清空显示后文件卡片仍留在时间线
+  const lastChat = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].timestamp : 0;
+  const lastFile = fileEvents.value.reduce((mx, f) => Math.max(mx, f.timestamp || 0), 0);
+  clearedTs.value = Math.max(clearedTs.value, lastChat, lastFile);
   // 必须立即清显示列表: WS 在线时 loadChat 只由"新消息事件"触发, 安静的聊天室里
   // 清空后 loadChat 永远不来, 只设标记会表现为"点了清空没反应"(轮询时代的回归)
   chatMsgs.value = [];
@@ -4315,6 +4338,13 @@ async function loadChat() {
     if (sig !== loadChat._sig) {
       loadChat._sig = sig;
       chatMsgs.value = visible;
+    }
+    // 文件投递事件(持久化): 内容不变就不替换数组, 避免 3s 轮询反复重渲染时间线
+    const files = Array.isArray(d.files) ? d.files : [];
+    const filesSig = files.map((f) => `${f.name}:${f.timestamp}:${f.size}`).join("|");
+    if (filesSig !== loadChat._filesSig) {
+      loadChat._filesSig = filesSig;
+      fileEvents.value = files;
     }
     chatCount.value = msgs.length;
     const firstLoad = !loadChat._init;
@@ -5755,7 +5785,8 @@ async function refreshStatus() {
                   </div>
                 </div>
 
-                <div v-else-if="it.kind === 'remote'" class="tx-file">
+                <div v-else-if="it.kind === 'remote'" class="tx-file"
+                     :class="{ out: it.r.uploader && it.r.uploader === curNick }">
                   <span class="tx-ava" :title="it.r.uploader ? '上传者：' + it.r.uploader : '来自其他设备'">{{ avatarFor(it.r.uploader || '共享文件') }}</span>
                   <div class="tx-file-col">
                     <div class="tx-name"><span class="nm">{{ it.r.uploader || "其他设备" }}</span><span class="tm">{{ fmtTime(it.r.modified || it.r.ts) }}</span></div>

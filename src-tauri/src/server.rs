@@ -84,6 +84,36 @@ pub struct ChatQuote {
     pub message: String,
 }
 
+/// 文件投递事件：与文本聊天分开持久化，避免整目录上传把 200 条聊天上限挤爆；
+/// GET /api/chat 一并下发，客户端在时间线里渲染为可下载/分享的文件卡片。
+/// 刷新浏览器或重启 App 后仍能看到"发送过哪些文件"。
+#[derive(Clone, Deserialize, Serialize)]
+pub struct FileEvent {
+    pub name: String,
+    pub size: u64,
+    #[serde(default)]
+    pub uploader: String,
+    pub timestamp: f64,
+}
+
+const FILE_EVENT_MAX: usize = 200;
+
+fn file_events_file() -> Option<PathBuf> {
+    if cfg!(test) { return None; }
+    ui_pref_dir().map(|d| d.join("file-history.json"))
+}
+
+fn file_events() -> &'static Mutex<VecDeque<FileEvent>> {
+    static F: OnceLock<Mutex<VecDeque<FileEvent>>> = OnceLock::new();
+    F.get_or_init(|| {
+        let q = file_events_file()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|raw| serde_json::from_str::<VecDeque<FileEvent>>(&raw).ok())
+            .unwrap_or_default();
+        Mutex::new(q)
+    })
+}
+
 /// 聊天记录持久化文件(与主题偏好同目录)。服务重启/应用重启后恢复最近 CHAT_MAX 条,
 /// 修复"关掉 CC-Flash 再打开聊天全空"的问题。
 fn chat_history_file() -> Option<PathBuf> {
@@ -168,6 +198,67 @@ fn schedule_chat_save(json: Option<Vec<u8>>) {
     } else {
         task();
     }
+}
+
+/// 文件事件的落盘与聊天同款：合并窗口 + 序号，确保迟到的旧快照不会覆盖新快照。
+static FILE_SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static FILE_SAVED_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn file_save_lock() -> &'static Mutex<()> {
+    static L: OnceLock<Mutex<()>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(()))
+}
+
+fn schedule_file_events_save() {
+    let Some(path) = file_events_file() else { return };
+    let json = {
+        let q = file_events().lock().unwrap_or_else(|e| e.into_inner());
+        match serde_json::to_vec(&*q) {
+            Ok(j) => j,
+            Err(e) => {
+                push_log_err(format!("文件历史序列化失败: {e}"));
+                return;
+            }
+        }
+    };
+    let seq = FILE_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let task = move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let _g = file_save_lock().lock().unwrap_or_else(|e| e.into_inner());
+        if seq <= FILE_SAVED_SEQ.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if write_secret_atomic(&path, &json).is_ok() {
+            FILE_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        }
+    };
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let _ = handle.spawn_blocking(task);
+    } else {
+        task();
+    }
+}
+
+/// 上传完成后记账为一条"文件消息"，并广播 chat:new 让所有端刷新时间线。
+fn record_file_event(name: String, size: u64, uploader: String) {
+    {
+        let mut q = file_events().lock().unwrap_or_else(|e| e.into_inner());
+        // 同名重传只保留最新一条: 否则同一路径会在时间线里出现多张卡片
+        q.retain(|e| e.name != name);
+        q.push_back(FileEvent {
+            name,
+            size,
+            uploader,
+            timestamp: now_f64(),
+        });
+        while q.len() > FILE_EVENT_MAX {
+            q.pop_front();
+        }
+    }
+    schedule_file_events_save();
+    broadcast_event("chat:new");
 }
 
 /// 单调递增的消息 id: 删除最新一条后绝不复用它的 id —— 另一端未及时刷新的
@@ -4735,8 +4826,11 @@ async fn upload(
         if up.len() >= 10_000 {
             up.clear();   // 防无界增长: 极端批量上传时整体重置, 旧文件回落通用头像
         }
-        up.insert(final_name.clone(), uploader);
+        up.insert(final_name.clone(), uploader.clone());
     }
+    // 文件即消息: 持久化一条投递事件(独立上限, 不占文本聊天额度), 刷新/重启后
+    // 时间线仍能看到发送过的文件; 内部会广播 chat:new 让所有端刷新。
+    record_file_event(final_name.clone(), written, uploader.clone());
     // 广播列表变更(审查回归: 整文件直传回滚重写 handler 时丢失) —— WS 在线时前端
     // 已停掉 5s 列表轮询, 无此广播则手机上传完成后桌面列表永不自动刷新
     let _ = event_bus().send(serde_json::json!({
@@ -5067,6 +5161,17 @@ async fn delete_file(
             if resolved_name != name {
                 uploaders().lock().unwrap_or_else(|e| e.into_inner()).remove(&resolved_name);
             }
+            // 文件删除后其时间线卡片一并消失: 清掉持久化的文件事件并通知各端重拉
+            {
+                let mut ev = file_events().lock().unwrap_or_else(|e| e.into_inner());
+                let before = ev.len();
+                ev.retain(|e| e.name != name && e.name != resolved_name);
+                if ev.len() != before {
+                    drop(ev);
+                    schedule_file_events_save();
+                    broadcast_event("chat:new");
+                }
+            }
             broadcast_event("files:changed");
             Json(serde_json::json!({ "ok": true })).into_response()
         }
@@ -5085,6 +5190,8 @@ async fn delete_file(
 #[derive(serde::Serialize)]
 struct ChatList<'a> {
     messages: Vec<&'a ChatMsg>,
+    /// 文件投递事件(独立上限 200 条): 与文本消息一起下发, 客户端渲染为文件卡片
+    files: Vec<FileEvent>,
 }
 
 async fn chat_get() -> Response {
@@ -5092,8 +5199,14 @@ async fn chat_get() -> Response {
         return err(StatusCode::TOO_MANY_REQUESTS, "聊天历史读取并发过多，请稍后重试");
     };
     let q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
+    let files = file_events()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
     // ip 仅进服务端日志, 不随接口下发 —— 局域网内没必要让所有客户端互相看到地址
-    let body = match serde_json::to_vec(&ChatList { messages: q.iter().collect() }) {
+    let body = match serde_json::to_vec(&ChatList { messages: q.iter().collect(), files }) {
         Ok(b) => b,
         Err(e) => {
             push_log_err(format!("聊天历史序列化失败: {e}"));
@@ -6905,11 +7018,17 @@ mod tests {
             let response = super::upload(State(share.clone()), axum::extract::ConnectInfo(peer), headers, Body::from("hello")).await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(std::fs::read(share.join("phone.txt")).unwrap(), b"hello");
+            // 上传成功会先记一条文件消息(chat:new), 再广播列表变更(files:changed)
+            let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+            assert_eq!(event, serde_json::json!({ "type": "chat:new" }));
             let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
             assert_eq!(event, serde_json::json!({ "type": "files:changed", "action": "uploaded" }));
 
             let response = delete_file(State(share.clone()), axum::extract::ConnectInfo(peer), AxPath("phone.txt".into())).await;
             assert_eq!(response.status(), StatusCode::OK);
+            // 删除时文件事件一并清除, 同样先 chat:new 再 files:changed
+            let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+            assert_eq!(event, serde_json::json!({ "type": "chat:new" }));
             let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
             assert_eq!(event, serde_json::json!({ "type": "files:changed" }));
 
