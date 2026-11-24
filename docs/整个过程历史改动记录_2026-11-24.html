@@ -1,7 +1,7 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-24 发版链路与 Android 版本修复</title>
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-24 发版链路、Android 版本与交互修复</title>
 <style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
-<h1>CC Flash · 2026-11-24 发版链路与 Android 版本修复</h1>
-<div class="meta">版本：v1.2.7.3 · 本文件记录 v1.2.7 → v1.2.7.3 的重建、发版流水线修复与 Android 安装包版本字段排查；与《技术实现文档》《需求设计文档》配套阅读。</div>
+<h1>CC Flash · 2026-11-24 发版链路、Android 版本与交互修复</h1>
+<div class="meta">版本：v1.2.7.3 · 本文件记录 v1.2.7 → v1.2.7.3 的重建、发版流水线修复、Android 安装包版本字段排查，以及对端配对码与传输历史交互修复；与《技术实现文档》《需求设计文档》配套阅读。</div>
 <div class="callout"><b>本轮重点</b>恢复「缺签名仅告警继续发布」的既定策略；四段 tag 的交付文件名与 publish 校验全程兼容；修复 Android 安装包长期显示 <code>versionName=1.0</code>、<code>versionCode=1</code> 的根因；完成 v1.2.7.3 全链路验证。</div>
 
 <h2>一、发布流水线</h2>
@@ -26,6 +26,13 @@
 <tr><td><code>v1.2.7.3</code></td><td>CI 全绿、publish 自动发布；四个资产名均带 <code>1.2.7.3</code>；解析 APK 清单：<code>versionCode=10200703</code>、<code>versionName=1.2.7.3</code>。</td></tr>
 </table>
 <p>推荐使用 <b>v1.2.7.3</b>。v1.2.7.1 / v1.2.7.2 的 Android 包 <code>versionCode=1</code>，系统会把它们视为同一版本，不建议继续分发。</p>
+
+<h2>四、对端配对码与传输历史</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>输入错误配对码并保存后，后续发送继续复用缓存错码：401 只弹框不清缓存，每次发送都重复提交错码，累计失败触发服务端指数限流（429）；429 又被当作“离线/需要配对”，表现为一直失败且不再提示重新输入。</td><td>保存前先请求对方 <code>/api/devices</code> 验证：401/429 立即反馈且不落盘；发送遇 401 清除缓存码并重新弹框（输入框留空），遇 429 明确提示“错误次数过多，已被对方临时限流”；文件批量发送按 401/429/403 区分失败原因。</td></tr>
+<tr><td>传输历史只有列表，无法按设备/内容查找，也不能清理。</td><td>新增搜索框（设备名、内容摘要、消息/文件类型），实时过滤并显示匹配数；新增「清空」按钮，使用应用内确认框二次确认；关闭弹框自动清空搜索词，避免下次打开误以为记录变少。</td></tr>
+</table>
 
 <div class="small">CC Flash · 2026-11-24 · 本文件为当前实现的同步说明</div>
 </body></html>

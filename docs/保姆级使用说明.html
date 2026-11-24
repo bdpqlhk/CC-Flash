@@ -352,13 +352,20 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <li><b>iOS</b>：原生包仍未交付；iOS 请用 Safari 打开电脑地址。原生壳的下载/PDF 预览/键盘适配不在本轮交付范围内，后续适配时按文档处理。</li>
 </ul>
 </section>
+<h2>2026-11-24 本次更新</h2>
+<ul>
+<li>传输历史新增搜索（可按设备、内容、消息/文件类型过滤）与「清空」入口，清空前会二次确认。</li>
+<li>配对码保存前先向对方验证：错误立即提示且不再缓存；发送被拒时自动重新弹出输入框，被限流时明确提示稍后再试。</li>
+<li>Android 安装包版本号修复：安装器不再显示 1.0，<code>versionCode</code> 随构建号递增，可正常覆盖升级。</li>
+<li>交付文件名统一带完整四段版本号（如 <code>CC-Flash_1.2.7.3_x64-setup.exe</code>）。</li>
+</ul>
 <h2>2026-11-23 本次更新</h2>
 <ul>
 <li>附近设备状态改为实时同步：服务端计算在线态，WebSocket 立即推送；已知设备 3s 单播心跳，状态不再频繁在在线/离线间跳。</li>
 <li>手机设置页改为简洁扁平行，开关文案缩短；发送面板跟随当前皮肤；设备卡右上收藏、右下传输历史。</li>
 <li>悬浮二维码收拢态恢复透明；昵称弹框、配对码取消按钮点击问题修复。</li>
 </ul>
-<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 保姆级使用说明 · 2026-11-23 · 适用于 v1.2.6（四段 tag v1.2.6.x） · 与《需求设计文档》《技术实现文档》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 保姆级使用说明 · 2026-11-24 · 适用于 v1.2.7（四段 tag v1.2.7.x） · 与《需求设计文档》《技术实现文档》配套阅读</p>
 </main>
 </div>
 </body>

@@ -559,6 +559,30 @@ const transferHistory = ref((() => {
 function saveTransferHistory() {
   try { localStorage.setItem(TRANSFER_HISTORY_KEY, JSON.stringify(transferHistory.value)); } catch (e) {}
 }
+const historyQuery = ref("");
+const filteredHistory = computed(() => {
+  const q = historyQuery.value.trim().toLowerCase();
+  if (!q) return transferHistory.value;
+  return transferHistory.value.filter((h) => {
+    const type = h.kind === "file" ? "文件" : "消息";
+    return `${h.targetName} ${h.name} ${type}`.toLowerCase().includes(q);
+  });
+});
+async function clearTransferHistory() {
+  if (!transferHistory.value.length) return;
+  const yes = await appConfirm({
+    title: "清空传输历史",
+    message: "将删除本机保存的全部直发记录（不影响对方设备），且无法恢复。",
+    confirmText: "清空", danger: true, icon: "trash",
+  });
+  if (!yes) return;
+  transferHistory.value = [];
+  historyQuery.value = "";
+  saveTransferHistory();
+  showToast("传输历史已清空");
+}
+// 关闭弹框时清掉搜索词: 下次打开默认看全量, 避免"只看到几条"的错觉
+watch(historyOpen, (v) => { if (!v) historyQuery.value = ""; });
 function recordTransfer(p, kind, name) {
   if (!p) return;
   transferHistory.value = [{
@@ -3265,13 +3289,24 @@ function promptPeerPin(p) {
   pinDialogDevice.value = p;
   pinDialogValue.value = peerPins.value[peerKey(p)] || "";
 }
-function savePeerPinDialog() {
+async function savePeerPinDialog() {
   const p = pinDialogDevice.value;
-  if (!p) return;
+  if (!p || pinChecking.value) return;
   const pin = pinDialogValue.value.trim();
+  if (!pin) {
+    savePeerPin(p, "");
+    pinDialogDevice.value = null;
+    showToast("已清除配对码");
+    return;
+  }
+  pinChecking.value = true;
+  const res = await verifyPeerPin(p, pin);
+  pinChecking.value = false;
+  if (res === "invalid") { showToast("配对码不正确，请重新输入", "error"); return; }
+  if (res === "locked") { showToast("尝试过于频繁，请稍后再试", "error"); return; }
   savePeerPin(p, pin);
   pinDialogDevice.value = null;
-  showToast(pin ? "配对码已保存，请再次发送" : "已清除配对码");
+  showToast(res === "ok" ? "配对码已验证并保存" : "对方暂不可达，配对码已保存");
 }
 function peerKey(p) { return p && p.id ? `id:${p.id}` : `${p?.ip}:${p?.port}`; }
 function savePeerPin(p, pin) {
@@ -3281,6 +3316,24 @@ function savePeerPin(p, pin) {
   if (pin) next[k] = pin; else delete next[k];
   peerPins.value = next;
   try { localStorage.setItem(PEER_PINS_KEY, JSON.stringify(next)); } catch (e) {}
+}
+const pinChecking = ref(false);
+// 保存前先向对方验证配对码: 直达设备的 API 都走访问码中间件, /api/devices 最轻量。
+// 错误/限流都立即反馈且不落盘; 对方暂时不可达时仍保存(标注未验证), 不阻塞使用。
+async function verifyPeerPin(p, pin) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(peerBase(p) + "/api/devices", {
+      headers: { "X-Access-Pin": pin },
+      signal: ctl.signal,
+    });
+    if (r.status === 401) return "invalid";
+    if (r.status === 429) return "locked";
+    return r.ok ? "ok" : "unreachable";
+  } catch (e) {
+    return "unreachable";
+  } finally { clearTimeout(timer); }
 }
 function currentPlatform() {
   if (isIOSFamily) return "iOS";
@@ -3321,8 +3374,16 @@ async function directSendText(p, text, opts = {}) {
       body: JSON.stringify({ nickname: curNick.value, message: text }),
       signal: ctl.signal,
     });
-    if (r.status === 401) { promptPeerPin(p); throw new Error("peer-pin"); }
+    if (r.status === 401) {
+      // 缓存的配对码被拒: 立即清除并重新弹框(留空), 否则后续发送会反复带同一个
+      // 错码, 累计失败触发服务端指数限流(429), 表现为“一直失败且不再提示配对”。
+      savePeerPin(p, "");
+      promptPeerPin(p);
+      throw new Error("peer-pin");
+    }
     if (r.status === 403) throw new Error("peer-forbidden");
+    // 限流窗内正确码也会返回 429(服务端刻意不区分对错): 单独提示, 不误报离线
+    if (r.status === 429) throw new Error("peer-pin-locked");
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     recordTransfer(p, "text", receiptPreview(text));
     addReceipt(`已向 ${p.nickname || "设备"} 发送消息：${receiptPreview(text)}`);
@@ -3333,7 +3394,8 @@ async function directSendText(p, text, opts = {}) {
       // 主动取消不该再弹一个"发送超时"误导用户。
       if (!opts.signal?.aborted) showToast("发送超时：对方可能已离线", "error");
     }
-    else if (e?.message === "peer-pin") showToast("对方开启了访问令牌，请填写配对码后重试", "error");
+    else if (e?.message === "peer-pin") showToast("配对码不正确，请重新输入后发送", "error");
+    else if (e?.message === "peer-pin-locked") showToast("配对码错误次数过多，已被对方临时限流，请稍后再试", "error");
     else if (e?.message === "peer-forbidden") showToast("浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App", "error");
     else showToast("发送失败：对方可能已离线或开启访问令牌", "error");
     return false;
@@ -3386,7 +3448,8 @@ async function directSendFiles(p, files, opts = {}) {
         const status = String(err?.message);
         // 401/429 说明"继续用同一凭据重试只会把对方 IP 越锁越死": 必须立即中止整批,
         // 让用户先更新配对码或等限流窗口结束, 而不是把剩余文件全打一遍。
-        if (status === "401") { unauthorized++; break; }
+        // 401 = 缓存的配对码被拒: 清除后再弹框, 避免一直复用错码把自己打进 429
+        if (status === "401") { unauthorized++; savePeerPin(p, ""); break; }
         if (status === "429") { rateLimited++; break; }
         if (status === "aborted" || status === "timeout" || status === "network") break;
         if (status === "403") forbidden++;
@@ -3402,14 +3465,17 @@ async function directSendFiles(p, files, opts = {}) {
     return fail();
   }
   if (!ok) {
-    showToast(unauthorized ? "对方开启了访问令牌，请填写配对码后重试"
+    showToast(unauthorized ? "配对码不正确，请重新输入后重试"
       : rateLimited ? "对方拒绝了本次发送（尝试过于频繁），请稍后再试"
       : forbidden ? "浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App"
       : "发送失败：对方可能已离线", "error");
     return fail();
   }
   if (forbidden || unauthorized || rateLimited) {
-    showToast(`已发送 ${ok} 个，${forbidden + unauthorized + rateLimited} 个失败`, "error");
+    const rest = rateLimited ? "其余因尝试过于频繁被限流"
+      : unauthorized ? "其余配对码不正确"
+      : "其余被拒绝";
+    showToast(`已发送 ${ok} 个，${rest}`, "error");
     return fail();
   }
   return { allOk: ok === list.length, sent };
@@ -6699,7 +6765,7 @@ async function refreshStatus() {
       <p class="pin-sub">「{{ pinDialogDevice.nickname || "设备" }}」开启了访问令牌</p>
       <input class="svc-input pin-input" v-model="pinDialogValue" maxlength="12" placeholder="配对码"
              autocomplete="off" inputmode="numeric" @keydown.enter.prevent="savePeerPinDialog" />
-      <button class="btn btn-primary pin-btn" @click="savePeerPinDialog">保 存</button>
+      <button class="btn btn-primary pin-btn" :disabled="pinChecking" @click="savePeerPinDialog">{{ pinChecking ? "验证中…" : "保 存" }}</button>
       <button class="pin-cancel" @click="pinDialogDevice = null">取消</button>
     </div>
   </div>
@@ -6770,18 +6836,29 @@ async function refreshStatus() {
       <div class="history-head">
         <div>
           <h4>传输历史</h4>
-          <p class="history-sub">最近 {{ transferHistory.length }} 条直发记录</p>
+          <p class="history-sub">
+            {{ historyQuery.trim() ? `匹配 ${filteredHistory.length} 条` : `最近 ${transferHistory.length} 条直发记录` }}
+          </p>
         </div>
         <button class="history-close" title="关闭" aria-label="关闭" @click="historyOpen = false">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
+      <div class="history-tools">
+        <input class="history-search" v-model="historyQuery" placeholder="搜索设备、内容或类型"
+               autocomplete="off" spellcheck="false" @keydown.esc="historyQuery = ''" />
+        <button class="history-clear" :disabled="!transferHistory.length" @click="clearTransferHistory">清空</button>
+      </div>
       <div v-if="!transferHistory.length" class="history-empty">
         还没有传输记录
         <small>给附近设备发消息或文件后会记录在这里</small>
       </div>
+      <div v-else-if="!filteredHistory.length" class="history-empty">
+        没有匹配的记录
+        <small>换个关键词试试</small>
+      </div>
       <div v-else class="history-list">
-        <div v-for="h in transferHistory" :key="h.id" class="history-row">
+        <div v-for="h in filteredHistory" :key="h.id" class="history-row">
           <span class="history-ico">
             <svg v-if="h.kind === 'file'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.5 8.5a5 5 0 01-7.1-7.1l8.5-8.5a3.5 3.5 0 015 5L10.4 18a2 2 0 01-2.8-2.8l7.8-7.8"/></svg>
             <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 01-8.5 8.5 9 9 0 01-3.8-.8L3 21l1.8-5.1A8.4 8.4 0 013.5 12 8.5 8.5 0 0112 3.5 8.4 8.4 0 0121 11.5z"/></svg>
