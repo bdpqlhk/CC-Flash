@@ -1474,6 +1474,10 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     --bg: #f4f6fa; --bg2: #edf0f5; --panel: #ffffff; --card: #ffffff;
     --card-border: rgba(15,23,42,0.10); --card-hover: rgba(15,23,42,0.05);
     --text: #232936; --text2: #5c6575; --text3: #626c7d;
+    /* 语义色在浅底上需要加深: 主题强调色只决定色相, 不直接拿亮色当正文 */
+    --success: #1f7a4d; --success-bg: rgba(31,122,77,0.10);
+    --danger: #b3362a; --danger-bg: rgba(179,54,42,0.10);
+    --warning: #8a5a12; --warning-bg: rgba(138,90,18,0.12);
     /* 静态兜底(所有内核可用): color-mix 不支持时以下两条生效。
        不能用"同名双声明"技巧 —— 自定义属性不做值校验, 永远是后一条赢 */
     --accent-bg: rgba(79,138,247,0.12);
@@ -1487,7 +1491,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 @supports (color: color-mix(in srgb, red 1%, blue)) {
     [data-mode="light"] {
         --accent-bg: color-mix(in srgb, var(--accent) 12%, transparent);
-        --accent-text: color-mix(in srgb, var(--accent) 68%, #101828);
+        --accent-text: color-mix(in srgb, var(--accent) 58%, #101828);
     }
 }
 
@@ -3918,7 +3922,7 @@ html[data-android-app="1"] .shell.has-mobile-tabs > .main { padding-top: 0; }
 /* dir-5：发丝分隔行 + 等宽读数 + 方形开关 + 宋体令牌 + 方色板 + 版本尾注 */
 .m-settings .m-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid var(--card-border); }
 .m-settings .m-setting-main { flex: 1; min-width: 0; }
-.m-settings .m-setting-main b { display: block; font: 600 12.5px/1.4 var(--mono); letter-spacing: .02em; color: var(--text); }
+.m-settings .m-setting-main b { display: block; font: 600 13px/1.4 var(--mono); letter-spacing: .02em; color: var(--text); }
 .m-settings .m-setting-main small { display: block; margin-top: 3px; font: 11px/1.5 var(--mono); letter-spacing: .02em; color: var(--text3); }
 .m-settings .m-setting-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .m-settings .m-setting-link { border: 0; background: transparent; color: var(--accent-text); font: 500 11px/1.2 var(--mono); padding: 7px 2px; min-height: 32px; cursor: pointer; white-space: nowrap; }
@@ -4258,7 +4262,7 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .m-dev-nm { flex: 1; min-width: 0; }
 .shell.has-mobile-tabs .m-dev-nm b {
     display: block;
-    font: 13px/1.4 var(--mono);
+    font: 14px/1.4 var(--mono);
     letter-spacing: .01em;
     color: var(--text);
     white-space: nowrap;
@@ -4360,7 +4364,7 @@ html[data-android-browser="1"] .tx-head {
     border-radius: 0;
     background: transparent;
     color: var(--text);
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1.65;
 }
 .shell.has-mobile-tabs .tx-msg .tx-foot { grid-column: 2; grid-row: 2; }
@@ -4451,13 +4455,13 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .m-file-no { display: block; font: 11px/1 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .tx-finfo2 { min-width: 0; }
 .shell.has-mobile-tabs .tx-fname2 {
-    font: 12px/1.4 var(--mono);
+    font: 13.5px/1.4 var(--mono);
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.shell.has-mobile-tabs .tx-fmeta2 { font: 11px/1.5 var(--mono); color: var(--text3); }
+.shell.has-mobile-tabs .tx-fmeta2 { font: 11.5px/1.5 var(--mono); color: var(--text3); }
 .shell.has-mobile-tabs .m-pbar { height: 2px; margin-top: 5px; background: var(--card-border); }
 .shell.has-mobile-tabs .m-pbar i { display: block; height: 100%; background: var(--accent); }
 .shell.has-mobile-tabs .m-drop {
@@ -4506,13 +4510,13 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-group-head,
 .shell.has-mobile-tabs .tx-gtitle b,
 .shell.has-mobile-tabs .tx-gtitle small { font-family: var(--mono); }
-.shell.has-mobile-tabs .tx-file-actions button { border-radius: 0; font-size: 12px; }
+.shell.has-mobile-tabs .tx-file-actions button { border-radius: 0; font-size: 12.5px; }
 .shell.has-mobile-tabs .tx-files-empty .btn-primary { border-radius: 0; font-family: var(--mono); font-size: 10px; }
 .shell.has-mobile-tabs .tx-upload-strip,
 .shell.has-mobile-tabs .tx-jump { font-family: var(--mono); }
 
-.shell.has-mobile-tabs .tx-file .tx-fmeta { font-size: 11.5px; }
-.shell.has-mobile-tabs .tx-fname { font-size: 12.5px; }
+.shell.has-mobile-tabs .tx-file .tx-fmeta { font-size: 12px; }
+.shell.has-mobile-tabs .tx-fname { font-size: 13.5px; }
 
 .shell.has-mobile-tabs .tx-ficon { font-size: 11px; }
 .shell.has-mobile-tabs .tx-file .tx-name .tm { font-size: 11px; }

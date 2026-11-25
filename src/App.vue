@@ -878,6 +878,8 @@ function setThemeMode(m) {
 }
 /* 浏览器/移动壳跟随桌面端配色: 服务端 /api/info 下发 pref */
 function applyServerUiTheme(d) {
+    // 设计预览(?mobilePreview=1&theme=…)以 URL 为准, 不让模拟/真实服务的配色覆盖
+    if (PREVIEW_MOBILE) return;
     if (isRealDesktop || !d || mobileSignalLock) return;
     const t = typeof d.uiTheme === "string" ? d.uiTheme : "";
     const m = typeof d.uiMode === "string" ? d.uiMode : "";
