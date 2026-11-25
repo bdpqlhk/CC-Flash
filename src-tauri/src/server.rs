@@ -2337,7 +2337,7 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         let (tx, rx) = oneshot::channel::<()>();
         let app = router(share).into_make_service_with_connect_info::<SocketAddr>();
         let task = tauri::async_runtime::spawn(async move {
-            use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+            use hyper_util::rt::{TokioIo, TokioTimer};
             use hyper_util::service::TowerToHyperService;
             use tower::Service as _;
             // 连接数上限: axum::serve 不限连接, 空连接即可耗尽 fd; 128 条对局域网足够。
@@ -2364,14 +2364,15 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
                                 Err(_) => return,
                             };
                             let svc = TowerToHyperService::new(svc);
-                            let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+                            // 只服务 HTTP/1.1(局域网明文 + WebSocket 升级): 不编译 h2 代码
+                            let mut builder = hyper::server::conn::http1::Builder::new();
                             // 请求头 10s 内必须读完: 挡住"连上不发/发半截 header"的慢连接
                             builder
-                                .http1()
                                 .timer(TokioTimer::new())
                                 .header_read_timeout(Duration::from_secs(10));
                             let _ = builder
-                                .serve_connection_with_upgrades(TokioIo::new(stream), svc)
+                                .serve_connection(TokioIo::new(stream), svc)
+                                .with_upgrades()
                                 .await;
                             drop(permit);
                         });
@@ -8025,4 +8026,51 @@ mod tests {
             None => { let _ = std::fs::remove_file(&pref); }
         }
     }
+    /// 自定义 HTTP/1.1 accept 循环必须保留 WebSocket 升级能力:
+    /// 连接 /ws, 发一条聊天, 收到 chat:new 事件。
+    #[test]
+    fn websocket_upgrade_and_chat_event() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let pref = port_pref_file();
+        let orig_pref = std::fs::read_to_string(&pref).ok();
+        let port = start(Some(17740)).expect("start server on 17740");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            use futures_util::StreamExt;
+            let url = format!("ws://127.0.0.1:{port}/ws");
+            let (mut ws, _) = tokio_tungstenite::connect_async(url)
+                .await
+                .expect("WebSocket 握手应成功");
+            let peer: std::net::SocketAddr = "192.168.1.70:43210".parse().unwrap();
+            let resp = super::chat_post(
+                axum::extract::ConnectInfo(peer),
+                axum::Json(super::ChatIn {
+                    nickname: Some("ws-test".into()),
+                    message: "hello ws".into(),
+                    quote: None,
+                }),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::OK);
+            let mut got = false;
+            for _ in 0..10 {
+                let next = tokio::time::timeout(std::time::Duration::from_secs(3), ws.next()).await;
+                let Ok(Some(Ok(msg))) = next else { break };
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&msg.to_string()) {
+                    if v.get("type").and_then(|x| x.as_str()) == Some("chat:new") {
+                        got = true;
+                        break;
+                    }
+                }
+            }
+            assert!(got, "应通过 WebSocket 收到 chat:new 事件");
+            let _ = ws.close(None).await;
+        });
+        stop();
+        match orig_pref {
+            Some(s) => { let _ = std::fs::write(&pref, s); }
+            None => { let _ = std::fs::remove_file(&pref); }
+        }
+    }
+
 }

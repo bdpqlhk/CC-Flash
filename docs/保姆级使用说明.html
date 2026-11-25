@@ -355,7 +355,7 @@ kbd{font-family:inherit;background:#fff;border:1px solid #cdd4e0;border-bottom-w
 <h2>2026-11-25 本次更新</h2>
 <ul>
 <li>未签名/未公证的桌面版本仍可下载，但会标记为预发布，应用内更新检查不会主动推送；签名版发布后正常提示。</li>
-<li>Windows 安装包内置 WebView2 离线安装器，没有外网也能安装（安装包体积会增加约 127 MB）。</li>
+<li>Windows 安装包使用 WebView2 引导器（体积最小）；Windows 10/11 通常已自带 WebView2 运行时，缺失时需要联网下载。</li>
 <li>Android 改用 connectedDevice 前台服务 + Wi-Fi/CPU 锁，长时间后台/熄屏后仍更容易被发现；首次启动会申请忽略电池优化。</li>
 <li>手机设置页访问令牌可随时关闭/重新开启；关闭前会二次确认风险。</li>
 <li>附近设备支持多选同时发送；点设备只选中、不再自动弹面板；第二批直发文件会排队而不是被丢弃。</li>

@@ -8,7 +8,7 @@
 [![CC Flash 演示](assets/demo.gif)](assets/demo.gif)
 -->
 
-技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.8**，含 2026-11-25 全量审查修复（待发 1.2.9））。前端主包 **333,758 B（约 326 KiB）**，二维码库按需另加载 24,533 B，CSS **151,194 B（约 148 KiB）**，`dist` 合计 **约 580 KiB**；Rust 二进制约 4–5 MiB（strip + fat LTO + opt-level=z + panic=abort）。Windows 安装包内置 WebView2 **离线安装器**（安装体积约 +127 MB，无外网也能安装），Android 仅保留中英文资源并只发 arm64-v8a 单包；macOS 分架构 dmg **2.73–2.85 MiB** / .app **4.12 MiB（arm64）/ 5.03 MiB（x64）**（以 Release 产物为准）。
+技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.8**，含 2026-11-25 全量审查修复（待发 1.2.9））。前端首屏主包 **314,194 B（约 307 KiB）**，介绍页按需另加载 21,784 B、二维码库 24,533 B，CSS **152,830 B（约 149 KiB）**，`dist` 合计 **约 588 KiB**；Rust release 二进制 **4,133,968 B**（strip + fat LTO + opt-level=z + panic=abort，服务端仅 HTTP/1.1）。Windows 安装包使用 WebView2 **引导器**（体积最小；WebView2 运行时缺失时需联网下载，Windows 10/11 通常已自带），Android 仅保留中英文资源并只发 arm64-v8a 单包；macOS 分架构 dmg **2.73–2.85 MiB** / .app **4.12 MiB（arm64）/ 5.03 MiB（x64）**（以 Release 产物为准）。
 
 ## 功能特性
 
@@ -48,7 +48,7 @@
 ### 开发者（源码构建）
 
 ```bash
-# 前置：Rust 1.77+ / Node.js 18+ / macOS 需 Xcode CLT；Windows 需 MSVC Build Tools（安装包已内置 WebView2 离线安装器）
+# 前置：Rust 1.77+ / Node.js 18+ / macOS 需 Xcode CLT；Windows 需 MSVC Build Tools + WebView2 运行时（Windows 10/11 通常已自带）
 npm install
 npm run tauri dev      # 开发运行：前端热更 + Rust 增量编译
 npm run check          # cargo check 快速校验 Rust 编译

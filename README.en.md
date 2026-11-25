@@ -8,7 +8,7 @@ Turn your computer into a server with one click — phones on the same Wi-Fi sca
 [![CC-Flash demo](assets/demo.gif)](assets/demo.gif)
 -->
 
-Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite** (current app version **1.2.8**, including the 2026-11-25 full-code review fixes (1.2.9 pending)). The frontend main bundle is **333,758 B (~326 KiB)** plus a 24,533 B QR chunk loaded on demand, CSS **151,194 B (~148 KiB)**, `dist` **~580 KiB** total; the Rust binary is about 4–5 MiB (strip + fat LTO + opt-level=z + panic=abort). The Windows installer embeds the WebView2 **offline installer** (~127 MB larger, installable without internet), Android keeps only Chinese/English resources and ships a single arm64-v8a APK; the per-arch macOS dmg is **2.73–2.85 MiB** and the .app **4.12 MiB (arm64) / 5.03 MiB (x64)** (see the Release assets).
+Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite** (current app version **1.2.8**, including the 2026-11-25 full-code review fixes (1.2.9 pending)). The initial frontend bundle is **314,194 B (~307 KiB)** plus a 21,784 B intro chunk and a 24,533 B QR chunk loaded on demand, CSS **152,830 B (~149 KiB)**, `dist` **~588 KiB** total; the Rust release binary is **4,133,968 B** (strip + fat LTO + opt-level=z + panic=abort, HTTP/1.1 only). The Windows installer uses the WebView2 **bootstrapper** (smallest; the runtime is downloaded when missing, and Windows 10/11 usually ships it), Android keeps only Chinese/English resources and ships a single arm64-v8a APK; the per-arch macOS dmg is **2.73–2.85 MiB** and the .app **4.12 MiB (arm64) / 5.03 MiB (x64)** (see the Release assets).
 
 ## Features
 
@@ -48,7 +48,7 @@ Launch the app — the service starts automatically (default port `1688`, auto-i
 ### Developers
 
 ```bash
-# Prerequisites: Rust 1.77+, Node.js 18+; macOS needs Xcode CLT, Windows needs MSVC Build Tools (the installer embeds the WebView2 offline installer)
+# Prerequisites: Rust 1.77+, Node.js 18+; macOS needs Xcode CLT, Windows needs MSVC Build Tools + the WebView2 runtime (usually preinstalled on Windows 10/11)
 npm install
 npm run tauri dev      # dev mode: frontend HMR + incremental Rust builds
 npm run check          # fast Rust sanity check

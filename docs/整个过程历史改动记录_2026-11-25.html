@@ -23,7 +23,7 @@
 <tr><td>macOS 只配证书、缺公证凭据时 stapler 必然失败。</td><td>公证四件套只注入非空值；缺凭据时跳过 stapler 并 warning。</td></tr>
 <tr><td>Windows PFX 签名未接入 Tauri：只注入环境变量，配置 Secrets 反而让 Authenticode 复核失败。</td><td>workflow 用 <code>Import-PfxCertificate</code> 导入 PFX，生成 <code>certificateThumbprint/digestAlgorithm/timestampUrl</code> 配置并通过 <code>--config</code> 传给 Tauri。</td></tr>
 <tr><td>未签名/未公证桌面产物被当作正式版，更新检查会推给所有用户。</td><td>缺签名时仍公开发布，但 Release 标记为 <b>prerelease</b>，<code>update.js</code> 跳过；说明中注明安装方式。</td></tr>
-<tr><td>Windows 安装器依赖在线下载 WebView2，离线/受限网络装不上。</td><td><code>webviewInstallMode</code> 改为 <b>offlineInstaller</b>（安装包约 +127 MB，无外网可安装）。</td></tr>
+<tr><td>Windows 安装器依赖在线下载 WebView2。</td><td>为控制安装包体积，<code>webviewInstallMode</code> 保持 <b>downloadBootstrapper</b>；Windows 10/11 通常已自带 WebView2 运行时。</td></tr>
 <tr><td>Android 15+ <code>dataSync</code> 前台服务 6h/24h 配额导致数小时后静默停止。</td><td>切换为 <b>connectedDevice</b> 前台服务（声明 <code>FOREGROUND_SERVICE_CONNECTED_DEVICE</code> + <code>CHANGE_WIFI_STATE/CHANGE_NETWORK_STATE</code>），不再受该配额限制；保留 Wi-Fi/CPU 锁与忽略电池优化。</td></tr>
 </table>
 
@@ -47,7 +47,18 @@
 <tr><td>六套皮肤 × 明暗在四页的渲染态未逐一验证。</td><td>信号台/深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀 × 亮/暗 × 发送/设备/文件/设置，390×844 全量 detect：非“奶油底色”类 warning 全部为 0；320×640 四页无溢出。</td></tr>
 </table>
 
-<h2>五、文档与验证</h2>
+<h2>五、功能自测与产物瘦身</h2>
+<table>
+<tr><th>项</th><th>结果</th></tr>
+<tr><td>后端功能自测</td><td><code>cargo test</code> 26/26：上传/同名改名/下载 HEAD/Range、聊天/限流、剪贴板往返、PIN/票据/媒体会话、发现/快照/去重、静态缓存、WebSocket 升级 + <code>chat:new</code> 事件。</td></tr>
+<tr><td>前端交互冒烟</td><td>16 项全部通过：四页切换、历史底部 sheet、文件选择态、令牌/色板/明暗切换、更多菜单、手动发送面板、介绍页与 FAQ、浏览器聊天页；无未捕获 JS 异常。</td></tr>
+<tr><td>六套皮肤 × 明暗 × 四页</td><td>390×844 全量渲染检测：非“奶油底色”warning 为 0；320×640 四页无溢出。</td></tr>
+<tr><td>前端瘦身</td><td>介绍页拆为按需 chunk：首屏主包 333,828→314,194 B（−19.6 KB）；介绍页 21,784 B 首次打开才加载，二维码 24,533 B 仍按需。</td></tr>
+<tr><td>Rust 瘦身</td><td>服务端只编译 HTTP/1.1（含 WebSocket 升级），移除 HTTP/2 分支；release 二进制 4,133,968 B，相比 auto 版本显示值 4.1M→3.9M。</td></tr>
+<tr><td>安装包瘦身</td><td>Windows WebView2 从 <b>offlineInstaller（约 +127 MB）</b> 恢复为 <b>downloadBootstrapper</b>，安装包保持最小；Win10/11 通常已自带运行时。Android 维持单 arm64 包 + zh/en 资源裁剪。</td></tr>
+</table>
+
+<h2>六、文档与验证</h2>
 <ul>
 <li>README / README.en、需求设计、技术实现、保姆级使用说明、软件介绍页与在应用内介绍页同步到最新行为；新增本文件并更新索引。</li>
 <li>三页在 <b>390×844 / 360×740 / 320×640</b> 真实视口截图复核；<code>impeccable detect</code> 渲染态 0 warning（仅保留信号台测量面板网格的 advisory）。</li>

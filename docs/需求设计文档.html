@@ -516,7 +516,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>体验</b>：系统剪贴板自动同步默认关闭，关闭时粘贴只填充输入框不回传共享槽；发送面板跟随当前皮肤；手机设置页按 dir-3 扁平化并精简开关文案；设备卡右上收藏、右下传输历史；配对码取消按钮轻量化；昵称弹框空 toast 不再拦截点击；悬浮码收拢态透明。</li>
 <li><b>传输历史与对端配对码</b>：历史弹框支持按设备 / 内容 / 类型搜索，清空需二次确认；对端配对码保存前请求 <code>/api/devices</code> 验证，错误码不落盘；发送遇 401 自动清除缓存码并重新弹框（输入框留空），遇 429 明确提示限流，不再反复复用错码。</li>
 <li><b>手机三页信号台</b>：发送 / 设备 / 文件按 dir-2 改造为读数式界面（TARGET·UDP·MANIFEST 页头、刻度雷达盘、DEVICES/PORT/LINK 状态格、RSSI 设备行、manifest 序号 + 进度条 + 虚线投放区、方形输入与琥珀发送键）；仅作用于移动壳，桌面端与浏览器保持原布局；HISTORY 改为底部 sheet。</li>
-<li><b>发布与平台加固</b>：未签名/未公证桌面版公开发布但标记 prerelease（更新检查跳过）；Windows 用 Import-PfxCertificate + certificateThumbprint 签名；安装包内置 WebView2 离线安装器；Android 改用 connectedDevice 前台服务（不受 dataSync 6h 配额）；服务端连接数上限 128 + 请求头 10s 超时、body 闸门按来源限流、共享目录与 start/stop 生命周期锁。</li>
+<li><b>发布与平台加固</b>：未签名/未公证桌面版公开发布但标记 prerelease（更新检查跳过）；Windows 用 Import-PfxCertificate + certificateThumbprint 签名；安装包使用 WebView2 引导器（Win10/11 通常已自带）；Android 改用 connectedDevice 前台服务（不受 dataSync 6h 配额）；服务端连接数上限 128 + 请求头 10s 超时、body 闸门按来源限流、共享目录与 start/stop 生命周期锁。</li>
 <li><b>设备多选与熄屏保活</b>：附近设备支持「多选」同时发送，文本与拖入文件依次投递到每台设备；点设备只选中，不再自动弹出「发送到设备」面板（面板仅由「手动发送」打开）；Android 前台服务增加 WifiLock / PARTIAL_WAKE_LOCK，并在首次启动申请忽略电池优化，减少熄屏后被厂商省电策略冻结导致「桌面端找不到手机 / 发送超时」。</li>
 <li><b>安全</b>：PIN 变更踢 WS、移动端立即同步 accessPin、PIN 按稳定设备 id 记忆、body 前置许可与上限、已消费票据拒绝整包 Range 重放。</li>
 </ul>

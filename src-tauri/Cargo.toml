@@ -48,7 +48,9 @@ axum = { version = "0.7", default-features = false, features = ["http1", "json",
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "time", "sync", "io-util"] }
 tower-http = { version = "0.6", features = ["cors"] }
 # 自定义 accept 循环: 连接数上限 + HTTP 请求头读超时（防止未认证空连接 DoS）
-hyper-util = { version = "0.1", features = ["server-auto", "tokio", "service"] }
+hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"] }
+# 本机服务只提供明文 HTTP/1.1（含 WebSocket 升级），不引入 HTTP/2 自动协商以减体积
+hyper = { version = "1", default-features = false, features = ["server", "http1"] }
 tower = { version = "0.5", features = ["util"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # compression: 前端 dist 以 DEFLATE 嵌入二进制, 静态资源体积约减半
@@ -84,3 +86,7 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_System_SystemInformation"] }
+
+[dev-dependencies]
+# 真实 WebSocket 升级测试(自定义 HTTP/1.1 accept 循环 + with_upgrades)
+tokio-tungstenite = "0.24"
