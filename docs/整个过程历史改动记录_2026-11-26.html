@@ -97,7 +97,8 @@
 <li>使用 <code>scripts/release.sh 1.2.9.2 "release: v1.2.9.2 二次全量审查修复与文档同步"</code> 提交并推送；提交 <code>8c114b9</code>，tag <code>v1.2.9.2</code>。</li>
 <li>GitHub Actions <code>45902291371</code> 全绿：prepare、macOS arm64/x64、Windows NSIS、Android arm64 与 publish 均成功。</li>
 <li>Release 已公开为 prerelease（未配置 macOS/Windows 签名证书），资产：<code>CC-Flash_1.2.9.2_aarch64.dmg</code>、<code>CC-Flash_1.2.9.2_x64.dmg</code>、<code>CC-Flash_1.2.9.2_x64-setup.exe</code>、<code>CC-Flash-v1.2.9.2-android-arm64-v8a.apk</code> 及两个 <code>.app.tar.gz</code>。</li>
-<li>Release 说明已按实际 tag 差异补写，并把“自动更新会跳过 prerelease”的旧提示改为“更新检查仍会显示，并标注未签名风险”。</li>
+<li>Release 说明已按实际 tag 差异补写，并把“自动更新会跳过 prerelease”的旧提示改为“更新检查仍会显示，并标注未签名风险”；同时注明 1.2.9.1 及更早版本仍需手动下载。</li>
+<li>macOS 双架构 DMG 按 1.2.9.2 重建并两轮瘦身后替换 Release 资产：arm64 2,689,019 B（SHA-256 <code>6a5946c3…23fd6d</code>），x64 2,727,583 B（SHA-256 <code>0c795cb8…dfff20</code>）；<code>hdiutil verify</code> 均通过。</li>
 </ul>
 
 <div class="small">CC Flash · 2026-11-26 / 11-27 · 本文件记录最新代码上的自测、瘦身、视觉收口、二次审查修复与 v1.2.9.2 发布</div>
