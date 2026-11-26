@@ -104,7 +104,7 @@ export const GITHUB_REPO = "bdpqlhk/CC-Flash";   // 发布仓库(owner/name)
 // 用列表而不是 /latest: 缺签名 Secrets 时 Release 会被标为 prerelease,
 // /latest 不返回预发布版, 更新检查会永远收不到新版本。
 export const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
-export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`;
+export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
 export const APP_VERSION_FALLBACK = "1.2.9";     // [同步: Cargo.toml version, release.sh 发版时自动改] 仅在服务端版本号未到达时展示
 export const UPDATE_CHECK_DELAY_MS = 3000;               // 启动后延迟再静默检查(等 appVersion 到位)
 export const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // 静默检查频控: 24h 一次

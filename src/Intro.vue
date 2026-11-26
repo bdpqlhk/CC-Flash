@@ -23,7 +23,8 @@ const INTRO_FAQS = [
   { q: "设备发现不到怎么办？", a: "确认两台设备在同一 Wi-Fi/子网；macOS 允许「本地网络」，Windows 防火墙放行 UDP 53318-53321；手机熄屏后要能被发现，请允许忽略电池优化并保持 App 后台运行；仍不行可在故障诊断里按 IP 单播探测，或直接手动发送。" },
   { q: "共享剪贴板怎么用？", a: "默认关闭；开启后才与打开本机地址的页面/设备共享文本，聊天框粘贴才会回传。关闭时粘贴只填充输入框，不会把未发送内容写进共享槽。电脑 App 与手机 App 独立，跨 App 请用发送面板「剪贴板」投递。" },
   { q: "访问令牌可以关闭吗？", a: "可以。手机设置页可随时关闭/重新开启访问令牌，关闭前会二次确认风险；关闭后同 Wi-Fi 设备无需配对码即可读写，公共网络不建议关闭。" },
-  { q: "更新检查会提示未签名版本吗？", a: "未签名/未公证的 Release 会公开发布但标记为 prerelease，应用内更新检查会跳过，避免把 Gatekeeper/SmartScreen 拦截的包当正式更新推送。" },
+  { q: "更新检查会提示未签名版本吗？", a: "自动检查会跳过未签名/未公证的 prerelease，避免把 Gatekeeper/SmartScreen 拦截的包当正式更新推送；在 CC设置手动点「检查更新」时可以看到 prerelease 并明确提示风险，由你决定是否下载。" },
+  { q: "诊断包会上传我的文件吗？", a: "不会。诊断包只包含版本、系统、脱敏配置、最近日志与 pref-pet-dbg-* 诊断文件；聊天/文件事件会从日志中移除，IP 与共享路径脱敏，不包含文件内容。" },
   { q: "访问令牌和分享链接安全吗？", a: "令牌是 6 位 CSPRNG 配对码，失败按来源 IP 退避；分享链接一次性、10 分钟有效，文件删除或重传后立即失效。缩略图/预览使用短时媒体令牌。" },
   { q: "一条消息最多多长？", a: "2 万字符（按 Unicode 字符计）。聊天保留最近 200 条，超出时从最旧消息开始淘汰。" },
 ];
@@ -111,6 +112,7 @@ onUnmounted(() => {
           <span class="feat-chip"><span class="tick">✓</span>多台设备同时发送</span>
           <span class="feat-chip"><span class="tick">✓</span>文件消息刷新不丢</span>
           <span class="feat-chip"><span class="tick">✓</span>可选访问令牌</span>
+          <span class="feat-chip"><span class="tick">✓</span>桌面快捷增强</span>
         </div>
       </div>
       <!-- 应用窗口示意(二维码为真实地址, 服务未启动时占位) -->
@@ -161,14 +163,14 @@ onUnmounted(() => {
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <h3>服务中心</h3>
-          <p>启停服务、端口自动顺延、共享目录与磁盘余量集中管理。桌面常驻/悬浮二维码随时扫码，实时日志与六套配色一键切换。</p>
-          <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span></div>
+          <p>启停服务、端口自动顺延、共享目录与磁盘余量集中管理。桌面常驻/悬浮二维码随时扫码，实时日志与六套配色一键切换；可导出完整日志与脱敏诊断包。</p>
+          <div class="tags"><span class="tag">服务控制</span><span class="tag">悬浮扫码</span><span class="tag">多主题配色</span><span class="tag">诊断包</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
           <h3>CC设置</h3>
           <p>开机自启、托盘常驻、一键检查更新；访问令牌可随时开启/关闭，手机设置页用 dir-5 信号台排版，令牌大号展示、点按即复制。关窗不关服务，手机端始终可用。</p>
-          <div class="tags"><span class="tag">开机自启</span><span class="tag">令牌开关</span><span class="tag">dir-5 设置</span><span class="tag">检查更新</span></div>
+          <div class="tags"><span class="tag">开机自启</span><span class="tag">令牌开关</span><span class="tag">dir-5 设置</span><span class="tag">检查更新</span><span class="tag">导出诊断</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></div>
@@ -188,6 +190,12 @@ onUnmounted(() => {
           <p><b>默认关闭</b>；开启后才与打开本机地址的浏览器/设备共享文本，聊天框粘贴才会回传。关闭时粘贴只填充输入框，不会把未发送内容写进共享槽。电脑 App 与手机 App 独立，跨 App 请用发送面板「剪贴板」投递。</p>
           <div class="tags"><span class="tag">默认关闭</span><span class="tag">开启后才回传</span><span class="tag">跨 App 用发送面板</span><span class="tag">浏览器兜底</span></div>
         </div>
+      </div>
+      <div class="intro-quick" aria-label="桌面快捷增强">
+        <div class="iq"><span class="iq-no">01</span><b>文件搜索</b><span>文件名/上传者即时过滤，匹配计数与空态清晰。</span></div>
+        <div class="iq"><span class="iq-no">02</span><b>托盘复制地址</b><span>不打开主窗，一键复制完整访问 URL。</span></div>
+        <div class="iq"><span class="iq-no">03</span><b>悬浮球快捷</b><span>拖文件直接进共享；右键仅保留打开文件夹 / 复制地址。</span></div>
+        <div class="iq"><span class="iq-no">04</span><b>诊断与日志</b><span>诊断包默认脱敏；完整 .log 一键导出。</span></div>
       </div>
     </section>
 
@@ -247,7 +255,7 @@ onUnmounted(() => {
             桌面端安装
           </h3>
           <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需额外部署。未签名版本会标记为 prerelease，应用内更新检查会跳过，建议签名版发布后再升级。</p>
-          <div class="code-box"><button class="code-copy" @click="copyText(RELEASES_PAGE, '已复制')">复制</button><span class="cm"># 打开最新版发布页</span><br />{{ RELEASES_PAGE }}</div>
+          <div class="code-box"><button class="code-copy" @click="copyText(RELEASES_PAGE, '已复制')">复制</button><span class="cm"># 打开 Releases 页面</span><br />{{ RELEASES_PAGE }}</div>
         </div>
         <div class="code-card">
           <h3>

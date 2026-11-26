@@ -44,6 +44,7 @@ use std::{
 };
 use std::sync::atomic::{AtomicBool, AtomicU16};
 use tokio::sync::{broadcast, oneshot};
+use tauri::Emitter;
 
 use crate::config::{
     APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHAT_TOTAL_MAX_CHARS, CHUNK_HINT, DEFAULT_NICK,
@@ -1609,6 +1610,10 @@ struct LogEntry {
     msg: String,
 }
 
+impl LogEntry {
+    fn lvl_upper(&self) -> String { self.level.to_uppercase() }
+}
+
 fn req_log() -> &'static Mutex<VecDeque<LogEntry>> {
     static LOGS: OnceLock<Mutex<VecDeque<LogEntry>>> = OnceLock::new();
     LOGS.get_or_init(|| Mutex::new(VecDeque::new()))
@@ -2473,6 +2478,10 @@ fn clean_stale_parts(share: &Path) {
                         if low.ends_with(".ccpart.meta.tmp") {
                             return true;
                         }
+                        // 悬浮球导入的隐藏临时文件: 没有 meta, 用固定前缀识别
+                        if low.starts_with(".ccimport-") && low.ends_with(".ccpart") {
+                            return true;
+                        }
                         is_session_part_name(&low)
                             && !low.ends_with(".ccup")
                             // 必须能对上 meta 里的会话 id, 否则可能是用户自己的同名文件
@@ -3063,6 +3072,7 @@ fn is_part_artifact(path: &Path, fname: &str) -> bool {
     let f = fname.to_ascii_lowercase();
     (f.ends_with(UPLOAD_PART_SUFFIX) || f.ends_with(UPLOAD_PART_META_SUFFIX))
         && session_part_meta_matches(path, &f)
+        || (f.starts_with(".ccimport-") && f.ends_with(UPLOAD_PART_SUFFIX))
         || f.ends_with(&format!("{}.tmp", UPLOAD_PART_META_SUFFIX))
         // 完整性标记(见 upload 的 .{名}.ccup): 硬中断残留的半截成品凭它识别,
         // 不进列表、不参与下载; 启动时 clean_incomplete_uploads 见标记即删
@@ -3091,7 +3101,12 @@ fn cancel_requests() -> &'static Mutex<HashSet<String>> {
 }
 
 fn active_key(path: &Path) -> String {
-    path.to_string_lossy().to_lowercase()
+    // 只有 Windows 默认大小写不敏感; Linux/区分大小写 APFS 的 Report.pdf 与
+    // report.pdf 是两个文件, 统一小写会让无关文件互相锁死。
+    #[cfg(windows)]
+    { path.to_string_lossy().to_lowercase() }
+    #[cfg(not(windows))]
+    { path.to_string_lossy().to_string() }
 }
 
 /// 在途计数减一(上传成功/失败/中止均调用; 归零即移除 key)
@@ -5671,7 +5686,7 @@ fn frontend_config() -> serde_json::Value {
 /// 桌面端 app_config_dir 的等价路径(与 lib.rs 的 pref_path 对齐)。
 /// 浏览器/移动壳从 /api/info 读取这两个 pref, 让网页配色跟随桌面端选择。
 #[allow(unreachable_code)]
-fn ui_pref_dir() -> Option<PathBuf> {
+pub(crate) fn ui_pref_dir() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").ok()?;
@@ -5740,6 +5755,423 @@ async fn ctrl_status() -> Response {
     .into_response()
 }
 
+// ---- 诊断包 / 日志导出 / 悬浮球本地导入: 不依赖公网, 不新增压缩库 ---- //
+
+/// 固定 DOS 时间戳(2026-11-25): stored ZIP 不关心压缩, 只保证解压工具显示合理日期。
+fn zip_dos_date() -> u16 { (46 << 9) | (11 << 5) | 25 }
+
+fn zip_store(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
+    fn u16b(v: &mut Vec<u8>, x: u16) { v.extend_from_slice(&x.to_le_bytes()); }
+    fn u32b(v: &mut Vec<u8>, x: u32) { v.extend_from_slice(&x.to_le_bytes()); }
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    let date = zip_dos_date();
+    for (name, data) in entries {
+        let name_b = name.as_bytes();
+        let crc = crc32fast::hash(data);
+        let size = data.len().min(u32::MAX as usize) as u32;
+        let offset = out.len() as u32;
+        // local file header
+        u32b(&mut out, 0x04034b50);
+        u16b(&mut out, 20);
+        u16b(&mut out, 0x0800); // UTF-8
+        u16b(&mut out, 0);      // stored
+        u16b(&mut out, 0);      // time
+        u16b(&mut out, date);
+        u32b(&mut out, crc);
+        u32b(&mut out, size);
+        u32b(&mut out, size);
+        u16b(&mut out, name_b.len() as u16);
+        u16b(&mut out, 0);
+        out.extend_from_slice(name_b);
+        out.extend_from_slice(data);
+        // central directory record
+        u32b(&mut central, 0x02014b50);
+        u16b(&mut central, 20);
+        u16b(&mut central, 20);
+        u16b(&mut central, 0x0800);
+        u16b(&mut central, 0);
+        u16b(&mut central, 0);
+        u16b(&mut central, date);
+        u32b(&mut central, crc);
+        u32b(&mut central, size);
+        u32b(&mut central, size);
+        u16b(&mut central, name_b.len() as u16);
+        u16b(&mut central, 0);
+        u16b(&mut central, 0);
+        u16b(&mut central, 0);
+        u16b(&mut central, 0);
+        u32b(&mut central, 0);
+        u32b(&mut central, offset);
+        central.extend_from_slice(name_b);
+    }
+    let central_offset = out.len() as u32;
+    let central_size = central.len() as u32;
+    out.extend_from_slice(&central);
+    u32b(&mut out, 0x06054b50);
+    u16b(&mut out, 0);
+    u16b(&mut out, 0);
+    u16b(&mut out, entries.len() as u16);
+    u16b(&mut out, entries.len() as u16);
+    u32b(&mut out, central_size);
+    u32b(&mut out, central_offset);
+    u16b(&mut out, 0);
+    out
+}
+
+fn mask_ip(ip: &str) -> String {
+    if ip.contains(':') {
+        let parts: Vec<&str> = ip.split("::").next().unwrap_or(ip).split(':').collect();
+        return format!("{}::", parts.into_iter().take(4).collect::<Vec<_>>().join(":"));
+    }
+    let mut parts: Vec<&str> = ip.split('.').collect();
+    if parts.len() == 4 { parts[3] = "*"; parts.join(".") } else { "unknown".into() }
+}
+
+fn mask_ip_token(token: &str) -> String {
+    // URL: 保留协议/路径, 只替换 host 中的 IP
+    for scheme in ["http://", "https://"] {
+        if let Some(rest) = token.strip_prefix(scheme) {
+            let (hostport, tail) = rest.split_once('/').map(|(a, b)| (a, format!("/{b}"))).unwrap_or((rest, String::new()));
+            let (host, port) = if let Some(stripped) = hostport.strip_prefix('[') {
+                if let Some(end) = stripped.find(']') {
+                    (&stripped[..end], &hostport[end + 2..])
+                } else {
+                    (hostport, "")
+                }
+            } else {
+                hostport.split_once(':').unwrap_or((hostport, ""))
+            };
+            if let Ok(ip) = host.trim_matches('[').trim_matches(']').parse::<std::net::IpAddr>() {
+                let port = if port.is_empty() { String::new() } else { format!(":{port}") };
+                return format!("{scheme}{}{}{tail}", mask_ip(&ip.to_string()), port);
+            }
+        }
+    }
+    let core = token.trim_matches(|c: char| matches!(c, ',' | '.' | ';' | '(' | ')' | '[' | ']' | '"' | '\'' | '→' | '←'));
+    if let Ok(ip) = core.parse::<std::net::IpAddr>() {
+        return token.replace(core, &mask_ip(&ip.to_string()));
+    }
+    if let Some((host, port)) = core.rsplit_once(':') {
+        let h = host.trim_matches('[').trim_matches(']');
+        if let Ok(ip) = h.parse::<std::net::IpAddr>() {
+            return token.replace(core, &format!("{}:{}", mask_ip(&ip.to_string()), port));
+        }
+    }
+    token.to_string()
+}
+
+fn redact_diagnostic_message(msg: &str, share: &Path) -> String {
+    // 聊天/文件事件正文可能含文件名、消息片段; 诊断包只保留"发生过"的事实
+    const SENSITIVE: [&str; 8] = ["聊天 ", "聊天消息", "上传", "下载", "悬浮球导入", "清理", "文件历史", "文件列表"];
+    if SENSITIVE.iter().any(|k| msg.contains(k)) {
+        return "<redacted: chat/file event>".into();
+    }
+    let share_s = share.to_string_lossy();
+    let replaced = if share_s.is_empty() { msg.to_string() } else { msg.replace(&*share_s, "<share>") };
+    replaced.split_whitespace().map(mask_ip_token).collect::<Vec<_>>().join(" ")
+}
+
+fn diagnostics_logs(share: &Path) -> String {
+    let q = req_log().lock().unwrap_or_else(|e| e.into_inner());
+    let mut out = String::new();
+    for e in q.iter() {
+        out.push_str(&format!("{} [{}] {} - {}\n", e.ts, e.lvl_upper(), e.loc, redact_diagnostic_message(&e.msg, share)));
+    }
+    out
+}
+
+fn diagnostics_entries() -> Vec<(String, Vec<u8>)> {
+    let (running, port, ip) = status();
+    let share = share_dir();
+    let share_name = share.file_name().and_then(|s| s.to_str()).unwrap_or("share");
+    let meta = serde_json::json!({
+        "app": crate::config::APP_NAME,
+        "version": APP_VERSION,
+        "generatedAt": now_ts(),
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "running": running,
+        "port": port,
+        "lanIpMasked": mask_ip(&ip),
+        "lanActive": LAN_ACTIVE.load(Ordering::Relaxed),
+        "pinEnabled": access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_some(),
+        "openLan": open_lan(),
+        "shareDirName": share_name,
+    });
+    let config = serde_json::json!({
+        "frontend": frontend_config(),
+        "uiTheme": read_ui_pref("ui-theme"),
+        "uiMode": read_ui_pref("ui-mode"),
+        "diagnosticsEnabled": read_ui_pref("diag"),
+    });
+    let logs_text = diagnostics_logs(&share);
+    let mut entries: Vec<(String, Vec<u8>)> = vec![
+        ("meta.json".into(), serde_json::to_vec_pretty(&meta).unwrap_or_default()),
+        ("config.json".into(), serde_json::to_vec_pretty(&config).unwrap_or_default()),
+        ("logs.txt".into(), logs_text.into_bytes()),
+        ("README.txt".into(), b"CC Flash diagnostics bundle\n\nThis archive contains version/platform metadata, a redacted configuration, recent service logs and pref-pet-dbg-* diagnostic files. Chat messages, file names and access tokens are not included.\n".to_vec()),
+    ];
+    if let Some(dir) = ui_pref_dir() {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for ent in rd.flatten() {
+                let name = ent.file_name();
+                let name = name.to_string_lossy();
+                if !name.starts_with("pref-pet-dbg-") { continue; }
+                if let Ok(data) = std::fs::read(ent.path()) {
+                    if data.len() <= 512 * 1024 {
+                        entries.push((format!("prefs/{name}"), data));
+                    }
+                }
+            }
+        }
+    }
+    let mut manifest = String::new();
+    for (name, data) in &entries {
+        manifest.push_str(&format!("{}  {}\n", name, data.len()));
+    }
+    entries.push(("manifest.txt".into(), manifest.into_bytes()));
+    entries
+}
+
+fn export_path_blocked(path: &Path) -> bool {
+    let s = path.to_string_lossy().to_ascii_lowercase();
+    [
+        "/.ssh/", "\\.ssh\\", "/.gnupg/", "\\.gnupg\\",
+        "/.config/autostart/", "\\.config\\autostart\\",
+        "/library/launchagents/", "/library/launchdaemons/",
+        "\\start menu\\programs\\startup\\",
+        "/.bashrc", "/.zshrc", "/.profile",
+    ].iter().any(|x| s.contains(x))
+}
+
+fn write_export_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    if !parent.exists() { return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "保存目录不存在")); }
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("export");
+    let tmp = parent.join(format!(".{name}.tmp-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+    let mut f = std::fs::File::create(&tmp)?;
+    use std::io::Write;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        if cfg!(windows) && path.exists() {
+            let _ = std::fs::remove_file(path);
+            return std::fs::rename(&tmp, path);
+        }
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+fn export_diagnostics_to(path: &str) -> serde_json::Value {
+    if path.trim().is_empty() {
+        return serde_json::json!({ "ok": false, "error": "请选择保存位置" });
+    }
+    let p = Path::new(path);
+    if export_path_blocked(p) {
+        return serde_json::json!({ "ok": false, "error": "不允许写入系统启动/密钥目录" });
+    }
+    let entries = diagnostics_entries();
+    let bytes = zip_store(&entries);
+    match write_export_atomic(p, &bytes) {
+        Ok(_) => serde_json::json!({ "ok": true, "path": path, "bytes": bytes.len() }),
+        Err(e) => serde_json::json!({ "ok": false, "error": format!("写入失败: {e}") }),
+    }
+}
+
+fn save_text_to(path: &str, content: &str) -> serde_json::Value {
+    if path.trim().is_empty() {
+        return serde_json::json!({ "ok": false, "error": "请选择保存位置" });
+    }
+    if content.len() > 16 * 1024 * 1024 {
+        return serde_json::json!({ "ok": false, "error": "内容超过 16 MB" });
+    }
+    let p = Path::new(path);
+    if export_path_blocked(p) {
+        return serde_json::json!({ "ok": false, "error": "不允许写入系统启动/密钥目录" });
+    }
+    match write_export_atomic(p, content.as_bytes()) {
+        Ok(_) => serde_json::json!({ "ok": true, "path": path, "bytes": content.len() }),
+        Err(e) => serde_json::json!({ "ok": false, "error": format!("写入失败: {e}") }),
+    }
+}
+
+#[tauri::command]
+pub async fn export_diagnostics_cmd(path: String) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || export_diagnostics_to(&path))
+        .await
+        .unwrap_or_else(|_| serde_json::json!({ "ok": false, "error": "导出线程失败" }))
+}
+
+#[tauri::command]
+pub async fn save_text_file_cmd(path: String, content: String) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || save_text_to(&path, &content))
+        .await
+        .unwrap_or_else(|_| serde_json::json!({ "ok": false, "error": "导出线程失败" }))
+}
+
+fn unique_import_name(share: &Path, name: &str) -> PathBuf {
+    let first = share.join(name);
+    if !first.exists() { return first; }
+    let p = Path::new(name);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+    for i in 1..10000 {
+        let n = if ext.is_empty() { format!("{stem} ({i})") } else { format!("{stem} ({i}).{ext}") };
+        let candidate = share.join(n);
+        if !candidate.exists() { return candidate; }
+    }
+    share.join(format!("{stem}-{}", std::process::id()))
+}
+
+/// 悬浮球拖入的本地文件: 顺序复制进共享目录, 发进度事件; 不经过 HTTP 上传队列,
+/// 但复用同一份 uploaders / 文件事件 / WebSocket 广播, 主窗列表与手机端会立即刷新。
+fn import_temp_name(share: &Path) -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    // .ccpart 属于既有临时产物, collect_files/启动清理都不会把它当完整文件
+    share.join(format!(".ccimport-{}-{n}.ccpart", std::process::id()))
+}
+
+async fn link_import_file(temp: &Path, share: &Path, name: &str) -> Result<String, String> {
+    for _ in 0..100 {
+        let dest = unique_import_name(share, name);
+        match tokio::fs::hard_link(temp, &dest).await {
+            Ok(()) => {
+                let _ = tokio::fs::remove_file(temp).await;
+                return Ok(dest.file_name().and_then(|s| s.to_str()).unwrap_or(name).to_string());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied) => {
+                // FAT/exFAT/SMB 等不支持硬链接: 目标不存在时 rename 仍是同盘原子转正
+                if dest.exists() { continue; }
+                match tokio::fs::rename(temp, &dest).await {
+                    Ok(()) => return Ok(dest.file_name().and_then(|s| s.to_str()).unwrap_or(name).to_string()),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => return Err(format!("转正失败: {e}")),
+                }
+            }
+            Err(e) => return Err(format!("转正失败: {e}")),
+        }
+    }
+    Err("同名文件冲突过多，导入失败".into())
+}
+
+/// 悬浮球拖入的本地文件: 先写隐藏 .ccpart, 完成后 fsync + 原子转正; 不经过 HTTP
+/// 上传队列, 但复用同一份 uploaders / 文件事件 / WebSocket 广播。
+#[tauri::command]
+pub async fn pet_upload_paths_cmd(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+    uploader: String,
+) -> serde_json::Value {
+    if !is_running() {
+        return serde_json::json!({ "ok": false, "error": "服务未启动，请先在主窗口启动服务" });
+    }
+    if paths.is_empty() {
+        return serde_json::json!({ "ok": false, "error": "没有可上传的文件" });
+    }
+    let share = share_dir();
+    let uploader: String = uploader.chars().filter(|c| *c != '\0').take(NICK_MAX_CHARS).collect();
+    let mut sources: Vec<(PathBuf, u64)> = Vec::new();
+    let mut total: u64 = 0;
+    for raw in &paths {
+        let p = PathBuf::from(raw);
+        let meta = match tokio::fs::metadata(&p).await {
+            Ok(m) => m,
+            Err(_) => return serde_json::json!({ "ok": false, "error": format!("读不到文件: {}", p.display()) }),
+        };
+        if !meta.is_file() {
+            return serde_json::json!({ "ok": false, "error": "悬浮球仅支持拖入文件，文件夹请从主窗口上传" });
+        }
+        total = total.saturating_add(meta.len());
+        sources.push((p, meta.len()));
+    }
+    if let Ok(free) = fs2::available_space(&share) {
+        if total.saturating_add(64 * 1024 * 1024) > free {
+            return serde_json::json!({ "ok": false, "error": "磁盘可用空间不足" });
+        }
+    }
+    let started = std::time::Instant::now();
+    let mut done_total: u64 = 0;
+    let mut files: Vec<serde_json::Value> = Vec::new();
+    for (src, expected) in sources {
+        let Some(raw_name) = src.file_name().and_then(|s| s.to_str()) else {
+            return serde_json::json!({ "ok": false, "error": "文件名不是有效 UTF-8" });
+        };
+        let Some(name) = safe_rel_path(raw_name, true) else {
+            return serde_json::json!({ "ok": false, "error": format!("文件名不合法: {raw_name}") });
+        };
+        let temp = import_temp_name(&share);
+        let mut input = match tokio::fs::File::open(&src).await {
+            Ok(f) => f,
+            Err(e) => return serde_json::json!({ "ok": false, "error": format!("打开失败 {}: {e}", src.display()) }),
+        };
+        let mut output = match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&temp).await {
+            Ok(f) => f,
+            Err(e) => return serde_json::json!({ "ok": false, "error": format!("创建临时文件失败: {e}") }),
+        };
+        let mut buf = vec![0u8; 256 * 1024];
+        let mut size: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+        loop {
+            let n = match tokio::io::AsyncReadExt::read(&mut input, &mut buf).await {
+                Ok(n) => n,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&temp).await;
+                    return serde_json::json!({ "ok": false, "error": format!("读取失败: {e}") });
+                }
+            };
+            if n == 0 { break; }
+            if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut output, &buf[..n]).await {
+                let _ = tokio::fs::remove_file(&temp).await;
+                return serde_json::json!({ "ok": false, "error": format!("写入失败: {e}") });
+            }
+            size += n as u64;
+            done_total += n as u64;
+            if last_emit.elapsed() >= std::time::Duration::from_millis(120) {
+                last_emit = std::time::Instant::now();
+                let pct = if total == 0 { 0 } else { (done_total * 100 / total).min(99) };
+                let _ = app.emit("pet-upload-progress", serde_json::json!({ "pct": pct, "name": name }));
+            }
+        }
+        if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut output).await {
+            let _ = tokio::fs::remove_file(&temp).await;
+            return serde_json::json!({ "ok": false, "error": format!("落盘失败: {e}") });
+        }
+        if let Err(e) = output.sync_all().await {
+            let _ = tokio::fs::remove_file(&temp).await;
+            return serde_json::json!({ "ok": false, "error": format!("同步失败: {e}") });
+        }
+        if size != expected {
+            let _ = tokio::fs::remove_file(&temp).await;
+            return serde_json::json!({ "ok": false, "error": format!("源文件在上传过程中发生变化: {raw_name}") });
+        }
+        let final_name = match link_import_file(&temp, &share, &name).await {
+            Ok(n) => n,
+            Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+        };
+        {
+            let mut up = uploaders().lock().unwrap_or_else(|e| e.into_inner());
+            if up.len() >= 10_000 { up.clear(); }
+            up.insert(final_name.clone(), uploader.clone());
+        }
+        record_file_event(final_name.clone(), size, uploader.clone());
+        // 批量中第 N 个失败时, 前面已成功的文件也要让主窗/手机端立即看到
+        broadcast_event("files:changed");
+        push_log_ok(format!("悬浮球导入 {final_name} ({}) ← 本机拖入", humans(size)));
+        files.push(serde_json::json!({ "name": final_name, "size": size }));
+    }
+    let _ = app.emit("pet-upload-progress", serde_json::json!({ "pct": 100, "name": "" }));
+    broadcast_event("files:changed");
+    push_log_ok(format!("悬浮球导入完成 {} 个文件，用时 {}ms", files.len(), started.elapsed().as_millis()));
+    serde_json::json!({ "ok": true, "files": files })
+}
+
 // ---- Tauri 命令(桌面窗口经 invoke 调用, 免端口发现/CORS) ----
 
 /// 磁盘空间(共享目录所在卷): (可用, 总量)
@@ -5784,16 +6216,19 @@ fn pin_enabled_file() -> PathBuf {
     pin_pref_file().with_file_name(PIN_ENABLED_PREF_FILE)
 }
 
-fn write_pin_enabled(enabled: bool) {
-    if let Err(e) = write_secret_atomic(&pin_enabled_file(), if enabled { b"1" } else { b"0" }) {
-        push_log_warn(format!("访问令牌开关状态保存失败(重启后可能无法准确回载): {e}"));
-    }
+fn write_pin_enabled(enabled: bool) -> std::io::Result<()> {
+    write_secret_atomic(&pin_enabled_file(), if enabled { b"1" } else { b"0" })
 }
 
-/// 安装新令牌: 先落码值, 再写 enabled 标记; 码值写失败必须让调用方知道。
+/// 安装新令牌: 先落码值, 再写 enabled 标记; 两者任一失败都必须让调用方知道。
+/// 否则"标记 0 + 码值文件"会在重启时被误判为已关闭, 保护静默消失。
 fn install_pin(pin: &str) -> std::io::Result<()> {
     write_secret_atomic(&pin_pref_file(), pin.as_bytes())?;
-    write_pin_enabled(true);
+    if let Err(e) = write_pin_enabled(true) {
+        // 标记写失败时不能把码值单独留在磁盘上, 否则重启会出现关闭标记+码值的矛盾状态
+        let _ = std::fs::remove_file(pin_pref_file());
+        return Err(e);
+    }
     Ok(())
 }
 
@@ -5858,8 +6293,10 @@ fn access_pin() -> &'static Mutex<Option<String>> {
                 if let Some(pin) = (!s.is_empty()).then_some(s) {
                     // 明确关闭后残留的码值文件不能把保护“复活”
                     if enabled == Some(false) {
-                        let _ = std::fs::remove_file(&path);
-                        None
+                        // 明确关闭路径会同时删除码值; 这里仍有码值说明关闭未完成或标记写失败。
+                        // fail-closed: 保留保护并告警, 下次显式关闭成功后再撤码。
+                        push_log_warn("访问令牌标记为关闭但码值仍存在，按 fail-closed 保留保护".into());
+                        Some(pin)
                     } else {
                         Some(pin)
                     }
@@ -6097,10 +6534,22 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     // 移动端同样允许关闭(用户在设置页二次确认风险后执行): 关闭后同 Wi-Fi 设备
     // 无需配对码即可读写本机共享; 回环地址的安全边界由用户显式选择承担。
     if !enable {
+        // 先写关闭标记再撤码值: 标记写失败不能对外宣称已关闭
+        if let Err(e) = write_pin_enabled(false) {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("关闭标记保存失败，保护仍开启: {e}")
+            });
+        }
+        if let Err(e) = std::fs::remove_file(pin_pref_file()) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": format!("码值文件删除失败，保护仍开启: {e}")
+                });
+            }
+        }
         *slot = None;
-        // 先写关闭标记再撤码值: 即使删码失败, 标记 0 也能保证重启后不会复活保护
-        write_pin_enabled(false);
-        let _ = std::fs::remove_file(pin_pref_file());   // 同步撤盘, 重启后不再回载
         clear_share_tickets();                           // 关闭保护: 已签发的下载凭证一并作废
         let _ = ws_kick().send(());                       // 关闭/开启令牌都重新握手: 旧 WS 不得继续订阅
         push_log_warn("访问令牌已关闭 —— 局域网设备不再需要配对".into());
@@ -6295,6 +6744,25 @@ pub fn set_share_dir_cmd(path: String, force: Option<bool>) -> serde_json::Value
     serde_json::json!({ "ok": true })
 }
 
+/// 可执行/脚本/快捷方式不交给系统默认程序打开: LAN 上传的文件可能来自任意设备,
+/// 用户点一次"打开"就可能在宿主执行代码。只允许在文件夹中显示。
+fn is_executable_name(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "exe" | "com" | "bat" | "cmd" | "msi" | "scr" | "cpl" | "msc" | "ps1"
+            | "vbs" | "vbe" | "js" | "jse" | "wsf" | "wsh" | "hta" | "lnk" | "url"
+            | "reg" | "command" | "app" | "workflow" | "scpt" | "osascript" | "terminal"
+            | "sh" | "bash" | "zsh" | "fish" | "py" | "pyw" | "pl" | "rb" | "jar"
+            | "pkg" | "mpkg" | "dmg" | "appx" | "msix" | "deb" | "rpm"
+            | "desktop" | "appimage" | "run" | "bin"
+    )
+}
+
 #[tauri::command]
 pub fn open_path_cmd(path: String) -> serde_json::Value {
     // 只允许打开共享目录内的路径: 否则命令本身就成了"任意程序执行"入口
@@ -6306,9 +6774,46 @@ pub fn open_path_cmd(path: String) -> serde_json::Value {
     if !canon.starts_with(&share_canon) {
         return serde_json::json!({ "ok": false, "error": "仅允许打开共享目录内的文件" });
     }
+    let name = canon.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    #[cfg(unix)]
+    let has_exec_bit = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(&canon).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+    };
+    #[cfg(not(unix))]
+    let has_exec_bit = false;
+    if is_executable_name(name) || has_exec_bit {
+        return serde_json::json!({ "ok": false, "error": "可执行文件/脚本不在应用内打开，请使用「在文件夹中显示」" });
+    }
     match open_path(&canon.to_string_lossy()) {
         Ok(()) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    }
+}
+
+#[tauri::command]
+pub fn reveal_path_cmd(path: String) -> serde_json::Value {
+    let share = share_dir();
+    let Ok(canon) = std::fs::canonicalize(&path) else {
+        return serde_json::json!({ "ok": false, "error": "路径不存在或不可访问" });
+    };
+    let share_canon = std::fs::canonicalize(&share).unwrap_or(share);
+    if !canon.starts_with(&share_canon) {
+        return serde_json::json!({ "ok": false, "error": "仅允许显示共享目录内的文件" });
+    }
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg("-R").arg(&canon).status();
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("explorer").arg(format!("/select,{}", canon.display())).status();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let result = {
+        let parent = canon.parent().unwrap_or(&share_canon);
+        std::process::Command::new("xdg-open").arg(parent).status()
+    };
+    match result {
+        Ok(s) if s.success() => serde_json::json!({ "ok": true }),
+        Ok(_) => serde_json::json!({ "ok": false, "error": "系统文件管理器启动失败" }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
     }
 }
 
@@ -8071,6 +8576,100 @@ mod tests {
             Some(s) => { let _ = std::fs::write(&pref, s); }
             None => { let _ = std::fs::remove_file(&pref); }
         }
+    }
+
+    #[test]
+    fn executable_extensions_are_blocked_for_open() {
+        for n in ["a.command", "setup.exe", "run.sh", "tool.py", "x.lnk", "x.desktop"] {
+            assert!(super::is_executable_name(n), "{n}");
+        }
+        for n in ["report.pdf", "photo.png", "notes.md"] {
+            assert!(!super::is_executable_name(n), "{n}");
+        }
+    }
+
+    #[test]
+    fn stored_zip_has_local_central_and_eocd() {
+        let entries = vec![
+            ("meta.json".to_string(), b"{}".to_vec()),
+            ("logs.txt".to_string(), b"hello".to_vec()),
+        ];
+        let z = super::zip_store(&entries);
+        assert_eq!(&z[0..4], b"PK\x03\x04");
+        assert!(z.windows(4).any(|w| w == b"PK\x01\x02"), "central directory");
+        assert!(z.windows(4).any(|w| w == b"PK\x05\x06"), "EOCD");
+        assert!(z.windows(9).any(|w| w == b"meta.json"), "UTF-8 name");
+    }
+
+    #[test]
+    fn import_link_is_atomic_and_leaves_no_temp() {
+        let dir = std::env::temp_dir().join(format!(".ccflash-link-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let temp = dir.join(".ccflash-import.tmp.ccpart");
+        std::fs::write(&temp, b"complete").unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let name = rt.block_on(super::link_import_file(&temp, &dir, "a.txt")).expect("link");
+        assert_eq!(name, "a.txt");
+        assert!(!temp.exists(), "temp 应被删除");
+        assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"complete");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_name_avoids_collision() {
+        let dir = std::env::temp_dir().join(format!(".ccflash-import-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("a.txt"), b"1");
+        let p = super::unique_import_name(&dir, "a.txt");
+        assert_eq!(p.file_name().unwrap().to_string_lossy(), "a (1).txt");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+
+    #[test]
+    fn diagnostics_export_writes_valid_zip() {
+        let path = std::env::temp_dir().join(format!(".ccflash-diag-test-{}.zip", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let r = super::export_diagnostics_to(&path.to_string_lossy());
+        assert_eq!(r["ok"], true, "{r}");
+        let z = std::fs::read(&path).expect("zip");
+        assert_eq!(&z[0..4], b"PK\x03\x04");
+        assert!(z.windows(4).any(|w| w == b"PK\x01\x02"));
+        assert!(z.windows(4).any(|w| w == b"PK\x05\x06"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_text_file_cmd_writes_utf8() {
+        let path = std::env::temp_dir().join(format!(".ccflash-log-test-{}.log", std::process::id()));
+        let r = super::save_text_to(&path.to_string_lossy(), "日志 ok\n");
+        assert_eq!(r["ok"], true);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "日志 ok\n");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn diagnostics_logs_redact_chat_and_paths() {
+        let share = std::path::Path::new("/Users/alice/CC-Flash");
+        let chat = super::redact_diagnostic_message("聊天 张三: 会议密码 ← 192.168.1.9", share);
+        assert!(!chat.contains("会议密码"), "{chat}");
+        assert!(!chat.contains("192.168.1.9"), "{chat}");
+        let path = super::redact_diagnostic_message("服务已启动 目录 /Users/alice/CC-Flash 地址 http://10.1.2.3:1688", share);
+        assert!(!path.contains("/Users/alice"), "{path}");
+        assert!(!path.contains("10.1.2.3"), "{path}");
+        assert!(path.contains("10.1.2.*"), "{path}");
+    }
+
+    #[test]
+    fn diagnostics_redacts_share_and_pin() {
+        let e = super::diagnostics_entries();
+        let names: Vec<_> = e.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"meta.json"));
+        assert!(names.contains(&"config.json"));
+        assert!(names.contains(&"logs.txt"));
+        let all = e.iter().map(|(_, d)| String::from_utf8_lossy(d)).collect::<Vec<_>>().join("\n");
+        assert!(!all.contains("pinCode"), "不能包含配对码字段");
+        assert!(!all.contains("chat-history"), "不能包含聊天持久化文件");
     }
 
 }

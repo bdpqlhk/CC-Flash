@@ -5646,6 +5646,7 @@ name = "wlan-flash-transfer-tauri"
 version = "1.2.9"
 dependencies = [
  "axum",
+ "crc32fast",
  "fs2",
  "futures-util",
  "getrandom 0.2.17",

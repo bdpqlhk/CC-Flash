@@ -12,6 +12,8 @@ use tauri::{
 };
 #[cfg(desktop)]
 use tauri_plugin_notification::NotificationExt;
+#[cfg(desktop)]
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 /// 偏好文件原子写: 临时文件 + fsync + rename。偏好虽小, 但 WKWebView/断电下
 /// 直接 write 可能留下半截 JSON, 启动回读失败会静默丢掉主题/令牌等设置。
@@ -279,6 +281,12 @@ pub mod commands {
         if !valid {
             return Err(serde_json::json!({ "ok": false, "error": "非法 pref key" }));
         }
+        // 移动端服务端的 ui_pref_dir 与这里必须指向同一目录: 旧实现写 app_config_dir,
+        // 服务端却读 platform_default_dir()/config, 主题/诊断标记在手机上静默失效。
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        if let Some(dir) = server::ui_pref_dir() {
+            return Ok(dir.join(format!("pref-{key}")));
+        }
         app.path()
             .app_config_dir()
             .map(|d| d.join(format!("pref-{key}")))
@@ -323,6 +331,80 @@ pub mod commands {
             Err(e) => e,
         }
     }
+
+    /// 悬浮球右键: 原生双项菜单(打开共享文件夹 / 复制访问地址)
+    #[tauri::command]
+    pub fn show_pet_menu_cmd(app: tauri::AppHandle) -> serde_json::Value {
+        #[cfg(desktop)]
+        {
+            // 不依赖命令参数注入的当前窗口: 明确使用 pet 窗, 避免主窗在另一块屏时
+            // 菜单弹到主窗/屏外而看起来"右键没反应"
+            let Some(window) = app.get_webview_window("qr-pet") else {
+                return serde_json::json!({ "ok": false, "error": "悬浮球窗口不存在" });
+            };
+            let folder = match MenuItem::with_id(&app, "pet-open-folder", "打开共享文件夹", true, None::<&str>) {
+                Ok(v) => v,
+                Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+            };
+            let copy = match MenuItem::with_id(&app, "pet-copy-address", "复制访问地址", server::is_running(), None::<&str>) {
+                Ok(v) => v,
+                Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+            };
+            let menu = match Menu::with_items(&app, &[&folder, &copy]) {
+                Ok(v) => v,
+                Err(e) => return serde_json::json!({ "ok": false, "error": e.to_string() }),
+            };
+            match window.popup_menu(&menu) {
+                Ok(_) => serde_json::json!({ "ok": true }),
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        #[cfg(not(desktop))]
+        {
+            let _ = app;
+            serde_json::json!({ "ok": false, "error": "仅桌面端支持" })
+        }
+    }
+}
+
+/// 托盘/悬浮球共用: 复制当前可访问地址；主窗与悬浮球都不可见时用系统通知确认。
+#[cfg(desktop)]
+fn copy_access_address(app: &tauri::AppHandle) -> bool {
+    let url = server::web_url();
+    if url.is_empty() {
+        let _ = app.emit("app-toast", serde_json::json!({
+            "message": "服务未启动，暂无访问地址", "type": "error"
+        }));
+        return false;
+    }
+    if app.clipboard().write_text(url.clone()).is_err() {
+        let _ = app.emit("app-toast", serde_json::json!({
+            "message": "剪贴板写入失败，请重试", "type": "error"
+        }));
+        return false;
+    }
+    let _ = app.emit("app-toast", serde_json::json!({
+        "message": "访问地址已复制", "type": "success"
+    }));
+    // 悬浮球可见时由球边显示「已复制」；主窗/球都隐藏时用一条系统通知反馈。
+    let _ = app.emit("pet-address-copied", url);
+    let main_visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    let pet_visible = app
+        .get_webview_window("qr-pet")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if !main_visible && !pet_visible {
+        let _ = app
+            .notification()
+            .builder()
+            .title("CC Flash")
+            .body("访问地址已复制")
+            .show();
+    }
+    true
 }
 
 /// 移动端入口: tauri 需要该宏生成 JNI 运行时符号(Android/iOS 胶水层调用)
@@ -351,8 +433,12 @@ pub fn run() {
             server::set_access_pin_cmd,
             server::set_open_lan_cmd,
             server::open_path_cmd,
+            server::reveal_path_cmd,
             server::open_url_cmd,
             server::copy_file_cmd,
+            server::export_diagnostics_cmd,
+            server::save_text_file_cmd,
+            server::pet_upload_paths_cmd,
             commands::show_main_window_cmd,
             commands::show_qr_pet_cmd,
             commands::pet_ready_cmd,
@@ -360,7 +446,8 @@ pub fn run() {
             commands::load_pet_dock_cmd,
             commands::save_text_pref_cmd,
             commands::load_text_pref_cmd,
-            commands::main_visible_cmd
+            commands::main_visible_cmd,
+            commands::show_pet_menu_cmd
         ]);
     // 开机自启插件(桌面专属; Cargo.toml 中按目标平台条件引入, 移动端无此插件)
     // 自启启动带 --hidden 参数: 登录后收进托盘后台运行, 不弹主窗口(与设置页文案一致)
@@ -532,10 +619,11 @@ pub fn run() {
             // 主窗与局域网服务: 包成独立 Result, 失败只记录并继续。
             let tray_result: tauri::Result<()> = (|| {
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let copy = MenuItem::with_id(app, "copy-address", "复制访问地址", true, None::<&str>)?;
             let toggle = MenuItem::with_id(app, "toggle", "启动/停止服务", true, None::<&str>)?;
             let web = MenuItem::with_id(app, "web", "打开网页", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &toggle, &web, &quit])?;
+            let menu = Menu::with_items(app, &[&show, &copy, &toggle, &web, &quit])?;
             let mut tray = TrayIconBuilder::with_id("main-tray")
                 .tooltip(config::APP_NAME)
                 .menu(&menu)
@@ -556,6 +644,7 @@ pub fn run() {
                 .on_menu_event(|app, ev| match ev.id().as_ref() {
                     "quit" => app.exit(0),
                     "show" => show_main_window(app),
+                    "copy-address" => { let _ = copy_access_address(app); },
                     "toggle" => {
                         // 托盘回调运行在事件循环线程: start/stop 可能阻塞数秒,
                         // 必须放到工作线程, 否则整个托盘/窗口无响应
@@ -590,6 +679,15 @@ pub fn run() {
             if let Err(e) = tray_result {
                 eprintln!("[wft] 托盘初始化失败(不影响文件服务): {e}");
             }
+            // 悬浮球右键菜单(独立原生菜单)的事件: 只处理两个球菜单项, 托盘菜单仍由上方 TrayIcon 处理
+            app.on_menu_event(|app, event| match event.id().as_ref() {
+                "pet-open-folder" => {
+                    let dir = server::share_dir().to_string_lossy().to_string();
+                    let _ = server::open_with_system(&dir);
+                }
+                "pet-copy-address" => { let _ = copy_access_address(app); }
+                _ => {}
+            });
 
             // ---- 主窗口:关窗收到托盘 ----
             if let Some(w) = app.get_webview_window("main") {

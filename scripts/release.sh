@@ -46,11 +46,25 @@ if [ -n "$remote_tag" ]; then
     echo "  重发会覆盖已发布产物；确认该 tag 尚无公开 Release 后可设置 FORCE_REPUBLISH=1 重跑。"
     exit 1
   fi
-  # 重发必须重建 tag 才能重新触发 Actions: 已公开的 Release 绝不允许移动 tag
-  if gh release view "v$TAG_VERSION" --json isDraft -q .isDraft 2>/dev/null | grep -qx false; then
-    echo "✘ Release v$TAG_VERSION 已公开，拒绝删除/移动 tag（资产会与代码错位）"
-    exit 1
+  # 重发必须重建 tag 才能重新触发 Actions: 已公开的 Release 绝不允许移动 tag。
+  # fail-closed: 网络/权限/API 错误不能等同于"未公开"；只有明确读到 draft=true
+  # 或确认 Release 不存在时才允许移动 tag。
+  draft_err="$(mktemp)"
+  if draft_state=$(gh release view "v$TAG_VERSION" --json isDraft -q .isDraft 2>"$draft_err"); then
+    if [ "$draft_state" = "false" ]; then
+      echo "✘ Release v$TAG_VERSION 已公开，拒绝删除/移动 tag（资产会与代码错位）"
+      rm -f "$draft_err"
+      exit 1
+    fi
+  else
+    if ! grep -qiE 'not found|404' "$draft_err"; then
+      echo "✘ 无法确认 Release v$TAG_VERSION 状态（网络/API/权限错误），拒绝移动 tag"
+      cat "$draft_err"
+      rm -f "$draft_err"
+      exit 1
+    fi
   fi
+  rm -f "$draft_err"
   FORCE_TAG=1
   echo "⚠ FORCE_REPUBLISH=1: 允许重发 v$TAG_VERSION（稍后删除远端旧 tag）"
 fi
@@ -77,6 +91,9 @@ echo "应用版本: $CUR → ${APP_VERSION}, tag: v$TAG_VERSION"
 ORIG_VERSION="$CUR"
 VERSION_CHANGED=0
 COMMITTED=0
+LOCK_BAK_DIR="$(mktemp -d)"
+cp package-lock.json "$LOCK_BAK_DIR/package-lock.json" 2>/dev/null || true
+cp src-tauri/Cargo.lock "$LOCK_BAK_DIR/Cargo.lock" 2>/dev/null || true
 restore_on_fail() {
   local rc=$?
   if [ "$rc" -ne 0 ] && [ "$VERSION_CHANGED" = "1" ] && [ "$COMMITTED" = "0" ]; then
@@ -84,10 +101,13 @@ restore_on_fail() {
     sed -i.bak "s/^version = \".*\"/version = \"$ORIG_VERSION\"/" src-tauri/Cargo.toml && rm -f src-tauri/Cargo.toml.bak
     sed -i.bak "s/APP_VERSION_FALLBACK = \".*\"/APP_VERSION_FALLBACK = \"$ORIG_VERSION\"/" src/config.js && rm -f src/config.js.bak
     sed -i.bak "s/\"version\": \".*\"/\"version\": \"$ORIG_VERSION\"/" package.json && rm -f package.json.bak
+    if [ -f "$LOCK_BAK_DIR/package-lock.json" ]; then cp "$LOCK_BAK_DIR/package-lock.json" package-lock.json; fi
+    if [ -f "$LOCK_BAK_DIR/Cargo.lock" ]; then cp "$LOCK_BAK_DIR/Cargo.lock" src-tauri/Cargo.lock; fi
     if [ -n "${OLD_VCODE:-}" ]; then
       node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$OLD_VCODE" || true
     fi
   fi
+  rm -rf "$LOCK_BAK_DIR" 2>/dev/null || true
   return $rc
 }
 trap restore_on_fail EXIT
@@ -171,7 +191,9 @@ while IFS= read -r f; do
   esac
   # base64 编码的 JKS: 文件是纯 ASCII, 以 /u3+7Q== 开头, 扩展名/裸魔数/MII
   # 都匹配不到。取前 8 个 base64 字符解码, 检查 FEEDFEED 魔数。
-  head_b64=$(git show ":$f" 2>/dev/null | sed '/^[[:space:]]*#/d' | head -c 8192 | tr -d ' \t\r\n')
+  # 暂存区含 PNG/ICO 等二进制文件: 必须用 C locale 逐字节处理, 否则 macOS 的
+  # tr 会在非 UTF-8 字节上报 "Illegal byte sequence" 并中止整个发版(已实测触发)。
+  head_b64=$(git show ":$f" 2>/dev/null | sed '/^[[:space:]]*#/d' | head -c 8192 | LC_ALL=C tr -d ' \t\r\n')
   if [ "${#head_b64}" -ge 512 ]; then
     case "$head_b64" in
       *[!A-Za-z0-9+/=]*) ;;

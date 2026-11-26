@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CC Flash 保姆级使用说明 - 同一 Wi-Fi 就能互传 - 零登录、零公网、开箱即用</title>
-<meta name="description" content="CC-Flash 局域网高速文件互传保姆级使用说明（网易UU远程官网布局版，适用于 v1.2.6）：三步上手、桌面端/手机端教程、应用内预览、悬浮码、附近设备、常见问题与安全须知。零登录、零公网，速度就是路由器的速度。" />
+<meta name="description" content="CC-Flash 局域网高速文件互传保姆级使用说明（网易UU远程官网布局版，适用于 v1.2.9）：三步上手、桌面端/手机端教程、应用内预览、悬浮码、附近设备、常见问题与安全须知。零登录、零公网，速度就是路由器的速度。" />
 <!--
   布局与风格对位: https://uuyc.163.com/ (网易UU远程官网)
   区块骨架: top-bar(logo+左簇导航·特色功能下拉·移动端汉堡)
@@ -398,7 +398,7 @@ img,svg{display:block}
 <body>
 <div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.6 · 2026-11-23</b>　本文已按最新代码校对。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.9 · 2026-11-25</b>　本文已按最新代码校对。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
 
 
 <!-- 图标 sprite -->
@@ -650,7 +650,7 @@ img,svg{display:block}
 <section class="section section-news" id="news">
   <h2 class="big-title" style="padding-top:1.06667rem">最近更新要点</h2>
   <div class="news-wrap">
-    <a class="news-big" href="https://github.com/bdpqlhk/CC-Flash/releases/latest" target="_blank" rel="noopener">
+    <a class="news-big" href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">
       <div class="news-cover" style="background:linear-gradient(135deg,#3a7bfc,#8632e7)"><span class="ver">v1.2.4.x</span><span class="dt">2026-11-19</span></div>
       <div class="nb">
         <h3>手机 App 独立节点 + 附近设备</h3>
@@ -744,7 +744,7 @@ img,svg{display:block}
     </div>
   </div>
   <div class="footer-ft b-content-wrap" style="max-width:17.06667rem">
-    <span>© 2026-现在 by hangkun.li · CC Flash（曹操是快😂） · 适用于 v1.2.6（四段 tag v1.2.6.x）</span>
+    <span>© 2026-现在 by hangkun.li · CC Flash（曹操是快😂） · 适用于 v1.2.9（四段 tag v1.2.9.x）</span>
     <span>布局与风格参考 网易UU远程官网</span>
   </div>
 </footer>
@@ -855,7 +855,7 @@ function qaHTML(q){return '<div class="qa-card"><div class="qh"><span class="av"
 </script>
 
 <section id="v123-update" style="max-width:920px;margin:40px auto;padding:22px 24px;border:1px solid #2a6b58;border-radius:14px;background:#0f2a24;color:#e8fff8;font:15px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.6 最新变化（2026-11-23 复审修复）</h2>
+<h2 style="margin:0 0 10px;font-size:20px;color:#8ff3d0">v1.2.9 最新变化（2026-11-23 复审修复）</h2>
 <ul style="margin:0;padding-left:20px">
 <li><b>2026-11-20/21 复审收尾</b>：移动端开启访问令牌后对所有来源（含本机 Wi-Fi IP）强制校验；WS 半开看门狗、响应体完整超时、手动发送可取消且失败保留草稿；下载许可看门狗回收、聊天/文件并发闸；聊天历史改为借用序列化；浏览器不提供跨设备直发；CSP 增加 <code>wss:</code>；Android 7.0+ / minSdk 24；发布链路仅 404 视为 missing、Actions 固定 SHA、构建后复核签名。</li>
 <li><b>设备发现并入发送页</b>：桌面「消息发送」左侧设备栏（本机共享 + 附近设备 + 刷新）；手机 App 分为「发送 / 设备 / 文件 / 设置」四页，底部「设备」页（雷达 + 设备清单 + 手动发送）。选中设备后输入栏切换直发，并显示本机回执。</li>
@@ -879,5 +879,20 @@ function qaHTML(q){return '<div class="qa-card"><div class="qh"><span class="av"
 <li><b>iOS</b>：原生包仍未交付；iOS 请用 Safari 打开电脑地址。原生壳的下载/PDF 预览/键盘适配不在本轮交付范围内，后续适配时按文档处理。</li>
 </ul>
 </section>
+
+<div id="cc-v129-delta" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9 · 桌面增强与审查修复</h2>
+<p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段为最新代码增量，优先于文档中较早版本的描述。</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
+<tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">能力</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">最新行为</th></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>文件搜索</b></td><td style="border:1px solid #dfe3ea;padding:8px">文件页按文件名/上传者即时过滤，显示匹配计数；清空恢复；搜索/翻页会清空已选，避免删除隐藏文件。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>托盘复制地址</b></td><td style="border:1px solid #dfe3ea;padding:8px">托盘菜单复制完整 <code>http://IP:端口</code>；主窗可见时 toast、隐藏时系统通知；服务停止时给错误提示。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>悬浮球拖拽</b></td><td style="border:1px solid #dfe3ea;padding:8px">文件先写隐藏临时文件，校验源大小、fsync 后原子转正；批量部分成功也广播列表；失败提示显示服务端原因。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>悬浮球右键</b></td><td style="border:1px solid #dfe3ea;padding:8px">旧四项菜单已移除；原生双项：打开共享文件夹 / 复制访问地址；服务停止时复制禁用。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>诊断与日志</b></td><td style="border:1px solid #dfe3ea;padding:8px">诊断 ZIP 日志移除聊天/文件事件并脱敏 IP/共享路径；日志页导出完整 .log；导出原子写并异步执行。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>安全与状态修复</b></td><td style="border:1px solid #dfe3ea;padding:8px">可执行/脚本不在应用内直接打开；悬浮球导入原子化；PIN 开关 fail-closed；修复全局粘贴文件、直发目标切换、发送失败草稿、清空远端文件卡、失焦误标已读、手机文件多选等问题。</td></tr>
+</table>
+</div>
+
 </body>
 </html>

@@ -65,5 +65,57 @@
 <li><code>cargo test</code> 25/25 通过；<code>npm run build</code> 通过；workflow YAML 与 <code>release.sh</code> shell 语法通过。</li>
 </ul>
 
+
+<h2>七、手机交互终稿、全端自测与二次瘦身</h2>
+<p>在 v1.2.9 已发布代码上完成手机端交互收口，并对前端、Rust 二进制、各端图标、DMG 做两遍可验证的瘦身。</p>
+<table>
+<tr><th>项</th><th>结果</th></tr>
+<tr><td>底栏选中态</td><td>六套皮肤统一读取 <code>--accent</code>：手机为浅强调底 + 2px 顶部指示条；平板（≥560px）收成 72px 胶囊，避免整列高亮。</td></tr>
+<tr><td>未读角标</td><td>修复绝对定位左右同时生效被拉成长条；收成 14px 紧凑圆形角标，贴在「发送」标签右侧，保留计数。</td></tr>
+<tr><td>发送页消息</td><td>改为微信式左右气泡：头像、昵称/时间、自己/对方分列、长文本换行；系统回执居中；文件消息同步带头像。桌面/平板消息列分别限宽 760/640px 居中。</td></tr>
+<tr><td>设备页</td><td>移除本机行；DEVICES 改为附近设备数；每台设备增加历史入口，按设备过滤传输历史；雷达手机 178px/320 以下 166px，平板 230px，横屏保留 96px。</td></tr>
+<tr><td>平板与宽屏</td><td>设置页 560px、文件清单/聊天 640px 居中；发送目标栏对齐消息列；760/980/1280 无横向溢出。</td></tr>
+<tr><td>设置页关于</td><td>新增关于说明、当前版本、检查更新（移动壳打开 Releases）与版权；320px 下版权分两行且不拆姓名。</td></tr>
+<tr><td>全量自测</td><td><code>cargo test</code> 26/26；全功能 UI 自测 48 项断言 + 2 项渲染检查 0 失败（四页、气泡、历史过滤/搜索、多选取消、六皮肤明暗、关于区、320/390/760/980/1280、桌面/手机浏览器、介绍页）；<code>impeccable detect</code> 主要页面 0 warning（仅保留信号台网格/条纹与 10px 版权小字 advisory）。</td></tr>
+<tr><td>瘦身第一遍</td><td>前端主包 315,089→308,809 B（gzip 114,822→109,525 B），CSS 159,372→157,649 B（第一遍；加入平板适配后最终 158,970 B）；失联图 17,398→12,690 B；移除 Tauri 未使用的 <code>dynamic-acl</code>；Rust 二进制 4,100,896→4,051,104 B，.app 4.13→4.08 MiB。</td></tr>
+<tr><td>瘦身第二遍</td><td>Android/iOS/Windows 图标 RGBA 调色板压缩：总 PNG 1,809,610→1,220,070 B（−589,540 B；Android −195,455、iOS −279,269）；清理旧版本/临时 DMG 约 40 MB；DMG UDZO 2,882,479→UDBZ 2,722,246 B（−160,233 B，−5.6%），挂载校验版本 1.2.9 正常；Intel 包同步构建：.app 4.95 MiB、UDBZ dmg 2,838,060 B。</td></tr>
+<tr><td>悬浮球右键修复</td><td>pet 窗不再复用主窗口的四项右键菜单（复制页面地址/手动发送/重新扫描/设备诊断）；右键只阻止默认菜单，不弹自定义菜单。主窗口右键菜单保持原样，arm64/x64 包均已重建并实机复测；修复后首屏主包 308,841 B、arm64 dmg 2,722,021 B。</td></tr>
+<tr><td>桌面运行验证</td><td>本机 arm64 <code>CC-Flash.app</code> 启动成功，主窗与扫码浮窗正常显示；单实例/托盘/服务均可工作。Android/Windows/iOS 本机缺少完整工具链，由 CI 构建，相关图标与资源已同步优化。</td></tr>
+</table>
+
+<h2>八、桌面增强六项与右键修复</h2>
+<p>在 v1.2.9 上落地桌面端六项轻量增强，并保持原有鉴权/文件事件/日志管道；未引入新的压缩依赖。</p>
+<table>
+<tr><th>能力</th><th>落地结果</th></tr>
+<tr><td>托盘复制地址</td><td>托盘菜单新增「复制访问地址」，复制完整 <code>http://IP:端口</code>；主窗/悬浮球都不可见时用系统通知确认；托盘与悬浮球共用同一 Rust 剪贴板 helper。</td></tr>
+<tr><td>文件列表搜索</td><td>文件页新增搜索框，按文件名/上传者即时过滤；显示匹配计数、无结果清除入口；桌面抽屉、手机 FILES 页共用；不改变排序和已选集合。</td></tr>
+<tr><td>悬浮球拖拽上传</td><td>pet 窗监听 Tauri <code>onDragDropEvent</code>；文件顺序复制进本机共享并显示进度环/对勾/失败提示；同名顺延；文件事件广播让主窗与手机端立即刷新。实机从 Finder 拖入 <code>000-ccflash-drop-test.txt</code> 验证成功。</td></tr>
+<tr><td>悬浮球右键菜单</td><td>旧四项菜单已屏蔽；改为原生双项菜单「打开共享文件夹 / 复制访问地址」；服务停止时复制禁用；主窗口右键菜单不变。实机右键与复制 <code>pbpaste</code> 验证。</td></tr>
+<tr><td>诊断包</td><td>CC设置新增「导出诊断包」；生成 stored ZIP：meta/config/logs/README/<code>prefs/pref-pet-dbg-*</code>/manifest；不含 PIN/聊天/文件名，IP 只保留网段。实机导出并解压校验。</td></tr>
+<tr><td>日志导出</td><td>服务日志页新增「导出日志」；通过保存对话框写出完整 UTF-8 <code>.log</code>，不受当前筛选影响；Rust 写文件命令已单测。</td></tr>
+<tr><td>体积变化</td><td>首屏主包 308,841→315,221 B，CSS 158,970→161,630 B（新入口/面板）；Rust 二进制 4,051,104→4,084,368 B；arm64 dmg 2,719,457 B、.app 4.12 MiB；x64 dmg 2,849,014 B、.app 4.99 MiB；DMG 均已 UDBZ 压缩。功能增量导致体积小幅上升，仍维持轻量。</td></tr>
+<tr><td>验证</td><td><code>cargo test</code> 31/31；全量 UI 自测 53 项 0 失败；实机验证托盘复制、悬浮球双项菜单、Finder 拖入上传、诊断 ZIP 导出；设计稿见 <a href="./2026-11-25-桌面增强设计稿.html">桌面增强设计稿</a>。</td></tr>
+</table>
+
+<h2>九、全量审查修复与文档同步</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>LAN 上传可执行文件后，桌面“打开”调用系统默认程序，存在用户点击后执行代码的风险。</td><td>前后端同时拦截可执行/脚本/快捷方式类型；只允许“在文件夹中显示”，Rust <code>open_path_cmd</code> 另检查 Unix 可执行位。</td></tr>
+<tr><td>悬浮球导入直接写最终文件名，半截文件可被其他设备下载，删除/崩溃会留下假成功或残留。</td><td>改为隐藏 <code>.ccimport-*.ccpart</code> 临时文件，校验源大小、fsync 后通过硬链接/原子 rename 转正；临时文件不进入列表，启动清理可回收。</td></tr>
+<tr><td>诊断包 README/UI 承诺不含聊天/文件名，但 logs.txt 原样包含聊天预览、文件名、共享路径与 IP。</td><td>诊断日志移除聊天/文件事件正文，替换共享路径并掩码 IPv4/IPv6；增加脱敏测试，同步 README/介绍页文案。</td></tr>
+<tr><td>访问令牌 enabled 标记写失败被吞掉，重启后可能出现“关闭标记 + 码值文件”而静默失去保护。</td><td><code>write_pin_enabled</code> 返回错误，<code>install_pin</code> 失败时撤掉码值并向 UI 报错；读到冲突状态按 fail-closed 保留保护。</td></tr>
+<tr><td>直发文件批次使用 manual=true，切换目标/离线后仍继续发给旧设备。</td><td>批量发送不再复用 manual 语义，逐文件检查当前 sendTargets 是否仍包含目标。</td></tr>
+<tr><td>全局粘贴在昵称/搜索/配对码等任意输入框粘贴文件也会上传或直发。</td><td>只有消息输入框接收文件粘贴，其余输入框阻止并提示。</td></tr>
+<tr><td>发送失败时草稿已清空；用户若在等待期间继续输入，原消息永久丢失。</td><td>失败时恢复原草稿；若用户已输入新内容则合并而非覆盖。</td></tr>
+<tr><td>搜索/翻页后“删除选中”会删除当前看不见的文件。</td><td>搜索、翻页、排序变化时清空选择；从聊天定位文件时先退出搜索。</td></tr>
+<tr><td>App.vue 卸载时调用未定义的 <code>stopIntroSpy()</code>，抛错并中断 WS/轮询/监听清理。</td><td>移除错误调用，清理顺序恢复；pet 异步监听/focus 逻辑一并补清理。</td></tr>
+<tr><td>手机文件选择态点击行仍打开操作面板；16px 勾选框热区过小。</td><td>选择态整行点击切换选择；勾选 label 扩为 28×44，文件 FILES tab 补新文件绿点。</td></tr>
+<tr><td>“清空消息”清不掉远端文件卡片；失焦回来会把上翻历史时的新消息标已读。</td><td>清空时同步清 remoteFiles；<code>markChatSeen</code> 仅贴底时推进已读水位。</td></tr>
+<tr><td>移动端偏好目录与 <code>save_text_pref_cmd</code> 写路径不一致；Unix 在途键统一小写会误锁同名不同大小写文件。</td><td>移动端统一走 <code>server::ui_pref_dir</code>；<code>active_key</code> 只在 Windows 折叠大小写。</td></tr>
+<tr><td>诊断/日志导出同步写、非原子且可写敏感启动/密钥目录。</td><td>改为异步 + 临时文件 fsync + rename；拒绝 <code>.ssh/.gnupg/LaunchAgents/Startup</code> 等路径。</td></tr>
+<tr><td>release.sh 的公开 Release 守卫 fail-open；同 tag 重发旧 CI run 可能先公开旧资产；未签名说明未写入正文。</td><td>gh 查询失败 fail-closed；CI 同组 cancel-in-progress；publish 自动追加未签名打开说明；macOS 校验改为 app 优先；lockfile 失败回滚。</td></tr>
+<tr><td>未签名 Release 全部标 prerelease，桌面自动更新永远无结果。</td><td>自动检查仍跳过 prerelease；手动检查允许看到并明确提示风险；移动端下载页改到 Releases 列表。</td></tr>
+</table>
+<p>本轮新增测试：Rust 34/34、全量 UI 冒烟 53 项 0 失败；macOS arm64/x64 桌面包重建并压缩。最终体积：首屏 JS 315,616 B、CSS 163,022 B、Intro 22,961 B、dist 约 596 KiB；Rust 二进制 4,084,640 B；arm64 dmg 2,711,773 B / x64 dmg 2,837,544 B（UDBZ）。文档：README、README.en、需求/技术/保姆（含三套风格版）、软件介绍页设计稿、后期规划/推广、应用内介绍页已同步；历史记录中的旧版本段落按历史快照保留。</p>
 <div class="small">CC Flash · 2026-11-25 · 本文件为当前实现的同步说明</div>
 </body></html>

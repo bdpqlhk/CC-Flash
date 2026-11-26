@@ -55,7 +55,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <body>
 <div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>规划状态已按 v1.2.8+ 更新 · 2026-11-25</b>　2026-11-25 已落地：手机发送/设备/文件三页 dir-2、设置页 dir-5 与令牌开关、文件消息持久化、多选直发、connectedDevice 保活、连接上限/请求头超时/body 闸门、Windows PFX 签名与 WebView2 离线安装器、未签名 Release prerelease；v1.2.9 待发。　2026-11-21 收尾：复审修复（令牌全来源校验、WS/请求超时、手动发送可取消、下载许可回收、并发闸、浏览器不提供跨设备直发、Android 7.0+、发布链路 fail-closed）。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。　消息工作台、双向共享剪贴板、浏览器去发现等已落地；设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　尚未实施项仍以本文标注为准。</div>
+<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>规划状态已按 v1.2.9 更新 · 2026-11-25</b>　2026-11-25 已落地：手机发送/设备/文件三页 dir-2、设置页 dir-5 与令牌开关、文件消息持久化、多选直发、connectedDevice 保活、连接上限/请求头超时/body 闸门、Windows PFX 签名与 WebView2 离线安装器、未签名 Release prerelease；v1.2.9 已发布。　2026-11-21 收尾：复审修复（令牌全来源校验、WS/请求超时、手动发送可取消、下载许可回收、并发闸、浏览器不提供跨设备直发、Android 7.0+、发布链路 fail-closed）。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。　消息工作台、双向共享剪贴板、浏览器去发现等已落地；设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　尚未实施项仍以本文标注为准。</div>
 
 <div class="layout">
 
@@ -77,7 +77,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC Flash · 后期规划</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-25（v1.2.8+ 审查修订）</b></span>
+<span>文档日期：<b>2026-11-25（v1.2.9 审查修订）</b></span>
 <span>基线：<b>v1.2.8 已发布（本地含 v1.2.9 修复）</b>（消息工作台：设备发现并入桌面「消息发送」/手机 App「发送」；手机 App「发送 / 设备 / 文件 / 设置」四页；浏览器回原聊天室、无发现；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；侧栏 176px / 设备栏 200px / 文件抽屉 320–380px；继承 v1.2.2：移动 App 独立节点、UDP 多播发现、访问令牌、一次性票据、并发闸、应用内预览 / Markdown / 六套配色，默认信号台）</span>
 <span>约束：<b>不做分片上传（红线）· 全线轻量化</b></span>
 <span>原则：<b>守住「零学习成本」定位 · 先深后宽 · 每个版本都有可感知价值</b></span>
@@ -273,5 +273,20 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 
 </main>
 </div>
+
+<div id="cc-v129-delta" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9 · 桌面增强与审查修复</h2>
+<p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段为最新代码增量，优先于文档中较早版本的描述。</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
+<tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">能力</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">最新行为</th></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>文件搜索</b></td><td style="border:1px solid #dfe3ea;padding:8px">文件页按文件名/上传者即时过滤，显示匹配计数；清空恢复；搜索/翻页会清空已选，避免删除隐藏文件。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>托盘复制地址</b></td><td style="border:1px solid #dfe3ea;padding:8px">托盘菜单复制完整 <code>http://IP:端口</code>；主窗可见时 toast、隐藏时系统通知；服务停止时给错误提示。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>悬浮球拖拽</b></td><td style="border:1px solid #dfe3ea;padding:8px">文件先写隐藏临时文件，校验源大小、fsync 后原子转正；批量部分成功也广播列表；失败提示显示服务端原因。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>悬浮球右键</b></td><td style="border:1px solid #dfe3ea;padding:8px">旧四项菜单已移除；原生双项：打开共享文件夹 / 复制访问地址；服务停止时复制禁用。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>诊断与日志</b></td><td style="border:1px solid #dfe3ea;padding:8px">诊断 ZIP 日志移除聊天/文件事件并脱敏 IP/共享路径；日志页导出完整 .log；导出原子写并异步执行。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>安全与状态修复</b></td><td style="border:1px solid #dfe3ea;padding:8px">可执行/脚本不在应用内直接打开；悬浮球导入原子化；PIN 开关 fail-closed；修复全局粘贴文件、直发目标切换、发送失败草稿、清空远端文件卡、失焦误标已读、手机文件多选等问题。</td></tr>
+</table>
+</div>
+
 </body>
 </html>

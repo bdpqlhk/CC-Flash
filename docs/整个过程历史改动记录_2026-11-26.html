@@ -1,0 +1,57 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</title>
+<style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}.callout{background:#eef4ff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:14px 0}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
+<h1>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</h1>
+<div class="meta">版本：v1.2.9.1（四段构建号，应用版本取前三段 1.2.9；含 11-25 桌面增强与审查修复）· 本轮在最新代码上重新跑全量功能自测，对 macOS 双架构产物做两轮可量化瘦身，并逐套皮肤修复对比度与窄窗文件卡片错位。</div>
+<div class="callout"><b>本轮结论</b>功能自测全部通过；macOS arm64 DMG 2,863,802 → 2,673,583 B（−6.6%），x64 2,981,355 → 2,707,366 B（−9.2%）；六套皮肤 × 明暗在手机壳/桌面壳/浏览器端的文字对比度审计均为 0 告警；窄窗文件卡操作按钮不再逐字换行。</div>
+
+<h2>一、全量功能自测</h2>
+<table>
+<tr><th>范围</th><th>结果</th></tr>
+<tr><td>Rust 后端</td><td><code>cargo test --release</code> 34/34 通过（上传/同名顺延/下载 HEAD/Range、聊天/限流、剪贴板往返、PIN/票据/媒体会话、发现/快照/去重、静态缓存、WebSocket 升级 + <code>chat:new</code>、诊断 ZIP、原子导入等）。</td></tr>
+<tr><td>HTTP / WS 全接口</td><td>50/50 通过：<code>/api/info</code>、静态安全头、上传（含缺 <code>X-File-Size</code> 411、路径穿越 400）、字体/图片下载、HEAD、Range（含 <code>bytes=-N</code>）、同名自动改名、聊天（NUL 剥离/空消息/超长）、剪贴板、分享票据、媒体会话、设备发现、控制状态/日志、跨源与 Host 重绑定拦截、WebSocket <code>chat:new</code> 事件。</td></tr>
+<tr><td>电脑浏览器</td><td>25/25 通过：首屏、普通消息、Markdown 六类语法、文本/图片/PDF/8MB 批量上传与文件组、抽屉搜索/全选、图片预览与 Esc 关闭、下载内容校验、共享剪贴板粘贴、12 种宽度无横向溢出、图片 alt/按钮可访问名/触控目标、微信内置浏览器提示。</td></tr>
+<tr><td>手机 App 壳</td><td>27/27 通过（<code>?mobilePreview=1</code> + 模拟三台附近设备）：四标签、发送、设备多选/取消、设备历史、文件 manifest/搜索/选择态上传、设置页令牌/剪贴板/关于/六皮肤 × 三模式、四页 × 9 种尺寸无溢出。</td></tr>
+<tr><td>桌面壳</td><td>33/33 通过（伪 Tauri IPC + 真实本机服务）：侧栏/设备栏/时间线/输入栏、右键菜单、抽屉搜索、图片预览、分享链接提示、传输历史、手动发送四标签、服务中心/日志搜索/导出日志、六皮肤 × 明暗切换、介绍页锚点与关闭、560–1180px 八种窗口宽度无溢出。</td></tr>
+<tr><td>说明</td><td>手机壳用开发态预览、桌面壳用伪 Tauri 环境做 DOM 级交互；真实 Tauri 主窗与悬浮球已按窗口截图复核。托盘菜单、悬浮球拖拽/右键、系统目录选择等纯原生输入路径本轮未重复人工点击（开发机会话处于锁屏态，鼠标事件无法投递），相关 Rust 命令与前端逻辑分别由单测/代码审查覆盖。</td></tr>
+</table>
+
+<h2>二、全端交互与视觉修复</h2>
+<table>
+<tr><th>问题</th><th>修复</th></tr>
+<tr><td>实心强调色按钮用白字：13.5px 下玫瑰 3.45:1、深空蓝 3.33:1、墨色琥珀 2.34:1、森林薄荷 2.25:1、暗夜紫 2.72:1、信号台 1.85:1，均低于 4.5:1。</td><td>新增 <code>--on-accent: #0b0e0d</code>；发送键、主按钮、分段选择、分页、提示按钮、未读角标、回到底部胶囊、手动发送按钮统一改用近黑字，六套皮肤 ≥4.5:1。</td></tr>
+<tr><td>信号台亮色下顶栏 URL 盒仍沿用深色底（<code>rgba(11,15,12,.78)</code>），「运行中」深绿字对比 1.57:1。</td><td>新增亮色覆盖 <code>[data-mode="light"][data-theme="signal"] .url-box</code>，纸面底色；运行胶囊恢复可读。</td></tr>
+<tr><td>信号台亮色文件抽屉工具条仍为深底，<code>--text2</code> 深字在「最新/名称/大小」上对比 1.55:1；文件计数用 <code>--accent</code>，亮底对比 3.67:1。</td><td>亮色工具条改为浅纸底；计数文字改用 <code>--accent-text</code>（信号台亮色同时加深到 <code>#754d09</code>）。</td></tr>
+<tr><td>窄窗（≤980px）文件卡片宽度用 <code>min(320px,100%)</code> 时父级为 auto 宽，卡片被压到约 180px，五个操作按钮逐字换行成两行。</td><td><code>.tx-filecard</code> 改为固定 <code>320px</code> / 窄窗 <code>260px</code> + <code>max-width:100%</code>；操作按钮加 <code>white-space:nowrap</code>；760/560/390 实测单行。</td></tr>
+<tr><td>森林薄荷/暗夜紫暗色日志时间戳、墨色琥珀暗色设备读数等 11–12px 文本对比 4.26–4.48:1，略低于 4.5。</td><td>对应 <code>--text3</code> 微调为 <code>#82a08f</code> / <code>#9890bf</code> / <code>#9c8f70</code>；通用亮色 <code>--text3</code> 由 <code>#626c7d</code> 加深到 <code>#59626f</code>。</td></tr>
+</table>
+<p>修复后审计方法：逐套皮肤 × 亮/暗在 390×844 手机壳四页、1440/390 浏览器、1180 桌面设置/服务页取实际 DOM 计算色与最近不透明背景的 WCAG 对比度（渐变背景单独跳过），结果均为 0 告警。明暗模式、皮肤高亮、README 所列功能未改动。</p>
+
+<h2>三、构建产物两轮瘦身</h2>
+<h3>第一轮</h3>
+<ul>
+<li>重新构建前端：主包 315,616 B、CSS 163,377 B、介绍页 22,961 B、二维码按需块 24,066 B，<code>dist</code> 596 KiB。</li>
+<li>51 个 PNG（public + src-tauri/icons 全部尺寸）重新跑调色板量化：503,319 B → 503,319 B，无可再省（脚本逐像素自校验，全部跳过）。</li>
+<li>macOS 双架构 Tauri 构建后，DMG 由默认 UDZO 转 UDBZ：arm64 2,863,802 → 2,713,123 B；x64 2,981,355 → 2,837,871 B。</li>
+</ul>
+<h3>第二轮</h3>
+<ul>
+<li>DMG 卷图标由 230,588 B 的完整 <code>.VolumeIcon.icns</code> 换成 16/32/128/256 四档精简版 63,605 B；保留原 <code>.DS_Store</code> 图标布局与 Applications 快捷方式，再以 HFS+ / UDBZ 重建。</li>
+<li>arm64 2,713,123 → 2,673,583 B（累计 −190,219 B，−6.64%）；x64 2,837,871 → 2,707,366 B（累计 −273,989 B，−9.19%）。</li>
+<li>两包均 <code>hdiutil verify</code> 通过，挂载后 <code>CFBundleShortVersionString = 1.2.9</code>。</li>
+</ul>
+<table>
+<tr><th>产物</th><th>瘦身前</th><th>第一轮</th><th>第二轮</th><th>累计</th></tr>
+<tr><td>macOS arm64 DMG</td><td>2,863,802 B</td><td>2,713,123 B</td><td>2,673,583 B</td><td>−190,219 B（−6.64%）</td></tr>
+<tr><td>macOS x64 DMG</td><td>2,981,355 B</td><td>2,837,871 B</td><td>2,707,366 B</td><td>−273,989 B（−9.19%）</td></tr>
+<tr><td>Rust 二进制（arm64）</td><td colspan="3">4,084,688 B，release 已启用 <code>strip=true / lto=fat / codegen-units=1 / opt-level=z / panic=abort</code></td><td>维持</td></tr>
+<tr><td>Windows / Android</td><td colspan="3">本机缺 Windows MSVC 链接器、JDK 17 与 NDK，无法本地产出可比包；共享的前端 dist 与 Cargo 体积配置已生效，CI 侧 NSIS 默认 LZMA、Android 单 arm64 + R8/zh-en 资源裁剪、WebView2 downloadBootstrapper 均保持</td><td>由 CI 构建</td></tr>
+</table>
+<p>最终 DMG SHA-256：arm64 <code>f983a6317d17e89f4e8e70c17c0ec0971f592b3826b1ae4da04570190b2c51c1</code>；x64 <code>122755196c5a6f3cbc4380bab539447e48d6780e7b54a98fb17ecdbe71ee80e1</code>。</p>
+
+<h2>四、验证与文档</h2>
+<ul>
+<li>最终构建包重新跑 <code>cargo test --release</code> 34/34、HTTP/WS 50/50、浏览器 25/25；运行态主窗与悬浮球按窗口截图复核，发送键/文件卡/状态胶囊渲染正常。</li>
+<li>文档：新增本文件，并在 README / README.en 历史记录索引中补链；其余需求/技术/使用说明未涉及功能口径变化，保持原样。</li>
+</ul>
+<div class="small">CC Flash · 2026-11-26 · 本文件记录最新代码上的自测、瘦身与视觉收口</div>
+</body></html>

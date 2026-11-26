@@ -47,7 +47,7 @@ export function isNewer(latest, current) {
 }
 
 /* 拉取最新 Release: 成功返回 { latest, notes, url }; 失败/无 Release 返回 null */
-export async function fetchLatestRelease() {
+export async function fetchLatestRelease(includePrerelease = false) {
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), UPDATE_CHECK_TIMEOUT_MS);
@@ -59,9 +59,8 @@ export async function fetchLatestRelease() {
     if (!r.ok) return null;   // 404(还没发过 Release)/403(限流)等 → 视为无结果
     const d = await r.json();
     const list = Array.isArray(d) ? d : [d];
-    // 列表按发布时间倒序: 跳过草稿与 prerelease。缺签名 Secrets 时 publish 只告警
-    // 并继续发布未签名包(见 release.yml), 草稿只会在构建未全绿/资产不全时出现。
-    const rel = list.find((x) => x && !x.draft && !x.prerelease && x.tag_name);
+    // 自动检查跳过 prerelease; 手动检查允许看到未签名/预发布包(由弹框提示风险)。
+    const rel = list.find((x) => x && !x.draft && (includePrerelease || !x.prerelease) && x.tag_name);
     if (!rel) return null;
     // 不信任 API 返回的任意跳转地址: 只接受本仓库 Releases 前缀, 否则回落到固定页面,
     // 防止上游/镜像被接管后把用户导向任意下载站
@@ -70,6 +69,7 @@ export async function fetchLatestRelease() {
     return {
       latest: String(rel.tag_name),
       notes: String(rel.body || "").trim(),   // Release 说明, 弹框摘要展示
+      prerelease: !!rel.prerelease,
       url: rawUrl.startsWith(expected) ? rawUrl : RELEASES_PAGE,
     };
   } catch (e) {

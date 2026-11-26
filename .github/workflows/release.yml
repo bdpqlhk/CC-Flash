@@ -13,11 +13,11 @@ on:
   push:
     tags: ["v*"]
 
-# 同一 tag 只允许一个运行组(不取消进行中的): scripts 推送失败会"删远端 tag 重推",
-# 没有该约束时会触发第二个 run, 两条流水线互删同名资产、抢着 publish
+# 同一 tag 只允许一个运行组。重发同一 tag 时取消旧 run:
+# 旧 run 可能仍拿着旧提交; 若让它先跑完, 会先公开旧资产并让新 run 在 prepare 失败。
 concurrency:
   group: release-${{ github.ref_name }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # GITHUB_TOKEN 默认只读, 声明 contents:write 才能创建 Release 并上传产物
 permissions:
@@ -250,7 +250,10 @@ jobs:
           [ -n "$APP" ] || { echo "::error::未找到 macOS .app"; exit 1; }
           codesign --verify --deep --strict "$APP"
           if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
-            [ -n "$DMG" ] && xcrun stapler validate "$DMG"
+            # Tauri 2 默认把公证票据 stapling 到 .app; 先验 app, 兼容也 stapling DMG 的构建
+            if ! xcrun stapler validate "$APP"; then
+              [ -n "$DMG" ] && xcrun stapler validate "$DMG"
+            fi
             echo "✔ macOS 签名/公证校验通过"
           else
             echo "::warning::已签名但缺少公证凭据（APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID），跳过 stapler；本次发布未公证"
@@ -523,9 +526,18 @@ jobs:
             printf '%s\n' "$assets" | grep -Fxq "$want" || { echo "::error::Release 缺少资产 $want"; exit 1; }
           done
           if [ -n "$missing" ]; then
-            # 公开但标记 prerelease: 用户仍可手动下载，update.js 会跳过，不会把未签名包当正式更新推给全端
+            # 把打开方式写进 Release 正文, 而不是只在日志里提醒维护者
+            notes="$RUNNER_TEMP/ccflash-release-notes.md"
+            gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json body -q .body > "$notes" 2>/dev/null || true
+            {
+              printf '\n\n---\n\n'
+              printf '> 未签名/未公证构建：macOS 首次打开请右键 → 打开；Windows 若出现 SmartScreen，请选择“更多信息 → 仍要运行”。\n'
+              printf '> 此版本标记为 prerelease：应用内自动更新会跳过，可在 CC设置手动检查下载。\n'
+            } >> "$notes"
+            gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --notes-file "$notes"
+            # 公开但标记 prerelease: 用户仍可手动下载，update.js 自动检查会跳过
             gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --prerelease
-            echo "✔ ${{ github.ref_name }} 已公开发布（prerelease：未签名/未公证）"
+            echo "✔ ${{ github.ref_name }} 已公开发布（prerelease：未签名/未公证，已写入打开说明）"
           else
             gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
             echo "✔ ${{ github.ref_name }} 已发布"

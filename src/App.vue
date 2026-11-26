@@ -35,6 +35,7 @@ import { readText as readClipboardText, readImage as readClipboardImage, writeTe
 // 覆盖全部自定义命令的 invoke 面 —— isDesktop 判定走 __TAURI_INTERNALS__(IPC 内部注入, 不受此开关影响)
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { availableMonitors, cursorPosition, currentMonitor, primaryMonitor } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -532,6 +533,7 @@ function setMobileTab(tab) {
   plusOpen.value = false;
   moreOpen.value = false;
   if (tab !== "files") mobileFileSelect.value = false;
+  if (tab === "files") fileDot.value = false;
   if (tab === "config") {
     deviceInlineOpen.value = false;
     fileSheetOpen.value = false;
@@ -571,11 +573,14 @@ function pickPeer(p) {
   sendTargets.value = next;
 }
 function toggleMultiSelect() {
-  multiSelectMode.value = !multiSelectMode.value;
-  if (!multiSelectMode.value && sendTargets.value.length > 1) {
-    // 退出多选时只保留第一个目标, 输入栏回到常规"发送到单台设备"
-    sendTargets.value = sendTargets.value.slice(0, 1);
+  if (multiSelectMode.value) {
+    // 取消多选: 退出选择态并清空已勾选目标, 避免"完成"语义下静默丢选择
+    multiSelectMode.value = false;
+    sendTargets.value = [];
+    showToast("已取消多选");
+    return;
   }
+  multiSelectMode.value = true;
 }
 const historyOpen = ref(false);        // 传输历史弹框(入口在本机身份卡右侧)
 // 窄屏设备面板: 复用宽屏设备栏的同一套内容, 竖屏整页展开(不是弹框)
@@ -592,14 +597,25 @@ function saveTransferHistory() {
   try { localStorage.setItem(TRANSFER_HISTORY_KEY, JSON.stringify(transferHistory.value)); } catch (e) {}
 }
 const historyQuery = ref("");
+const historyPeer = ref(null);   // 从某台设备的身份卡进入时, 只看与它的记录
 const filteredHistory = computed(() => {
+  const peer = historyPeer.value;
+  let list = transferHistory.value;
+  if (peer) {
+    list = list.filter((h) => (peer.id && h.targetId === peer.id) || (peer.name && h.targetName === peer.name));
+  }
   const q = historyQuery.value.trim().toLowerCase();
-  if (!q) return transferHistory.value;
-  return transferHistory.value.filter((h) => {
+  if (!q) return list;
+  return list.filter((h) => {
     const type = h.kind === "file" ? "文件" : "消息";
     return `${h.targetName} ${h.name} ${type}`.toLowerCase().includes(q);
   });
 });
+function openPeerHistory(p) {
+  if (!p) return;
+  historyPeer.value = { id: p.id || p.ip || "", name: p.nickname || p.ip || "设备" };
+  historyOpen.value = true;
+}
 async function clearTransferHistory() {
   if (!transferHistory.value.length) return;
   const yes = await appConfirm({
@@ -610,11 +626,12 @@ async function clearTransferHistory() {
   if (!yes) return;
   transferHistory.value = [];
   historyQuery.value = "";
+  historyPeer.value = null;
   saveTransferHistory();
   showToast("传输历史已清空");
 }
 // 关闭弹框时清掉搜索词: 下次打开默认看全量, 避免"只看到几条"的错觉
-watch(historyOpen, (v) => { if (!v) historyQuery.value = ""; });
+watch(historyOpen, (v) => { if (!v) { historyQuery.value = ""; historyPeer.value = null; } });
 function recordTransfer(p, kind, name) {
   if (!p) return;
   transferHistory.value = [{
@@ -1140,11 +1157,26 @@ function markFileViewed(name) {
   saveViewedFiles();
 }
 function isFileViewed(name) { return !!name && viewedFiles.value.has(name); }
+function isExecutableFile(name) {
+  const ext = String(name || "").split(".").pop().toLowerCase();
+  return ["exe","com","bat","cmd","msi","scr","cpl","msc","ps1","vbs","vbe","js","jse","wsf","wsh","hta","lnk","url","reg","command","app","workflow","scpt","osascript","terminal","sh","bash","zsh","fish","py","pyw","pl","rb","jar","pkg","mpkg","dmg","appx","msix","deb","rpm","desktop","appimage","run","bin"].includes(ext);
+}
 function openFile(name) {
   if (!isRealDesktop) return;   // Android/iOS 无系统程序打开能力, 走下载路径
   markFileViewed(name);
   const dir = shareInput.value.replace(/\/+$/, "");
-  tauriInvoke("open_path_cmd", { path: dir + "/" + name })
+  const full = dir + "/" + name;
+  // LAN 上传来源不可信: 可执行/脚本绝不由系统默认程序直接执行, 只定位到文件夹
+  if (isExecutableFile(name)) {
+    tauriInvoke("reveal_path_cmd", { path: full })
+      .then(d => {
+        if (d && d.ok) showToast("已阻止直接打开可执行文件，请在文件夹中确认", "error");
+        else showToast((d && d.error) || "已阻止打开可执行文件", "error");
+      })
+      .catch(() => showToast("已阻止打开可执行文件", "error"));
+    return;
+  }
+  tauriInvoke("open_path_cmd", { path: full })
     .then(d => { if (!d.ok) showToast(d.error || "打开失败", "error"); })
     .catch(() => showToast("打开失败", "error"));
 }
@@ -1202,6 +1234,14 @@ const qrPetExpanded = ref(false);   // 几何态: 决定窗口尺寸与半隐/�
 const qrPetShown = ref(false);      // 展示态: 模板 expanded class —— 与几何态解耦, 过渡零挤压帧
 const petEdge = ref("left");        // 当前吸附边(模板按它放状态点/面板滑入方向)
 const petNotify = ref(false);       // 外圈绿点: 新文件/新消息，直到回到主窗查看
+const petDropActive = ref(false);   // OS 文件拖到球上
+const petUploading = ref(false);
+const petUploadPct = ref(0);
+const petUploadDone = ref(false);
+const petUploadError = ref("");
+const petCopied = ref(false);
+let petDragUnlisten = null, petProgressUnlisten = null, petCopyUnlisten = null, appToastUnlisten = null;
+let petCopiedTimer = null, petUploadTimer = null;
 const petMainActive = ref(false);   // 可见且未最小化且获得焦点，才视为正在查看
 const petActivity = createPetActivityTracker();
 let petMainStateVersion = 0;
@@ -1856,6 +1896,7 @@ function copyUrl() {
 
 /* ---------- 文件列表 ---------- */
 const allFiles = ref([]);
+const fileQuery = ref("");
 const sortBy = ref("time");
 const currentPage = ref(1);
 const refreshing = ref(false);
@@ -1889,8 +1930,13 @@ function fmtTime(ts) {
   return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}-${md}`;
 }
 
+const filteredFiles = computed(() => {
+  const q = fileQuery.value.trim().toLowerCase();
+  if (!q) return allFiles.value;
+  return allFiles.value.filter((f) => `${f.name} ${f.uploader || ""}`.toLowerCase().includes(q));
+});
 const sortedFiles = computed(() => {
-  const arr = [...allFiles.value];
+  const arr = [...filteredFiles.value];
   if (sortBy.value === "time") arr.sort((a, b) => b.modified - a.modified);
   else if (sortBy.value === "name") arr.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
   else if (sortBy.value === "size") arr.sort((a, b) => b.size - a.size);
@@ -1912,8 +1958,16 @@ const pageItems = computed(() => {
   items.push(t);
   return items;
 });
-function goPage(p) { currentPage.value = p; }
-function setSort(s) { sortBy.value = s; currentPage.value = 1; }
+function goPage(p) {
+  if (p !== currentPage.value) selected.value = new Set();
+  currentPage.value = p;
+}
+function setSort(s) { sortBy.value = s; currentPage.value = 1; selected.value = new Set(); }
+watch(fileQuery, () => {
+  currentPage.value = 1;
+  // 搜索缩小列表时清空选择: 避免把当前看不见的文件一起硬删除
+  if (selected.value.size) selected.value = new Set();
+});
 
 const stats = computed(() => ({
   count: allFiles.value.length,
@@ -2582,7 +2636,7 @@ function handleIncomingFiles(list) {
     const targets = sendTargets.value.slice();
     (async () => {
       for (const p of targets) {
-        const r = await directSendFiles(p, arr, { manual: true });
+        const r = await directSendFiles(p, arr);
         if (!r.allOk) break;   // 失败中断, 避免连续弹出多个配对框/长时间挂起
       }
     })();
@@ -2651,6 +2705,13 @@ function onPaste(e) {
     }
   }
   if (files.length) {
+    const inComposer = !!(e.target && e.target.closest && e.target.closest(".tx-input"));
+    if (!inComposer) {
+      // 昵称/搜索/日志/配对码等输入框粘贴文件不能偷偷上传或直发
+      e.preventDefault();
+      showToast("请在消息输入框粘贴文件", "error");
+      return;
+    }
     if (filesPageActive()) handleFiles(files); else handleIncomingFiles(files);
     return;
   }
@@ -3041,6 +3102,8 @@ function shareUpload(u) {
 }
 function locateFile(name) {
   if (!name) return;
+  // 从聊天/文件卡定位时先退出搜索, 否则过滤列表里找不到目标会静默失败
+  fileQuery.value = "";
   const idx = sortedFiles.value.findIndex(f => f.name === name);
   if (idx >= 0) currentPage.value = Math.floor(idx / PAGE_SIZE) + 1;
   openFilePanel();
@@ -3259,6 +3322,13 @@ const peersSorted = computed(() => {
     (b.last_seen || 0) - (a.last_seen || 0)
   );
   return arr;
+});
+// 只剩一台设备时多选没有意义: 自动退出, 清掉已不在列表里的目标
+watch(() => peersSorted.value.length, (n) => {
+  if (n > 1 || !multiSelectMode.value) return;
+  multiSelectMode.value = false;
+  const alive = new Set(peersSorted.value.map((p) => p.id));
+  sendTargets.value = sendTargets.value.filter((t) => alive.has(t.id)).slice(0, n);
 });
 function isFavPeer(p) { return !!(p && peerFavs.value.has(p.id)); }
 /* Snapdrop 风格雷达: 最多 6 个点, 位置固定且稳定, 不随刷新乱跳 */
@@ -3527,7 +3597,7 @@ async function directSendFiles(p, files, opts = {}) {
   showToast(`正在发送 ${list.length} 个文件到 ${p.nickname || "设备"}…`);
   try {
     for (const f of list) {
-      if (!opts.manual && sendTarget.value && sendTarget.value.id !== p.id) break;   // 目标已切换; 手动发送不绑定目标
+      if (!opts.manual && !sendTargets.value.some((t) => t.id === p.id)) break;   // 目标已切走/离线; 手动发送不绑定目标
       const rel = f.webkitRelativePath || f.name;
       try {
         await new Promise((resolve, reject) => {
@@ -3652,6 +3722,12 @@ const radarScanning = ref(false);
 const contextMenu = ref(null);
 function closeContextMenu() { contextMenu.value = null; }
 function onContextMenu(e) {
+  // 悬浮扫码球是独立 pet 窗: 右键弹原生双项菜单(打开共享文件夹 / 复制访问地址), 不再复用主窗菜单
+  if (isQrPetWindow) {
+    e.preventDefault();
+    if (!petUploading.value) tauriInvoke("show_pet_menu_cmd").catch(() => {});
+    return;
+  }
   if (!isDesktop) return;   // 浏览器保留原生菜单
   const t = e.target;
   if (t && t.closest && t.closest("input,textarea,[contenteditable='true']")) return;
@@ -4193,6 +4269,8 @@ const chatCovered = computed(() => {
 function markChatSeen() {
   if (chatCovered.value) return;
   if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+  // 上翻历史时即使窗口重新获得焦点也不能把未看的新消息清零
+  if (!atBottom.value) return;
   setSeenToLatest();
 }
 watch([unread, view], () => {
@@ -4394,6 +4472,7 @@ function clearChatDisplay() {
   // 清空后 loadChat 永远不来, 只设标记会表现为"点了清空没反应"(轮询时代的回归)
   chatMsgs.value = [];
   directReceipts.value = [];
+  remoteFiles.value = [];
   showToast("已清空数据（不影响其他设备与服务端记录）");
 }
 let loadingChat = false;
@@ -4658,11 +4737,14 @@ async function sendChat() {
       setTimeout(scrollChats, 150);
       setTimeout(scrollChats, 450);
     } else {
-      if (!chatInput.value) chatInput.value = text;   // 失败回填
+      // 请求期间用户可能已输入下一条: 原草稿不能因为输入框非空就永久丢失
+      if (!chatInput.value.trim()) chatInput.value = text;
+      else chatInput.value = text + "\n" + chatInput.value;
       showToast(d.error || "发送失败", "error");
     }
   } catch (e) {
-    if (!chatInput.value) chatInput.value = text;
+    if (!chatInput.value.trim()) chatInput.value = text;
+    else chatInput.value = text + "\n" + chatInput.value;
     showToast("发送失败", "error");
   } finally {
     sending.value = false;
@@ -4918,6 +5000,68 @@ function stopPolling() {
   wsLiveState = null;   // 计时器已被清空: 下次 applyWsMode 必须重新排程
 }
 onMounted(() => {
+  // 悬浮球: OS 原生文件拖入 + 进度/复制反馈事件(仅 pet 窗注册)
+  if (isQrPetWindow) {
+    (async () => {
+      try {
+        petDragUnlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
+          const p = event.payload;
+          if (p.type === "enter" || p.type === "over") {
+            if (!petUploading.value) { petDropActive.value = true; petUploadError.value = ""; }
+            return;
+          }
+          if (p.type === "leave") { petDropActive.value = false; return; }
+          if (p.type !== "drop") return;
+          petDropActive.value = false;
+          if (!p.paths || !p.paths.length || petUploading.value) return;
+          petUploading.value = true;
+          petUploadPct.value = 0;
+          petUploadDone.value = false;
+          petUploadError.value = "";
+          clearTimeout(petUploadTimer);
+          try {
+            const d = await tauriInvoke("pet_upload_paths_cmd", { paths: p.paths, uploader: curNick.value });
+            if (d && d.ok) {
+              clearTimeout(petUploadTimer);
+              petUploadDone.value = true;
+              petUploadTimer = setTimeout(() => { petUploadDone.value = false; }, 1800);
+            } else {
+              petUploadError.value = (d && d.error) || "上传失败";
+              clearTimeout(petUploadTimer);
+              petUploadTimer = setTimeout(() => { petUploadError.value = ""; }, 3500);
+            }
+          } catch (err) {
+            petUploadError.value = "上传失败";
+            clearTimeout(petUploadTimer);
+            petUploadTimer = setTimeout(() => { petUploadError.value = ""; }, 3500);
+          } finally {
+            petUploading.value = false;
+          }
+        });
+      } catch (e) {}
+      try {
+        petProgressUnlisten = await listen("pet-upload-progress", (ev) => {
+          const d = ev.payload || {};
+          if (Number.isFinite(d.pct)) petUploadPct.value = Math.max(0, Math.min(100, d.pct));
+        });
+      } catch (e) {}
+      try {
+        petCopyUnlisten = await listen("pet-address-copied", () => {
+          petCopied.value = true;
+          clearTimeout(petCopiedTimer);
+          petCopiedTimer = setTimeout(() => { petCopied.value = false; }, 1200);
+        });
+      } catch (e) {}
+    })();
+  }
+  if (!isQrPetWindow) {
+    try {
+      listen("app-toast", (ev) => {
+        const d = ev.payload || {};
+        if (d.message) showToast(d.message, d.type === "error" ? "error" : "success");
+      }).then((un) => { appToastUnlisten = un; }).catch(() => {});
+    } catch (e) {}
+  }
   if (PREVIEW_MOBILE) {
     const tab = _previewQ.get("tab");
     if (tab) setMobileTab(tab);
@@ -5273,7 +5417,13 @@ onUnmounted(() => {
   clearInterval(wsWatchdogTimer);
   clearTimeout(filesThrottleTimer);
   document.body.style.overflow = "";
-  stopIntroSpy();
+  // Intro 自己负责 stopIntroSpy; App 这里没有该函数(旧调用会抛错并中断后续清理)
+  try { petDragUnlisten?.(); } catch (e) {}
+  try { petProgressUnlisten?.(); } catch (e) {}
+  try { petCopyUnlisten?.(); } catch (e) {}
+  try { appToastUnlisten?.(); } catch (e) {}
+  clearTimeout(petCopiedTimer);
+  clearTimeout(petUploadTimer);
   closeWs(false);
   stopPolling();
 });
@@ -5346,6 +5496,57 @@ async function clearLogs() {
   }
 }
 
+/* 诊断/日志导出: 保存对话框由 dialog 插件按需加载, 不进入首屏 chunk */
+const exportingDiag = ref(false);
+const exportingLogs = ref(false);
+function exportStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+}
+async function exportDiagnostics() {
+  if (!isRealDesktop || exportingDiag.value) return;
+  try {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({
+      title: "保存诊断包",
+      defaultPath: `CC-Flash-diagnostics-${exportStamp()}.zip`,
+      filters: [{ name: "ZIP 诊断包", extensions: ["zip"] }],
+    });
+    if (!path) return;
+    exportingDiag.value = true;
+    const d = await tauriInvoke("export_diagnostics_cmd", { path });
+    if (d && d.ok) showToast(`诊断包已导出 · ${fmtSize(d.bytes || 0)}`);
+    else showToast((d && d.error) || "诊断包导出失败", "error");
+  } catch (e) {
+    showToast("诊断包导出失败", "error");
+  } finally {
+    exportingDiag.value = false;
+  }
+}
+async function exportLogs() {
+  if (!isRealDesktop || exportingLogs.value) return;
+  if (!logs.value.length) { showToast("暂无日志可导出", "error"); return; }
+  try {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({
+      title: "导出日志",
+      defaultPath: `CC-Flash-${exportStamp()}.log`,
+      filters: [{ name: "日志文件", extensions: ["log"] }],
+    });
+    if (!path) return;
+    exportingLogs.value = true;
+    const text = logs.value.map((e) => `${e.ts} [${lvlName(e.level)}] ${e.loc} - ${e.msg}`).join("\n") + "\n";
+    const d = await tauriInvoke("save_text_file_cmd", { path, content: text });
+    if (d && d.ok) showToast(`日志已导出 · ${logs.value.length} 条`);
+    else showToast((d && d.error) || "日志导出失败", "error");
+  } catch (e) {
+    showToast("日志导出失败", "error");
+  } finally {
+    exportingLogs.value = false;
+  }
+}
+
 /* ---------- 版本更新(桌面端): 检查 → 弹框 → 浏览器下载 ---------- */
 const showUpdate = ref(false);
 const updateInfo = ref(null);      // { latest, notes, url }
@@ -5358,15 +5559,17 @@ function lastCheckedAt() {
 }
 function curVersion() { return appVersion.value || APP_VERSION_FALLBACK; }
 async function checkUpdate(manual = false) {
-  // 仅真实桌面检查更新: Android 的「前往下载」走 xdg-open 必失败, 弹框是死路;
-  // 手动点击时给反馈, 不做哑巴按钮
+  // 桌面端检查 GitHub Release; 移动壳没有静默安装通道, 手动点击直接打开下载页
   if (!isRealDesktop) {
-    if (manual) showToast("请在电脑端检查更新（手机端请到 Releases 页按机型下载 APK）", "error");
+    if (manual) {
+      showToast("正在打开下载页，请选择对应安装包");
+      openExternal(RELEASES_PAGE, true);
+    }
     return;
   }
   if (checkingUpdate.value) return;
   checkingUpdate.value = true;
-  const rel = await fetchLatestRelease();
+  const rel = await fetchLatestRelease(manual);
   checkingUpdate.value = false;
   if (!rel) {
     // 失败不写 24h 频控: 开机瞬间 Wi-Fi 未就绪的一次抖动不应导致一整天不再检查
@@ -5648,7 +5851,7 @@ async function refreshStatus() {
               <div>
                 <div class="m-kicker">UDP / 53318</div>
                 <h1>设备</h1>
-                <div class="m-sub">{{ peers.length + 1 }} DEVICES · SAME SUBNET</div>
+                <div class="m-sub">{{ peers.length }} DEVICES · SAME SUBNET</div>
               </div>
               <button class="m-head-act" @click="historyOpen = true">HISTORY</button>
             </div>
@@ -5700,7 +5903,7 @@ async function refreshStatus() {
             </div>
             </div>
             <div v-if="mobileTabbed" class="m-dev-stats">
-              <div><small>DEVICES</small><b>{{ peers.length + 1 }}</b></div>
+              <div><small>DEVICES</small><b>{{ peers.length }}</b></div>
               <div><small>PORT</small><b>{{ port }}</b></div>
               <div><small>LINK</small><b>{{ running ? "ON" : "OFF" }}</b></div>
             </div>
@@ -5709,20 +5912,14 @@ async function refreshStatus() {
               <button class="primary" @click="openManualSend">手动发送</button>
             </div>
             <div class="tx-devices-sub"><span>附近设备</span>
-              <button class="tx-devices-multi" :class="{ on: multiSelectMode }"
-                      :title="multiSelectMode ? '完成多选' : '多选附近设备，同时发送'"
-                      @click="toggleMultiSelect">{{ multiSelectMode ? "完成" : "多选" }}</button>
+              <button v-if="peersSorted.length > 1" class="tx-devices-multi" :class="{ on: multiSelectMode }"
+                      :title="multiSelectMode ? '取消多选' : '多选附近设备，同时发送'"
+                      @click="toggleMultiSelect">{{ multiSelectMode ? "取消" : "多选" }}</button>
               <button class="tx-devices-scan" :disabled="!running" :title="running ? '主动扫描（发送 UDP probe）' : '服务未启动'" aria-label="重新扫描" @click="refreshDiscover">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7L21 16"/><path d="M21 21v-5h-5"/></svg>
               </button>
             </div>
             <div class="tx-devices-list">
-              <button v-if="mobileTabbed" type="button" class="tx-device tx-device-self" :class="{ on: !sendTargets.length }"
-                      :aria-pressed="!sendTargets.length" @click="selectSendTarget(null)">
-                <span class="m-dev-st online"></span>
-                <span class="m-dev-nm"><b>{{ curNick }}</b><small>THIS DEVICE · SELF</small></span>
-                <span class="m-rssi" aria-hidden="true"><i class="on" style="height:4px"></i><i class="on" style="height:7px"></i><i class="on" style="height:9px"></i><i class="on" style="height:12px"></i></span>
-              </button>
               <div v-for="p in peersSorted" :key="p.id" class="tx-device" :class="{ on: isPeerSelected(p), busy: p.busy, multi: multiSelectMode }">
                 <button class="tx-device-pick" :title="'发送到 ' + (p.nickname || '设备')"
                         :aria-pressed="multiSelectMode ? isPeerSelected(p) : undefined" @click="pickPeer(p)">
@@ -5747,7 +5944,8 @@ async function refreshStatus() {
                           @click.stop="toggleFavPeer($event, p)">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.2 5.9-.9z"/></svg>
                   </button>
-                  <button class="tx-device-history" title="传输历史" aria-label="传输历史" @click.stop="historyOpen = true">
+                  <button class="tx-device-history" :title="'与 ' + (p.nickname || '设备') + '的传输历史'"
+                          :aria-label="'查看与 ' + (p.nickname || '设备') + '的传输历史'" @click.stop="openPeerHistory(p)">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.7-6.2"/><path d="M3 4v5h5"/><path d="M12 7.5V12l3 2"/></svg>
                   </button>
                 </div>
@@ -6079,6 +6277,13 @@ async function refreshStatus() {
                 <button class="tx-files-close" :title="isNarrow ? '关闭' : '收起'" @click="isNarrow ? fileSheetOpen = false : drawerCollapsed = true">{{ isNarrow ? "完成" : "›" }}</button>
               </span>
             </div>
+            <div class="tx-files-search" :class="{ on: !!fileQuery.trim() }">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg>
+              <input v-model="fileQuery" type="search" placeholder="搜索文件名或上传者" aria-label="搜索文件"
+                     autocomplete="off" spellcheck="false" @keydown.esc="fileQuery = ''" />
+              <span v-if="fileQuery.trim()" class="tx-search-count">{{ filteredFiles.length }}/{{ allFiles.length }}</span>
+              <button v-if="fileQuery" class="tx-search-clear" title="清除搜索" aria-label="清除搜索" @click="fileQuery = ''">✕</button>
+            </div>
             <div class="tx-files-tools">
               <div class="tx-sort">
                 <button :class="{ on: sortBy === 'time' }" @click="setSort('time')">最新</button>
@@ -6092,9 +6297,16 @@ async function refreshStatus() {
             </div>
             <div class="tx-files-list">
               <div v-if="!pageFiles.length" class="tx-files-empty">
-                <div aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg></div>
-                <p>还没有文件</p>
-                <button class="btn btn-primary" @click="pickFiles(true)">上传文件</button>
+                <template v-if="fileQuery.trim()">
+                  <div aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg></div>
+                  <p>没有匹配的文件</p>
+                  <button class="btn btn-ghost" @click="fileQuery = ''">清除搜索</button>
+                </template>
+                <template v-else>
+                  <div aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg></div>
+                  <p>还没有文件</p>
+                  <button class="btn btn-primary" @click="pickFiles(true)">上传文件</button>
+                </template>
               </div>
               <div v-for="(f, idx) in pageFiles" :key="f.name" class="tx-frow" :class="{ located: locatedName === f.name }" :data-file="f.name" @dblclick="rowDblClick($event, f)">
                 <span v-if="mobileTabbed" class="m-file-no">{{ String(idx + 1).padStart(2, "0") }}</span>
@@ -6109,9 +6321,9 @@ async function refreshStatus() {
                 </div>
                 <div class="tx-finfo2" :class="{ 'mobile-tap': isNarrow }"
                      :role="isNarrow ? 'button' : undefined" :tabindex="isNarrow ? 0 : undefined"
-                     @click="isNarrow && openFileMenu(f.name)"
-                     @keydown.enter.prevent="isNarrow && openFileMenu(f.name)"
-                     @keydown.space.prevent="isNarrow && openFileMenu(f.name)">
+                     @click="mobileFileSelect ? toggleSel(f.name) : (isNarrow && openFileMenu(f.name))"
+                     @keydown.enter.prevent="mobileFileSelect ? toggleSel(f.name) : (isNarrow && openFileMenu(f.name))"
+                     @keydown.space.prevent="mobileFileSelect ? toggleSel(f.name) : (isNarrow && openFileMenu(f.name))">
                   <div class="tx-fname2" :title="f.name">{{ f.name }}</div>
                   <div class="tx-fmeta2">{{ fmtSize(f.size) }} · {{ fmtTime(f.modified) }}</div>
                   <div v-if="mobileTabbed" class="m-pbar" aria-hidden="true"><i style="width:100%"></i></div>
@@ -6231,6 +6443,8 @@ async function refreshStatus() {
               <input v-model="logQuery" placeholder="搜索日志" spellcheck="false" @keydown.esc="logQuery = ''" />
               <button v-if="logQuery" class="log-search-clear" title="清除搜索" aria-label="清除搜索" @click="logQuery = ''">✕</button>
             </div>
+            <button class="btn btn-ghost" style="height:28px" :disabled="exportingLogs" title="导出完整原始日志"
+                    @click="exportLogs">{{ exportingLogs ? "导出中…" : "导出日志" }}</button>
             <button class="btn btn-ghost" style="height:28px" title="清空服务日志显示（不影响服务运行）"
                     @click="clearLogs">清空日志</button>
           </div>
@@ -6353,9 +6567,19 @@ async function refreshStatus() {
               </div>
             </div>
           </div>
-          <div class="m-version">
-            <span>CC FLASH / LOCAL NODE</span>
-            <b>v{{ curVersion() }}</b>
+          <div class="m-about">
+            <div class="m-about-head">
+              <h2>关于</h2>
+              <span class="m-about-kicker">CC FLASH / LOCAL NODE</span>
+            </div>
+            <p class="m-about-text">CC Flash（曹操是快😂）—— 局域网文件互传工具：电脑启动服务，手机/平板/电脑浏览器打开地址即可上传/下载/分享/聊天。</p>
+            <div class="m-about-actions">
+              <span class="ver-chip">当前版本 v{{ curVersion() }}</span>
+              <button class="m-update-btn" :disabled="checkingUpdate" @click="checkUpdate(true)">
+                {{ checkingUpdate ? "检查中…" : "检查更新" }}
+              </button>
+            </div>
+            <p class="m-copyright"><span>Copyright © 2026-Present 李航坤.</span><span>All Rights Reserved.</span></p>
           </div>
         </div>
         <template v-if="isRealDesktop">
@@ -6385,6 +6609,19 @@ async function refreshStatus() {
           </div>
           <div class="sub-hint">跟随系统随系统外观自动切换；即时生效并自动记忆</div>
         </div>
+        <!-- 诊断与支持: 一键带走版本/脱敏配置/日志/诊断文件 -->
+        <div class="card svc-support">
+          <h3>诊断与支持</h3>
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-title">导出诊断包</div>
+              <div class="setting-desc">版本、系统、脱敏配置、最近日志与 pref-pet-dbg-* 诊断文件；不含聊天内容和访问令牌。</div>
+            </div>
+            <button class="btn btn-ghost" style="height:28px" :disabled="exportingDiag" @click="exportDiagnostics">
+              {{ exportingDiag ? "生成中…" : "导出诊断" }}
+            </button>
+          </div>
+        </div>
         <!-- 关于 -->
         <div class="card svc-about">
           <h3>关于</h3>
@@ -6410,7 +6647,8 @@ async function refreshStatus() {
       <button class="mtab" :class="{ on: mobileTab === 'send' }" role="tab" title="发送"
               :aria-selected="mobileTab === 'send'" @click="setMobileTab('send')">
         <span class="mtab-label">发送</span>
-        <i v-if="unread > 0" class="mtab-dot unread">{{ unread > 99 ? "99+" : unread }}</i>
+        <i v-if="unread > 0" class="mtab-dot unread" :title="`${unread} 条未读消息`"
+           :aria-label="`${unread} 条未读消息`">{{ unread > 99 ? "99+" : unread }}</i>
       </button>
       <button class="mtab" :class="{ on: mobileTab === 'devices' }" role="tab" title="设备"
               :aria-selected="mobileTab === 'devices'" @click="setMobileTab('devices')">
@@ -6419,6 +6657,7 @@ async function refreshStatus() {
       <button class="mtab" :class="{ on: mobileTab === 'files' }" role="tab" title="文件"
               :aria-selected="mobileTab === 'files'" @click="setMobileTab('files')">
         <span class="mtab-label">文件</span>
+        <i v-if="fileDot" class="mtab-dot file" title="有新文件" aria-label="有新文件"></i>
       </button>
       <button class="mtab" :class="{ on: mobileTab === 'config' }" role="tab" title="设置"
               :aria-selected="mobileTab === 'config'" @click="setMobileTab('config')">
@@ -6464,6 +6703,18 @@ async function refreshStatus() {
           </svg>
         </span>
       </div>
+      <div v-if="petDropActive || petUploading || petUploadDone || petUploadError" class="qr-pet-drop"
+           :class="{ active: petDropActive, busy: petUploading, done: petUploadDone, err: !!petUploadError }"
+           :style="{ '--pct': petUploadPct + '%' }" aria-live="polite">
+        <i v-if="petUploading" class="qr-pet-drop-arc" aria-hidden="true"></i>
+        <svg v-if="petUploadDone" class="qr-pet-drop-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        <svg v-else-if="petUploadError" class="qr-pet-drop-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 8v5"/><circle cx="12" cy="16.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="9"/></svg>
+        <svg v-else class="qr-pet-drop-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+        <b>{{ petUploadError ? "失败" : petUploadDone ? "已上传" : petUploading ? Math.round(petUploadPct) + "%" : "松手" }}</b>
+        <span v-if="petUploadError" class="qr-pet-drop-err">{{ petUploadError.slice(0, 22) }}</span>
+        <span v-else-if="petDropActive && !petUploading">到本机共享</span>
+      </div>
+      <div v-if="petCopied" class="qr-pet-copied" role="status">已复制</div>
       <div class="qr-pet-panel">
         <div class="qr-pet-head"><span class="qr-pet-panel-dot" v-if="petNotify" aria-hidden="true"></span>{{ running ? (qrData ? "浏览器扫一扫" : "安全模式 · 仅本机") : "服务已停止" }}</div>
         <div class="qr-pet-view">
@@ -6777,7 +7028,8 @@ async function refreshStatus() {
         <div>
           <h4>传输历史</h4>
           <p class="history-sub">
-            {{ historyQuery.trim() ? `匹配 ${filteredHistory.length} 条` : `最近 ${transferHistory.length} 条直发记录` }}
+            <template v-if="historyPeer">与 {{ historyPeer.name }} · {{ filteredHistory.length }} 条</template>
+            <template v-else>{{ historyQuery.trim() ? `匹配 ${filteredHistory.length} 条` : `最近 ${transferHistory.length} 条直发记录` }}</template>
           </p>
         </div>
         <button class="history-close" title="关闭" aria-label="关闭" @click="historyOpen = false">
@@ -6785,7 +7037,7 @@ async function refreshStatus() {
         </button>
       </div>
       <div class="history-tools">
-        <input class="history-search" v-model="historyQuery" placeholder="搜索设备、内容或类型" aria-label="搜索传输历史"
+        <input class="history-search" v-model="historyQuery" :placeholder="historyPeer ? '搜索这台设备的记录' : '搜索设备、内容或类型'" aria-label="搜索传输历史"
                autocomplete="off" spellcheck="false" @keydown.esc="historyQuery = ''" />
         <button class="history-clear" :disabled="!transferHistory.length" @click="clearTransferHistory">清空</button>
       </div>
@@ -6794,8 +7046,8 @@ async function refreshStatus() {
         <small>给附近设备发消息或文件后会记录在这里</small>
       </div>
       <div v-else-if="!filteredHistory.length" class="history-empty">
-        没有匹配的记录
-        <small>换个关键词试试</small>
+        {{ historyPeer ? "这台设备还没有传输记录" : "没有匹配的记录" }}
+        <small>{{ historyPeer ? "给它发消息或文件后会记录在这里" : "换个关键词试试" }}</small>
       </div>
       <div v-else class="history-list">
         <div v-for="h in filteredHistory" :key="h.id" class="history-row">
@@ -6846,6 +7098,7 @@ async function refreshStatus() {
         <div class="upd-row"><span class="upd-label">当前版本</span><span class="ver-chip">v{{ curVersion() }}</span></div>
         <div class="upd-row"><span class="upd-label">最新版本</span><span class="ver-chip new">{{ updateInfo.latest }}</span></div>
       </div>
+      <p v-if="updateInfo.prerelease" class="upd-warn">这是未签名/预发布版本，仅在手动检查中出现；请确认来源后再下载。</p>
       <pre v-if="updateInfo.notes" class="upd-notes">{{ updateInfo.notes }}</pre>
       <div class="dialog-actions">
         <button class="btn btn-ghost" @click="showUpdate = false">稍后再说</button>

@@ -43,7 +43,12 @@ export default defineConfig({
     target: "es2021",
     // ≤200KB 的图片直接内联为 base64: 失联提示图必须在断网前就在页面内存里, 不能靠断连后的请求
     assetsInlineLimit: 200 * 1024,
-    minify: "esbuild",
+    // Terser 二次压缩比 esbuild 略彻底; passes 2 对 Vue 模板产物更省
+    minify: "terser",
+    terserOptions: {
+      compress: { passes: 2, drop_console: true, drop_debugger: true },
+      format: { comments: false },
+    },
     // lightningcss 的 CSS 压缩比 esbuild 更彻底(不改变选择器语义)
     cssMinify: "lightningcss",
     sourcemap: false,

@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CC Flash · 桌面增强设计稿</title>
+<style>
+:root{
+  --bg:#080a0e;
+  --bg2:#0d1016;
+  --panel:#121620;
+  --panel2:#171c28;
+  --line:rgba(255,255,255,.09);
+  --line2:rgba(255,255,255,.15);
+  --ink:#edf0f7;
+  --muted:#9aa4b8;
+  --faint:#697386;
+  --violet:#8d7bff;
+  --violet2:#b4a8ff;
+  --mint:#62d7ac;
+  --mint2:#a2f0d1;
+  --amber:#ffc45c;
+  --coral:#ff8d7a;
+  --mono:"SF Mono",Menlo,Consolas,"Cascadia Code",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+  --max:1240px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:92px}
+body{
+  background:
+    radial-gradient(900px 520px at 78% -10%,rgba(141,123,255,.18),transparent 62%),
+    radial-gradient(700px 420px at 8% 8%,rgba(98,215,172,.10),transparent 58%),
+    var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(141,123,255,.4);color:#fff}
+a{color:inherit;text-decoration:none}
+img,svg{display:block}
+.readbar{position:fixed;inset:0 0 auto;height:2px;z-index:100;background:transparent}
+.readbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--mint),var(--violet),var(--amber))}
+.topbar{
+  position:sticky;top:0;z-index:90;display:flex;align-items:center;gap:22px;
+  height:66px;padding:0 max(22px,calc((100vw - var(--max))/2));
+  border-bottom:1px solid var(--line);
+  background:rgba(8,10,14,.72);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+}
+.brand{display:flex;align-items:center;gap:10px;flex-shrink:0;font:600 12px/1 var(--mono);letter-spacing:.12em}
+.brandmark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--violet),#5d4cd6);display:grid;place-items:center;font:800 10px/1 var(--mono);color:#fff;box-shadow:0 0 22px rgba(141,123,255,.25)}
+.brand small{color:var(--faint);font-weight:400;letter-spacing:.02em}
+.nav{display:flex;gap:2px;margin-left:auto;overflow:auto;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav a{padding:8px 11px;border-radius:7px;font:11px/1 var(--mono);color:var(--muted);white-space:nowrap;transition:background .15s,color .15s}
+.nav a:hover{background:rgba(255,255,255,.06);color:var(--ink)}
+.nav a.active{background:rgba(141,123,255,.14);color:var(--violet2)}
+.state{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid rgba(98,215,172,.26);border-radius:999px;background:rgba(98,215,172,.07);font:10px/1 var(--mono);color:var(--mint)}
+.state i{width:5px;height:5px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px rgba(98,215,172,.09)}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 max(22px,calc((100vw - var(--max))/2))}
+.hero{padding:82px 0 70px;display:grid;grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr);gap:52px;align-items:center}
+.eyebrow{display:flex;align-items:center;gap:10px;font:10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--mint)}
+.eyebrow:before{content:"";width:30px;height:1px;background:var(--mint)}
+h1{margin:20px 0 18px;font-size:clamp(44px,5vw,72px);line-height:1.05;letter-spacing:-.055em;font-weight:650}
+h1 em{font-style:normal;color:var(--violet2);display:block;font-size:.56em;margin-top:8px;letter-spacing:-.045em;white-space:nowrap}
+.lede{max-width:500px;color:var(--muted);font-size:14.5px;line-height:1.9}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:24px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.025);font:10px/1 var(--mono);color:var(--muted)}
+.chip b{color:var(--ink);font-weight:600}
+.chip .dot{width:5px;height:5px;border-radius:50%;background:var(--violet)}
+.hero-note{margin-top:26px;display:flex;gap:10px;align-items:flex-start;max-width:510px;color:var(--faint);font-size:11.5px;line-height:1.7}
+.hero-note b{flex:0 0 auto;color:var(--amber);font:600 9px/1.7 var(--mono);letter-spacing:.06em}
+/* hero app canvas */
+.canvas{position:relative;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:linear-gradient(180deg,rgba(24,28,40,.94),rgba(10,12,18,.98));box-shadow:0 35px 80px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);padding:10px;min-height:440px}
+.canvas-head{height:30px;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--line);color:var(--faint);font:9px/1 var(--mono)}
+.dot{width:6px;height:6px;border-radius:50%;background:#3b4556}
+.canvas-head span{margin-left:4px}
+.canvas-body{position:relative;display:grid;grid-template-columns:140px minmax(0,1fr);height:390px;overflow:hidden;border-radius:0 0 12px 12px}
+.mini-side{padding:14px 10px;border-right:1px solid var(--line);background:rgba(9,11,16,.5)}
+.mini-brand{font:600 10px/1.2 var(--mono);color:var(--mint);letter-spacing:.04em;margin-bottom:16px}
+.mini-row{display:flex;align-items:center;gap:6px;padding:7px 7px;border-radius:6px;color:var(--faint);font:9px/1 var(--mono);margin-bottom:3px}
+.mini-row.on{background:rgba(141,123,255,.12);color:var(--violet2)}
+.mini-row b{width:10px;height:10px;border:1px solid currentColor;border-radius:3px;display:block}
+.mini-main{padding:18px 20px;min-width:0;background:rgba(12,14,21,.32)}
+.mini-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.mini-top h3{font-size:18px;letter-spacing:-.02em}
+.mini-top p{font:8px/1.4 var(--mono);color:var(--faint);margin-top:4px}
+.mini-pill{font:8px/1 var(--mono);color:var(--mint);padding:4px 7px;border:1px solid rgba(98,215,172,.25);border-radius:999px}
+.search-mock{margin-top:16px;display:flex;align-items:center;gap:7px;height:32px;padding:0 9px;border:1px solid rgba(141,123,255,.35);border-radius:7px;background:rgba(255,255,255,.035);box-shadow:0 0 0 3px rgba(141,123,255,.06)}
+.search-mock svg{width:12px;height:12px;color:var(--violet2)}
+.search-mock span{font:9px/1 var(--mono);color:var(--ink)}
+.search-mock code{margin-left:auto;font:8px/1 var(--mono);color:var(--violet2);background:rgba(141,123,255,.12);padding:3px 5px;border-radius:3px}
+.search-mock em{font:8px/1 var(--mono);color:var(--faint);font-style:normal}
+.files{margin-top:12px;border-top:1px solid var(--line)}
+.filerow{display:flex;align-items:center;gap:9px;padding:9px 2px;border-bottom:1px solid rgba(255,255,255,.055)}
+.filerow .ft{width:28px;height:30px;border-radius:4px;display:grid;place-items:center;font:700 7px/1 var(--mono);background:#302747;color:#d9d0ff}
+.filerow .ft.pdf{background:#4b2929;color:#ffb9aa}
+.filerow .ft.img{background:#1c3b31;color:var(--mint2)}
+.filerow .nm{min-width:0}
+.filerow .nm b{display:block;font:500 10px/1.4 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:330px}
+.filerow .nm small{display:block;font:8px/1.4 var(--mono);color:var(--faint)}
+.filerow .ok{margin-left:auto;width:12px;height:12px;border-radius:3px;background:var(--mint);color:#0c1b15;font:700 8px/12px var(--mono);text-align:center}
+/* floating layer */
+.float-ball{position:absolute;right:18px;bottom:18px;width:76px;height:76px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.08),0 16px 34px rgba(0,0,0,.45);z-index:3}
+.float-ball svg{width:32px;height:32px}
+.float-ball:after{content:"";position:absolute;right:-2px;top:-2px;width:12px;height:12px;border-radius:50%;background:var(--amber);border:2px solid #111420}
+.ball-label{position:absolute;right:100px;bottom:29px;white-space:nowrap;padding:5px 8px;border:1px solid var(--line2);border-radius:5px;background:rgba(12,14,20,.88);font:8px/1 var(--mono);color:var(--muted)}
+.ball-label b{color:var(--amber);font-weight:500}
+.mini-menu{position:absolute;right:106px;bottom:88px;width:150px;padding:4px;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:rgba(23,27,38,.98);box-shadow:0 16px 34px rgba(0,0,0,.38);z-index:4}
+.mini-menu button{display:flex;align-items:center;width:100%;height:25px;padding:0 8px;border:0;border-radius:4px;background:transparent;color:var(--ink);font:9px/1 var(--sans);text-align:left}
+.mini-menu button:first-child{background:rgba(141,123,255,.17);color:var(--violet2)}
+.mini-menu button span{margin-left:auto;font:7px/1 var(--mono);color:var(--faint)}
+/* sections */
+section{padding:58px 0}
+.section-head{display:grid;grid-template-columns:90px minmax(0,1fr) minmax(250px,.55fr);gap:26px;align-items:end;padding-top:22px;border-top:1px solid var(--line);margin-bottom:30px}
+.sec-no{font:10px/1 var(--mono);letter-spacing:.12em;color:var(--faint);white-space:nowrap}
+.sec-kicker{display:block;margin-bottom:6px;font:9px/1 var(--mono);letter-spacing:.14em;color:var(--mint);text-transform:uppercase}
+h2{font-size:clamp(28px,3.3vw,40px);line-height:1.15;letter-spacing:-.04em;font-weight:620}
+.section-head p{justify-self:end;max-width:330px;color:var(--muted);font-size:12px;line-height:1.8}
+/* feature split */
+.feature{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:42px;align-items:center;padding:34px 0;border-top:1px solid var(--line)}
+.feature:first-of-type{border-top:0;padding-top:0}
+.feature.rev .copy{order:2}.feature.rev .visual{order:1}
+.kicker{display:flex;align-items:center;gap:8px;font:9.5px/1 var(--mono);letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+.kicker b{color:var(--violet2);font-weight:600}
+.kicker .badge{margin-left:auto;padding:4px 7px;border-radius:999px;background:rgba(98,215,172,.08);color:var(--mint);border:1px solid rgba(98,215,172,.18);text-transform:none;letter-spacing:0}
+.kicker .badge.p2{background:rgba(255,196,92,.08);color:var(--amber);border-color:rgba(255,196,92,.18)}
+.feature h3{margin:13px 0 9px;font-size:clamp(23px,2.6vw,32px);line-height:1.2;letter-spacing:-.035em;font-weight:600}
+.feature h3 small{display:inline;margin-left:10px;font-size:.45em;font-weight:400;color:var(--faint);letter-spacing:0}
+.copy p{color:var(--muted);font-size:12.5px;line-height:1.85;max-width:500px}
+.rules{list-style:none;margin-top:16px;border-top:1px solid var(--line)}
+.rules li{position:relative;padding:8px 0 8px 15px;border-bottom:1px solid rgba(255,255,255,.055);color:var(--muted);font-size:11.5px;line-height:1.65}
+.rules li:before{content:"";position:absolute;left:1px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--violet)}
+.rules b{color:var(--ink);font-weight:500}
+.okline{display:flex;gap:8px;align-items:flex-start;margin-top:13px;padding:9px 11px;border:1px solid rgba(98,215,172,.18);border-radius:6px;background:rgba(98,215,172,.055);color:var(--muted);font:10px/1.65 var(--mono)}
+.okline b{color:var(--mint);flex:0 0 auto}
+/* frames */
+.visual{min-width:0}
+.frame{border:1px solid rgba(255,255,255,.12);border-radius:13px;overflow:hidden;background:#0d1016;box-shadow:0 22px 48px rgba(0,0,0,.32)}
+.frame-bar{height:28px;display:flex;align-items:center;gap:5px;padding:0 10px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025);color:var(--faint);font:8px/1 var(--mono)}
+.frame-bar .dot{width:5px;height:5px}
+.frame-bar span{margin-left:4px}
+.frame-body{padding:18px;background-image:radial-gradient(circle at 72% 18%,rgba(141,123,255,.12),transparent 45%),linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:auto,28px 28px,28px 28px}
+.frame figcaption{margin-top:9px;color:var(--faint);font:9.5px/1.5 var(--mono);display:flex;gap:6px}
+.frame figcaption b{color:var(--violet2);font-weight:500;margin-right:6px}
+/* search feature visual */
+.search-stage{min-height:250px}
+.search-big{display:flex;align-items:center;gap:9px;height:38px;padding:0 11px;border:1px solid rgba(141,123,255,.40);border-radius:8px;background:rgba(255,255,255,.04);box-shadow:0 0 0 4px rgba(141,123,255,.07)}
+.search-big svg{width:14px;height:14px;color:var(--violet2)}
+.search-big span{font:11px/1 var(--mono);color:var(--ink)}
+.search-big em{margin-left:auto;font:9px/1 var(--mono);color:var(--faint);font-style:normal}
+.search-meta{display:flex;justify-content:space-between;margin:11px 1px 5px;font:9px/1 var(--mono);color:var(--faint)}
+.search-meta b{color:var(--amber);font-weight:500}
+.bigrow{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid rgba(255,255,255,.06)}
+.bigrow .t{width:31px;height:34px;border-radius:5px;display:grid;place-items:center;background:#302747;color:#ddd4ff;font:700 8px/1 var(--mono)}
+.bigrow .t.pdf{background:#4b2929;color:#ffb8a8}
+.bigrow .t.png{background:#1c3b31;color:var(--mint2)}
+.bigrow b{display:block;font:500 11px/1.4 var(--mono);color:var(--ink);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bigrow small{display:block;font:9px/1.4 var(--mono);color:var(--faint)}
+.bigrow .tick{margin-left:auto;width:14px;height:14px;border:1px solid rgba(98,215,172,.45);border-radius:3px;background:rgba(98,215,172,.12);color:var(--mint);font:700 8px/14px var(--mono);text-align:center}
+/* tray + menu visual */
+.shortcut-stage{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center;min-height:260px}
+.native-tray{padding:5px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:#1b202c;box-shadow:0 16px 36px rgba(0,0,0,.32);max-width:230px;margin-left:auto}
+.native-tray button{display:flex;align-items:center;width:100%;height:29px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--ink);font:10px/1 var(--sans);text-align:left}
+.native-tray button.on{background:rgba(141,123,255,.18);color:var(--violet2)}
+.native-tray button span{margin-left:auto;font:8px/1 var(--mono);color:var(--faint)}
+.native-tray hr{border:0;border-top:1px solid var(--line);margin:4px 5px}
+.ball-stage2{position:relative;display:flex;align-items:center;justify-content:center;min-height:220px}
+.orb2{width:74px;height:74px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.08)}
+.orb2 svg{width:32px;height:32px}
+.ballmenu2{position:absolute;left:50%;top:30px;margin-left:34px;width:170px;padding:4px;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#1b202c;box-shadow:0 16px 36px rgba(0,0,0,.35)}
+.ballmenu2 button{display:flex;width:100%;height:27px;padding:0 8px;border:0;border-radius:4px;background:transparent;color:var(--ink);font:9.5px/1 var(--sans);text-align:left;align-items:center}
+.ballmenu2 button:first-child{color:var(--violet2);background:rgba(141,123,255,.15)}
+.ballmenu2 button span{margin-left:auto;font:8px/1 var(--mono);color:var(--faint)}
+.old-note{position:absolute;bottom:6px;left:0;right:0;text-align:center;font:8px/1.5 var(--mono);color:var(--coral)}
+/* drag visual */
+.drag-stage{position:relative;min-height:270px;display:grid;place-items:center}
+.drag-ring{position:absolute;width:184px;height:184px;border:1px dashed rgba(255,196,92,.55);border-radius:50%;background:radial-gradient(circle,rgba(255,196,92,.08),transparent 66%)}
+.drag-ring:after{content:"";position:absolute;inset:18px;border:1px dashed rgba(141,123,255,.2);border-radius:50%}
+.drag-orb{position:relative;z-index:1;width:78px;height:78px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.08)}
+.drag-orb svg{width:34px;height:34px}
+.drag-tip{position:absolute;top:7px;left:50%;transform:translateX(-50%);font:9px/1.4 var(--mono);color:var(--amber);white-space:nowrap}
+.drag-pill{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);padding:6px 10px;border:1px solid rgba(255,196,92,.3);border-radius:5px;background:rgba(20,16,8,.82);font:9px/1 var(--mono);color:var(--amber);white-space:nowrap}
+.drag-progress{position:absolute;inset:-2px;border-radius:50%;background:conic-gradient(var(--mint) 0 62%,transparent 62%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 0);mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 0);transform:rotate(-90deg)}
+.drag-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
+.drag-steps div{padding:8px 9px;border:1px solid var(--line);border-radius:5px;background:rgba(255,255,255,.025)}
+.drag-steps b{display:block;font:600 9px/1.4 var(--mono);color:var(--violet2);margin-bottom:2px}
+.drag-steps span{display:block;font:8.5px/1.5 var(--mono);color:var(--faint)}
+/* support visual */
+.support-stage{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:245px}
+.support-card{padding:13px;border:1px solid var(--line2);border-radius:9px;background:rgba(255,255,255,.025)}
+.support-head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.support-ic{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:rgba(141,123,255,.14);color:var(--violet2)}
+.support-head b{display:block;font:600 10.5px/1.3 var(--sans)}
+.support-head small{display:block;font:8px/1.4 var(--mono);color:var(--faint)}
+.support-checks{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:9px 0}
+.support-checks span{padding:5px 6px;border:1px solid var(--line);border-radius:4px;font:8px/1.35 var(--mono);color:var(--muted)}
+.support-checks span:before{content:"✓";margin-right:4px;color:var(--mint)}
+.support-btn{display:flex;align-items:center;justify-content:center;height:29px;border:1px solid rgba(255,196,92,.38);border-radius:4px;background:rgba(255,196,92,.06);color:var(--amber);font:9px/1 var(--mono)}
+.support-note{margin-top:7px;text-align:center;font:7.5px/1.5 var(--mono);color:var(--faint)}
+.log-list{margin-top:2px;border-top:1px solid var(--line)}
+.log-line{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font:8px/1.4 var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden}
+.log-line i{color:var(--mint);font-style:normal}
+.log-line em{color:var(--amber);font-style:normal}
+.log-export2{display:flex;justify-content:space-between;margin-top:8px;padding:5px 6px;border:1px solid rgba(98,215,172,.25);border-radius:4px;font:8px/1 var(--mono);color:var(--mint)}
+/* principle cards */
+.principles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0 8px}
+.principles div{padding:16px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.022)}
+.principles b{display:block;font:600 12px/1.4 var(--sans);margin-bottom:5px}
+.principles span{display:block;color:var(--faint);font-size:11px;line-height:1.65}
+/* table */
+.table{width:100%;border-collapse:collapse;margin-top:4px}
+.table th,.table td{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:11.5px;line-height:1.6}
+.table th{font:9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);background:rgba(255,255,255,.025)}
+.table td b{font-weight:500;color:var(--ink)}
+.tag{display:inline-block;padding:3px 6px;border-radius:4px;background:rgba(98,215,172,.09);border:1px solid rgba(98,215,172,.18);font:8px/1 var(--mono);color:var(--mint)}
+.tag.p2{background:rgba(255,196,92,.08);border-color:rgba(255,196,92,.18);color:var(--amber)}
+.table .time{white-space:nowrap;font:10px/1.5 var(--mono);color:var(--muted)}
+/* flow */
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.flow div{padding:12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.022)}
+.flow b{display:block;font:600 10px/1.4 var(--mono);color:var(--violet2);margin-bottom:3px}
+.flow span{display:block;font-size:10px;line-height:1.55;color:var(--faint)}
+/* boundary/notes */
+.note{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:13px 15px;border-left:2px solid var(--amber);background:rgba(255,196,92,.055);color:#d8c49c;font-size:11.5px;line-height:1.75}
+.note b{color:var(--amber);flex:0 0 auto}
+.boundary{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:16px}
+.boundary div{padding:13px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.022)}
+.boundary b{display:block;font:600 10px/1.4 var(--mono);color:var(--ink);margin-bottom:4px}
+.boundary span{display:block;color:var(--faint);font-size:10px;line-height:1.6}
+.footer{padding:34px 0 46px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;color:var(--faint);font:10px/1.7 var(--mono)}
+.footer b{color:var(--muted);font-weight:500}
+.top{position:fixed;right:20px;bottom:20px;z-index:60;width:34px;height:34px;border:1px solid var(--line2);border-radius:50%;background:rgba(18,22,32,.9);color:var(--muted);display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .2s}
+@media(max-width:1000px){
+  .hero{grid-template-columns:1fr;gap:30px;padding-top:52px}
+  .canvas{max-width:720px}
+  .section-head{grid-template-columns:70px 1fr}
+  .section-head p{grid-column:2;justify-self:start}
+  .feature{grid-template-columns:1fr;gap:22px}
+  .feature.rev .copy{order:1}.feature.rev .visual{order:2}
+}
+@media(max-width:720px){
+  .topbar{height:58px;padding:0 14px;gap:10px}.brand small,.state{display:none}.nav a{padding:7px 7px;font-size:10px}
+  .hero{padding:38px 0 34px}h1{font-size:42px}.lede{font-size:13px}
+  .canvas-body{grid-template-columns:100px minmax(0,1fr)}
+  .mini-side{padding:10px 7px}.mini-row{font-size:8px}
+  .mini-main{padding:12px}
+  .section-head{grid-template-columns:1fr;gap:7px;padding-top:17px}.section-head p{grid-column:1}
+  .feature{padding:27px 0}
+  .feature h3 small{display:block;margin:4px 0 0}
+  .shortcut-stage,.support-stage,.principles,.boundary{grid-template-columns:1fr}
+  .drag-steps,.flow{grid-template-columns:1fr 1fr}
+  .table{display:block;overflow-x:auto;white-space:nowrap}
+  .footer{display:block}.footer span{display:block;margin-top:8px}
+}
+@media(max-width:430px){
+  h1{font-size:36px}.hero-note{display:block}
+  .canvas-body{grid-template-columns:1fr}.mini-side{display:none}
+  .drag-steps,.flow{grid-template-columns:1fr}
+}
+@media print{body{background:#fff;color:#111}.topbar,.readbar,.top{display:none}.feature,section{break-inside:avoid}.canvas,.frame{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="readbar"><i id="bar"></i></div>
+<header class="topbar">
+  <a class="brand" href="#top"><span class="brandmark">cc</span>CC Flash <small>/ Desktop Polish</small></a>
+  <nav class="nav">
+    <a href="#overview">概览</a><a href="#search">文件搜索</a><a href="#shortcuts">快捷入口</a><a href="#drag">拖拽上传</a><a href="#support">诊断与日志</a><a href="#ship">落地</a>
+  </nav>
+  <span class="state"><i></i>v1.2.9 · 已落地</span>
+</header>
+
+<main id="top">
+<div class="wrap">
+  <section class="hero" id="overview">
+    <div>
+      <div class="eyebrow">2026.11 / DESKTOP EXPERIENCE</div>
+      <h1>桌面增强<em>六件小事，把动作放到手边</em></h1>
+      <p class="lede">不新增主流程，不增加新的学习成本：在系统托盘、文件列表、悬浮球和设置页里，把最常用的动作缩短一步。</p>
+      <div class="chips">
+        <span class="chip"><span class="dot"></span><b>6</b> 个增强</span>
+        <span class="chip"><b>3</b> 个入口</span>
+        <span class="chip"><b>0</b> 个新增压缩依赖</span>
+        <span class="chip"><b>v1.2.9</b> 已实现</span>
+      </div>
+      <div class="hero-note"><b>前置修复</b><span>悬浮球右键的旧四项菜单已移除；本文的第二项菜单是全新的双项菜单，不是旧菜单回退。</span></div>
+    </div>
+    <div class="canvas" aria-label="桌面增强 UI 示意">
+      <div class="canvas-head"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>CC Flash · 桌面</span></div>
+      <div class="canvas-body">
+        <aside class="mini-side">
+          <div class="mini-brand">CC FLASH</div>
+          <div class="mini-row"><b></b>消息发送</div>
+          <div class="mini-row"><b></b>服务中心</div>
+          <div class="mini-row on"><b></b>CC 设置</div>
+          <div class="mini-row"><b></b>共享文件</div>
+        </aside>
+        <div class="mini-main">
+          <div class="mini-top"><div><h3>共享文件</h3><p>MANIFEST / ROOM · 10 ITEMS</p></div><span class="mini-pill">● 运行中</span></div>
+          <div class="search-mock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg><span>搜索文件名或上传者</span><code>report</code><em>⌘K</em></div>
+          <div class="files">
+            <div class="filerow"><span class="ft pdf">PDF</span><span class="nm"><b>report-2026-11.pdf</b><small>Mac-6412 · 2.4 MB · 11-25 16:00</small></span><span class="ok">✓</span></div>
+            <div class="filerow"><span class="ft">MD</span><span class="nm"><b>report-summary.md</b><small>Mac-7804 · 4.2 KB · 11-25 15:58</small></span><span class="ok">✓</span></div>
+            <div class="filerow"><span class="ft img">PNG</span><span class="nm"><b>hotel-detail.png</b><small>Pixel 8 Pro · 43 KB · 11-25 15:41</small></span></div>
+          </div>
+          <div class="float-ball">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg>
+          </div>
+          <div class="ball-label">已复制 <b>访问地址</b></div>
+          <div class="mini-menu">
+            <button>打开共享文件夹 <span>↗</span></button>
+            <button>复制访问地址 <span>⌘C</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="principles">
+    <div><b>少开一次窗口</b><span>托盘与悬浮球直接完成复制/打开，不抢主流程。</span></div>
+    <div><b>少找一次文件</b><span>文件页本地搜索，输入即过滤，不发请求。</span></div>
+    <div><b>少解释一次问题</b><span>诊断包与日志导出，一条附件带走上下文。</span></div>
+  </div>
+
+  <section id="search">
+    <div class="section-head">
+      <div class="sec-no">01 / FILE SEARCH</div>
+      <div><span class="sec-kicker">文件多之后的刚需</span><h2>文件列表搜索</h2></div>
+      <p>纯前端过滤，桌面抽屉、手机文件页和浏览器共享页共用；输入即筛选，清空即恢复。</p>
+    </div>
+    <div class="feature">
+      <div class="copy">
+        <div class="kicker"><b>01</b> 文件页<span class="badge">已落地</span></div>
+        <h3>搜索文件名或上传者 <small>不改变排序，不发请求</small></h3>
+        <p>搜索框放在文件列表上方。匹配文件名与上传者，忽略大小写；批量选择时，已选集合不会因为筛选而丢失。</p>
+        <ul class="rules">
+          <li><b>即时：</b>输入即过滤，<b>清空</b>即回到完整列表；不触发服务器往返。</li>
+          <li><b>计数：</b>显示「匹配 N / 共 M」，没有结果时给出清除搜索入口。</li>
+          <li><b>不打断选择：</b>筛选只影响可见行；隐藏项仍然被选中，底部操作沿用原语义。</li>
+          <li><b>移动端：</b>输入框 16px，避免 iOS 聚焦放大整页。</li>
+        </ul>
+        <div class="okline"><b>验收</b>搜索 report 只留下 report 相关行；清空恢复；批量选择不丢失；320px 无横向溢出。</div>
+      </div>
+      <figure class="visual">
+        <div class="frame">
+          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>文件 · 搜索状态</span></div>
+          <div class="frame-body search-stage">
+            <div class="search-big"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg><span>report</span><em>⌘K</em></div>
+            <div class="search-meta"><span>匹配 2 / 共 10</span><b>清空</b></div>
+            <div class="bigrow"><span class="t pdf">PDF</span><span><b>report-2026-11.pdf</b><small>Mac-6412 · 2.4 MB · 11-25 16:00</small></span><span class="tick">✓</span></div>
+            <div class="bigrow"><span class="t">MD</span><span><b>report-summary.md</b><small>Mac-7804 · 4.2 KB · 11-25 15:58</small></span><span class="tick">✓</span></div>
+            <div class="bigrow"><span class="t png">PNG</span><span><b>report-cover.png</b><small>Pixel 8 Pro · 43 KB · 11-25 15:41</small></span><span class="tick">✓</span></div>
+          </div>
+        </div>
+        <figcaption><b>FIG. 01</b>搜索只作用于当前文件视图，不改变文件真实排序。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="shortcuts">
+    <div class="section-head">
+      <div class="sec-no">02 / SHORTCUTS</div>
+      <div><span class="sec-kicker">托盘与悬浮球</span><h2>把地址和文件夹放到手边</h2></div>
+      <p>两个系统级入口，只做「复制访问地址」和「打开共享文件夹」。主窗口的完整右键菜单保留，不混用。</p>
+    </div>
+    <div class="feature rev">
+      <div class="copy">
+        <div class="kicker"><b>02</b> 托盘菜单<span class="badge">已落地</span></div>
+        <h3>复制访问地址 <small>少开一次主窗口</small></h3>
+        <p>托盘菜单新增「复制访问地址」，剪贴板得到可直接粘贴到浏览器的完整 URL；服务未启动时不复制过期地址。</p>
+        <ul class="rules">
+          <li><b>内容：</b><code>http://IP:端口</code>，带协议；界面文案仍可读作「IP:端口」。</li>
+          <li><b>反馈：</b>主窗口不可见时用系统通知确认；悬浮球可见时球边显示「已复制」。</li>
+          <li><b>不打扰：</b>不打开主窗口，不弹面板，不改变服务状态。</li>
+        </ul>
+        <div class="okline"><b>验收</b>托盘点击后剪贴板为完整 URL；服务停止时不复制；主窗口保持隐藏。</div>
+      </div>
+      <figure class="visual">
+        <div class="frame">
+          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>托盘 / 悬浮球 · 快捷入口</span></div>
+          <div class="frame-body shortcut-stage">
+            <div class="native-tray">
+              <button>显示主窗口</button>
+              <button class="on">复制访问地址 <span>⌘C</span></button>
+              <button>启动/停止服务</button>
+              <button>打开网页</button>
+              <hr>
+              <button>退出</button>
+            </div>
+            <div class="ball-stage2">
+              <div class="orb2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+              <div class="ballmenu2"><button>打开共享文件夹 <span>↗</span></button><button>复制访问地址 <span>⌘C</span></button></div>
+              <div class="old-note">旧四项菜单已移除</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>FIG. 02</b>托盘是系统级入口；悬浮球右键只保留两个动作。</figcaption>
+      </figure>
+    </div>
+    <div class="feature">
+      <div class="copy">
+        <div class="kicker"><b>03</b> 悬浮球右键<span class="badge">已落地</span></div>
+        <h3>只保留两个动作 <small>不是第二个设置页</small></h3>
+        <p>旧版右键会弹出复制页面、手动发送、重新扫描、设备诊断四项，属于主窗口的能力，不该从一颗小悬浮球上弹出。新版只保留打开共享文件夹与复制访问地址。</p>
+        <ul class="rules">
+          <li><b>范围：</b>仅 pet 悬浮球；主窗口右键菜单保持不变。</li>
+          <li><b>状态：</b>服务停止时复制项禁用；打开文件夹仍可用。</li>
+          <li><b>关闭：</b>点击空白、Esc、切换窗口都关闭，不阻塞悬停扫码卡。</li>
+        </ul>
+        <div class="okline"><b>验收</b>右键只出现两项；旧四项不再出现；主窗口菜单不受影响。</div>
+      </div>
+      <div class="visual frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>悬浮球右键 · 双项</span></div>
+        <div class="frame-body">
+          <div class="ball-stage2" style="min-height:220px">
+            <div class="orb2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+            <div class="ballmenu2"><button>打开共享文件夹 <span>↗</span></button><button>复制访问地址 <span>⌘C</span></button></div>
+          </div>
+        </div>
+        <figcaption><b>FIG. 03</b>右键是快捷入口，不是第二个设置页。</figcaption>
+      </div>
+    </div>
+  </section>
+
+  <section id="drag">
+    <div class="section-head">
+      <div class="sec-no">03 / DRAG</div>
+      <div><span class="sec-kicker">最短的上传路径</span><h2>拖到球上，松手即上传</h2></div>
+      <p>不切换窗口、不选目标、不打开面板。拖入文件时球边出现提示，上传中显示进度环，完成后短暂显示对勾。</p>
+    </div>
+    <div class="feature">
+      <div class="copy">
+        <div class="kicker"><b>04</b> 悬浮球拖拽<span class="badge">已落地</span></div>
+        <h3>文件落到球上 <small>只进本机共享</small></h3>
+        <p>支持文件，不支持文件夹；默认写入本机共享目录，不绑定当前选中设备，避免误发给陌生设备。完成后主窗与手机端文件列表立即刷新。</p>
+        <ul class="rules">
+          <li><b>视觉：</b>拖入时虚线环 +「松手到本机共享」；传输中 0–99% 进度环；完成显示对勾 1.8 秒。</li>
+          <li><b>安全：</b>只读取用户主动拖入的文件；文件名走既有净化规则；同名自动顺延。</li>
+          <li><b>失败：</b>服务未启动、磁盘不足、文件夹拖入时显示红色短提示，不静默。</li>
+          <li><b>不改：</b>左键点击仍打开主窗口；拖拽与点击手势互不抢占。</li>
+        </ul>
+        <div class="okline"><b>验收</b>拖入 1 个文件后共享列表出现；拖入文件夹给出明确提示；上传中可见进度；完成/失败都不静默。</div>
+      </div>
+      <figure class="visual">
+        <div class="frame">
+          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>悬浮球 · 拖入态</span></div>
+          <div class="frame-body">
+            <div class="drag-stage">
+              <div class="drag-ring"><div class="drag-progress"></div></div>
+              <div class="drag-tip">松手 · 上传到本机共享</div>
+              <div class="drag-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+              <div class="drag-pill">2 个文件 · 62%</div>
+            </div>
+            <div class="drag-steps">
+              <div><b>01 拖入</b><span>OS 文件进入球窗</span></div>
+              <div><b>02 松手</b><span>逐文件复制</span></div>
+              <div><b>03 完成</b><span>列表即时刷新</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>FIG. 04</b>球只负责接住文件，目标固定为本机共享。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="support">
+    <div class="section-head">
+      <div class="sec-no">04 / SUPPORT</div>
+      <div><span class="sec-kicker">让报障变成一条附件</span><h2>诊断包与日志导出</h2></div>
+      <p>不要求用户理解日志结构。设置页一键生成诊断 ZIP；日志页直接导出原始 .log，适合工单与聊天窗口。</p>
+    </div>
+    <div class="feature">
+      <div class="copy">
+        <div class="kicker"><b>05</b> 诊断包<span class="badge">已落地</span></div>
+        <h3>把上下文一次带走 <small>默认脱敏</small></h3>
+        <p>诊断包包含版本、系统、脱敏配置、最近日志与 <code>pref-pet-dbg-*</code> 诊断文件；不包含聊天内容、文件名或访问令牌。</p>
+        <ul class="rules">
+          <li><b>内容：</b>meta.json / config.json / logs.txt / prefs/* / manifest.txt。</li>
+          <li><b>脱敏：</b>配置不含 PIN/令牌；局域网 IP 只保留网段；不打包聊天与文件列表。</li>
+          <li><b>保存：</b>系统保存对话框选择路径；生成 ZIP 不阻塞主界面。</li>
+          <li><b>反馈：</b>成功后提示文件大小；失败说明写入原因。</li>
+        </ul>
+        <div class="okline"><b>验收</b>ZIP 可正常解压；包含诊断文件；无 PIN/聊天；文件名带日期。</div>
+      </div>
+      <figure class="visual">
+        <div class="frame">
+          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>CC 设置 · 导出诊断</span></div>
+          <div class="frame-body">
+            <div class="support-stage">
+              <div class="support-card">
+                <div class="support-head"><span class="support-ic">↧</span><span><b>导出诊断包</b><small>一个附件说清问题</small></span></div>
+                <div class="support-checks"><span>版本信息</span><span>脱敏配置</span><span>最近日志</span><span>诊断文件</span></div>
+                <div class="support-btn">导出诊断 .zip</div>
+                <div class="support-note">不含聊天内容、文件名与访问令牌</div>
+              </div>
+              <div class="support-card">
+                <div class="support-head"><span class="support-ic">▤</span><span><b>服务日志</b><small>原始文本 · 完整导出</small></span></div>
+                <div class="log-list">
+                  <div class="log-line"><i>10:24</i> [<em>INFO</em>] server · listen 0.0.0.0:1688</div>
+                  <div class="log-line"><i>10:24</i> [<em>OK</em>] discovery · joined</div>
+                  <div class="log-line"><i>10:27</i> [<em>INFO</em>] upload · report.pdf</div>
+                </div>
+                <div class="log-export2"><span>CC-Flash-2026-11-25.log</span><span>导出 .log</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>FIG. 05</b>诊断是「一附件说清」，日志是原始证据。</figcaption>
+      </figure>
+    </div>
+    <div class="feature rev">
+      <div class="copy">
+        <div class="kicker"><b>06</b> 日志导出<span class="badge">已落地</span></div>
+        <h3>保留原始文本 <small>不被筛选结果影响</small></h3>
+        <p>日志页增加「导出日志」。导出当前完整日志，而不是屏幕上的筛选结果；保留时间戳、级别、位置和消息原文。</p>
+        <ul class="rules">
+          <li><b>范围：</b>默认导出全部；有筛选时按钮旁提示「导出完整日志」。</li>
+          <li><b>格式：</b>UTF-8 纯文本，保留原始结构；不改写、不折叠。</li>
+          <li><b>保存：</b>系统保存对话框；文件名带日期；失败有提示。</li>
+        </ul>
+        <div class="okline"><b>验收</b>导出文件可被文本编辑器打开；筛选状态下仍为全量；日志为空时给出提示。</div>
+      </div>
+      <div class="visual frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>服务日志 · 导出</span></div>
+        <div class="frame-body">
+          <div class="support-card" style="max-width:420px;margin:auto">
+            <div class="support-head"><span class="support-ic">▤</span><span><b>服务日志</b><small>最近 1,248 条 · 导出完整日志</small></span></div>
+            <div class="log-list">
+              <div class="log-line"><i>10:24:18</i> [<em>INFO</em>] server.rs · 监听 [::]:1688</div>
+              <div class="log-line"><i>10:24:19</i> [<em>INFO</em>] server.rs · UDP 53318</div>
+              <div class="log-line"><i>10:24:27</i> [<em>OK</em>] server.rs · upload · report.pdf 2.4 MB</div>
+              <div class="log-line"><i>10:24:28</i> [<em>INFO</em>] server.rs · WS 连接建立 ← 127.0.0.1</div>
+            </div>
+            <div class="log-export2"><span>CC-Flash-2026-11-25.log</span><span>导出 .log</span></div>
+          </div>
+        </div>
+        <figcaption><b>FIG. 06</b>日志导出保留原始证据，不经过前端筛选。</figcaption>
+      </div>
+    </div>
+  </section>
+
+  <section id="ship">
+    <div class="section-head">
+      <div class="sec-no">05 / SHIP</div>
+      <div><span class="sec-kicker">范围与边界</span><h2>这六项，如何安全地落地</h2></div>
+      <p>优先复用现有鉴权、剪贴板、文件事件和保存对话框；不为一个入口新增一套系统。</p>
+    </div>
+    <table class="table">
+      <thead><tr><th>能力</th><th>交互</th><th>边界</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td><b>托盘复制地址</b></td><td>菜单直接复制完整 URL</td><td>服务停止不复制；不打开主窗</td><td class="time">已落地</td></tr>
+        <tr><td><b>文件列表搜索</b></td><td>文件页即时过滤，显示匹配数</td><td>纯前端；不改变排序/选择</td><td class="time">已落地</td></tr>
+        <tr><td><b>悬浮球拖拽上传</b></td><td>拖入 → 松手 → 进度 → 完成</td><td>仅文件；固定本机共享；同名顺延</td><td class="time">已落地</td></tr>
+        <tr><td><b>悬浮球右键菜单</b></td><td>原生双项：打开文件夹 / 复制地址</td><td>仅 pet 窗；旧四项已移除</td><td class="time">已落地</td></tr>
+        <tr><td><b>诊断包</b></td><td>设置页导出 ZIP</td><td>不含 PIN/聊天/文件名；IP 网段化</td><td class="time">已落地</td></tr>
+        <tr><td><b>日志导出</b></td><td>日志页导出完整 .log</td><td>UTF-8 原文；筛选不改变范围</td><td class="time">已落地</td></tr>
+      </tbody>
+    </table>
+    <div class="flow">
+      <div><b>系统层</b><span>托盘菜单 · 剪贴板 · Finder / Explorer · 保存对话框</span></div>
+      <div><b>Tauri / Rust</b><span>复制地址 · 原生双项菜单 · 本地文件导入 · 诊断 ZIP</span></div>
+      <div><b>Vue UI</b><span>文件搜索 · 拖拽反馈 · 导出入口 · 状态提示</span></div>
+      <div><b>既有管道</b><span>文件事件 · 访问令牌 · 上传队列 · 日志环形缓冲</span></div>
+    </div>
+    <div class="boundary">
+      <div><b>不做</b><span>不做拖拽到远端设备、不做云端同步、不做系统通知中心、不做全量国际化。</span></div>
+      <div><b>不添负担</b><span>所有新入口都只减少步骤：复制、过滤、拖入、导出，没有新增必填项。</span></div>
+      <div><b>可恢复</b><span>失败有提示；诊断包可预览内容；复制/上传不改变现有文件状态。</span></div>
+    </div>
+    <div class="note"><b>实现补充：</b>落地时同步加入可执行/脚本文件打开防护（只定位到文件夹）、悬浮球导入隐藏临时文件 + fsync + 原子转正、诊断日志聊天/文件事件移除与 IP/路径脱敏、PIN 开关标记写失败 fail-closed；未改变本稿的交互范围。</div>
+    <div class="note"><b>结论：</b>六项均已按本稿落地。先小后大：文件搜索与托盘复制适合作为最高频的日常入口；悬浮球两项和诊断/日志补足「最短路径」与「可支持性」。</div>
+  </section>
+
+  <footer class="footer">
+    <div><b>CC Flash · 桌面增强设计稿</b><br>2026-11-25 · v1.2.9 · 已落地</div>
+    <span>把动作放到手边，而不是堆到设置里。<br><a href="#top" style="color:var(--mint)">回到开头 ↑</a></span>
+  </footer>
+</div>
+</main>
+<button class="top" id="topbtn" aria-label="回到顶部">↑</button>
+<script>
+const bar=document.getElementById('bar'), topbtn=document.getElementById('topbtn');
+const links=[...document.querySelectorAll('.nav a')];
+const secs=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+function update(){
+  const h=document.documentElement, max=h.scrollHeight-h.clientHeight;
+  bar.style.width=(max?Math.min(100,h.scrollTop/max*100):0)+'%';
+  topbtn.style.opacity=h.scrollTop>520?'1':'0'; topbtn.style.pointerEvents=h.scrollTop>520?'auto':'none';
+  let cur=secs[0]; for(const s of secs){if(s.getBoundingClientRect().top<=120)cur=s;}
+  links.forEach(a=>a.classList.toggle('active',cur&&a.getAttribute('href')==='#'+cur.id));
+}
+addEventListener('scroll',update,{passive:true}); update();
+topbtn.addEventListener('click',()=>scrollTo({top:0,behavior:'smooth'}));
+</script>
+</body>
+</html>

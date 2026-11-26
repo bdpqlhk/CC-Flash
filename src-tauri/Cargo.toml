@@ -35,12 +35,14 @@ tauri = { version = "2", default-features = false, features = [
     "wry",
     "compression",
     "common-controls-v6",
-    "dynamic-acl",
+    # 不启用 dynamic-acl: 本项目 capabilities 全静态, 运行时不需要 add_capability
     "tray-icon",
 ] }
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 诊断包使用 stored ZIP: CRC 直接复用 tauri 已引入的 crc32fast, 不新增压缩栈
+crc32fast = "1"
 getrandom = "0.2"
 # 裁掉默认特性(form/matched-path/original-uri/tracing 栈均未用到): 二进制瘦身,
 # 仅保留实际用到的 http1/json/query/tokio/ws
@@ -75,7 +77,7 @@ tauri = { version = "2", default-features = false, features = [
     "wry",
     "compression",
     "common-controls-v6",
-    "dynamic-acl",
+    # 不启用 dynamic-acl: 本项目 capabilities 全静态, 运行时不需要 add_capability
     "tray-icon",
     "x11",
     "dbus",
