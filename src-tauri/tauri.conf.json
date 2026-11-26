@@ -20,10 +20,11 @@
     "active": true,
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "bundleVersion": "1.2.9.2"
     },
     "android": {
-      "versionCode": 10200901
+      "versionCode": 10200902
     },
     "windows": {
       "webviewInstallMode": {

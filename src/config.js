@@ -49,6 +49,7 @@ export const API = {
     `/api/upload_progress?name=${encodeURIComponent(name)}&id=${encodeURIComponent(id || "")}`,
   uploadCancel: (id, name) =>
     `/api/upload_cancel?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`,
+  uploadStatus: (id) => `/api/upload_status?id=${encodeURIComponent(id)}`,
   del: (name) => `/api/delete/${encPath(name)}`,
   chat: "/api/chat",
   chatDelete: (id) => `/api/chat/${encodeURIComponent(id)}`,

@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</title>
 <style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}.callout{background:#eef4ff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:14px 0}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
-<h1>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</h1>
-<div class="meta">版本：v1.2.9.1（四段构建号，应用版本取前三段 1.2.9；含 11-25 桌面增强与审查修复）· 本轮在最新代码上重新跑全量功能自测，对 macOS 双架构产物做两轮可量化瘦身，并逐套皮肤修复对比度与窄窗文件卡片错位。</div>
+<p style="margin:0 0 4px">本文保留对应日期的实现快照，不作为当前交互说明。当前最新实现为 v1.2.9.1（应用版本 1.2.9）；最近更新见下方记录。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div><h1>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</h1>
+<div class="meta">版本：v1.2.9.1（四段构建号，应用版本取前三段 1.2.9；含 11-25 桌面增强、11-26 二次全量审查修复）· 本轮在最新代码上重新跑全量功能自测，对 macOS 双架构产物做两轮可量化瘦身，并逐套皮肤修复对比度与窄窗文件卡片错位。</div>
 <div class="callout"><b>本轮结论</b>功能自测全部通过；macOS arm64 DMG 2,863,802 → 2,673,583 B（−6.6%），x64 2,981,355 → 2,707,366 B（−9.2%）；六套皮肤 × 明暗在手机壳/桌面壳/浏览器端的文字对比度审计均为 0 告警；窄窗文件卡操作按钮不再逐字换行。</div>
 
 <h2>一、全量功能自测</h2>
@@ -53,5 +53,43 @@
 <li>最终构建包重新跑 <code>cargo test --release</code> 34/34、HTTP/WS 50/50、浏览器 25/25；运行态主窗与悬浮球按窗口截图复核，发送键/文件卡/状态胶囊渲染正常。</li>
 <li>文档：新增本文件，并在 README / README.en 历史记录索引中补链；其余需求/技术/使用说明未涉及功能口径变化，保持原样。</li>
 </ul>
-<div class="small">CC Flash · 2026-11-26 · 本文件记录最新代码上的自测、瘦身与视觉收口</div>
+
+<h2>五、v1.2.9.1 发布后的二次全量审查修复</h2>
+<p>在 v1.2.9.1 发布后，对本地最新完整代码做了一轮只读全量审查（前端 / Rust 服务端 / Tauri 配置 / Android 壳 / CI 发版链路），随后按审查清单逐项修复。未发新版本、未改版本号。</p>
+<h3>5.1 安全与发现</h3>
+<ul>
+<li>发现 id 增加持久化 TOFU 绑定（<code>peer-bindings.json</code>）：在线期间同 id 从新 IP 宣告拒绝；10 分钟无宣告才允许 DHCP/重启迁移；空令牌不能覆盖已有令牌；空令牌 <code>bye</code> 不再删除条目。</li>
+<li>peer-cache 写盘改为 5 秒合并，设备在线态广播统一 1 秒节流，限流表清理改为每秒最多一次；避免伪造源轮换造成每包 fsync / 全表广播 / O(n) 扫描。</li>
+<li>WS 全局 64 + 单来源 8；文件列表全局 2 + 单来源 1；断点查询/取消/幂等查询共享 8 个全局许可；body 闸按 IPv6 /64 聚合。</li>
+<li>上传 60 秒增量低于 128KB 即中止（原 16KB）；下载保留 45 秒无进展与 2 小时总时长看门狗。</li>
+</ul>
+<h3>5.2 数据完整性与持久化</h3>
+<ul>
+<li><code>file-history.json</code> 损坏时改名保留 <code>.bad-*</code>，不再静默清空；聊天/文件/剪贴板写盘失败写 ERROR 日志。</li>
+<li>Windows <code>write_secret_atomic</code> 回落改为“旧文件先改名 .bak → 替换 → 成功删除 / 失败回滚”，不再先删唯一副本。</li>
+<li>悬浮球导入在 FAT/exFAT/SMB 的硬链接回落改为 <code>create_new</code> + 复制，避免 check-then-rename 覆盖并发同名文件。</li>
+</ul>
+<h3>5.3 幂等与传输体验</h3>
+<ul>
+<li>聊天新增 <code>clientId</code> 服务端去重；上传新增 <code>X-Upload-Id</code> 与 <code>/api/upload_status</code>；上传行重试命中完成记录时直接恢复，不再生成 <code>xxx(1)</code>；直发文件重试先查对端完成状态。</li>
+<li>多选直发文本：全部成功才清空；部分失败保留草稿，并把未成功目标保留为选中，重发只发失败目标；直发文本补引用。</li>
+<li>多选直发文件：单台失败不阻断后续目标；400/413/500/507 解析服务端原因并汇总“成功 N / 失败 M”；不再统一误报“无法连接设备”。</li>
+<li>剪贴板所有发布入口统一受自动同步开关约束；桌面共享文件抽屉内拖拽固定上传本机；手动发送面板拖拽支持文件夹递归；失败/取消上传行不再屏蔽同名远端卡片。</li>
+<li>悬浮球一次拖入多文件部分失败时返回 <code>files/errors</code>，前端显示“已上传 N，失败 M”，重试不再重复已成功文件。</li>
+</ul>
+<h3>5.4 平台与发版</h3>
+<ul>
+<li>Android 16/17 拒绝本地网络权限时弹 Toast 指引；桌面共享目录输入增加 dirty 保护；更新检查包含 prerelease 并在弹框标注未签名风险。</li>
+<li>下载响应补 ASCII <code>filename=</code>；Windows“在文件夹中显示”不再把 explorer 退出码 1 报成失败。</li>
+<li><code>release.sh</code> 把完整四段 tag 写入 <code>bundle.macOS.bundleVersion</code>（CFBundleVersion）；Windows 文件版本仍受 Tauri 三段 semver 限制，已在文档标注。</li>
+</ul>
+<h3>5.5 验证</h3>
+<ul>
+<li><code>cargo fmt</code>、<code>cargo check</code>、<code>cargo test --lib</code> 34/34 通过；<code>npm run build</code> 通过；clippy 仍为 17 条非阻断告警，无 unsafe / 网络输入可触发 panic。</li>
+<li>本轮新增行为主要靠代码路径与单测覆盖；六端真机未重新跑，需在发版前补 iOS/Android/Windows 实机回归。</li>
+<li>自测两遍：<code>cargo test --release --lib</code> 37/37 ×2；<code>npm run build</code> ×2；桌面壳（伪 Tauri + 本机 API mock）多选直发文本/文件部分失败、剪贴板开关、更新提示 UI；移动壳（<code>?mobilePreview=1</code>）四页与介绍页 ×2，均无页面脚本错误。WebSocket 在 mock 环境下按预期 403，不影响 UI 断言。</li>
+<li>macOS 双架构 DMG 两轮瘦身：先 UDBZ，再以 <code>.app</code> 重建并换 63,605 B 精简卷图标。arm64 2,880,468 → 2,688,508 B（−6.66%），x64 3,001,712 → 2,727,798 B（−9.13%）；<code>hdiutil verify</code> 均通过，SHA-256：arm64 <code>ef114476…bfd4356</code>，x64 <code>82d0805e…34263d</code>。Windows/Android 本机缺 MSVC/JDK17/NDK，未在本地重打；CI 仍按原流程构建。</li>
+</ul>
+
+<div class="small">CC Flash · 2026-11-26 · 本文件记录最新代码上的自测、瘦身、视觉收口与二次审查修复</div>
 </body></html>

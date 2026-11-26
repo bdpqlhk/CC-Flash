@@ -5,595 +5,650 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CC Flash · 桌面增强设计稿</title>
 <style>
-:root{
-  --bg:#080a0e;
-  --bg2:#0d1016;
-  --panel:#121620;
-  --panel2:#171c28;
-  --line:rgba(255,255,255,.09);
-  --line2:rgba(255,255,255,.15);
-  --ink:#edf0f7;
-  --muted:#9aa4b8;
-  --faint:#697386;
-  --violet:#8d7bff;
-  --violet2:#b4a8ff;
-  --mint:#62d7ac;
-  --mint2:#a2f0d1;
-  --amber:#ffc45c;
-  --coral:#ff8d7a;
-  --mono:"SF Mono",Menlo,Consolas,"Cascadia Code",monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
-  --max:1240px;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth;scroll-padding-top:92px}
-body{
-  background:
-    radial-gradient(900px 520px at 78% -10%,rgba(141,123,255,.18),transparent 62%),
-    radial-gradient(700px 420px at 8% 8%,rgba(98,215,172,.10),transparent 58%),
-    var(--bg);
-  color:var(--ink);
-  font-family:var(--sans);
-  line-height:1.7;
-  -webkit-font-smoothing:antialiased;
-}
-::selection{background:rgba(141,123,255,.4);color:#fff}
-a{color:inherit;text-decoration:none}
-img,svg{display:block}
-.readbar{position:fixed;inset:0 0 auto;height:2px;z-index:100;background:transparent}
-.readbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--mint),var(--violet),var(--amber))}
-.topbar{
-  position:sticky;top:0;z-index:90;display:flex;align-items:center;gap:22px;
-  height:66px;padding:0 max(22px,calc((100vw - var(--max))/2));
-  border-bottom:1px solid var(--line);
-  background:rgba(8,10,14,.72);
-  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-}
-.brand{display:flex;align-items:center;gap:10px;flex-shrink:0;font:600 12px/1 var(--mono);letter-spacing:.12em}
-.brandmark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--violet),#5d4cd6);display:grid;place-items:center;font:800 10px/1 var(--mono);color:#fff;box-shadow:0 0 22px rgba(141,123,255,.25)}
-.brand small{color:var(--faint);font-weight:400;letter-spacing:.02em}
-.nav{display:flex;gap:2px;margin-left:auto;overflow:auto;scrollbar-width:none}
-.nav::-webkit-scrollbar{display:none}
-.nav a{padding:8px 11px;border-radius:7px;font:11px/1 var(--mono);color:var(--muted);white-space:nowrap;transition:background .15s,color .15s}
-.nav a:hover{background:rgba(255,255,255,.06);color:var(--ink)}
-.nav a.active{background:rgba(141,123,255,.14);color:var(--violet2)}
-.state{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid rgba(98,215,172,.26);border-radius:999px;background:rgba(98,215,172,.07);font:10px/1 var(--mono);color:var(--mint)}
-.state i{width:5px;height:5px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px rgba(98,215,172,.09)}
-.wrap{max-width:var(--max);margin:0 auto;padding:0 max(22px,calc((100vw - var(--max))/2))}
-.hero{padding:82px 0 70px;display:grid;grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr);gap:52px;align-items:center}
-.eyebrow{display:flex;align-items:center;gap:10px;font:10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--mint)}
-.eyebrow:before{content:"";width:30px;height:1px;background:var(--mint)}
-h1{margin:20px 0 18px;font-size:clamp(44px,5vw,72px);line-height:1.05;letter-spacing:-.055em;font-weight:650}
-h1 em{font-style:normal;color:var(--violet2);display:block;font-size:.56em;margin-top:8px;letter-spacing:-.045em;white-space:nowrap}
-.lede{max-width:500px;color:var(--muted);font-size:14.5px;line-height:1.9}
-.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:24px}
-.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.025);font:10px/1 var(--mono);color:var(--muted)}
-.chip b{color:var(--ink);font-weight:600}
-.chip .dot{width:5px;height:5px;border-radius:50%;background:var(--violet)}
-.hero-note{margin-top:26px;display:flex;gap:10px;align-items:flex-start;max-width:510px;color:var(--faint);font-size:11.5px;line-height:1.7}
-.hero-note b{flex:0 0 auto;color:var(--amber);font:600 9px/1.7 var(--mono);letter-spacing:.06em}
-/* hero app canvas */
-.canvas{position:relative;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:linear-gradient(180deg,rgba(24,28,40,.94),rgba(10,12,18,.98));box-shadow:0 35px 80px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);padding:10px;min-height:440px}
-.canvas-head{height:30px;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--line);color:var(--faint);font:9px/1 var(--mono)}
-.dot{width:6px;height:6px;border-radius:50%;background:#3b4556}
-.canvas-head span{margin-left:4px}
-.canvas-body{position:relative;display:grid;grid-template-columns:140px minmax(0,1fr);height:390px;overflow:hidden;border-radius:0 0 12px 12px}
-.mini-side{padding:14px 10px;border-right:1px solid var(--line);background:rgba(9,11,16,.5)}
-.mini-brand{font:600 10px/1.2 var(--mono);color:var(--mint);letter-spacing:.04em;margin-bottom:16px}
-.mini-row{display:flex;align-items:center;gap:6px;padding:7px 7px;border-radius:6px;color:var(--faint);font:9px/1 var(--mono);margin-bottom:3px}
-.mini-row.on{background:rgba(141,123,255,.12);color:var(--violet2)}
-.mini-row b{width:10px;height:10px;border:1px solid currentColor;border-radius:3px;display:block}
-.mini-main{padding:18px 20px;min-width:0;background:rgba(12,14,21,.32)}
-.mini-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.mini-top h3{font-size:18px;letter-spacing:-.02em}
-.mini-top p{font:8px/1.4 var(--mono);color:var(--faint);margin-top:4px}
-.mini-pill{font:8px/1 var(--mono);color:var(--mint);padding:4px 7px;border:1px solid rgba(98,215,172,.25);border-radius:999px}
-.search-mock{margin-top:16px;display:flex;align-items:center;gap:7px;height:32px;padding:0 9px;border:1px solid rgba(141,123,255,.35);border-radius:7px;background:rgba(255,255,255,.035);box-shadow:0 0 0 3px rgba(141,123,255,.06)}
-.search-mock svg{width:12px;height:12px;color:var(--violet2)}
-.search-mock span{font:9px/1 var(--mono);color:var(--ink)}
-.search-mock code{margin-left:auto;font:8px/1 var(--mono);color:var(--violet2);background:rgba(141,123,255,.12);padding:3px 5px;border-radius:3px}
-.search-mock em{font:8px/1 var(--mono);color:var(--faint);font-style:normal}
-.files{margin-top:12px;border-top:1px solid var(--line)}
-.filerow{display:flex;align-items:center;gap:9px;padding:9px 2px;border-bottom:1px solid rgba(255,255,255,.055)}
-.filerow .ft{width:28px;height:30px;border-radius:4px;display:grid;place-items:center;font:700 7px/1 var(--mono);background:#302747;color:#d9d0ff}
-.filerow .ft.pdf{background:#4b2929;color:#ffb9aa}
-.filerow .ft.img{background:#1c3b31;color:var(--mint2)}
-.filerow .nm{min-width:0}
-.filerow .nm b{display:block;font:500 10px/1.4 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:330px}
-.filerow .nm small{display:block;font:8px/1.4 var(--mono);color:var(--faint)}
-.filerow .ok{margin-left:auto;width:12px;height:12px;border-radius:3px;background:var(--mint);color:#0c1b15;font:700 8px/12px var(--mono);text-align:center}
-/* floating layer */
-.float-ball{position:absolute;right:18px;bottom:18px;width:76px;height:76px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.08),0 16px 34px rgba(0,0,0,.45);z-index:3}
-.float-ball svg{width:32px;height:32px}
-.float-ball:after{content:"";position:absolute;right:-2px;top:-2px;width:12px;height:12px;border-radius:50%;background:var(--amber);border:2px solid #111420}
-.ball-label{position:absolute;right:100px;bottom:29px;white-space:nowrap;padding:5px 8px;border:1px solid var(--line2);border-radius:5px;background:rgba(12,14,20,.88);font:8px/1 var(--mono);color:var(--muted)}
-.ball-label b{color:var(--amber);font-weight:500}
-.mini-menu{position:absolute;right:106px;bottom:88px;width:150px;padding:4px;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:rgba(23,27,38,.98);box-shadow:0 16px 34px rgba(0,0,0,.38);z-index:4}
-.mini-menu button{display:flex;align-items:center;width:100%;height:25px;padding:0 8px;border:0;border-radius:4px;background:transparent;color:var(--ink);font:9px/1 var(--sans);text-align:left}
-.mini-menu button:first-child{background:rgba(141,123,255,.17);color:var(--violet2)}
-.mini-menu button span{margin-left:auto;font:7px/1 var(--mono);color:var(--faint)}
-/* sections */
-section{padding:58px 0}
-.section-head{display:grid;grid-template-columns:90px minmax(0,1fr) minmax(250px,.55fr);gap:26px;align-items:end;padding-top:22px;border-top:1px solid var(--line);margin-bottom:30px}
-.sec-no{font:10px/1 var(--mono);letter-spacing:.12em;color:var(--faint);white-space:nowrap}
-.sec-kicker{display:block;margin-bottom:6px;font:9px/1 var(--mono);letter-spacing:.14em;color:var(--mint);text-transform:uppercase}
-h2{font-size:clamp(28px,3.3vw,40px);line-height:1.15;letter-spacing:-.04em;font-weight:620}
-.section-head p{justify-self:end;max-width:330px;color:var(--muted);font-size:12px;line-height:1.8}
-/* feature split */
-.feature{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:42px;align-items:center;padding:34px 0;border-top:1px solid var(--line)}
-.feature:first-of-type{border-top:0;padding-top:0}
-.feature.rev .copy{order:2}.feature.rev .visual{order:1}
-.kicker{display:flex;align-items:center;gap:8px;font:9.5px/1 var(--mono);letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
-.kicker b{color:var(--violet2);font-weight:600}
-.kicker .badge{margin-left:auto;padding:4px 7px;border-radius:999px;background:rgba(98,215,172,.08);color:var(--mint);border:1px solid rgba(98,215,172,.18);text-transform:none;letter-spacing:0}
-.kicker .badge.p2{background:rgba(255,196,92,.08);color:var(--amber);border-color:rgba(255,196,92,.18)}
-.feature h3{margin:13px 0 9px;font-size:clamp(23px,2.6vw,32px);line-height:1.2;letter-spacing:-.035em;font-weight:600}
-.feature h3 small{display:inline;margin-left:10px;font-size:.45em;font-weight:400;color:var(--faint);letter-spacing:0}
-.copy p{color:var(--muted);font-size:12.5px;line-height:1.85;max-width:500px}
-.rules{list-style:none;margin-top:16px;border-top:1px solid var(--line)}
-.rules li{position:relative;padding:8px 0 8px 15px;border-bottom:1px solid rgba(255,255,255,.055);color:var(--muted);font-size:11.5px;line-height:1.65}
-.rules li:before{content:"";position:absolute;left:1px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--violet)}
-.rules b{color:var(--ink);font-weight:500}
-.okline{display:flex;gap:8px;align-items:flex-start;margin-top:13px;padding:9px 11px;border:1px solid rgba(98,215,172,.18);border-radius:6px;background:rgba(98,215,172,.055);color:var(--muted);font:10px/1.65 var(--mono)}
-.okline b{color:var(--mint);flex:0 0 auto}
-/* frames */
-.visual{min-width:0}
-.frame{border:1px solid rgba(255,255,255,.12);border-radius:13px;overflow:hidden;background:#0d1016;box-shadow:0 22px 48px rgba(0,0,0,.32)}
-.frame-bar{height:28px;display:flex;align-items:center;gap:5px;padding:0 10px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025);color:var(--faint);font:8px/1 var(--mono)}
-.frame-bar .dot{width:5px;height:5px}
-.frame-bar span{margin-left:4px}
-.frame-body{padding:18px;background-image:radial-gradient(circle at 72% 18%,rgba(141,123,255,.12),transparent 45%),linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:auto,28px 28px,28px 28px}
-.frame figcaption{margin-top:9px;color:var(--faint);font:9.5px/1.5 var(--mono);display:flex;gap:6px}
-.frame figcaption b{color:var(--violet2);font-weight:500;margin-right:6px}
-/* search feature visual */
-.search-stage{min-height:250px}
-.search-big{display:flex;align-items:center;gap:9px;height:38px;padding:0 11px;border:1px solid rgba(141,123,255,.40);border-radius:8px;background:rgba(255,255,255,.04);box-shadow:0 0 0 4px rgba(141,123,255,.07)}
-.search-big svg{width:14px;height:14px;color:var(--violet2)}
-.search-big span{font:11px/1 var(--mono);color:var(--ink)}
-.search-big em{margin-left:auto;font:9px/1 var(--mono);color:var(--faint);font-style:normal}
-.search-meta{display:flex;justify-content:space-between;margin:11px 1px 5px;font:9px/1 var(--mono);color:var(--faint)}
-.search-meta b{color:var(--amber);font-weight:500}
-.bigrow{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid rgba(255,255,255,.06)}
-.bigrow .t{width:31px;height:34px;border-radius:5px;display:grid;place-items:center;background:#302747;color:#ddd4ff;font:700 8px/1 var(--mono)}
-.bigrow .t.pdf{background:#4b2929;color:#ffb8a8}
-.bigrow .t.png{background:#1c3b31;color:var(--mint2)}
-.bigrow b{display:block;font:500 11px/1.4 var(--mono);color:var(--ink);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bigrow small{display:block;font:9px/1.4 var(--mono);color:var(--faint)}
-.bigrow .tick{margin-left:auto;width:14px;height:14px;border:1px solid rgba(98,215,172,.45);border-radius:3px;background:rgba(98,215,172,.12);color:var(--mint);font:700 8px/14px var(--mono);text-align:center}
-/* tray + menu visual */
-.shortcut-stage{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center;min-height:260px}
-.native-tray{padding:5px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:#1b202c;box-shadow:0 16px 36px rgba(0,0,0,.32);max-width:230px;margin-left:auto}
-.native-tray button{display:flex;align-items:center;width:100%;height:29px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--ink);font:10px/1 var(--sans);text-align:left}
-.native-tray button.on{background:rgba(141,123,255,.18);color:var(--violet2)}
-.native-tray button span{margin-left:auto;font:8px/1 var(--mono);color:var(--faint)}
-.native-tray hr{border:0;border-top:1px solid var(--line);margin:4px 5px}
-.ball-stage2{position:relative;display:flex;align-items:center;justify-content:center;min-height:220px}
-.orb2{width:74px;height:74px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.08)}
-.orb2 svg{width:32px;height:32px}
-.ballmenu2{position:absolute;left:50%;top:30px;margin-left:34px;width:170px;padding:4px;border:1px solid rgba(255,255,255,.18);border-radius:8px;background:#1b202c;box-shadow:0 16px 36px rgba(0,0,0,.35)}
-.ballmenu2 button{display:flex;width:100%;height:27px;padding:0 8px;border:0;border-radius:4px;background:transparent;color:var(--ink);font:9.5px/1 var(--sans);text-align:left;align-items:center}
-.ballmenu2 button:first-child{color:var(--violet2);background:rgba(141,123,255,.15)}
-.ballmenu2 button span{margin-left:auto;font:8px/1 var(--mono);color:var(--faint)}
-.old-note{position:absolute;bottom:6px;left:0;right:0;text-align:center;font:8px/1.5 var(--mono);color:var(--coral)}
-/* drag visual */
-.drag-stage{position:relative;min-height:270px;display:grid;place-items:center}
-.drag-ring{position:absolute;width:184px;height:184px;border:1px dashed rgba(255,196,92,.55);border-radius:50%;background:radial-gradient(circle,rgba(255,196,92,.08),transparent 66%)}
-.drag-ring:after{content:"";position:absolute;inset:18px;border:1px dashed rgba(141,123,255,.2);border-radius:50%}
-.drag-orb{position:relative;z-index:1;width:78px;height:78px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.08)}
-.drag-orb svg{width:34px;height:34px}
-.drag-tip{position:absolute;top:7px;left:50%;transform:translateX(-50%);font:9px/1.4 var(--mono);color:var(--amber);white-space:nowrap}
-.drag-pill{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);padding:6px 10px;border:1px solid rgba(255,196,92,.3);border-radius:5px;background:rgba(20,16,8,.82);font:9px/1 var(--mono);color:var(--amber);white-space:nowrap}
-.drag-progress{position:absolute;inset:-2px;border-radius:50%;background:conic-gradient(var(--mint) 0 62%,transparent 62%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 0);mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 0);transform:rotate(-90deg)}
-.drag-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
-.drag-steps div{padding:8px 9px;border:1px solid var(--line);border-radius:5px;background:rgba(255,255,255,.025)}
-.drag-steps b{display:block;font:600 9px/1.4 var(--mono);color:var(--violet2);margin-bottom:2px}
-.drag-steps span{display:block;font:8.5px/1.5 var(--mono);color:var(--faint)}
-/* support visual */
-.support-stage{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:245px}
-.support-card{padding:13px;border:1px solid var(--line2);border-radius:9px;background:rgba(255,255,255,.025)}
-.support-head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
-.support-ic{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:rgba(141,123,255,.14);color:var(--violet2)}
-.support-head b{display:block;font:600 10.5px/1.3 var(--sans)}
-.support-head small{display:block;font:8px/1.4 var(--mono);color:var(--faint)}
-.support-checks{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:9px 0}
-.support-checks span{padding:5px 6px;border:1px solid var(--line);border-radius:4px;font:8px/1.35 var(--mono);color:var(--muted)}
-.support-checks span:before{content:"✓";margin-right:4px;color:var(--mint)}
-.support-btn{display:flex;align-items:center;justify-content:center;height:29px;border:1px solid rgba(255,196,92,.38);border-radius:4px;background:rgba(255,196,92,.06);color:var(--amber);font:9px/1 var(--mono)}
-.support-note{margin-top:7px;text-align:center;font:7.5px/1.5 var(--mono);color:var(--faint)}
-.log-list{margin-top:2px;border-top:1px solid var(--line)}
-.log-line{display:flex;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font:8px/1.4 var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden}
-.log-line i{color:var(--mint);font-style:normal}
-.log-line em{color:var(--amber);font-style:normal}
-.log-export2{display:flex;justify-content:space-between;margin-top:8px;padding:5px 6px;border:1px solid rgba(98,215,172,.25);border-radius:4px;font:8px/1 var(--mono);color:var(--mint)}
-/* principle cards */
-.principles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0 8px}
-.principles div{padding:16px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.022)}
-.principles b{display:block;font:600 12px/1.4 var(--sans);margin-bottom:5px}
-.principles span{display:block;color:var(--faint);font-size:11px;line-height:1.65}
-/* table */
-.table{width:100%;border-collapse:collapse;margin-top:4px}
-.table th,.table td{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:11.5px;line-height:1.6}
-.table th{font:9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);background:rgba(255,255,255,.025)}
-.table td b{font-weight:500;color:var(--ink)}
-.tag{display:inline-block;padding:3px 6px;border-radius:4px;background:rgba(98,215,172,.09);border:1px solid rgba(98,215,172,.18);font:8px/1 var(--mono);color:var(--mint)}
-.tag.p2{background:rgba(255,196,92,.08);border-color:rgba(255,196,92,.18);color:var(--amber)}
-.table .time{white-space:nowrap;font:10px/1.5 var(--mono);color:var(--muted)}
-/* flow */
-.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
-.flow div{padding:12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.022)}
-.flow b{display:block;font:600 10px/1.4 var(--mono);color:var(--violet2);margin-bottom:3px}
-.flow span{display:block;font-size:10px;line-height:1.55;color:var(--faint)}
-/* boundary/notes */
-.note{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:13px 15px;border-left:2px solid var(--amber);background:rgba(255,196,92,.055);color:#d8c49c;font-size:11.5px;line-height:1.75}
-.note b{color:var(--amber);flex:0 0 auto}
-.boundary{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:16px}
-.boundary div{padding:13px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.022)}
-.boundary b{display:block;font:600 10px/1.4 var(--mono);color:var(--ink);margin-bottom:4px}
-.boundary span{display:block;color:var(--faint);font-size:10px;line-height:1.6}
-.footer{padding:34px 0 46px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;color:var(--faint);font:10px/1.7 var(--mono)}
-.footer b{color:var(--muted);font-weight:500}
-.top{position:fixed;right:20px;bottom:20px;z-index:60;width:34px;height:34px;border:1px solid var(--line2);border-radius:50%;background:rgba(18,22,32,.9);color:var(--muted);display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .2s}
-@media(max-width:1000px){
-  .hero{grid-template-columns:1fr;gap:30px;padding-top:52px}
-  .canvas{max-width:720px}
-  .section-head{grid-template-columns:70px 1fr}
-  .section-head p{grid-column:2;justify-self:start}
-  .feature{grid-template-columns:1fr;gap:22px}
-  .feature.rev .copy{order:1}.feature.rev .visual{order:2}
-}
-@media(max-width:720px){
-  .topbar{height:58px;padding:0 14px;gap:10px}.brand small,.state{display:none}.nav a{padding:7px 7px;font-size:10px}
-  .hero{padding:38px 0 34px}h1{font-size:42px}.lede{font-size:13px}
-  .canvas-body{grid-template-columns:100px minmax(0,1fr)}
-  .mini-side{padding:10px 7px}.mini-row{font-size:8px}
-  .mini-main{padding:12px}
-  .section-head{grid-template-columns:1fr;gap:7px;padding-top:17px}.section-head p{grid-column:1}
-  .feature{padding:27px 0}
-  .feature h3 small{display:block;margin:4px 0 0}
-  .shortcut-stage,.support-stage,.principles,.boundary{grid-template-columns:1fr}
-  .drag-steps,.flow{grid-template-columns:1fr 1fr}
-  .table{display:block;overflow-x:auto;white-space:nowrap}
-  .footer{display:block}.footer span{display:block;margin-top:8px}
-}
-@media(max-width:430px){
-  h1{font-size:36px}.hero-note{display:block}
-  .canvas-body{grid-template-columns:1fr}.mini-side{display:none}
-  .drag-steps,.flow{grid-template-columns:1fr}
-}
-@media print{body{background:#fff;color:#111}.topbar,.readbar,.top{display:none}.feature,section{break-inside:avoid}.canvas,.frame{box-shadow:none}}
+  :root{
+    --paper:#f3f5f8;
+    --paper-2:#e9edf3;
+    --white:#ffffff;
+    --ink:#10141b;
+    --ink-2:#4b5666;
+    --ink-3:#7f8a9b;
+    --line:#dbe1ea;
+    --line-strong:#c6cedb;
+    --coral:#ff5d73;
+    --coral-soft:#ffe8ec;
+    --blue:#4f8af7;
+    --violet:#7c6ff7;
+    --mint:#3ddc97;
+    --mint-ink:#0f7a55;
+    --amber:#f0a232;
+    --dark:#0d1119;
+    --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+    --mono:"SF Mono","Cascadia Code","Roboto Mono",Consolas,monospace;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:36px}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:15px;line-height:1.72;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--coral-soft);color:var(--ink)}
+  .skip{position:absolute;left:-9999px;top:0;background:var(--ink);color:#fff;padding:8px 14px;border-radius:0 0 8px 0;z-index:99}
+  .skip:focus{left:0}
+
+  /* ---------- 顶部状态条 ---------- */
+  .statusbar{
+    display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;
+    padding:9px 18px;background:#0f241d;color:#d9f5e8;
+    font:11px/1.5 var(--mono);letter-spacing:.04em;text-align:center;
+  }
+  .statusbar b{color:#fff;font-weight:600}
+  .statusbar span{color:#9dcbb8}
+  .statusbar em{font-style:normal;color:var(--mint)}
+
+  .page{display:grid;grid-template-columns:188px minmax(0,1fr);max-width:1280px;margin:0 auto}
+  .rail{
+    position:sticky;top:0;height:100vh;padding:34px 22px 28px;
+    border-right:1px solid var(--line);display:flex;flex-direction:column;
+  }
+  .rail-brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:-.02em}
+  .rail-ring{
+    width:20px;height:20px;border-radius:50%;border:2px solid var(--coral);
+    display:grid;place-items:center;font:800 7px/1 var(--mono);color:var(--coral);
+    box-shadow:0 0 0 4px rgba(255,93,115,.10);
+  }
+  .rail-sub{margin:8px 0 28px;font:10px/1.7 var(--mono);letter-spacing:.1em;color:var(--ink-3)}
+  .rail-nav{display:flex;flex-direction:column;gap:2px}
+  .rail-nav a{display:flex;gap:10px;align-items:baseline;padding:8px 9px;border-radius:8px;font-size:12.5px;color:var(--ink-2);transition:background .16s,color .16s}
+  .rail-nav a:hover{background:var(--white);color:var(--ink)}
+  .rail-nav a.on{background:var(--white);color:var(--ink);font-weight:700}
+  .rail-nav .n{font:10px/1 var(--mono);color:var(--coral);letter-spacing:.08em}
+  .rail-foot{margin-top:auto;padding-top:18px;border-top:1px solid var(--line);font:10px/1.8 var(--mono);color:var(--ink-3);letter-spacing:.06em}
+
+  main{min-width:0;padding:0 46px 90px}
+
+  /* ---------- 通用 ---------- */
+  .kicker{font:10px/1.5 var(--mono);letter-spacing:.18em;color:var(--coral);text-transform:uppercase}
+  .kicker b{color:var(--ink);font-weight:700}
+  h1{margin:16px 0 20px;font-size:clamp(42px,4.6vw,68px);line-height:1.03;letter-spacing:-.05em;font-weight:900}
+  h1 em{display:block;margin-top:8px;font-style:normal;font-size:.48em;line-height:1.15;letter-spacing:-.04em;color:var(--coral)}
+  h2{margin:0;font-size:clamp(26px,3vw,38px);line-height:1.15;letter-spacing:-.035em;font-weight:800}
+  h3{margin:0;font-size:19px;line-height:1.35;letter-spacing:-.02em}
+  h3 small{display:block;margin-top:3px;font-size:12px;font-weight:400;color:var(--ink-3);letter-spacing:0}
+  p{margin:0}
+  code{font:11px/1.5 var(--mono);background:var(--paper-2);color:var(--ink-2);padding:1px 5px;border-radius:4px}
+  .lead{max-width:620px;font-size:15.5px;color:var(--ink-2)}
+  .lead b{color:var(--ink);font-weight:700}
+
+  /* ---------- Hero ---------- */
+  .hero{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:46px;align-items:center;padding:58px 0 44px;border-bottom:1px solid var(--line)}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+  .meta span{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;background:var(--white);border:1px solid var(--line);font-size:12px;color:var(--ink-2)}
+  .meta span::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--coral)}
+  .meta span.b::before{background:var(--blue)}
+  .meta span.g::before{background:var(--mint)}
+  .meta span.a::before{background:var(--amber)}
+  .hero-note{display:flex;gap:10px;margin-top:24px;padding:12px 14px;border-left:3px solid var(--amber);background:#fff9ed;border-radius:0 8px 8px 0;font-size:12px;color:var(--ink-2);max-width:560px}
+  .hero-note b{flex:0 0 auto;font:600 9px/1.9 var(--mono);letter-spacing:.06em;color:#a66a0b}
+
+  /* 深色产品示意，作为纸面中的“实物” */
+  .appwin{
+    position:relative;border-radius:16px;background:linear-gradient(180deg,#161b26,#0b0f16);
+    border:1px solid rgba(16,20,27,.22);box-shadow:0 28px 60px -28px rgba(16,20,27,.55);
+    padding:9px;overflow:hidden;
+  }
+  .appwin-bar{height:28px;display:flex;align-items:center;gap:5px;padding:0 8px;color:#6f7b90;font:9px/1 var(--mono)}
+  .appwin-bar i{width:6px;height:6px;border-radius:50%;background:#3b4556}
+  .appwin-bar span{margin-left:4px}
+  .appwin-body{display:grid;grid-template-columns:108px minmax(0,1fr);height:354px;border-radius:0 0 11px 11px;overflow:hidden}
+  .mini-side{padding:13px 9px;border-right:1px solid rgba(255,255,255,.08);background:rgba(7,10,14,.45)}
+  .mini-brand{font:600 9px/1.2 var(--mono);color:#62d7ac;letter-spacing:.06em;margin-bottom:15px}
+  .mini-row{display:flex;align-items:center;gap:6px;padding:7px 6px;border-radius:5px;color:#7d8799;font:9px/1 var(--mono);margin-bottom:3px}
+  .mini-row b{width:9px;height:9px;border:1px solid currentColor;border-radius:2px;display:block}
+  .mini-row.on{background:rgba(124,111,247,.16);color:#c7c0ff}
+  .mini-main{position:relative;min-width:0;padding:15px 16px 16px;background:rgba(10,13,19,.32)}
+  .mini-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .mini-head h4{margin:0;font-size:18px;color:#edf0f7;letter-spacing:-.02em}
+  .mini-head p{margin:4px 0 0;font:8px/1.4 var(--mono);color:#667086}
+  .mini-pill{font:8px/1 var(--mono);color:#62d7ac;padding:4px 7px;border:1px solid rgba(98,215,172,.26);border-radius:999px;white-space:nowrap}
+  .mini-search{margin-top:13px;display:flex;align-items:center;gap:7px;height:32px;padding:0 9px;border:1px solid rgba(124,111,247,.38);border-radius:7px;background:rgba(255,255,255,.04);color:#aeb6c8}
+  .mini-search svg{width:12px;height:12px;color:#b4a8ff;flex:0 0 auto}
+  .mini-search span{font:9px/1 var(--mono);color:#edf0f7}
+  .mini-search code{margin-left:auto;font:8px/1 var(--mono);color:#b4a8ff;background:rgba(124,111,247,.14);padding:3px 5px}
+  .mini-search em{font:8px/1 var(--mono);color:#667086;font-style:normal}
+  .mini-files{margin-top:9px;border-top:1px solid rgba(255,255,255,.08)}
+  .mini-filerow{display:flex;align-items:center;gap:8px;padding:8px 1px;border-bottom:1px solid rgba(255,255,255,.055)}
+  .mini-ft{width:25px;height:27px;border-radius:4px;display:grid;place-items:center;font:700 7px/1 var(--mono);background:#302747;color:#d9d0ff;flex:0 0 auto}
+  .mini-ft.pdf{background:#4b2929;color:#ffb9aa}
+  .mini-ft.img{background:#1c3b31;color:#a2f0d1}
+  .mini-filerow .nm{min-width:0}
+  .mini-filerow .nm b{display:block;font:500 9.5px/1.4 var(--mono);color:#e3e7f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini-filerow .nm small{display:block;font:7.5px/1.4 var(--mono);color:#667086}
+  .mini-tick{margin-left:auto;width:11px;height:11px;border-radius:3px;background:#62d7ac;color:#0c1b15;font:700 7px/11px var(--mono);text-align:center;flex:0 0 auto}
+  .mini-orb{position:absolute;right:15px;bottom:15px;width:62px;height:62px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 7px rgba(141,123,255,.10),0 14px 28px rgba(0,0,0,.42);z-index:3}
+  .mini-orb svg{width:25px;height:25px}
+  .mini-orb:after{content:"";position:absolute;right:-1px;top:-1px;width:10px;height:10px;border-radius:50%;background:#ffc45c;border:2px solid #111420}
+  .mini-label{position:absolute;right:84px;bottom:34px;white-space:nowrap;padding:5px 8px;border:1px solid rgba(255,255,255,.16);border-radius:5px;background:rgba(12,14,20,.9);font:8px/1 var(--mono);color:#aeb6c8;z-index:3}
+  .mini-label b{color:#ffc45c;font-weight:500}
+  .mini-menu{position:absolute;right:84px;bottom:72px;width:152px;padding:4px;border:1px solid rgba(255,255,255,.17);border-radius:8px;background:rgba(23,27,38,.98);box-shadow:0 16px 30px rgba(0,0,0,.38);z-index:4}
+  .mini-menu button{display:flex;align-items:center;width:100%;height:25px;padding:0 8px;border:0;border-radius:4px;background:transparent;color:#e8ebf2;font:9px/1 var(--sans);text-align:left}
+  .mini-menu button:first-child{background:rgba(141,123,255,.18);color:#c7c0ff}
+  .mini-menu button span{margin-left:auto;font:7px/1 var(--mono);color:#667086}
+
+  /* ---------- 原则 ---------- */
+  .principles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:32px 0 8px}
+  .principle{padding:18px 20px;background:var(--white);border:1px solid var(--line);border-radius:12px}
+  .principle b{display:block;font-size:13.5px;letter-spacing:-.01em}
+  .principle span{display:block;margin-top:6px;font-size:12px;line-height:1.7;color:var(--ink-3)}
+
+  /* ---------- 章节 ---------- */
+  .sec{padding:44px 0 52px;border-top:1px solid var(--line)}
+  .sec-head{display:grid;grid-template-columns:88px minmax(0,1fr) minmax(250px,.55fr);gap:26px;align-items:end;margin-bottom:28px}
+  .sec-no{font:10px/1.5 var(--mono);letter-spacing:.12em;color:var(--ink-3);white-space:nowrap;padding-top:4px}
+  .sec-head p{font-size:12.5px;line-height:1.75;color:var(--ink-3);align-self:end}
+  .sec-kicker{display:block;margin-bottom:7px;font:9px/1 var(--mono);letter-spacing:.15em;color:var(--coral);text-transform:uppercase}
+
+  .feature{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.04fr);gap:46px;align-items:center;padding:30px 0;border-top:1px solid var(--line)}
+  .feature:first-of-type{border-top:0;padding-top:4px}
+  .feature.rev .copy{order:2}
+  .feature.rev .visual{order:1}
+  .feature .kicker{margin-bottom:9px}
+  .badge{display:inline-flex;margin-left:8px;padding:3px 7px;border-radius:999px;background:#e6f7ef;color:var(--mint-ink);font:9px/1 var(--mono);letter-spacing:.04em;vertical-align:2px}
+  .feature p{margin-top:11px;font-size:13.5px;color:var(--ink-2)}
+  .rules{list-style:none;margin:15px 0 0;padding:0;display:flex;flex-direction:column;gap:7px}
+  .rules li{position:relative;padding-left:15px;font-size:12.5px;line-height:1.7;color:var(--ink-2)}
+  .rules li:before{content:"";position:absolute;left:0;top:.63em;width:5px;height:5px;border-radius:50%;background:var(--coral)}
+  .rules b{color:var(--ink);font-weight:700}
+  .okline{margin-top:16px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid var(--line);font-size:12px;color:var(--ink-2)}
+  .okline b{color:var(--coral);font:600 9px/1.6 var(--mono);letter-spacing:.08em;margin-right:7px}
+
+  /* ---------- 纸面画框 ---------- */
+  .frame{background:var(--white);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 18px 42px -34px rgba(16,20,27,.45)}
+  .frame-bar{display:flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-bottom:1px solid var(--line);background:#f8fafc;color:var(--ink-3);font:9px/1 var(--mono)}
+  .frame-bar i{width:6px;height:6px;border-radius:50%;background:#cbd3df}
+  .frame-bar span{margin-left:5px}
+  .frame-body{padding:18px}
+  .frame figcaption,figcaption{margin-top:10px;font:10px/1.6 var(--mono);letter-spacing:.03em;color:var(--ink-3)}
+  figcaption b{color:var(--coral);font-weight:600}
+
+  /* 搜索画框 */
+  .search-big{display:flex;align-items:center;gap:8px;height:38px;padding:0 11px;border:1px solid var(--line-strong);border-radius:8px;background:#fff;color:var(--ink-2);font:11px/1 var(--mono)}
+  .search-big svg{width:13px;height:13px;color:var(--coral)}
+  .search-big em{margin-left:auto;font-style:normal;color:var(--ink-3);font-size:10px}
+  .search-meta{display:flex;align-items:center;justify-content:space-between;margin:10px 1px 8px;font:10px/1 var(--mono);color:var(--ink-3)}
+  .search-meta b{color:var(--coral);font-weight:600}
+  .bigrow{display:flex;align-items:center;gap:10px;padding:10px 2px;border-top:1px solid var(--line)}
+  .bigrow .ft{width:30px;height:32px;border-radius:5px;display:grid;place-items:center;font:700 7px/1 var(--mono);background:#ede9ff;color:#5c4de0;flex:0 0 auto}
+  .bigrow .ft.pdf{background:#ffe6e9;color:#d04a5e}
+  .bigrow .ft.png{background:#e2f8ee;color:#11875d}
+  .bigrow .nm{min-width:0}
+  .bigrow .nm b{display:block;font:600 11.5px/1.45 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bigrow .nm small{display:block;font:9.5px/1.5 var(--mono);color:var(--ink-3)}
+  .tick{margin-left:auto;width:14px;height:14px;border-radius:4px;background:var(--mint);color:#073c29;font:700 9px/14px var(--mono);text-align:center;flex:0 0 auto}
+
+  /* 托盘 / 悬浮球 */
+  .shortcut-stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:18px;align-items:center}
+  .native-tray{background:#fff;border:1px solid var(--line);border-radius:9px;padding:6px;box-shadow:0 14px 30px -24px rgba(16,20,27,.5)}
+  .native-tray button{display:flex;align-items:center;width:100%;height:30px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--ink-2);font:11px/1 var(--sans);text-align:left}
+  .native-tray button.on{background:var(--coral-soft);color:#c43e53;font-weight:600}
+  .native-tray button span{margin-left:auto;font:9px/1 var(--mono);color:var(--ink-3)}
+  .native-tray hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+  .ball-stage{position:relative;min-height:190px;display:grid;place-items:center;background:
+    radial-gradient(220px 130px at 70% 20%,rgba(124,111,247,.10),transparent 70%),
+    repeating-linear-gradient(0deg,transparent 0 27px,rgba(16,20,27,.035) 27px 28px),
+    repeating-linear-gradient(90deg,transparent 0 27px,rgba(16,20,27,.035) 27px 28px);
+  }
+  .orb{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 7px rgba(141,123,255,.12),0 16px 30px -14px rgba(84,63,190,.6)}
+  .orb svg{width:26px;height:26px}
+  .ballmenu{position:absolute;right:8px;bottom:20px;width:156px;padding:4px;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 18px 36px -22px rgba(16,20,27,.6)}
+  .ballmenu button{display:flex;align-items:center;width:100%;height:28px;padding:0 8px;border:0;border-radius:5px;background:transparent;color:var(--ink-2);font:10.5px/1 var(--sans);text-align:left}
+  .ballmenu button:first-child{background:var(--coral-soft);color:#c43e53;font-weight:600}
+  .ballmenu button span{margin-left:auto;font:8px/1 var(--mono);color:var(--ink-3)}
+  .old-note{position:absolute;left:9px;bottom:14px;font:8px/1.5 var(--mono);color:var(--ink-3);text-decoration:line-through;opacity:.8}
+  .ball-label{position:absolute;left:10px;top:12px;padding:4px 7px;border:1px solid var(--line);border-radius:5px;background:#fff;font:8.5px/1 var(--mono);color:var(--ink-2)}
+  .ball-label b{color:#c43e53;font-weight:600}
+
+  /* 拖拽 */
+  .drag-stage{position:relative;min-height:236px;display:grid;place-items:center;background:
+    radial-gradient(260px 160px at 50% 40%,rgba(255,93,115,.09),transparent 70%),
+    repeating-linear-gradient(0deg,transparent 0 29px,rgba(16,20,27,.035) 29px 30px),
+    repeating-linear-gradient(90deg,transparent 0 29px,rgba(16,20,27,.035) 29px 30px);
+  }
+  .drag-ring{position:absolute;width:150px;height:150px;border-radius:50%;border:2px dashed rgba(255,93,115,.45);display:grid;place-items:center}
+  .drag-ring:after{content:"";position:absolute;inset:9px;border-radius:50%;border:4px solid transparent;border-top-color:var(--coral);border-right-color:var(--coral);transform:rotate(28deg)}
+  .drag-orb{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 34% 28%,#a596ff,#6c58e8 62%,#4b3bb8);color:#fff;box-shadow:0 0 0 8px rgba(141,123,255,.11),0 18px 34px -16px rgba(84,63,190,.6);z-index:2}
+  .drag-orb svg{width:28px;height:28px}
+  .drag-tip{position:absolute;top:16px;font:9px/1 var(--mono);letter-spacing:.08em;color:#c43e53;background:#fff;border:1px solid var(--line);padding:6px 9px;border-radius:999px}
+  .drag-pill{position:absolute;bottom:15px;font:9px/1 var(--mono);color:var(--ink-2);background:#fff;border:1px solid var(--line);padding:6px 10px;border-radius:999px}
+  .drag-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .drag-steps div{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .drag-steps b{display:block;font:9px/1.4 var(--mono);color:var(--coral)}
+  .drag-steps span{display:block;margin-top:3px;font-size:10.5px;line-height:1.55;color:var(--ink-3)}
+
+  /* 诊断 / 日志 */
+  .support-stage{display:grid;grid-template-columns:1fr;gap:11px}
+  .support-card{border:1px solid var(--line);border-radius:9px;padding:13px 14px;background:#fff}
+  .support-head{display:flex;align-items:center;gap:9px}
+  .support-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:var(--paper-2);color:var(--coral);font:700 13px/1 var(--mono);flex:0 0 auto}
+  .support-head b{display:block;font-size:12.5px;line-height:1.4}
+  .support-head small{display:block;font:9px/1.4 var(--mono);color:var(--ink-3)}
+  .support-checks{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .support-checks span{font:8.5px/1 var(--mono);color:var(--ink-3);background:var(--paper);border:1px solid var(--line);padding:4px 6px;border-radius:4px}
+  .support-btn{margin-top:10px;height:28px;display:grid;place-items:center;border-radius:6px;background:var(--ink);color:#fff;font:10px/1 var(--mono);letter-spacing:.04em}
+  .support-note{margin-top:7px;font:8.5px/1.4 var(--mono);color:var(--ink-3)}
+  .log-list{margin-top:9px;padding:7px 8px;border-radius:6px;background:#0f141c;font:8.5px/1.7 var(--mono);color:#aab4c6}
+  .log-line i{font-style:normal;color:#667086}
+  .log-line em{font-style:normal;color:#8fe0b0}
+  .log-export{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font:8.5px/1 var(--mono);color:var(--ink-3)}
+  .log-export span:last-child{color:var(--coral);font-weight:600}
+
+  /* ---------- 落地 ---------- */
+  .table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px}
+  .table th,.table td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  .table th{font:9px/1.4 var(--mono);letter-spacing:.08em;color:var(--ink-3);background:#f8fafc;text-transform:uppercase}
+  .table tr:last-child td{border-bottom:0}
+  .table td b{font-weight:600}
+  .table .ok{color:var(--mint-ink);font:9px/1 var(--mono);white-space:nowrap}
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .flow div{padding:13px 14px;border:1px solid var(--line);border-radius:9px;background:#fff}
+  .flow b{display:block;font:10px/1.4 var(--mono);color:var(--coral)}
+  .flow span{display:block;margin-top:4px;font-size:11.5px;line-height:1.6;color:var(--ink-2)}
+  .boundary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+  .boundary div{padding:13px 14px;border:1px solid var(--line);border-radius:9px;background:var(--paper-2)}
+  .boundary b{display:block;font-size:12px}
+  .boundary span{display:block;margin-top:4px;font-size:11.5px;line-height:1.6;color:var(--ink-2)}
+  .note{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;line-height:1.75;color:var(--ink-2)}
+  .note b{color:var(--ink)}
+
+  .foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:34px 0 8px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3)}
+  .foot b{color:var(--ink-2)}
+  .foot a{color:var(--coral);font-weight:600}
+
+  @media (max-width:1100px){
+    main{padding:0 34px 80px}
+    .hero{gap:30px}
+    .feature{gap:30px}
+    .sec-head{grid-template-columns:70px 1fr}
+    .sec-head p{grid-column:2;align-self:start}
+    .appwin{max-width:560px}
+  }
+  @media (max-width:900px){
+    .page{display:block}
+    .rail{display:none}
+    main{padding:0 20px 64px}
+    .hero{grid-template-columns:1fr;padding:40px 0 36px}
+    .appwin{max-width:640px}
+    .principles{grid-template-columns:1fr}
+    .sec{padding:38px 0 42px}
+    .sec-head{grid-template-columns:1fr;gap:5px;margin-bottom:20px}
+    .sec-head p{grid-column:1}
+    .feature{grid-template-columns:1fr;gap:22px;padding:24px 0}
+    .feature.rev .copy{order:1}
+    .feature.rev .visual{order:2}
+    .table{display:block;overflow-x:auto;white-space:nowrap}
+    .flow,.boundary{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:560px){
+    .statusbar{padding:8px 14px;gap:4px}
+    .statusbar span,.statusbar em{display:none}
+    h1{font-size:38px}
+    .meta span{font-size:11px}
+    .appwin-body{grid-template-columns:92px minmax(0,1fr);height:330px}
+    .mini-side{padding:10px 7px}
+    .mini-main{padding:12px}
+    .mini-menu{width:140px;right:78px;bottom:68px}
+    .mini-label{right:78px;bottom:30px}
+    .shortcut-stage{grid-template-columns:1fr}
+    .flow,.boundary,.drag-steps{grid-template-columns:1fr}
+    .foot{display:block}.foot span{display:block;margin-top:8px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+  }
+  @media print{
+    .statusbar,.rail,.skip{display:none}
+    .page{display:block}
+    main{padding:0}
+    .appwin,.frame,.principle,.table,.note{box-shadow:none}
+  }
 </style>
 </head>
 <body>
-<div class="readbar"><i id="bar"></i></div>
-<header class="topbar">
-  <a class="brand" href="#top"><span class="brandmark">cc</span>CC Flash <small>/ Desktop Polish</small></a>
-  <nav class="nav">
-    <a href="#overview">概览</a><a href="#search">文件搜索</a><a href="#shortcuts">快捷入口</a><a href="#drag">拖拽上传</a><a href="#support">诊断与日志</a><a href="#ship">落地</a>
-  </nav>
-  <span class="state"><i></i>v1.2.9 · 已落地</span>
-</header>
+<div class="doc-status" style="max-width:1280px;margin:16px auto 0;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.1 · 2026-11-26</span></div><p style="margin:0 0 4px">本文为 2026-11-25 桌面增强设计稿的快照，不作为当前交互说明；当前实现以 README / 需求设计 / 技术实现文档为准。2026-11-26 已完成第二轮全量审查修复。</p><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div>
+<a class="skip" href="#overview">跳到正文</a>
+<div class="page">
+  <aside class="rail" aria-label="页面目录">
+    <div class="rail-brand"><span class="rail-ring">cc</span>CC Flash</div>
+    <div class="rail-sub">DESKTOP POLISH<br>2026-11 / v1.2.9.1<br>六项已落地</div>
+    <nav class="rail-nav">
+      <a class="on" href="#overview"><span class="n">00</span>概览</a>
+      <a href="#search"><span class="n">01</span>文件搜索</a>
+      <a href="#shortcuts"><span class="n">02</span>快捷入口</a>
+      <a href="#drag"><span class="n">03</span>拖拽上传</a>
+      <a href="#support"><span class="n">04</span>诊断与日志</a>
+      <a href="#ship"><span class="n">05</span>落地边界</a>
+    </nav>
+    <div class="rail-foot">6 项增强 · 3 个入口<br>不新增主流程<br>不增加压缩依赖</div>
+  </aside>
 
-<main id="top">
-<div class="wrap">
-  <section class="hero" id="overview">
-    <div>
-      <div class="eyebrow">2026.11 / DESKTOP EXPERIENCE</div>
-      <h1>桌面增强<em>六件小事，把动作放到手边</em></h1>
-      <p class="lede">不新增主流程，不增加新的学习成本：在系统托盘、文件列表、悬浮球和设置页里，把最常用的动作缩短一步。</p>
-      <div class="chips">
-        <span class="chip"><span class="dot"></span><b>6</b> 个增强</span>
-        <span class="chip"><b>3</b> 个入口</span>
-        <span class="chip"><b>0</b> 个新增压缩依赖</span>
-        <span class="chip"><b>v1.2.9</b> 已实现</span>
-      </div>
-      <div class="hero-note"><b>前置修复</b><span>悬浮球右键的旧四项菜单已移除；本文的第二项菜单是全新的双项菜单，不是旧菜单回退。</span></div>
-    </div>
-    <div class="canvas" aria-label="桌面增强 UI 示意">
-      <div class="canvas-head"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>CC Flash · 桌面</span></div>
-      <div class="canvas-body">
-        <aside class="mini-side">
-          <div class="mini-brand">CC FLASH</div>
-          <div class="mini-row"><b></b>消息发送</div>
-          <div class="mini-row"><b></b>服务中心</div>
-          <div class="mini-row on"><b></b>CC 设置</div>
-          <div class="mini-row"><b></b>共享文件</div>
-        </aside>
-        <div class="mini-main">
-          <div class="mini-top"><div><h3>共享文件</h3><p>MANIFEST / ROOM · 10 ITEMS</p></div><span class="mini-pill">● 运行中</span></div>
-          <div class="search-mock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg><span>搜索文件名或上传者</span><code>report</code><em>⌘K</em></div>
-          <div class="files">
-            <div class="filerow"><span class="ft pdf">PDF</span><span class="nm"><b>report-2026-11.pdf</b><small>Mac-6412 · 2.4 MB · 11-25 16:00</small></span><span class="ok">✓</span></div>
-            <div class="filerow"><span class="ft">MD</span><span class="nm"><b>report-summary.md</b><small>Mac-7804 · 4.2 KB · 11-25 15:58</small></span><span class="ok">✓</span></div>
-            <div class="filerow"><span class="ft img">PNG</span><span class="nm"><b>hotel-detail.png</b><small>Pixel 8 Pro · 43 KB · 11-25 15:41</small></span></div>
-          </div>
-          <div class="float-ball">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg>
-          </div>
-          <div class="ball-label">已复制 <b>访问地址</b></div>
-          <div class="mini-menu">
-            <button>打开共享文件夹 <span>↗</span></button>
-            <button>复制访问地址 <span>⌘C</span></button>
-          </div>
+  <main>
+    <section class="hero" id="overview">
+      <div class="hero-copy">
+        <div class="kicker">2026.11 / DESKTOP EXPERIENCE</div>
+        <h1>桌面增强<em>六件小事，<br>把动作放到手边。</em></h1>
+        <p class="lead">不新增主流程，不增加新的学习成本：在系统托盘、文件列表、悬浮球和设置页里，把最常用的动作缩短一步。<b>先小后大，六项都已落地。</b></p>
+        <div class="meta">
+          <span><b>6</b>&nbsp;个增强</span>
+          <span class="b"><b>3</b>&nbsp;个入口</span>
+          <span class="g"><b>0</b>&nbsp;个新增压缩依赖</span>
+          <span class="a"><b>v1.2.9.1</b>&nbsp;已落地</span>
         </div>
+        <div class="hero-note"><b>前置修复</b><span>悬浮球右键的旧四项菜单已移除；本文的第二项菜单是全新的双项菜单，不是旧菜单回退。主窗口右键菜单保持不变。</span></div>
       </div>
-    </div>
-  </section>
 
-  <div class="principles">
-    <div><b>少开一次窗口</b><span>托盘与悬浮球直接完成复制/打开，不抢主流程。</span></div>
-    <div><b>少找一次文件</b><span>文件页本地搜索，输入即过滤，不发请求。</span></div>
-    <div><b>少解释一次问题</b><span>诊断包与日志导出，一条附件带走上下文。</span></div>
-  </div>
-
-  <section id="search">
-    <div class="section-head">
-      <div class="sec-no">01 / FILE SEARCH</div>
-      <div><span class="sec-kicker">文件多之后的刚需</span><h2>文件列表搜索</h2></div>
-      <p>纯前端过滤，桌面抽屉、手机文件页和浏览器共享页共用；输入即筛选，清空即恢复。</p>
-    </div>
-    <div class="feature">
-      <div class="copy">
-        <div class="kicker"><b>01</b> 文件页<span class="badge">已落地</span></div>
-        <h3>搜索文件名或上传者 <small>不改变排序，不发请求</small></h3>
-        <p>搜索框放在文件列表上方。匹配文件名与上传者，忽略大小写；批量选择时，已选集合不会因为筛选而丢失。</p>
-        <ul class="rules">
-          <li><b>即时：</b>输入即过滤，<b>清空</b>即回到完整列表；不触发服务器往返。</li>
-          <li><b>计数：</b>显示「匹配 N / 共 M」，没有结果时给出清除搜索入口。</li>
-          <li><b>不打断选择：</b>筛选只影响可见行；隐藏项仍然被选中，底部操作沿用原语义。</li>
-          <li><b>移动端：</b>输入框 16px，避免 iOS 聚焦放大整页。</li>
-        </ul>
-        <div class="okline"><b>验收</b>搜索 report 只留下 report 相关行；清空恢复；批量选择不丢失；320px 无横向溢出。</div>
-      </div>
-      <figure class="visual">
-        <div class="frame">
-          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>文件 · 搜索状态</span></div>
-          <div class="frame-body search-stage">
-            <div class="search-big"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg><span>report</span><em>⌘K</em></div>
-            <div class="search-meta"><span>匹配 2 / 共 10</span><b>清空</b></div>
-            <div class="bigrow"><span class="t pdf">PDF</span><span><b>report-2026-11.pdf</b><small>Mac-6412 · 2.4 MB · 11-25 16:00</small></span><span class="tick">✓</span></div>
-            <div class="bigrow"><span class="t">MD</span><span><b>report-summary.md</b><small>Mac-7804 · 4.2 KB · 11-25 15:58</small></span><span class="tick">✓</span></div>
-            <div class="bigrow"><span class="t png">PNG</span><span><b>report-cover.png</b><small>Pixel 8 Pro · 43 KB · 11-25 15:41</small></span><span class="tick">✓</span></div>
-          </div>
-        </div>
-        <figcaption><b>FIG. 01</b>搜索只作用于当前文件视图，不改变文件真实排序。</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section id="shortcuts">
-    <div class="section-head">
-      <div class="sec-no">02 / SHORTCUTS</div>
-      <div><span class="sec-kicker">托盘与悬浮球</span><h2>把地址和文件夹放到手边</h2></div>
-      <p>两个系统级入口，只做「复制访问地址」和「打开共享文件夹」。主窗口的完整右键菜单保留，不混用。</p>
-    </div>
-    <div class="feature rev">
-      <div class="copy">
-        <div class="kicker"><b>02</b> 托盘菜单<span class="badge">已落地</span></div>
-        <h3>复制访问地址 <small>少开一次主窗口</small></h3>
-        <p>托盘菜单新增「复制访问地址」，剪贴板得到可直接粘贴到浏览器的完整 URL；服务未启动时不复制过期地址。</p>
-        <ul class="rules">
-          <li><b>内容：</b><code>http://IP:端口</code>，带协议；界面文案仍可读作「IP:端口」。</li>
-          <li><b>反馈：</b>主窗口不可见时用系统通知确认；悬浮球可见时球边显示「已复制」。</li>
-          <li><b>不打扰：</b>不打开主窗口，不弹面板，不改变服务状态。</li>
-        </ul>
-        <div class="okline"><b>验收</b>托盘点击后剪贴板为完整 URL；服务停止时不复制；主窗口保持隐藏。</div>
-      </div>
-      <figure class="visual">
-        <div class="frame">
-          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>托盘 / 悬浮球 · 快捷入口</span></div>
-          <div class="frame-body shortcut-stage">
-            <div class="native-tray">
-              <button>显示主窗口</button>
-              <button class="on">复制访问地址 <span>⌘C</span></button>
-              <button>启动/停止服务</button>
-              <button>打开网页</button>
-              <hr>
-              <button>退出</button>
+      <div class="appwin" aria-label="桌面端文件搜索与快捷入口示意">
+        <div class="appwin-bar"><i></i><i></i><i></i><span>CC Flash · 桌面</span></div>
+        <div class="appwin-body">
+          <aside class="mini-side">
+            <div class="mini-brand">CC FLASH</div>
+            <div class="mini-row"><b></b>消息发送</div>
+            <div class="mini-row"><b></b>服务中心</div>
+            <div class="mini-row on"><b></b>CC 设置</div>
+            <div class="mini-row"><b></b>共享文件</div>
+          </aside>
+          <div class="mini-main">
+            <div class="mini-head"><div><h4>共享文件</h4><p>MANIFEST / ROOM · 10 ITEMS</p></div><span class="mini-pill">● 运行中</span></div>
+            <div class="mini-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg><span>搜索文件名或上传者</span><code>report</code><em>⌘K</em></div>
+            <div class="mini-files">
+              <div class="mini-filerow"><span class="mini-ft pdf">PDF</span><span class="nm"><b>report-2026-11.pdf</b><small>Mac-6412 · 2.4 MB · 11-25 16:00</small></span><span class="mini-tick">✓</span></div>
+              <div class="mini-filerow"><span class="mini-ft">MD</span><span class="nm"><b>report-summary.md</b><small>Mac-7804 · 4.2 KB · 11-25 15:58</small></span><span class="mini-tick">✓</span></div>
             </div>
-            <div class="ball-stage2">
-              <div class="orb2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
-              <div class="ballmenu2"><button>打开共享文件夹 <span>↗</span></button><button>复制访问地址 <span>⌘C</span></button></div>
+            <div class="mini-menu"><button>打开共享文件夹 <span>↗</span></button><button>复制访问地址 <span>⌘C</span></button></div>
+            <div class="mini-label">已复制 <b>访问地址</b></div>
+            <div class="mini-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="principles" aria-label="设计原则">
+      <div class="principle"><b>少开一次窗口</b><span>托盘与悬浮球直接完成复制 / 打开，不抢主流程。</span></div>
+      <div class="principle"><b>少找一次文件</b><span>文件页本地搜索，输入即过滤，不发请求。</span></div>
+      <div class="principle"><b>少解释一次问题</b><span>诊断包与日志导出，一条附件带走上下文。</span></div>
+    </div>
+
+    <section class="sec" id="search">
+      <div class="sec-head">
+        <div class="sec-no">01 / FILE SEARCH</div>
+        <div><span class="sec-kicker">文件多之后的刚需</span><h2>文件列表搜索</h2></div>
+        <p>纯前端过滤，桌面抽屉、手机文件页和浏览器共享页共用；输入即筛选，清空即恢复。</p>
+      </div>
+      <div class="feature">
+        <div class="copy">
+          <div class="kicker"><b>01</b> 文件页<span class="badge">已落地</span></div>
+          <h3>搜索文件名或上传者 <small>不改变排序，不发请求</small></h3>
+          <p>搜索框放在文件列表上方。匹配文件名与上传者，忽略大小写；批量选择时，已选集合不会因为筛选而丢失。</p>
+          <ul class="rules">
+            <li><b>即时：</b>输入即过滤，清空即回到完整列表；不触发服务器往返。</li>
+            <li><b>计数：</b>显示「匹配 N / 共 M」，没有结果时给出清除搜索入口。</li>
+            <li><b>不打断选择：</b>筛选只影响可见行；隐藏项仍然被选中，底部操作沿用原语义。</li>
+            <li><b>移动端：</b>输入框 16px，避免 iOS 聚焦放大整页。</li>
+          </ul>
+          <div class="okline"><b>验收</b>搜索 report 只留下 report 相关行；清空恢复；批量选择不丢失；320px 无横向溢出。</div>
+        </div>
+        <figure class="visual">
+          <div class="frame">
+            <div class="frame-bar"><i></i><i></i><i></i><span>文件 · 搜索状态</span></div>
+            <div class="frame-body">
+              <div class="search-big"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg><span>report</span><em>⌘K</em></div>
+              <div class="search-meta"><span>匹配 2 / 共 10</span><b>清空</b></div>
+              <div class="bigrow"><span class="ft pdf">PDF</span><span class="nm"><b>report-2026-11.pdf</b><small>Mac-6412 · 2.4 MB · 11-25 16:00</small></span><span class="tick">✓</span></div>
+              <div class="bigrow"><span class="ft">MD</span><span class="nm"><b>report-summary.md</b><small>Mac-7804 · 4.2 KB · 11-25 15:58</small></span><span class="tick">✓</span></div>
+              <div class="bigrow"><span class="ft png">PNG</span><span class="nm"><b>report-cover.png</b><small>Pixel 8 Pro · 43 KB · 11-25 15:41</small></span><span class="tick">✓</span></div>
+            </div>
+          </div>
+          <figcaption><b>FIG. 01</b>搜索只作用于当前文件视图，不改变文件真实排序。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="sec" id="shortcuts">
+      <div class="sec-head">
+        <div class="sec-no">02 / SHORTCUTS</div>
+        <div><span class="sec-kicker">托盘与悬浮球</span><h2>把地址和文件夹放到手边</h2></div>
+        <p>两个系统级入口，只做「复制访问地址」和「打开共享文件夹」。主窗口的完整右键菜单保留，不混用。</p>
+      </div>
+
+      <div class="feature">
+        <div class="copy">
+          <div class="kicker"><b>02</b> 托盘菜单<span class="badge">已落地</span></div>
+          <h3>复制访问地址 <small>少开一次主窗口</small></h3>
+          <p>托盘菜单新增「复制访问地址」，剪贴板得到可直接粘贴到浏览器的完整 URL；服务未启动时不复制过期地址。</p>
+          <ul class="rules">
+            <li><b>内容：</b><code>http://IP:端口</code>，带协议；界面文案仍可读作「IP:端口」。</li>
+            <li><b>反馈：</b>主窗口不可见时用系统通知确认；悬浮球可见时球边显示「已复制」。</li>
+            <li><b>不打扰：</b>不打开主窗口，不弹面板，不改变服务状态。</li>
+          </ul>
+          <div class="okline"><b>验收</b>托盘点击后剪贴板为完整 URL；服务停止时不复制；主窗口保持隐藏。</div>
+        </div>
+        <figure class="visual">
+          <div class="frame">
+            <div class="frame-bar"><i></i><i></i><i></i><span>托盘 · 快捷入口</span></div>
+            <div class="frame-body">
+              <div class="shortcut-stage">
+                <div class="native-tray">
+                  <button>显示主窗口</button>
+                  <button class="on">复制访问地址 <span>⌘C</span></button>
+                  <button>启动 / 停止服务</button>
+                  <button>打开网页</button>
+                  <hr>
+                  <button>退出</button>
+                </div>
+                <div class="ball-stage">
+                  <div class="orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+                  <div class="ball-label">已复制 <b>访问地址</b></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption><b>FIG. 02</b>托盘是系统级入口；复制后不抢主窗口。</figcaption>
+        </figure>
+      </div>
+
+      <div class="feature rev">
+        <div class="copy">
+          <div class="kicker"><b>03</b> 悬浮球右键<span class="badge">已落地</span></div>
+          <h3>只保留两个动作 <small>不是第二个设置页</small></h3>
+          <p>旧版右键会弹出复制页面、手动发送、重新扫描、设备诊断四项，属于主窗口的能力，不该从一颗小悬浮球上弹出。新版只保留打开共享文件夹与复制访问地址。</p>
+          <ul class="rules">
+            <li><b>范围：</b>仅 pet 悬浮球；主窗口右键菜单保持不变。</li>
+            <li><b>状态：</b>服务停止时复制项禁用；打开文件夹仍可用。</li>
+            <li><b>关闭：</b>点击空白、Esc、切换窗口都关闭，不阻塞悬停扫码卡。</li>
+          </ul>
+          <div class="okline"><b>验收</b>右键只出现两项；旧四项不再出现；主窗口菜单不受影响。</div>
+        </div>
+        <div class="visual frame">
+          <div class="frame-bar"><i></i><i></i><i></i><span>悬浮球右键 · 双项</span></div>
+          <div class="frame-body">
+            <div class="ball-stage" style="min-height:220px">
+              <div class="orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+              <div class="ballmenu"><button>打开共享文件夹 <span>↗</span></button><button>复制访问地址 <span>⌘C</span></button></div>
               <div class="old-note">旧四项菜单已移除</div>
             </div>
           </div>
+          <figcaption><b>FIG. 03</b>右键是快捷入口，不是第二个设置页。</figcaption>
         </div>
-        <figcaption><b>FIG. 02</b>托盘是系统级入口；悬浮球右键只保留两个动作。</figcaption>
-      </figure>
-    </div>
-    <div class="feature">
-      <div class="copy">
-        <div class="kicker"><b>03</b> 悬浮球右键<span class="badge">已落地</span></div>
-        <h3>只保留两个动作 <small>不是第二个设置页</small></h3>
-        <p>旧版右键会弹出复制页面、手动发送、重新扫描、设备诊断四项，属于主窗口的能力，不该从一颗小悬浮球上弹出。新版只保留打开共享文件夹与复制访问地址。</p>
-        <ul class="rules">
-          <li><b>范围：</b>仅 pet 悬浮球；主窗口右键菜单保持不变。</li>
-          <li><b>状态：</b>服务停止时复制项禁用；打开文件夹仍可用。</li>
-          <li><b>关闭：</b>点击空白、Esc、切换窗口都关闭，不阻塞悬停扫码卡。</li>
-        </ul>
-        <div class="okline"><b>验收</b>右键只出现两项；旧四项不再出现；主窗口菜单不受影响。</div>
       </div>
-      <div class="visual frame">
-        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>悬浮球右键 · 双项</span></div>
-        <div class="frame-body">
-          <div class="ball-stage2" style="min-height:220px">
-            <div class="orb2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
-            <div class="ballmenu2"><button>打开共享文件夹 <span>↗</span></button><button>复制访问地址 <span>⌘C</span></button></div>
-          </div>
-        </div>
-        <figcaption><b>FIG. 03</b>右键是快捷入口，不是第二个设置页。</figcaption>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="drag">
-    <div class="section-head">
-      <div class="sec-no">03 / DRAG</div>
-      <div><span class="sec-kicker">最短的上传路径</span><h2>拖到球上，松手即上传</h2></div>
-      <p>不切换窗口、不选目标、不打开面板。拖入文件时球边出现提示，上传中显示进度环，完成后短暂显示对勾。</p>
-    </div>
-    <div class="feature">
-      <div class="copy">
-        <div class="kicker"><b>04</b> 悬浮球拖拽<span class="badge">已落地</span></div>
-        <h3>文件落到球上 <small>只进本机共享</small></h3>
-        <p>支持文件，不支持文件夹；默认写入本机共享目录，不绑定当前选中设备，避免误发给陌生设备。完成后主窗与手机端文件列表立即刷新。</p>
-        <ul class="rules">
-          <li><b>视觉：</b>拖入时虚线环 +「松手到本机共享」；传输中 0–99% 进度环；完成显示对勾 1.8 秒。</li>
-          <li><b>安全：</b>只读取用户主动拖入的文件；文件名走既有净化规则；同名自动顺延。</li>
-          <li><b>失败：</b>服务未启动、磁盘不足、文件夹拖入时显示红色短提示，不静默。</li>
-          <li><b>不改：</b>左键点击仍打开主窗口；拖拽与点击手势互不抢占。</li>
-        </ul>
-        <div class="okline"><b>验收</b>拖入 1 个文件后共享列表出现；拖入文件夹给出明确提示；上传中可见进度；完成/失败都不静默。</div>
+    <section class="sec" id="drag">
+      <div class="sec-head">
+        <div class="sec-no">03 / DRAG</div>
+        <div><span class="sec-kicker">最短的上传路径</span><h2>拖到球上，松手即上传</h2></div>
+        <p>不切换窗口、不选目标、不打开面板。拖入文件时球边出现提示，上传中显示进度环，完成后短暂显示对勾。</p>
       </div>
-      <figure class="visual">
-        <div class="frame">
-          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>悬浮球 · 拖入态</span></div>
-          <div class="frame-body">
-            <div class="drag-stage">
-              <div class="drag-ring"><div class="drag-progress"></div></div>
-              <div class="drag-tip">松手 · 上传到本机共享</div>
-              <div class="drag-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
-              <div class="drag-pill">2 个文件 · 62%</div>
-            </div>
-            <div class="drag-steps">
-              <div><b>01 拖入</b><span>OS 文件进入球窗</span></div>
-              <div><b>02 松手</b><span>逐文件复制</span></div>
-              <div><b>03 完成</b><span>列表即时刷新</span></div>
-            </div>
-          </div>
+      <div class="feature">
+        <div class="copy">
+          <div class="kicker"><b>04</b> 悬浮球拖拽<span class="badge">已落地</span></div>
+          <h3>文件落到球上 <small>只进本机共享</small></h3>
+          <p>支持文件，不支持文件夹；默认写入本机共享目录，不绑定当前选中设备，避免误发给陌生设备。完成后主窗与手机端文件列表立即刷新。</p>
+          <ul class="rules">
+            <li><b>视觉：</b>拖入时虚线环 +「松手到本机共享」；传输中 0–99% 进度环；完成显示对勾 1.8 秒。</li>
+            <li><b>安全：</b>只读取用户主动拖入的文件；文件名走既有净化规则；同名自动顺延。</li>
+            <li><b>失败：</b>服务未启动、磁盘不足、文件夹拖入时显示红色短提示，不静默。</li>
+            <li><b>不改：</b>左键点击仍打开主窗口；拖拽与点击手势互不抢占。</li>
+          </ul>
+          <div class="okline"><b>验收</b>拖入 1 个文件后共享列表出现；拖入文件夹给出明确提示；上传中可见进度；完成 / 失败都不静默。</div>
         </div>
-        <figcaption><b>FIG. 04</b>球只负责接住文件，目标固定为本机共享。</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section id="support">
-    <div class="section-head">
-      <div class="sec-no">04 / SUPPORT</div>
-      <div><span class="sec-kicker">让报障变成一条附件</span><h2>诊断包与日志导出</h2></div>
-      <p>不要求用户理解日志结构。设置页一键生成诊断 ZIP；日志页直接导出原始 .log，适合工单与聊天窗口。</p>
-    </div>
-    <div class="feature">
-      <div class="copy">
-        <div class="kicker"><b>05</b> 诊断包<span class="badge">已落地</span></div>
-        <h3>把上下文一次带走 <small>默认脱敏</small></h3>
-        <p>诊断包包含版本、系统、脱敏配置、最近日志与 <code>pref-pet-dbg-*</code> 诊断文件；不包含聊天内容、文件名或访问令牌。</p>
-        <ul class="rules">
-          <li><b>内容：</b>meta.json / config.json / logs.txt / prefs/* / manifest.txt。</li>
-          <li><b>脱敏：</b>配置不含 PIN/令牌；局域网 IP 只保留网段；不打包聊天与文件列表。</li>
-          <li><b>保存：</b>系统保存对话框选择路径；生成 ZIP 不阻塞主界面。</li>
-          <li><b>反馈：</b>成功后提示文件大小；失败说明写入原因。</li>
-        </ul>
-        <div class="okline"><b>验收</b>ZIP 可正常解压；包含诊断文件；无 PIN/聊天；文件名带日期。</div>
-      </div>
-      <figure class="visual">
-        <div class="frame">
-          <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>CC 设置 · 导出诊断</span></div>
-          <div class="frame-body">
-            <div class="support-stage">
-              <div class="support-card">
-                <div class="support-head"><span class="support-ic">↧</span><span><b>导出诊断包</b><small>一个附件说清问题</small></span></div>
-                <div class="support-checks"><span>版本信息</span><span>脱敏配置</span><span>最近日志</span><span>诊断文件</span></div>
-                <div class="support-btn">导出诊断 .zip</div>
-                <div class="support-note">不含聊天内容、文件名与访问令牌</div>
+        <figure class="visual">
+          <div class="frame">
+            <div class="frame-bar"><i></i><i></i><i></i><span>悬浮球 · 拖入态</span></div>
+            <div class="frame-body">
+              <div class="drag-stage">
+                <div class="drag-ring"></div>
+                <div class="drag-tip">松手 · 上传到本机共享</div>
+                <div class="drag-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg></div>
+                <div class="drag-pill">2 个文件 · 62%</div>
               </div>
-              <div class="support-card">
-                <div class="support-head"><span class="support-ic">▤</span><span><b>服务日志</b><small>原始文本 · 完整导出</small></span></div>
-                <div class="log-list">
-                  <div class="log-line"><i>10:24</i> [<em>INFO</em>] server · listen 0.0.0.0:1688</div>
-                  <div class="log-line"><i>10:24</i> [<em>OK</em>] discovery · joined</div>
-                  <div class="log-line"><i>10:27</i> [<em>INFO</em>] upload · report.pdf</div>
+              <div class="drag-steps">
+                <div><b>01 拖入</b><span>OS 文件进入球窗</span></div>
+                <div><b>02 松手</b><span>逐文件复制</span></div>
+                <div><b>03 完成</b><span>列表即时刷新</span></div>
+              </div>
+            </div>
+          </div>
+          <figcaption><b>FIG. 04</b>球只负责接住文件，目标固定为本机共享。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="sec" id="support">
+      <div class="sec-head">
+        <div class="sec-no">04 / SUPPORT</div>
+        <div><span class="sec-kicker">让报障变成一条附件</span><h2>诊断包与日志导出</h2></div>
+        <p>不要求用户理解日志结构。设置页一键生成诊断 ZIP；日志页直接导出原始 .log，适合工单与聊天窗口。</p>
+      </div>
+
+      <div class="feature">
+        <div class="copy">
+          <div class="kicker"><b>05</b> 诊断包<span class="badge">已落地</span></div>
+          <h3>把上下文一次带走 <small>默认脱敏</small></h3>
+          <p>诊断包包含版本、系统、脱敏配置、最近日志与 <code>pref-pet-dbg-*</code> 诊断文件；不包含聊天内容、文件名或访问令牌。</p>
+          <ul class="rules">
+            <li><b>内容：</b>meta.json / config.json / logs.txt / prefs/* / manifest.txt。</li>
+            <li><b>脱敏：</b>配置不含 PIN / 令牌；局域网 IP 只保留网段；不打包聊天与文件列表。</li>
+            <li><b>保存：</b>系统保存对话框选择路径；生成 ZIP 不阻塞主界面。</li>
+            <li><b>反馈：</b>成功后提示文件大小；失败说明写入原因。</li>
+          </ul>
+          <div class="okline"><b>验收</b>ZIP 可正常解压；包含诊断文件；无 PIN / 聊天；文件名带日期。</div>
+        </div>
+        <figure class="visual">
+          <div class="frame">
+            <div class="frame-bar"><i></i><i></i><i></i><span>CC 设置 · 导出诊断</span></div>
+            <div class="frame-body">
+              <div class="support-stage">
+                <div class="support-card">
+                  <div class="support-head"><span class="support-ic">↧</span><span><b>导出诊断包</b><small>一个附件说清问题</small></span></div>
+                  <div class="support-checks"><span>版本信息</span><span>脱敏配置</span><span>最近日志</span><span>诊断文件</span></div>
+                  <div class="support-btn">导出诊断 .zip</div>
+                  <div class="support-note">不含聊天内容、文件名与访问令牌</div>
                 </div>
-                <div class="log-export2"><span>CC-Flash-2026-11-25.log</span><span>导出 .log</span></div>
+                <div class="support-card">
+                  <div class="support-head"><span class="support-ic">▤</span><span><b>服务日志</b><small>原始文本 · 完整导出</small></span></div>
+                  <div class="log-list">
+                    <div class="log-line"><i>10:24</i> [<em>INFO</em>] server · listen 0.0.0.0:1688</div>
+                    <div class="log-line"><i>10:27</i> [<em>INFO</em>] upload · report.pdf</div>
+                  </div>
+                  <div class="log-export"><span>CC-Flash-2026-11-25.log</span><span>导出 .log</span></div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <figcaption><b>FIG. 05</b>诊断是「一附件说清」，日志是原始证据。</figcaption>
-      </figure>
-    </div>
-    <div class="feature rev">
-      <div class="copy">
-        <div class="kicker"><b>06</b> 日志导出<span class="badge">已落地</span></div>
-        <h3>保留原始文本 <small>不被筛选结果影响</small></h3>
-        <p>日志页增加「导出日志」。导出当前完整日志，而不是屏幕上的筛选结果；保留时间戳、级别、位置和消息原文。</p>
-        <ul class="rules">
-          <li><b>范围：</b>默认导出全部；有筛选时按钮旁提示「导出完整日志」。</li>
-          <li><b>格式：</b>UTF-8 纯文本，保留原始结构；不改写、不折叠。</li>
-          <li><b>保存：</b>系统保存对话框；文件名带日期；失败有提示。</li>
-        </ul>
-        <div class="okline"><b>验收</b>导出文件可被文本编辑器打开；筛选状态下仍为全量；日志为空时给出提示。</div>
+          <figcaption><b>FIG. 05</b>诊断是「一附件说清」，日志是原始证据。</figcaption>
+        </figure>
       </div>
-      <div class="visual frame">
-        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>服务日志 · 导出</span></div>
-        <div class="frame-body">
-          <div class="support-card" style="max-width:420px;margin:auto">
-            <div class="support-head"><span class="support-ic">▤</span><span><b>服务日志</b><small>最近 1,248 条 · 导出完整日志</small></span></div>
-            <div class="log-list">
-              <div class="log-line"><i>10:24:18</i> [<em>INFO</em>] server.rs · 监听 [::]:1688</div>
-              <div class="log-line"><i>10:24:19</i> [<em>INFO</em>] server.rs · UDP 53318</div>
-              <div class="log-line"><i>10:24:27</i> [<em>OK</em>] server.rs · upload · report.pdf 2.4 MB</div>
-              <div class="log-line"><i>10:24:28</i> [<em>INFO</em>] server.rs · WS 连接建立 ← 127.0.0.1</div>
+
+      <div class="feature rev">
+        <div class="copy">
+          <div class="kicker"><b>06</b> 日志导出<span class="badge">已落地</span></div>
+          <h3>保留原始文本 <small>不被筛选结果影响</small></h3>
+          <p>日志页增加「导出日志」。导出当前完整日志，而不是屏幕上的筛选结果；保留时间戳、级别、位置和消息原文。</p>
+          <ul class="rules">
+            <li><b>范围：</b>默认导出全部；有筛选时按钮旁提示「导出完整日志」。</li>
+            <li><b>格式：</b>UTF-8 纯文本，保留原始结构；不改写、不折叠。</li>
+            <li><b>保存：</b>系统保存对话框；文件名带日期；失败有提示。</li>
+          </ul>
+          <div class="okline"><b>验收</b>导出文件可被文本编辑器打开；筛选状态下仍为全量；日志为空时给出提示。</div>
+        </div>
+        <div class="visual frame">
+          <div class="frame-bar"><i></i><i></i><i></i><span>服务日志 · 导出</span></div>
+          <div class="frame-body">
+            <div class="support-card" style="max-width:460px;margin:auto">
+              <div class="support-head"><span class="support-ic">▤</span><span><b>服务日志</b><small>最近 1,248 条 · 导出完整日志</small></span></div>
+              <div class="log-list">
+                <div class="log-line"><i>10:24:18</i> [<em>INFO</em>] server.rs · 监听 [::]:1688</div>
+                <div class="log-line"><i>10:24:19</i> [<em>INFO</em>] server.rs · UDP 53318</div>
+                <div class="log-line"><i>10:24:27</i> [<em>OK</em>] server.rs · upload · report.pdf 2.4 MB</div>
+                <div class="log-line"><i>10:24:28</i> [<em>INFO</em>] server.rs · WS 连接建立 ← 127.0.0.1</div>
+              </div>
+              <div class="log-export"><span>CC-Flash-2026-11-25.log</span><span>导出 .log</span></div>
             </div>
-            <div class="log-export2"><span>CC-Flash-2026-11-25.log</span><span>导出 .log</span></div>
           </div>
+          <figcaption><b>FIG. 06</b>日志导出保留原始证据，不经过前端筛选。</figcaption>
         </div>
-        <figcaption><b>FIG. 06</b>日志导出保留原始证据，不经过前端筛选。</figcaption>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="ship">
-    <div class="section-head">
-      <div class="sec-no">05 / SHIP</div>
-      <div><span class="sec-kicker">范围与边界</span><h2>这六项，如何安全地落地</h2></div>
-      <p>优先复用现有鉴权、剪贴板、文件事件和保存对话框；不为一个入口新增一套系统。</p>
-    </div>
-    <table class="table">
-      <thead><tr><th>能力</th><th>交互</th><th>边界</th><th>状态</th></tr></thead>
-      <tbody>
-        <tr><td><b>托盘复制地址</b></td><td>菜单直接复制完整 URL</td><td>服务停止不复制；不打开主窗</td><td class="time">已落地</td></tr>
-        <tr><td><b>文件列表搜索</b></td><td>文件页即时过滤，显示匹配数</td><td>纯前端；不改变排序/选择</td><td class="time">已落地</td></tr>
-        <tr><td><b>悬浮球拖拽上传</b></td><td>拖入 → 松手 → 进度 → 完成</td><td>仅文件；固定本机共享；同名顺延</td><td class="time">已落地</td></tr>
-        <tr><td><b>悬浮球右键菜单</b></td><td>原生双项：打开文件夹 / 复制地址</td><td>仅 pet 窗；旧四项已移除</td><td class="time">已落地</td></tr>
-        <tr><td><b>诊断包</b></td><td>设置页导出 ZIP</td><td>不含 PIN/聊天/文件名；IP 网段化</td><td class="time">已落地</td></tr>
-        <tr><td><b>日志导出</b></td><td>日志页导出完整 .log</td><td>UTF-8 原文；筛选不改变范围</td><td class="time">已落地</td></tr>
-      </tbody>
-    </table>
-    <div class="flow">
-      <div><b>系统层</b><span>托盘菜单 · 剪贴板 · Finder / Explorer · 保存对话框</span></div>
-      <div><b>Tauri / Rust</b><span>复制地址 · 原生双项菜单 · 本地文件导入 · 诊断 ZIP</span></div>
-      <div><b>Vue UI</b><span>文件搜索 · 拖拽反馈 · 导出入口 · 状态提示</span></div>
-      <div><b>既有管道</b><span>文件事件 · 访问令牌 · 上传队列 · 日志环形缓冲</span></div>
-    </div>
-    <div class="boundary">
-      <div><b>不做</b><span>不做拖拽到远端设备、不做云端同步、不做系统通知中心、不做全量国际化。</span></div>
-      <div><b>不添负担</b><span>所有新入口都只减少步骤：复制、过滤、拖入、导出，没有新增必填项。</span></div>
-      <div><b>可恢复</b><span>失败有提示；诊断包可预览内容；复制/上传不改变现有文件状态。</span></div>
-    </div>
-    <div class="note"><b>实现补充：</b>落地时同步加入可执行/脚本文件打开防护（只定位到文件夹）、悬浮球导入隐藏临时文件 + fsync + 原子转正、诊断日志聊天/文件事件移除与 IP/路径脱敏、PIN 开关标记写失败 fail-closed；未改变本稿的交互范围。</div>
-    <div class="note"><b>结论：</b>六项均已按本稿落地。先小后大：文件搜索与托盘复制适合作为最高频的日常入口；悬浮球两项和诊断/日志补足「最短路径」与「可支持性」。</div>
-  </section>
+    <section class="sec" id="ship">
+      <div class="sec-head">
+        <div class="sec-no">05 / SHIP</div>
+        <div><span class="sec-kicker">范围与边界</span><h2>这六项，如何安全地落地</h2></div>
+        <p>优先复用现有鉴权、剪贴板、文件事件和保存对话框；不为一个入口新增一套系统。</p>
+      </div>
+      <table class="table">
+        <thead><tr><th>能力</th><th>交互</th><th>边界</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td><b>托盘复制地址</b></td><td>菜单直接复制完整 URL</td><td>服务停止不复制；不打开主窗</td><td class="ok">已落地</td></tr>
+          <tr><td><b>文件列表搜索</b></td><td>文件页即时过滤，显示匹配数</td><td>纯前端；不改变排序 / 选择</td><td class="ok">已落地</td></tr>
+          <tr><td><b>悬浮球拖拽上传</b></td><td>拖入 → 松手 → 进度 → 完成</td><td>仅文件；固定本机共享；同名顺延</td><td class="ok">已落地</td></tr>
+          <tr><td><b>悬浮球右键菜单</b></td><td>原生双项：打开文件夹 / 复制地址</td><td>仅 pet 窗；旧四项已移除</td><td class="ok">已落地</td></tr>
+          <tr><td><b>诊断包</b></td><td>设置页导出 ZIP</td><td>不含 PIN / 聊天 / 文件名；IP 网段化</td><td class="ok">已落地</td></tr>
+          <tr><td><b>日志导出</b></td><td>日志页导出完整 .log</td><td>UTF-8 原文；筛选不改变范围</td><td class="ok">已落地</td></tr>
+        </tbody>
+      </table>
+      <div class="flow">
+        <div><b>系统层</b><span>托盘菜单 · 剪贴板 · Finder / Explorer · 保存对话框</span></div>
+        <div><b>Tauri / Rust</b><span>复制地址 · 原生双项菜单 · 本地文件导入 · 诊断 ZIP</span></div>
+        <div><b>Vue UI</b><span>文件搜索 · 拖拽反馈 · 导出入口 · 状态提示</span></div>
+        <div><b>既有管道</b><span>文件事件 · 访问令牌 · 上传队列 · 日志环形缓冲</span></div>
+      </div>
+      <div class="boundary">
+        <div><b>不做</b><span>不做拖拽到远端设备、不做云端同步、不做系统通知中心、不做全量国际化。</span></div>
+        <div><b>不添负担</b><span>所有新入口都只减少步骤：复制、过滤、拖入、导出，没有新增必填项。</span></div>
+        <div><b>可恢复</b><span>失败有提示；诊断包可预览内容；复制 / 上传不改变现有文件状态。</span></div>
+      </div>
+      <div class="note"><b>实现补充：</b>落地时同步加入可执行 / 脚本文件打开防护（只定位到文件夹）、悬浮球导入隐藏临时文件 + fsync + 原子转正、诊断日志聊天 / 文件事件移除与 IP / 路径脱敏、PIN 开关标记写失败 fail-closed；未改变本稿的交互范围。</div>
+      <div class="note"><b>结论：</b>六项均已按本稿落地。先小后大：文件搜索与托盘复制适合作为最高频的日常入口；悬浮球两项和诊断 / 日志补足「最短路径」与「可支持性」。</div>
+    </section>
 
-  <footer class="footer">
-    <div><b>CC Flash · 桌面增强设计稿</b><br>2026-11-25 · v1.2.9 · 已落地</div>
-    <span>把动作放到手边，而不是堆到设置里。<br><a href="#top" style="color:var(--mint)">回到开头 ↑</a></span>
-  </footer>
+    <footer class="foot">
+      <div><b>CC Flash · 桌面增强设计稿</b><br>2026-11-25 · v1.2.9.1 · 已落地</div>
+      <span>把动作放到手边，而不是堆到设置里。<br><a href="#overview">回到开头 ↑</a></span>
+    </footer>
+  </main>
 </div>
-</main>
-<button class="top" id="topbtn" aria-label="回到顶部">↑</button>
+
 <script>
-const bar=document.getElementById('bar'), topbtn=document.getElementById('topbtn');
-const links=[...document.querySelectorAll('.nav a')];
-const secs=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
-function update(){
-  const h=document.documentElement, max=h.scrollHeight-h.clientHeight;
-  bar.style.width=(max?Math.min(100,h.scrollTop/max*100):0)+'%';
-  topbtn.style.opacity=h.scrollTop>520?'1':'0'; topbtn.style.pointerEvents=h.scrollTop>520?'auto':'none';
-  let cur=secs[0]; for(const s of secs){if(s.getBoundingClientRect().top<=120)cur=s;}
-  links.forEach(a=>a.classList.toggle('active',cur&&a.getAttribute('href')==='#'+cur.id));
-}
-addEventListener('scroll',update,{passive:true}); update();
-topbtn.addEventListener('click',()=>scrollTo({top:0,behavior:'smooth'}));
+  const links=[...document.querySelectorAll('.rail-nav a')];
+  const secs=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function update(){
+    let cur=secs[0];
+    for(const s of secs){if(s.getBoundingClientRect().top<=120)cur=s;}
+    links.forEach(a=>a.classList.toggle('on',cur&&a.getAttribute('href')==='#'+cur.id));
+  }
+  addEventListener('scroll',update,{passive:true});update();
 </script>
 </body>
 </html>

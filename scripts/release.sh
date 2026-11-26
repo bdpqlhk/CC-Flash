@@ -106,6 +106,9 @@ restore_on_fail() {
     if [ -n "${OLD_VCODE:-}" ]; then
       node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$OLD_VCODE" || true
     fi
+    if [ -n "${OLD_BVER:-}" ]; then
+      node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.macOS=Object.assign({},j.bundle.macOS,{bundleVersion:process.argv[1]});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$OLD_BVER" || true
+    fi
   fi
   rm -rf "$LOCK_BAK_DIR" 2>/dev/null || true
   return $rc
@@ -114,6 +117,7 @@ trap restore_on_fail EXIT
 
 # ---------- 1) 升版本 ----------
 OLD_VCODE=$(node -e "try{const j=require('./src-tauri/tauri.conf.json');console.log(j.bundle&&j.bundle.android&&j.bundle.android.versionCode||'')}catch(e){}" 2>/dev/null || true)
+OLD_BVER=$(node -e "try{const j=require('./src-tauri/tauri.conf.json');console.log(j.bundle&&j.bundle.macOS&&j.bundle.macOS.bundleVersion||'')}catch(e){}" 2>/dev/null || true)
 # 一旦开始改版本文件, 后续任何失败(缺 cargo/hook 拒绝/网络中断)都由 trap 回滚
 VERSION_CHANGED=1
 # -i.bak 双平台兼容(macOS BSD sed 需后缀参数, GNU sed 同样接受)
@@ -132,7 +136,7 @@ IFS=. read -r vM vN vP vB <<< "$VERSION"
 vB=${vB:-0}
 for part in "$vM" "$vN" "$vP" "$vB"; do [[ "$part" -ge 0 && "$part" -lt 100 ]] || { echo "✘ 版本段需在 0-99: $VERSION"; exit 1; }; done
 NEW_VCODE=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
-node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$NEW_VCODE"
+node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});j.bundle.macOS=Object.assign({},j.bundle.macOS,{bundleVersion:process.argv[2]});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$NEW_VCODE" "$VERSION"
 # 同步 package-lock 根 version(两处): 勿用全局 sed(lock 里有几千行依赖 version 字段)
 npm install --package-lock-only >/dev/null 2>&1 || echo "⚠ package-lock 同步失败(不阻断发版, CI 用 npm install)"
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null  # 刷新 Cargo.lock

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CC Flash · 保姆级使用说明（PixPin 官网风格版）</title>
-<meta name="description" content="CC-Flash 局域网文件互传保姆级使用说明（PixPin 官网风格版，适用于 v1.2.9）：三步上手、桌面端与手机端全攻略、附近设备、访问令牌、常见问题与安全须知。">
+<meta name="description" content="CC-Flash 局域网文件互传保姆级使用说明（PixPin 官网风格版，适用于 v1.2.9 / tag v1.2.9.1）：三步上手、桌面端与手机端全攻略、附近设备、访问令牌、常见问题与安全须知。">
 <style>
 /* ============ PixPin 风格设计令牌 ============ */
 :root{
@@ -256,9 +256,9 @@ ol.steps-5 li b{color:var(--text)}
 </style>
 </head>
 <body>
-<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.9 · 2026-11-25</b>　本文已按最新代码校对。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发。　2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+
+
 
 
 <!-- ================= 导航 ================= -->
@@ -300,7 +300,7 @@ ol.steps-5 li b{color:var(--text)}
   </div>
 </header>
 
-<main id="top">
+<main id="top"><div class="doc-status" style="max-width:1160px;margin:16px auto 0;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.1 · 2026-11-26</span></div><p style="margin:0 0 4px">已按最新代码校对。最近更新：桌面增强六项（文件搜索、托盘复制地址、悬浮球拖拽与双项右键、诊断包、日志导出）、全量审查修复、六皮肤对比度校准与安装包两轮瘦身。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div>
 
 <!-- ================= Hero ================= -->
 <section class="hero">
@@ -541,7 +541,7 @@ ol.steps-5 li b{color:var(--text)}
       </div>
       <div class="card" style="box-shadow:none">
         <h3>CC设置</h3>
-        <p>开机自动启动（默认关闭）、访问令牌、悬浮二维码、皮肤（亮 / 暗 / 跟随系统 × 六套配色，默认信号台）、检查更新。移动 App 还多出「重启服务 / 访问令牌 / 剪贴板同步」。</p>
+        <p>开机自动启动（默认关闭）、访问令牌、悬浮二维码、皮肤（亮 / 暗 / 跟随系统 × 六套配色，默认曜石金）、检查更新。移动 App 还多出「重启服务 / 访问令牌 / 剪贴板同步」。</p>
       </div>
     </div>
 
@@ -791,7 +791,7 @@ ol.steps-5 li b{color:var(--text)}
     </div>
     <div class="foot-bottom">
       <span>Copyright © 2026-Present 李航坤. All Rights Reserved.</span>
-      <span class="ver">CC Flash · 保姆级使用说明 · v1.2.9 (v1.2.9.x) · 2026-11-23</span>
+      <span class="ver">CC Flash · 保姆级使用说明 · v1.2.9（tag v1.2.9.1） · 2026-11-26</span>
     </div>
   </div>
 </footer>
@@ -829,7 +829,7 @@ document.querySelectorAll('details.faq').forEach(function (d) {
 
 
 <div id="cc-v129-delta" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
-<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9 · 桌面增强与审查修复</h2>
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9.1 · 桌面增强与审查修复（2026-11-26）</h2>
 <p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段为最新代码增量，优先于文档中较早版本的描述。</p>
 <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
 <tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">能力</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">最新行为</th></tr>
@@ -840,6 +840,18 @@ document.querySelectorAll('details.faq').forEach(function (d) {
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>诊断与日志</b></td><td style="border:1px solid #dfe3ea;padding:8px">诊断 ZIP 日志移除聊天/文件事件并脱敏 IP/共享路径；日志页导出完整 .log；导出原子写并异步执行。</td></tr>
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>安全与状态修复</b></td><td style="border:1px solid #dfe3ea;padding:8px">可执行/脚本不在应用内直接打开；悬浮球导入原子化；PIN 开关 fail-closed；修复全局粘贴文件、直发目标切换、发送失败草稿、清空远端文件卡、失焦误标已读、手机文件多选等问题。</td></tr>
 </table>
+</div>
+
+
+<div style="max-width:1100px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">2026-11-26 二次审查后行为补充</h2>
+<ul style="font-size:13.5px;line-height:1.9">
+<li>多选直发文本/文件部分失败时保留草稿与未成功设备，下一次发送不会重复发给已成功设备；400/413/500/507 会显示服务端原因。</li>
+<li>聊天与上传增加幂等键；响应丢失后的重试不会产生重复消息或 <code>xxx(1)</code> 文件。</li>
+<li>剪贴板自动同步关闭时，右键粘贴、＋面板粘贴、聊天框粘贴都只填充输入框，不写共享槽。</li>
+<li>桌面共享文件抽屉内拖拽固定上传本机；手动发送面板拖入文件夹会递归发送；失败上传不再屏蔽同名远端文件卡。</li>
+<li>Android 16/17 本地网络权限被拒会给出系统提示；未签名预发布版本也会进入更新提示并标注风险。</li>
+</ul>
 </div>
 
 </body>

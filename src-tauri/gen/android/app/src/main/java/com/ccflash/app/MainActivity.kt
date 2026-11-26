@@ -1,12 +1,14 @@
 package com.ccflash.app
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -47,6 +49,28 @@ class MainActivity : TauriActivity() {
       try {
         requestPermissions(perms.toTypedArray(), 0)
       } catch (_: Throwable) {
+      }
+    }
+  }
+
+  override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<out String>,
+    grantResults: IntArray
+  ) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    if (requestCode != 0) return
+    for (i in permissions.indices) {
+      if (permissions[i] == "android.permission.ACCESS_LOCAL_NETWORK" &&
+        grantResults.getOrNull(i) != PackageManager.PERMISSION_GRANTED) {
+        // 拒绝后系统会拦掉局域网连接/发现, 界面只会表现为"连不上";
+        // 首次拒绝必须明确告知用户去哪里补授权。
+        Toast.makeText(
+          this,
+          "未授予本地网络权限：附近设备发现与电脑连接将不可用，请到系统设置 → 应用 → CC-Flash → 权限中开启",
+          Toast.LENGTH_LONG
+        ).show()
+        return
       }
     }
   }

@@ -53,9 +53,9 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 </style>
 </head>
 <body>
-<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新版本 v1.2.9 · 2026-11-25</b>　对外表述请使用当前功能：手机发送/设备/文件三页 dir-2 信号台、设置页 dir-5 与令牌开关、文件消息持久化、多选直发、connectedDevice 保活、Windows 离线 WebView2 安装器；未签名版本标记 prerelease。　设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　截图与文案请按当前安装包校对。</div>
+
+
 
 <div class="layout">
 
@@ -79,11 +79,11 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <header class="doc">
 <h1>CC Flash · 推广营销方案</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-25（v1.2.9 审查修订）</b></span>
+<span>文档日期：<b>2026-11-26（v1.2.9.1 发布修订）</b></span>
 <span>版本：<b>面向 v1.2.9</b></span>
 <span>原则：<b>零预算内容驱动 · 不吹不黑 · 安全口径先行</b></span>
 </div>
-</header>
+</header><div class="doc-status" style="margin:16px 0 20px;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.1 · 2026-11-26</span></div><p style="margin:0 0 4px">已按最新代码校对。最近更新：桌面增强六项（文件搜索、托盘复制地址、悬浮球拖拽与双项右键、诊断包、日志导出）、全量审查修复、六皮肤对比度校准与安装包两轮瘦身。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div>
 
 <!-- ============ 1 ============ -->
 <section id="s1">
@@ -106,7 +106,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 <h2><span class="no">二</span>现状盘点：可复用资产</h2>
 <table>
 <tr><th>资产</th><th>状态</th><th>推广用途</th></tr>
-<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、<b>移动 App 独立节点（始终开放局域网 + 本机令牌）</b>、<b>消息工作台（设备发现并入发送页）与本机服务内共享剪贴板（跨 App 用发送面板投递）</b>、访问令牌 + 一次性分享票据（绑定 ETag）、配对码 IPv6 /64 聚合退避 + 公网全局失败预算、控制接口跨站防护、CSP 与上传/下载/WS 并发闸；应用内预览、聊天 Markdown 与多行输入、共享文件抽屉加宽（每页 10 条）、顶栏标题左/状态地址右的自适应布局、六套配色 × 亮/暗/跟随系统（默认信号台）、同名文件自动改名、Android 前台服务保活与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
+<tr><td>产品完成度</td><td class="muted">三平台发版 CI 全绿、介绍页、托盘/自启/单实例齐备；整文件直传+并发闸、loguru 风格日志、侧边栏常驻扫码；悬浮码贴边呼吸球（扩展屏 / Windows 混合 DPI）、<b>移动 App 独立节点（始终开放局域网 + 本机令牌）</b>、<b>消息工作台（设备发现并入发送页）与本机服务内共享剪贴板（跨 App 用发送面板投递）</b>、访问令牌 + 一次性分享票据（绑定 ETag）、配对码 IPv6 /64 聚合退避 + 公网全局失败预算、控制接口跨站防护、CSP 与上传/下载/WS 并发闸；应用内预览、聊天 Markdown 与多行输入、共享文件抽屉加宽（每页 10 条）、顶栏标题左/状态地址右的自适应布局、六套配色 × 亮/暗/跟随系统（默认曜石金）、同名文件自动改名、Android 前台服务保活与内置 e2e 自检齐备</td><td>可公开演示，不怕细看</td></tr>
 <tr><td>文档体系</td><td class="muted">需求/技术/使用说明/历史记录/设计稿 五件套 + README</td><td>技术社区传播的「信任状」</td></tr>
 <tr><td>发布流水线</td><td class="muted">打 tag 自动出 macOS 分架构双包 dmg、Windows NSIS exe、Android arm64-v8a APK；Android 必须 release 签名，debug 包禁止进入正式 Release</td><td>快速响应热点，随发随推</td></tr>
 <tr><td>介绍页</td><td class="muted">应用内全屏介绍页（Hero/三步上手/FAQ）</td><td>新用户 30 秒看懂，降低传播流失</td></tr>
@@ -273,7 +273,7 @@ code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;background:
 </div>
 
 <div id="cc-v129-delta" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
-<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9 · 桌面增强与审查修复</h2>
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9.1 · 桌面增强与审查修复（2026-11-26）</h2>
 <p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段为最新代码增量，优先于文档中较早版本的描述。</p>
 <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
 <tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">能力</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">最新行为</th></tr>

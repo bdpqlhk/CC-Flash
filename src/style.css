@@ -2292,7 +2292,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 @media (max-width: 980px) {
-
     /* fixed + visualViewport 高度/偏移: 键盘弹出时整页不滚动, 输入区始终贴键盘上方 */
     /* fixed + visualViewport 高度/偏移: 键盘弹出时整页不滚动, 输入区始终贴键盘上方 */
     .shell.transfer-active { position: fixed; top: var(--app-vv-top, 0); left: 0; right: 0; height: 100vh; height: var(--app-vh, 100dvh); min-height: 0; }
@@ -2939,7 +2938,7 @@ button:focus-visible, [role="button"]:focus-visible {
 .tx-idcard-ava svg { display: block; }
 .tx-idcard-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .tx-idcard-main b { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tx-idcard-main small { font-size: 10.5px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-idcard-main small { font-size: 10px; letter-spacing: -.1px; line-height: 1.35; color: var(--text3); white-space: normal; overflow: visible; text-overflow: clip; }
 .tx-state-dot {
     position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%;
     background: var(--text3); border: 2px solid var(--panel);
@@ -3181,8 +3180,6 @@ button:focus-visible, [role="button"]:focus-visible {
 /* 侧栏：窄模块，不是圆角卡片 */
 [data-theme="signal"] .sidebar { background: rgba(8,11,9,0.94); border-right-color: var(--card-border); }
 [data-mode="light"][data-theme="signal"] .sidebar { background: rgba(241,239,231,0.94); }
-[data-theme="signal"] .brand .t { font: 600 10px/1.2 "SF Mono",Menlo,monospace; letter-spacing: .16em; text-transform: uppercase; }
-[data-theme="signal"] .brand .t::after { content: "SIGNAL DESK"; display: block; margin-top: 3px; font-size: 7px; letter-spacing: .2em; color: var(--text3); }
 [data-theme="signal"] .nav-item { border-radius: 3px; font-size: 12px; letter-spacing: .04em; }
 [data-theme="signal"] .nav-item:hover { background: rgba(242,180,65,0.055); }
 [data-theme="signal"] .nav-item.active { background: rgba(242,180,65,0.12); border-color: rgba(242,180,65,0.38); }
@@ -3234,7 +3231,7 @@ button:focus-visible, [role="button"]:focus-visible {
 [data-mode="light"][data-theme="signal"] .tx-idcard { background: #fffdf7; }
 [data-theme="signal"] .tx-idcard-ava { border-radius: 3px; background: var(--accent); color: #17130a; }
 [data-theme="signal"] .tx-idcard-main b { font: 500 11px/1.35 "SF Mono","PingFang SC",monospace; }
-[data-theme="signal"] .tx-idcard-main small { font: 11px/1.4 "SF Mono",Menlo,monospace; color: var(--text3); }
+[data-theme="signal"] .tx-idcard-main small { font: 10px/1.35 "SF Mono",Menlo,monospace; color: var(--text3); }
 [data-theme="signal"] .tx-idcard-history { color: var(--accent); opacity: 1; }
 [data-theme="signal"] .tx-radar {
     background:
@@ -4894,19 +4891,6 @@ html[data-android-browser="1"] .tx-head {
     .shell.has-mobile-tabs .tx-devices.is-inline .tx-radar { width: 230px; height: 230px; }
 }
 
-/* 宽屏桌面/平板浏览器: 消息列居中限宽, 避免 1280px 窗口里左对齐一大片空白 */
-@media (min-width: 700px) {
-    .tx-list > .tx-msg,
-    .tx-list > .tx-file,
-    .tx-list > .tx-date,
-    .tx-list > .tx-receipt-block {
-        width: 100%;
-        max-width: 760px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-}
-
 /* 平板上的文件清单也收成 640px 列, 与聊天内容宽度一致; 发送页目标栏对齐消息列 */
 @media (min-width: 700px) {
     .shell.has-mobile-tabs .tx-files.sheet.open .m-files-head,
@@ -4975,44 +4959,93 @@ html[data-android-browser="1"] .tx-head {
 .shell.has-mobile-tabs .tx-files-search .tx-search-count { font-size: 10.5px; }
 .shell.has-mobile-tabs .tx-files-search .tx-search-clear { width: 28px; height: 28px; font-size: 13px; }
 
-/* 悬浮球: OS 文件拖入 / 上传进度 / 复制反馈 */
-.qr-pet-drop {
-    position: fixed;
+/* 悬浮球: OS 文件拖入 / 上传进度（参考设计稿：虚线环 + 上下胶囊 + 珊瑚进度弧） */
+.qr-pet.drop {
+    flex-direction: column;
+    justify-content: center;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    border-radius: 0;
+}
+
+.qr-pet.drop .qr-pet-shell { position: relative; z-index: 2; }
+
+.qr-pet-drop-ui { position: absolute; inset: 0; pointer-events: none; }
+
+.qr-pet-drop-top,
+.qr-pet-drop-bottom {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    max-width: 124px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 100, 120, .35);
+    border-radius: 999px;
+    background: #fff;
+    color: #e5484d;
+    font: 600 9px/1 var(--sans);
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .14);
+}
+
+.qr-pet-drop-top { top: 14px; }
+
+.qr-pet-drop-bottom { bottom: 14px; color: #5b6472; }
+
+.qr-pet-drop-bottom.err { color: #c0263d; border-color: rgba(192, 38, 61, .28); }
+
+.qr-pet-drop-ring {
+    position: absolute;
     left: 50%;
     top: 50%;
-    z-index: 6;
-    width: 70px;
-    height: 70px;
+    width: 104px;
+    height: 104px;
     transform: translate(-50%, -50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    border: 2px dashed var(--amber-2);
+    border: 2px dashed rgba(255, 100, 120, .55);
     border-radius: 50%;
-    background: rgba(10, 16, 12, .82);
-    color: var(--amber-2);
-    pointer-events: none;
-    text-align: center;
+    z-index: 1;
 }
-.qr-pet-drop b { font: 700 9px/1.1 var(--mono); letter-spacing: .02em; }
-.qr-pet-drop span { font: 7px/1.3 var(--mono); color: var(--mint-2); }
-.qr-pet-drop.active { background: rgba(10, 16, 12, .92); }
-.qr-pet-drop.busy { border-style: solid; border-color: var(--mint-2); color: var(--mint-2); }
-.qr-pet-drop.done { border-style: solid; border-color: var(--mint-2); color: var(--mint-2); }
-.qr-pet-drop.err { border-style: solid; border-color: #f08a7a; color: #f0a08f; }
-.qr-pet-drop-ic { display: block; }
+
 .qr-pet-drop-arc {
     position: absolute;
-    inset: -2px;
+    left: 50%;
+    top: 50%;
+    width: 104px;
+    height: 104px;
+    transform: translate(-50%, -50%) rotate(-90deg);
     border-radius: 50%;
-    background: conic-gradient(currentColor var(--pct, 0%), transparent 0);
-    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-    mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-    transform: rotate(-90deg);
+    background: conic-gradient(#ff6478 var(--pct, 0%), transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+    z-index: 2;
     pointer-events: none;
 }
+
+.qr-pet-drop-badge {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    background: #3ddc97;
+    color: #073c29;
+    font: 800 18px/1 var(--sans);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+}
+
+.qr-pet-drop-badge.err { background: #ff6478; color: #fff; }
+
 .qr-pet-copied {
     position: fixed;
     left: 50%;
@@ -5028,6 +5061,38 @@ html[data-android-browser="1"] .tx-head {
     white-space: nowrap;
     pointer-events: none;
 }
+
+/* 复制提示态: 窗口临时用卡片尺寸, 只显示呼吸球 + 环下方的白色胶囊,
+   不显示二维码; 复制提示消失后恢复 96×96 收拢态。 */
+.qr-pet.hint {
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    border-radius: 0;
+}
+
+.qr-pet.hint .qr-pet-shell { display: grid; }
+
+.qr-pet.hint .qr-pet-copied {
+    position: static;
+    transform: none;
+    left: auto;
+    bottom: auto;
+    padding: 5px 10px;
+    border: 1px solid rgba(27, 33, 28, .12);
+    border-radius: 999px;
+    background: #fff;
+    color: #5b6472;
+    font: 600 9px/1 var(--sans);
+    letter-spacing: .02em;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .14);
+}
+
+.qr-pet.hint .qr-pet-copied b { margin-left: 4px; color: #e5484d; font-weight: 700; }
 
 /* 手机文件多选: 勾选label扩到整行高度, 名称区点击在 select 态切换选择 (逻辑在模板) */
 .shell.has-mobile-tabs .tx-files.m-select .tx-check {

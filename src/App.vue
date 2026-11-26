@@ -795,7 +795,7 @@ function toggleSidebar() {
 /* 6 套低饱和配色(信号台/蓝/灰/绿/紫/琥珀): 去掉微信绿与相近的石墨玫瑰,
    长时间阅读不刺眼; 被移除的选择在 main.js 启动时迁移(见 THEME_MIGRATE) */
 const THEMES = [
-    { id: "signal",   name: "信号台",   preview: "linear-gradient(135deg,#0b0e0d,#f2b441)" },
+    { id: "signal",   name: "曜石金",   preview: "linear-gradient(135deg,#0b0e0d,#f2b441)" },
     { id: "default",  name: "深空蓝",   preview: "linear-gradient(135deg,#0d1017,#1a2233)" },
     { id: "rose",     name: "石墨玫瑰", preview: "linear-gradient(135deg,#16151a,#4a2531)" },
     { id: "mint",     name: "森林薄荷", preview: "linear-gradient(135deg,#0f1712,#1d4634)" },
@@ -960,6 +960,7 @@ const logs = ref([]);
 const portInput = ref(DEFAULT_PORT);
 const portDirty = ref(false);   // 用户手动改过端口: 停止状态下轮询不再回写, 防"打完字点开处被旧值冲掉"
 const shareInput = ref("");
+const shareDirty = ref(false);   // 用户手动改过目录: 状态轮询不得回写旧值
 const freeSpace = ref("--");
 async function refreshControl() {
   // 窗口就绪竞态下 invoke 可能短暂失败, 自动重试
@@ -977,7 +978,9 @@ async function refreshControl() {
       syncPinState(d);
       applyServerConfig(d.config);
       applyServerUiTheme(d);
-      if (d.share) shareInput.value = d.share;
+      if (d.share && !shareDirty.value && document.activeElement?.tagName !== "INPUT") {
+        shareInput.value = d.share;
+      }
       if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
       syncPortInput(running.value, d.port);
       return;
@@ -1088,6 +1091,7 @@ async function startServer() {
     // 先应用共享目录(含持久化), 再启动 —— 否则输入框里的目录从未生效过
     const s = await applyShareDir(shareInput.value);
     if (!s.ok) { if (!s.cancelled) showToast(s.error || "共享目录无效", "error"); return; }
+    shareDirty.value = false;
     // 端口校验前置: "99999"/非数字不再落到 invoke 反序列化失败的笼统报错
     const portArg = portArgOrNaN();
     if (Number.isNaN(portArg)) {
@@ -1125,6 +1129,7 @@ async function pickShareDir() {
     const d = await applyShareDir(sel);
     if (d.ok) {
       shareInput.value = sel;
+      shareDirty.value = false;
       // 运行中切换已由 applyShareDir 重启并提示, 这里只补静默停服场景的文案
       if (!d.restarted) showToast("共享目录已更新，下次启动服务生效");
     } else if (!d.cancelled) {
@@ -1239,7 +1244,13 @@ const petUploading = ref(false);
 const petUploadPct = ref(0);
 const petUploadDone = ref(false);
 const petUploadError = ref("");
+const petDropCount = ref(0);
 const petCopied = ref(false);
+const petHint = ref(false);
+function petDropVisible() {
+  return petDropActive.value || petUploading.value || petUploadDone.value || !!petUploadError.value;
+}
+const petMenuOpen = ref(false);
 let petDragUnlisten = null, petProgressUnlisten = null, petCopyUnlisten = null, appToastUnlisten = null;
 let petCopiedTimer = null, petUploadTimer = null;
 const petMainActive = ref(false);   // 可见且未最小化且获得焦点，才视为正在查看
@@ -1499,7 +1510,8 @@ async function _petApply() {
     if (!wa) { petDiag({ fn: "apply-fail", why: "wa" }); return false; }
     if (!petDock) { petDiag({ fn: "apply-fail", why: "dock" }); return false; }
     petWaFallback = !!wa.viaFallback;   // 记忆屏离线中: heal 见它回归后主动归位
-    const expanded = qrPetExpanded.value;   // 执行时刻的状态: 尺寸与半隐/贴边都用它
+    // 展开扫码卡、复制提示、拖拽/上传提示都用卡片尺寸; 后两者只显示球+标签
+    const expanded = qrPetExpanded.value || petHint.value || petDropVisible();
     const w = expanded ? PET_CARD_W : PET_ORB_W;
     const h = expanded ? PET_CARD_H : PET_ORB_H;
     const pos = petDockPos(petDock.edge, petDock.cross, w, h, wa, !expanded);
@@ -1580,6 +1592,7 @@ async function _petSnap() {
 /* 展开/收起: 先切状态让 CSS 就位, 再改窗口尺寸(顺序反了会先撑出一个巨型呼吸球帧) */
 async function setPetExpanded(v) {
   if (!isQrPetWindow) return;
+  if (v) petHint.value = false;   // 真正展开扫码卡时退出复制提示态
   // 快路径要求"几何+展示"双 ref 都一致才跳过 —— 只比 geo 的话, geo 卡 true 而
   // shown/window 未收敛的半途态会被当成"已展开"永久跳过, 悬停再也唤不醒(自愈入口)
   if (qrPetExpanded.value === v && qrPetShown.value === v) return;
@@ -1618,10 +1631,13 @@ function petSetOver(over) {
   if (over) {
     clearTimeout(petCloseTimer); petCloseTimer = null;   // 回到球上: 取消待收起
     if (qrPetShown.value) return;                        // 已展开无需再计时
+    // 复制提示 / 右键菜单期间不弹二维码; 结束后再按悬停规则重新计时
+    if (petCopied.value || petMenuOpen.value || petDropVisible()) return;
     if (petHoverTimer) return;
     petDiag({ fn: "enter", geo: qrPetExpanded.value, shown: qrPetShown.value });
     petHoverTimer = setTimeout(() => {
       petHoverTimer = null;
+      if (petCopied.value || petMenuOpen.value || petDropVisible()) return;
       petDiag({ fn: "expand-fire", geo: qrPetExpanded.value, shown: qrPetShown.value });
       setPetExpanded(true);   // 停留满 1.5s 才滑出二维码
     }, 1500);
@@ -1640,6 +1656,28 @@ function petSetOver(over) {
 }
 function petEnter() { petSetOver(true); }    // 加速通道(可能因边界状态丢失而不发, 不作依赖)
 function petLeave() { petSetOver(false); }
+/* 复制成功提示: 球保持可见, 窗口临时放到卡片尺寸, 呼吸环下方显示「已复制 访问地址」;
+   提示期间抑制二维码, 结束后若指针仍停在球上再按 1.5s 悬停规则展开。 */
+function showPetCopyHint() {
+  if (!isQrPetWindow || petDropVisible()) return;
+  petCopied.value = true;
+  petHint.value = true;
+  petClearHoverTimers();
+  if (qrPetExpanded.value) { qrPetExpanded.value = false; qrPetShown.value = false; }
+  petApply().catch(() => {});
+  clearTimeout(petCopiedTimer);
+  petCopiedTimer = setTimeout(() => {
+    petCopied.value = false;
+    petHint.value = false;
+    petApply().catch(() => {});
+    if (petOverOrb && !petMenuOpen.value && !petHoverTimer && !qrPetShown.value) {
+      petHoverTimer = setTimeout(() => {
+        petHoverTimer = null;
+        if (!petCopied.value && !petMenuOpen.value) setPetExpanded(true);
+      }, 1500);
+    }
+  }, 1800);
+}
 /* 在场轮询: 每 250ms 查光标是否落在本窗矩形内(物理像素) —— 命中测试级可靠,
    与窗口移动/页面重载/边界事件状态完全无关 */
 let petPollOkLogged = false;
@@ -2043,7 +2081,9 @@ async function loadFiles(manual = false) {
     // 首次拉取只建基线, 否则打开页面时全部历史文件会刷成一串"新消息"
     const names = new Set(nextFiles.map(f => f.name));
     if (knownFileNames) {
-      const selfNames = new Set(uploads.value.map(u => uploadName(u)).filter(Boolean));
+      const selfNames = new Set(uploads.value
+        .filter(u => u.status === "done" || u.status === "uploading" || u.status === "waiting")
+        .map(u => uploadName(u)).filter(Boolean));
       const added = nextFiles.filter(f => !knownFileNames.has(f.name) && !selfNames.has(f.name));
       if (added.length) {
         // 上传响应可能晚于 WS 广播: 同名自动改名的 final 名这时还没回写本机队列,
@@ -2632,12 +2672,27 @@ function handleIncomingFiles(list) {
   if (tooDeep) showToast(`已跳过 ${tooDeep} 个超出 8 层目录限制的文件`, "error");
   if (!arr.length) return;
   if (sendTargets.value.length) {
-    // 多选: 依次发往每台设备; manual=true 让每批不被"目标切换"中断
+    // 多选: 依次发往每台设备; 认证/限流错误才停, 其余单台失败继续下一台,
+    // 避免"第一台磁盘满"把后面所有设备都静默跳过。
     const targets = sendTargets.value.slice();
     (async () => {
+      let okTargets = 0;
+      const failedTargets = [];
       for (const p of targets) {
+        if (!sendTargets.value.some((t) => t.id === p.id)) break;
         const r = await directSendFiles(p, arr);
-        if (!r.allOk) break;   // 失败中断, 避免连续弹出多个配对框/长时间挂起
+        if (r.allOk) okTargets++;
+        else failedTargets.push(p);
+        if (r.authAbort) break;
+      }
+      if (failedTargets.length) {
+        const rest = targets.length - okTargets - failedTargets.length;
+        showToast(
+          `已发送到 ${okTargets}/${targets.length} 台；${failedTargets.length} 台未完成` +
+          (rest > 0 ? `，${rest} 台未尝试` : "") +
+          "，请重新选择未完成设备后再发",
+          "error",
+        );
       }
     })();
     return;
@@ -2783,8 +2838,9 @@ async function onDrop(e) {
 }
 /* 上传名: 文件夹拖入/选择时为相对路径(如 目录/子目录/文件名), 普通文件为原名 */
 function uploadRelName(file) { return file.webkitRelativePath || file.name; }
-/* 手机 App 的文件页: 上传应加入本机共享, 不能因为之前选过直发目标就发给别人 */
-function filesPageActive() { return fileSheetOpen.value; }
+/* 文件页/文件抽屉: 上传应加入本机共享, 不能因为之前选过直发目标就发给别人。
+   宽屏抽屉用 drawerCollapsed、手机/窄屏用 fileSheetOpen，统一由 filePanelVisible 判断。 */
+function filesPageActive() { return filePanelVisible(); }
 
 /* 唤醒锁: 有上传进行中时申请屏幕常亮 —— iOS 锁屏/切后台会冻结上传连接(失败主因) */
 let wakeLock = null;
@@ -2867,6 +2923,20 @@ function trimUploads() {
     .forEach(u => { u.file = null; u.xhr = null; });
   uploads.value = [...live, ...kept];
 }
+function stableUploadId(file) {
+  // 同一 File 对象在重试时复用同一幂等键; 服务端 /api/upload_status 据此判断
+  // "上一次其实已成功、只是响应丢了", 避免同名文件被重新存成 xxx(1)。
+  if (file && file.__ccUploadId) return file.__ccUploadId;
+  let id = "u-" + Date.now().toString(36) + "-";
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") id = window.crypto.randomUUID();
+    else id += Math.random().toString(36).slice(2, 12);
+  } catch (_) { id += Math.random().toString(36).slice(2, 12); }
+  try {
+    Object.defineProperty(file, "__ccUploadId", { value: id, configurable: true });
+  } catch (_) {}
+  return id;
+}
 function uploadFile(file, meta = {}) {
   // 单请求整文件直传(1.1.2 传输) + 保留功能: 同名自动改名、取消✕、锁屏防中断
   const id = "up-" + Date.now() + "-" + upSeq++;
@@ -2877,6 +2947,7 @@ function uploadFile(file, meta = {}) {
     batch: meta.batch || ("b" + id),
     batchSize: meta.batchSize || 1,
     file,   // 失败重试复用原 File 对象
+    uploadId: stableUploadId(file),
   });   // waiting = 真实排队
   const stat = () => uploads.value.find(u => u.id === id);
   upQueue.push(() => startUpload(file, id, name, stat));
@@ -2897,6 +2968,8 @@ function startUpload(file, id, name, stat) {
       if (accessPin.value) { try { xhr.setRequestHeader("X-Access-Pin", accessPin.value); } catch (e) {} }
       xhr.setRequestHeader("X-Filename", encodeURIComponent(name));
       xhr.setRequestHeader("X-File-Size", String(file.size));
+      const rowUid = stat()?.uploadId;
+      if (rowUid) xhr.setRequestHeader("X-Upload-Id", rowUid);
       // 上传者昵称: 其他端的时间线文件卡片据此显示头像(服务端内存态, 重启后回落通用头像)
       xhr.setRequestHeader("X-Nickname", encodeURIComponent(deviceNick()));
       xhr.setRequestHeader("Content-Type", "application/octet-stream");
@@ -3062,9 +3135,32 @@ function fileTone(name) {
   if (["jks", "keystore", "pem", "key"].includes(e)) return "key";
   return "file";
 }
-function retryUpload(u) {
+async function retryUpload(u) {
   const f = u.file;
   if (!f) return;
+  // 响应丢失但服务端其实已落盘: 先查幂等账本, 命中就直接恢复为完成,
+  // 不再重传成 xxx(1)。查询失败则按普通重试处理。
+  if (u.uploadId) {
+    try {
+      const r = await apiFetch(apiBase.value + API.uploadStatus(u.uploadId), null, 8000);
+      if (r.ok) {
+        const d = await r.json();
+        if (d && d.done) {
+          u.status = "done";
+          u.pct = 100;
+          u.final = d.name || u.name;
+          u.doneAt = Date.now();
+          u.file = null;
+          u.xhr = null;
+          lastSelfUploadAt = Date.now();
+          showToast(`文件已上传成功：${String(u.final).split("/").pop()}`);
+          loadFiles();
+          trimUploads();
+          return;
+        }
+      }
+    } catch (_) {}
+  }
   const meta = { batch: u.batch, batchSize: u.batchSize, t0: Date.now() / 1000 };
   removeUpload(u.id);
   uploadFile(f, meta);
@@ -3100,13 +3196,30 @@ function shareUpload(u) {
   const n = uploadName(u);
   if (n) shareFile(n);
 }
-function locateFile(name) {
+async function remoteFileExists(name) {
+  try {
+    const r = await apiFetch(apiBase.value + API.download(name), { method: "HEAD" });
+    return r.ok;
+  } catch (e) {
+    return false;
+  }
+}
+async function locateFile(name) {
   if (!name) return;
+  // 点了定位就视为已查看: 文件卡同步置灰, 和预览/打开/复制保持一致
+  markFileViewed(name);
   // 从聊天/文件卡定位时先退出搜索, 否则过滤列表里找不到目标会静默失败
   fileQuery.value = "";
+  openFilePanel();
+  // 文件可能在系统共享文件夹/目录里被外部删除; 先向服务端确认并刷新列表,
+  // 不存在时保持共享文件抽屉打开, 明确提示路径不可访问, 不再假装定位成功。
+  const [exists] = await Promise.all([remoteFileExists(name), loadFiles(true)]);
+  if (!exists) {
+    showToast("路径不存在或不可访问", "error");
+    return;
+  }
   const idx = sortedFiles.value.findIndex(f => f.name === name);
   if (idx >= 0) currentPage.value = Math.floor(idx / PAGE_SIZE) + 1;
-  openFilePanel();
   locatedName.value = name;
   nextTick(() => {
     const el = [...document.querySelectorAll("[data-file]")].find(e => e.dataset.file === name);
@@ -3161,7 +3274,11 @@ const timelineItems = computed(() => {
     const cur = eventByName.get(f.name);
     if (!cur || (f.timestamp || 0) >= (cur.timestamp || 0)) eventByName.set(f.name, f);
   }
-  const localUploadNames = new Set(uploads.value.map((u) => uploadName(u)).filter(Boolean));
+  // 只有完成/在途的本机上传才参与远端卡片去重: 失败/取消行不能永久屏蔽
+  // 同名文件由另一台设备成功上传后应出现的时间线卡片。
+  const localUploadNames = new Set(uploads.value
+    .filter((u) => u.status === "done" || u.status === "uploading" || u.status === "waiting")
+    .map((u) => uploadName(u)).filter(Boolean));
   for (const f of eventByName.values()) {
     if (localUploadNames.has(f.name)) continue;
     items.push({
@@ -3531,7 +3648,12 @@ async function directSendText(p, text, opts = {}) {
     const r = await fetch(peerBase(p) + "/api/chat?nick=" + encodeURIComponent(curNick.value), {
       method: "POST",
       headers,
-      body: JSON.stringify({ nickname: curNick.value, message: text }),
+      body: JSON.stringify({
+        nickname: curNick.value,
+        message: text,
+        clientId: opts.clientId || "",
+        ...(opts.quote ? { quote: opts.quote } : {}),
+      }),
       signal: ctl.signal,
     });
     if (r.status === 401) {
@@ -3544,7 +3666,16 @@ async function directSendText(p, text, opts = {}) {
     if (r.status === 403) throw new Error("peer-forbidden");
     // 限流窗内正确码也会返回 429(服务端刻意不区分对错): 单独提示, 不误报离线
     if (r.status === 429) throw new Error("peer-pin-locked");
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      let msg = "";
+      try {
+        const d = await r.json();
+        msg = d.error || d.message || "";
+      } catch (_) {}
+      const e = new Error(`HTTP ${r.status}`);
+      e.serverError = msg;
+      throw e;
+    }
     recordTransfer(p, "text", receiptPreview(text));
     addReceipt(`已向 ${p.nickname || "设备"} 发送消息：${receiptPreview(text)}`);
     return true;
@@ -3557,6 +3688,8 @@ async function directSendText(p, text, opts = {}) {
     else if (e?.message === "peer-pin") showToast("配对码不正确，请重新输入后发送", "error");
     else if (e?.message === "peer-pin-locked") showToast("配对码错误次数过多，已被对方临时限流，请稍后再试", "error");
     else if (e?.message === "peer-forbidden") showToast("浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App", "error");
+    else if (e?.serverError) showToast(`发送失败：${e.serverError}`, "error");
+    else if (/^HTTP \d+$/.test(String(e?.message || ""))) showToast(`发送失败：${e.message}`, "error");
     else if (e?.name === "TypeError") {
       // 把目标地址带进提示: IPv6 link-local(fe80::%zone)在 WebView 里往往不可用,
       // 与"手机熄屏被冻结"表现相同, 直接看地址即可区分。
@@ -3570,10 +3703,28 @@ async function directSendText(p, text, opts = {}) {
     return false;
   } finally { clearTimeout(timer); }
 }
+async function peerUploadDone(p, uploadId) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const headers = {};
+    const pin = peerPinOf(p);
+    if (pin) headers["X-Access-Pin"] = pin;
+    const r = await fetch(peerBase(p) + API.uploadStatus(uploadId), { headers, signal: ctl.signal });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    return d && d.done ? d : null;
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function directSendFiles(p, files, opts = {}) {
   const list = Array.from(files || []);
   const sent = new Set();
-  const fail = () => ({ allOk: false, sent });
+  let ok = 0, failed = 0, firstError = "", authAbort = false;
+  const fail = () => ({ allOk: false, sent, failed: failed || (list.length - ok), error: firstError, authAbort });
   if (!p || !list.length) return fail();
   if (!isLanHost(p.ip) || !(Number(p.port) > 0 && Number(p.port) <= 65535)) {
     showToast("设备地址不可用，请刷新设备列表", "error");
@@ -3587,24 +3738,43 @@ async function directSendFiles(p, files, opts = {}) {
       await new Promise((r) => setTimeout(r, 250));
     }
     if (directSending.value) {
+      firstError = "等待前一批发送超时";
       showToast("等待前一批发送超时，请稍后重试", "error");
       return fail();
     }
   }
   directSending.value = true;
   const pin = peerPinOf(p);
-  let ok = 0, forbidden = 0, unauthorized = 0, rateLimited = 0;
+  let forbidden = 0, unauthorized = 0, rateLimited = 0;
   showToast(`正在发送 ${list.length} 个文件到 ${p.nickname || "设备"}…`);
   try {
-    for (const f of list) {
-      if (!opts.manual && !sendTargets.value.some((t) => t.id === p.id)) break;   // 目标已切走/离线; 手动发送不绑定目标
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i];
+      if (!opts.manual && !sendTargets.value.some((t) => t.id === p.id)) {
+        // 目标已切走/取消选择: 不再向旧目标打剩余文件，但要把未发送数报给调用方。
+        failed += list.length - i;
+        firstError = firstError || "目标已切换";
+        break;
+      }
       const rel = f.webkitRelativePath || f.name;
+      // 上次失败可能只是响应丢失: 重试前先问对端"这个幂等键完成了吗"。
+      if (f.__ccUploadAttempted && f.__ccUploadId) {
+        const done = await peerUploadDone(p, f.__ccUploadId);
+        if (done) {
+          ok++;
+          sent.add(f);
+          recordTransfer(p, "file", rel);
+          continue;
+        }
+      }
       try {
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open("POST", peerBase(p) + API.upload, true);
           xhr.setRequestHeader("X-Filename", encodeURIComponent(rel));
           xhr.setRequestHeader("X-File-Size", String(f.size));
+          const uid = stableUploadId(f);
+          if (uid) xhr.setRequestHeader("X-Upload-Id", uid);
           xhr.setRequestHeader("X-Nickname", encodeURIComponent(curNick.value));
           if (pin) xhr.setRequestHeader("X-Access-Pin", pin);
           xhr.timeout = 10 * 60 * 1000;
@@ -3624,7 +3794,19 @@ async function directSendFiles(p, files, opts = {}) {
             done(new Error("timeout"));
           }, 5000);
           xhr.upload.onprogress = () => { lastTick = Date.now(); };
-          xhr.onload = () => done(xhr.status === 200 ? null : new Error(String(xhr.status)));
+          xhr.onload = () => {
+            if (xhr.status === 200) { done(null); return; }
+            // 把服务端的 400/413/500/507 文案取出来: 只按状态码白名单判断会把
+            // "磁盘空间不足/路径过长"这类真实原因吞掉, 用户只看到"发送失败"。
+            let msg = "";
+            try {
+              const j = JSON.parse(xhr.responseText || "{}");
+              msg = j.error || j.message || "";
+            } catch (_) {}
+            const e = new Error(String(xhr.status));
+            e.serverError = msg;
+            done(e);
+          };
           xhr.onerror = () => done(new Error("network"));
           xhr.ontimeout = () => done(new Error("timeout"));
           const abort = () => {
@@ -3641,14 +3823,28 @@ async function directSendFiles(p, files, opts = {}) {
         sent.add(f);
         recordTransfer(p, "file", rel);
       } catch (err) {
-        const status = String(err?.message);
-        // 401/429 说明"继续用同一凭据重试只会把对方 IP 越锁越死": 必须立即中止整批,
-        // 让用户先更新配对码或等限流窗口结束, 而不是把剩余文件全打一遍。
-        // 401 = 缓存的配对码被拒: 清除后再弹框, 避免一直复用错码把自己打进 429
-        if (status === "401") { unauthorized++; savePeerPin(p, ""); break; }
-        if (status === "429") { rateLimited++; break; }
-        if (status === "aborted" || status === "timeout" || status === "network") break;
-        if (status === "403") forbidden++;
+        failed++;
+        try { f.__ccUploadAttempted = true; } catch (_) {}
+        const status = String(err?.message || "");
+        const serverMsg = String(err?.serverError || "").trim();
+        if (!firstError) {
+          firstError = serverMsg || (status === "network" ? "网络中断"
+            : status === "timeout" ? "传输超时"
+            : status === "aborted" ? "已取消"
+            : `HTTP ${status}`);
+        }
+        // 401/429/403 说明"继续用同一凭据重试只会把对方 IP 越锁越死": 必须立即
+        // 中止整批, 让用户先更新配对码或等限流窗口结束, 而不是把剩余文件全打一遍。
+        if (status === "401") {
+          unauthorized++; savePeerPin(p, ""); authAbort = true;
+          failed += list.length - i - 1; break;
+        }
+        if (status === "429") { rateLimited++; authAbort = true; failed += list.length - i - 1; break; }
+        if (status === "403") { forbidden++; authAbort = true; failed += list.length - i - 1; break; }
+        if (status === "aborted" || status === "timeout" || status === "network") {
+          failed += list.length - i - 1; break;
+        }
+        // 400/413/500/507 等逐文件失败: 继续下一份, 最终统一汇总。
       }
     }
   } finally { directSending.value = false; }
@@ -3664,17 +3860,15 @@ async function directSendFiles(p, files, opts = {}) {
     showToast(unauthorized ? "配对码不正确，请重新输入后重试"
       : rateLimited ? "对方拒绝了本次发送（尝试过于频繁），请稍后再试"
       : forbidden ? "浏览器端跨设备发送需对方开启访问令牌；可使用桌面/手机 App"
+      : firstError ? `发送失败：${firstError}`
       : `发送失败：无法连接设备 ${p.ip}:${p.port || port.value}，请确认手机 App 未被系统冻结（可关闭电池优化）`, "error");
     return fail();
   }
-  if (forbidden || unauthorized || rateLimited) {
-    const rest = rateLimited ? "其余因尝试过于频繁被限流"
-      : unauthorized ? "其余配对码不正确"
-      : "其余被拒绝";
-    showToast(`已发送 ${ok} 个，${rest}`, "error");
+  if (failed) {
+    showToast(`已发送 ${ok} 个，${failed} 个失败${firstError ? "：" + firstError : ""}`, "error");
     return fail();
   }
-  return { allOk: ok === list.length, sent };
+  return { allOk: true, sent, failed: 0, error: "", authAbort: false };
 }
 const discoveryInfo = ref({ started: false, joined: false, error: "" });
 const peersRefreshing = ref(false);
@@ -3725,7 +3919,18 @@ function onContextMenu(e) {
   // 悬浮扫码球是独立 pet 窗: 右键弹原生双项菜单(打开共享文件夹 / 复制访问地址), 不再复用主窗菜单
   if (isQrPetWindow) {
     e.preventDefault();
-    if (!petUploading.value) tauriInvoke("show_pet_menu_cmd").catch(() => {});
+    if (petUploading.value) return;
+    // 菜单弹出期间不显示二维码: 先收起扫码卡, 菜单关闭后再恢复悬停
+    petMenuOpen.value = true;
+    petClearHoverTimers();
+    if (qrPetExpanded.value) { qrPetExpanded.value = false; qrPetShown.value = false; petApply().catch(() => {}); }
+    tauriInvoke("show_pet_menu_cmd").catch(() => {}).finally(() => {
+      setTimeout(() => {
+        petMenuOpen.value = false;
+        // 菜单关闭后指针若仍停在球上, 重新走一次悬停计时; 否则交给轮询
+        petSetOver(false); petSetOver(true);
+      }, 250);
+    });
     return;
   }
   if (!isDesktop) return;   // 浏览器保留原生菜单
@@ -3807,9 +4012,24 @@ function pickManualFolder() {
   document.getElementById("manualDirInput")?.click();
 }
 function pickManualPhotos() { document.getElementById("manualPhotoInput")?.click(); }
-function onSendDrop(e) {
-  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-  if (files.length) manualFiles.value = manualFiles.value.concat(files);
+async function onSendDrop(e) {
+  if (collecting.value) return;
+  collecting.value = true;
+  try {
+    // 与主页面拖入共用同一套递归: dataTransfer.files 对目录通常只给一个
+    // size=0 的 File, 直接 concat 会把文件夹当成空文件发给对方。
+    const files = await collectDroppedFiles(e.dataTransfer);
+    if (collectSkipped) {
+      showToast(`已跳过 ${collectSkipped} 个文件（目录超过 8 层或无法读取）`, "error");
+    }
+    if (!files || !files.length) {
+      if (!collectSkipped) showToast("文件夹为空或不含可上传文件", "error");
+      return;
+    }
+    manualFiles.value = manualFiles.value.concat(files);
+  } finally {
+    collecting.value = false;
+  }
 }
 function setSendTab(t) {
   sendTab.value = t;
@@ -4088,6 +4308,9 @@ async function loadSharedClip() {
 /* 只同步文本: 本机服务共享槽 <-> 本机系统剪贴板; 电脑 App 与手机 App 之间不自动转发。
    App 壳的自动同步由 CC设置 的开关控制(默认关闭); 浏览器只在聊天输入框粘贴时回传。 */
 async function publishSharedClip(text, silent = false) {
+  // 所有发布入口的统一闸门: 自动同步关闭时, 右键粘贴/＋粘贴/内联粘贴都只能
+  // 填输入框, 不能把用户未发送的剪贴板内容写进局域网共享槽。
+  if (!clipSyncEnabled.value) return false;
   const val = clampChars(String(typeof text === "string" ? text : ""), 20000).trim();
   if (!val) { if (!silent) showToast("剪贴板为空", "error"); return false; }
   if (sharedClipSaving.value) return false;
@@ -4237,6 +4460,7 @@ async function sendHello() {
   } catch (e) {}
 }
 const unread = computed(() => chatMsgs.value.filter(m => m.id > seenChatId.value).length);
+function fmtUnread(n) { return n > 99 ? "99+" : String(n); }
 function setSeenToLatest() {
   const last = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1] : null;
   seenChatId.value = last ? last.id : 0;
@@ -4276,7 +4500,7 @@ function markChatSeen() {
 watch([unread, view], () => {
   if (isQrPetWindow) return;
   const base = "CC Flash · " + (view.value === "discover" ? discoverTitle.value : (VIEW_TITLES[view.value] || "消息发送"));
-  document.title = unread.value > 0 ? `(${unread.value}) ${base}` : base;
+  document.title = unread.value > 0 ? `(${fmtUnread(unread.value)}) ${base}` : base;
 }, { immediate: true });
 function avatarFor(nick) {
   const pool = AVATAR_POOL;
@@ -4676,6 +4900,21 @@ async function pasteFromClipboard() {
   // 浏览器 HTTP 下读不到系统剪贴板: 直接回填电脑端共享文本
   if (!(await pasteSharedClipToInput())) showToast("剪贴板为空，请长按输入框选择「粘贴」", "error");
 }
+/* 幂等键: 同一条草稿在响应丢失后的重试沿用同一个 clientId, 服务端按
+   (来源 + clientId) 去重; 用户改动文本或成功发送后换新 id, 不影响正常连发。 */
+let chatDraftId = "";
+let chatDraftText = "";
+function newClientMsgId() {
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+  } catch (_) {}
+  return "c-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+}
+watch(chatInput, (v) => {
+  if (!String(v || "").trim()) { chatDraftId = ""; chatDraftText = ""; }
+});
 async function sendChat() {
   if (sending.value) return;   // 连按回车/连点发送只产生一条消息
   const text = chatInput.value.trim();
@@ -4686,6 +4925,12 @@ async function sendChat() {
     showToast(`消息超过 ${cfg.value.msgMax} 字符上限（当前 ${chars}），请删减后再发送`, "error");
     return;
   }
+  if (chatDraftText !== text) {
+    chatDraftText = text;
+    chatDraftId = newClientMsgId();
+  }
+  const clientId = chatDraftId;
+  const quote = quoting.value;
   // 目标设备: 直发, 不进入房间时间线, 只追加本机回执; 多选时依次发往每台
   if (sendTargets.value.length) {
     saveNick();
@@ -4694,21 +4939,30 @@ async function sendChat() {
       const targets = sendTargets.value.slice();
       let ok = 0;
       for (const p of targets) {
-        // 失败即停: 多台设备同时缺配对码时, 继续发下一台会覆盖正在输入的
-        // 配对码弹框; 先让用户处理失败设备, 再重试剩余目标。
-        if (!(await directSendText(p, text))) break;
+        // 目标在请求在途时被取消选择: 不再向旧目标继续发；草稿保留，
+        // 让用户明确决定下一步，而不是静默发给已取消的设备。
+        if (!sendTargets.value.some((t) => t.id === p.id)) break;
+        if (!(await directSendText(p, text, { quote, clientId }))) break;
         ok++;
       }
-      if (ok) {
+      if (ok === targets.length) {
         chatInput.value = "";
         quoting.value = null;
+        chatDraftId = "";
+        chatDraftText = "";
         atBottom.value = true;
         jumpCount.value = 0;
         nextTick(scrollChats);
         setTimeout(scrollChats, 150);
-      }
-      if (ok < targets.length) {
-        showToast(`已发送到 ${ok}/${targets.length} 台设备`, "error");
+      } else {
+        // 部分成功时只保留未成功的设备为选中目标: 用户再点发送不会重复发给
+        // 已成功的设备；输入框内容也保留，不再“只发出去一半却清空草稿”。
+        const sameSelection = sendTargets.value.length === targets.length
+          && sendTargets.value.every((t, i) => t.id === targets[i].id);
+        if (sameSelection) sendTargets.value = targets.slice(ok);
+        showToast(ok
+          ? `已发送到 ${ok}/${targets.length} 台设备；草稿已保留，未成功设备仍选中`
+          : "发送失败，草稿已保留", "error");
       }
     } finally {
       sending.value = false;
@@ -4716,7 +4970,6 @@ async function sendChat() {
     return;
   }
   const nickname = curNick.value;
-  const quote = quoting.value;
   saveNick();
   sending.value = true;
   chatInput.value = "";        // 立即清空: 响应在途期间不允许重复提交
@@ -4724,11 +4977,13 @@ async function sendChat() {
     const r = await apiFetch(apiBase.value + API.chat + "?nick=" + encodeURIComponent(nickname), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nickname, message: text, ...(quote ? { quote } : {}) }),
+      body: JSON.stringify({ nickname, message: text, clientId, ...(quote ? { quote } : {}) }),
     });
     const d = await r.json();
     if (d.ok) {
       quoting.value = null;
+      chatDraftId = "";
+      chatDraftText = "";
       atBottom.value = true;
       jumpCount.value = 0;
       loadChat();
@@ -5007,33 +5262,71 @@ onMounted(() => {
         petDragUnlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
           const p = event.payload;
           if (p.type === "enter" || p.type === "over") {
-            if (!petUploading.value) { petDropActive.value = true; petUploadError.value = ""; }
+            if (petUploading.value) return;
+            if (Array.isArray(p.paths) && p.paths.length) petDropCount.value = p.paths.length;
+            if (!petDropActive.value) {
+              petDropActive.value = true;
+              petUploadError.value = "";
+              petHint.value = false;
+              petClearHoverTimers();
+              if (qrPetExpanded.value) { qrPetExpanded.value = false; qrPetShown.value = false; }
+              petApply().catch(() => {});
+            }
             return;
           }
-          if (p.type === "leave") { petDropActive.value = false; return; }
+          if (p.type === "leave") {
+            petDropActive.value = false;
+            if (!petDropVisible()) petApply().catch(() => {});
+            return;
+          }
           if (p.type !== "drop") return;
           petDropActive.value = false;
-          if (!p.paths || !p.paths.length || petUploading.value) return;
+          if (!p.paths || !p.paths.length || petUploading.value) {
+            if (!petDropVisible()) petApply().catch(() => {});
+            return;
+          }
+          petDropCount.value = p.paths.length;
           petUploading.value = true;
           petUploadPct.value = 0;
           petUploadDone.value = false;
           petUploadError.value = "";
           clearTimeout(petUploadTimer);
+          petApply().catch(() => {});
           try {
             const d = await tauriInvoke("pet_upload_paths_cmd", { paths: p.paths, uploader: curNick.value });
             if (d && d.ok) {
               clearTimeout(petUploadTimer);
               petUploadDone.value = true;
-              petUploadTimer = setTimeout(() => { petUploadDone.value = false; }, 1800);
+              petUploadTimer = setTimeout(() => {
+                petUploadDone.value = false;
+                petApply().catch(() => {});
+                if (petOverOrb && !petCopied.value && !petMenuOpen.value) {
+                  petHoverTimer = setTimeout(() => { petHoverTimer = null; if (!petDropVisible()) setPetExpanded(true); }, 1500);
+                }
+              }, 1800);
             } else {
-              petUploadError.value = (d && d.error) || "上传失败";
+              const okCount = Array.isArray(d && d.files) ? d.files.length : 0;
+              const errs = Array.isArray(d && d.errors) ? d.errors : [];
+              const firstErr = errs[0] && (errs[0].error || errs[0].message);
+              petUploadError.value = okCount > 0
+                ? `已上传 ${okCount} 个，${errs.length || 1} 个失败${firstErr ? "：" + firstErr : ""}`
+                : (d && d.error) || "上传失败";
               clearTimeout(petUploadTimer);
-              petUploadTimer = setTimeout(() => { petUploadError.value = ""; }, 3500);
+              petUploadTimer = setTimeout(() => {
+                petUploadError.value = "";
+                petApply().catch(() => {});
+                if (petOverOrb && !petCopied.value && !petMenuOpen.value) {
+                  petHoverTimer = setTimeout(() => { petHoverTimer = null; if (!petDropVisible()) setPetExpanded(true); }, 1500);
+                }
+              }, 3500);
             }
           } catch (err) {
             petUploadError.value = "上传失败";
             clearTimeout(petUploadTimer);
-            petUploadTimer = setTimeout(() => { petUploadError.value = ""; }, 3500);
+            petUploadTimer = setTimeout(() => {
+              petUploadError.value = "";
+              petApply().catch(() => {});
+            }, 3500);
           } finally {
             petUploading.value = false;
           }
@@ -5042,15 +5335,11 @@ onMounted(() => {
       try {
         petProgressUnlisten = await listen("pet-upload-progress", (ev) => {
           const d = ev.payload || {};
-          if (Number.isFinite(d.pct)) petUploadPct.value = Math.max(0, Math.min(100, d.pct));
+          if (Number.isFinite(d.pct)) petUploadPct.value = Math.max(0, Math.min(99, Math.round(d.pct)));
         });
       } catch (e) {}
       try {
-        petCopyUnlisten = await listen("pet-address-copied", () => {
-          petCopied.value = true;
-          clearTimeout(petCopiedTimer);
-          petCopiedTimer = setTimeout(() => { petCopied.value = false; }, 1200);
-        });
+        petCopyUnlisten = await listen("pet-address-copied", () => showPetCopyHint());
       } catch (e) {}
     })();
   }
@@ -5126,8 +5415,10 @@ onMounted(() => {
     // 手机浏览器(尤其 vivo/微信)在地址栏伸缩时会给出非零 visualViewport.offsetTop；
     // 键盘关闭时若把它当作 app 的 top，会在页头之上留下一整条空白。
     // 只有可视高度明显缩小(键盘)才采用 offsetTop。
-    const keyboardOpen = !!(vv && vv.height < window.innerHeight * 0.75);
-    const top = keyboardOpen ? Math.round(vv.offsetTop || 0) : 0;
+    // v1.2.6 行为：始终跟随 visualViewport.offsetTop。iOS 键盘弹出时
+    // Safari 会把可视视口向上平移，忽略 offsetTop 会把固定聊天壳留在布局顶部，
+    // 导致输入栏被顶出可视区（输入框消失）。
+    const top = Math.round((vv && vv.offsetTop) || 0);
     if (h !== lastVh) {
       lastVh = h;
       document.documentElement.style.setProperty("--app-vh", h + "px");
@@ -5569,7 +5860,9 @@ async function checkUpdate(manual = false) {
   }
   if (checkingUpdate.value) return;
   checkingUpdate.value = true;
-  const rel = await fetchLatestRelease(manual);
+  // 预发布/未签名版本也要进入检查结果: 否则签名证书缺失的整版发布会让
+  // 所有客户端永远收不到升级提示。弹框会明确标注风险，由用户决定是否下载。
+  const rel = await fetchLatestRelease(true);
   checkingUpdate.value = false;
   if (!rel) {
     // 失败不写 24h 频控: 开机瞬间 Wi-Fi 未就绪的一次抖动不应导致一整天不再检查
@@ -5696,7 +5989,9 @@ async function refreshStatus() {
     if (typeof d.version === "string") appVersion.value = d.version;
     applyServerConfig(d.config);
     applyServerUiTheme(d);
-    if (d.share && document.activeElement?.tagName !== "INPUT") shareInput.value = d.share;
+    if (d.share && !shareDirty.value && document.activeElement?.tagName !== "INPUT") {
+      shareInput.value = d.share;
+    }
     if (d.free) freeSpace.value = `${d.free} / ${d.total}`;
     const ip = d.ip || "";
     if (ip && ip !== lanIp.value) {
@@ -5791,7 +6086,7 @@ async function refreshStatus() {
       <nav class="nav">
         <button class="nav-item" :class="{ active: view === 'transfer' }" title="消息发送" @click="setView('transfer')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span><span class="nav-label">消息发送</span>
-          <span v-if="unread > 0" class="nav-badge">{{ unread > 99 ? "99+" : unread }}</span>
+          <span v-if="unread > 0" class="nav-badge">{{ fmtUnread(unread) }}</span>
         </button>
         <button v-if="isRealDesktop" class="nav-item svc" :class="{ active: view === 'service' }" title="服务中心" @click="setView('service')">
           <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span><span class="nav-label">服务中心</span>
@@ -5951,7 +6246,7 @@ async function refreshStatus() {
                 </div>
               </div>
               <div v-if="!peers.length" class="tx-devices-empty">
-                <span aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 9.9a10 10 0 0 1 14.2 0"/><path d="M7.8 13a6 6 0 0 1 8.4 0"/><path d="M10.6 16a2.2 2.2 0 0 1 2.8 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg></span>
+                <span aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5" opacity=".45"/><path d="M12 12l6.4-6.4"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></span>
                 <p>未发现周边设备</p>
                 <button class="tx-diag-entry" @click="openDiagnostics">故障诊断</button>
               </div>
@@ -6418,7 +6713,8 @@ async function refreshStatus() {
               <div class="svc-field grow">
                 <label>共享目录</label>
                 <div class="dir-row">
-                  <input class="svc-input" style="flex:1;min-width:0" v-model="shareInput" :disabled="running" :title="shareInput" />
+                  <input class="svc-input" style="flex:1;min-width:0" v-model="shareInput" :disabled="running"
+                         :title="shareInput" @input="shareDirty = true" />
                   <button class="btn btn-ghost" :disabled="running" @click="pickShareDir">选择</button>
                   <button class="btn btn-ghost" :disabled="running" @click="openShareDir">打开</button>
                 </div>
@@ -6648,7 +6944,7 @@ async function refreshStatus() {
               :aria-selected="mobileTab === 'send'" @click="setMobileTab('send')">
         <span class="mtab-label">发送</span>
         <i v-if="unread > 0" class="mtab-dot unread" :title="`${unread} 条未读消息`"
-           :aria-label="`${unread} 条未读消息`">{{ unread > 99 ? "99+" : unread }}</i>
+           :aria-label="`${unread} 条未读消息`">{{ fmtUnread(unread) }}</i>
       </button>
       <button class="mtab" :class="{ on: mobileTab === 'devices' }" role="tab" title="设备"
               :aria-selected="mobileTab === 'devices'" @click="setMobileTab('devices')">
@@ -6669,7 +6965,7 @@ async function refreshStatus() {
   <!-- 独立桌面 Pet 窗：贴边收拢的呼吸圆点，悬停预览扫码卡；显隐只由 CC设置开关控制 -->
   <template v-if="isQrPetWindow">
     <div class="qr-pet"
-         :class="[{ down: !running || !qrData, expanded: qrPetShown }, 'edge-' + petEdge]"
+         :class="[{ down: !running || !qrData, expanded: qrPetShown, hint: petHint, drop: petDropVisible() }, 'edge-' + petEdge]"
          role="button" tabindex="0"
          :title="qrPetShown ? '' : (petNotify ? '有新文件或消息 · 点按查看' : '')"
          :aria-label="(petNotify ? '有新文件或消息。' : '') + 'CC Flash 悬浮二维码：指针停留 1.5 秒预览，拖动调整位置，点按打开主窗口'"
@@ -6703,18 +6999,21 @@ async function refreshStatus() {
           </svg>
         </span>
       </div>
-      <div v-if="petDropActive || petUploading || petUploadDone || petUploadError" class="qr-pet-drop"
+      <div v-if="petDropVisible()" class="qr-pet-drop-ui"
            :class="{ active: petDropActive, busy: petUploading, done: petUploadDone, err: !!petUploadError }"
            :style="{ '--pct': petUploadPct + '%' }" aria-live="polite">
+        <div class="qr-pet-drop-top">{{ petUploadError ? "上传失败" : petUploadDone ? "已上传" : petDropActive ? "松手 · 上传到本机共享" : "上传到本机共享" }}</div>
+        <i class="qr-pet-drop-ring" aria-hidden="true"></i>
         <i v-if="petUploading" class="qr-pet-drop-arc" aria-hidden="true"></i>
-        <svg v-if="petUploadDone" class="qr-pet-drop-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-        <svg v-else-if="petUploadError" class="qr-pet-drop-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 8v5"/><circle cx="12" cy="16.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="9"/></svg>
-        <svg v-else class="qr-pet-drop-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
-        <b>{{ petUploadError ? "失败" : petUploadDone ? "已上传" : petUploading ? Math.round(petUploadPct) + "%" : "松手" }}</b>
-        <span v-if="petUploadError" class="qr-pet-drop-err">{{ petUploadError.slice(0, 22) }}</span>
-        <span v-else-if="petDropActive && !petUploading">到本机共享</span>
+        <span v-if="petUploadDone" class="qr-pet-drop-badge done" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </span>
+        <span v-else-if="petUploadError" class="qr-pet-drop-badge err" aria-hidden="true">!</span>
+        <div class="qr-pet-drop-bottom" :class="{ err: !!petUploadError }">
+          {{ petUploadError ? petUploadError.slice(0, 18) : petUploadDone ? "列表已刷新" : petUploading ? `${petDropCount} 个文件 · ${petUploadPct}%` : `${petDropCount} 个文件` }}
+        </div>
       </div>
-      <div v-if="petCopied" class="qr-pet-copied" role="status">已复制</div>
+      <div v-if="petCopied" class="qr-pet-copied" role="status">已复制 <b>访问地址</b></div>
       <div class="qr-pet-panel">
         <div class="qr-pet-head"><span class="qr-pet-panel-dot" v-if="petNotify" aria-hidden="true"></span>{{ running ? (qrData ? "浏览器扫一扫" : "安全模式 · 仅本机") : "服务已停止" }}</div>
         <div class="qr-pet-view">
@@ -7098,7 +7397,7 @@ async function refreshStatus() {
         <div class="upd-row"><span class="upd-label">当前版本</span><span class="ver-chip">v{{ curVersion() }}</span></div>
         <div class="upd-row"><span class="upd-label">最新版本</span><span class="ver-chip new">{{ updateInfo.latest }}</span></div>
       </div>
-      <p v-if="updateInfo.prerelease" class="upd-warn">这是未签名/预发布版本，仅在手动检查中出现；请确认来源后再下载。</p>
+      <p v-if="updateInfo.prerelease" class="upd-warn">这是未签名/预发布版本，可能触发 macOS Gatekeeper 或 Windows SmartScreen 提示；请确认来源后再下载。</p>
       <pre v-if="updateInfo.notes" class="upd-notes">{{ updateInfo.notes }}</pre>
       <div class="dialog-actions">
         <button class="btn btn-ghost" @click="showUpdate = false">稍后再说</button>

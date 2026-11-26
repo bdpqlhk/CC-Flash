@@ -35,6 +35,7 @@ use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicU16};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::{Ipv4Addr, SocketAddr, UdpSocket},
@@ -42,21 +43,17 @@ use std::{
     sync::{atomic::Ordering, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use std::sync::atomic::{AtomicBool, AtomicU16};
-use tokio::sync::{broadcast, oneshot};
 use tauri::Emitter;
+use tokio::sync::{broadcast, oneshot};
 
 use crate::config::{
     APP_VERSION, CHAT_MAX, CHAT_PREVIEW_CHARS, CHAT_TOTAL_MAX_CHARS, CHUNK_HINT, DEFAULT_NICK,
     DEFAULT_PORT, FILES_LIST_MAX, LOG_LINE_MAX, MSG_MAX_CHARS, NICK_MAX_CHARS, NOISY_GET_PATHS,
-    PIN_ENABLED_PREF_FILE, PIN_PREF_FILE,
-    POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, PORT_PREF_FILE, PORT_PROBE_EXTRA,
-    PORT_RANGE_END, REQ_LOG_MAX,
-    SHARE_DIR_NAME, SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, TICKET_FAIL_FREE,
-    TICKET_FAIL_WINDOW_SECS, UPLOAD_FREE_CHECK_BYTES, UPLOAD_FREE_RESERVE_BYTES,
-    UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH, UPLOAD_MAX_DURATION_SECS,
-    UPLOAD_PART_META_SUFFIX,
-    UPLOAD_PART_SUFFIX, UPLOAD_PART_TTL_SECS,
+    PIN_ENABLED_PREF_FILE, PIN_PREF_FILE, POLL_CHAT_MS, POLL_FILES_MS, POLL_LOGS_MS,
+    POLL_STATUS_MS, PORT_PREF_FILE, PORT_PROBE_EXTRA, PORT_RANGE_END, REQ_LOG_MAX, SHARE_DIR_NAME,
+    SHARE_DIR_NAME_LEGACY, SHARE_PREF_FILE, TICKET_FAIL_FREE, TICKET_FAIL_WINDOW_SECS,
+    UPLOAD_FREE_CHECK_BYTES, UPLOAD_FREE_RESERVE_BYTES, UPLOAD_IDLE_TIMEOUT_SECS, UPLOAD_MAX_DEPTH,
+    UPLOAD_MAX_DURATION_SECS, UPLOAD_PART_META_SUFFIX, UPLOAD_PART_SUFFIX, UPLOAD_PART_TTL_SECS,
 };
 
 // ---------------------------------------------------------------- //
@@ -76,6 +73,9 @@ pub struct ChatMsg {
     /// 引用回复: 被引用消息的快照(昵称 + 内容), 原消息删除后引用仍可读
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote: Option<ChatQuote>,
+    /// 客户端幂等键: 响应丢失后的同一条消息重试沿用同一 id, 服务端据此去重。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -100,18 +100,42 @@ pub struct FileEvent {
 const FILE_EVENT_MAX: usize = 200;
 
 fn file_events_file() -> Option<PathBuf> {
-    if cfg!(test) { return None; }
+    if cfg!(test) {
+        return None;
+    }
     ui_pref_dir().map(|d| d.join("file-history.json"))
 }
 
 fn file_events() -> &'static Mutex<VecDeque<FileEvent>> {
     static F: OnceLock<Mutex<VecDeque<FileEvent>>> = OnceLock::new();
     F.get_or_init(|| {
-        let q = file_events_file()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|raw| serde_json::from_str::<VecDeque<FileEvent>>(&raw).ok())
-            .unwrap_or_default();
-        Mutex::new(q)
+        let Some(path) = file_events_file() else {
+            return Mutex::new(VecDeque::new());
+        };
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return Mutex::new(VecDeque::new());
+        };
+        match serde_json::from_str::<VecDeque<FileEvent>>(&raw) {
+            Ok(q) => Mutex::new(q),
+            Err(e) => {
+                // 与聊天历史同策略: 损坏文件不能静默按空表继续, 否则下一次
+                // record_file_event 会覆盖原文件, 历史永久消失。
+                let stamp = now_f64().trunc() as u64;
+                let bad = path.with_file_name(format!("file-history.json.bad-{stamp}"));
+                let kept = std::fs::rename(&path, &bad).is_ok();
+                push_log_warn(if kept {
+                    format!(
+                        "文件历史解析失败({e})，原文件已保留为 {}",
+                        bad.file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("file-history.json.bad")
+                    )
+                } else {
+                    format!("文件历史解析失败({e})，原文件保留失败，请手动备份后再继续")
+                });
+                Mutex::new(VecDeque::new())
+            }
+        }
     })
 }
 
@@ -119,13 +143,19 @@ fn file_events() -> &'static Mutex<VecDeque<FileEvent>> {
 /// 修复"关掉 CC-Flash 再打开聊天全空"的问题。
 fn chat_history_file() -> Option<PathBuf> {
     // 单测共享进程/真实用户目录: 测试时不读写持久化, 保持 chat_log 的全新基线
-    if cfg!(test) { return None; }
+    if cfg!(test) {
+        return None;
+    }
     ui_pref_dir().map(|d| d.join("chat-history.json"))
 }
 
 fn load_chat_history() -> VecDeque<ChatMsg> {
-    let Some(path) = chat_history_file() else { return VecDeque::new(); };
-    let Ok(raw) = std::fs::read_to_string(&path) else { return VecDeque::new(); };
+    let Some(path) = chat_history_file() else {
+        return VecDeque::new();
+    };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return VecDeque::new();
+    };
     let mut q: VecDeque<ChatMsg> = match serde_json::from_str(&raw) {
         Ok(q) => q,
         Err(e) => {
@@ -137,7 +167,9 @@ fn load_chat_history() -> VecDeque<ChatMsg> {
             push_log_warn(if kept {
                 format!(
                     "聊天历史解析失败({e})，原文件已保留为 {}",
-                    bad.file_name().and_then(|s| s.to_str()).unwrap_or("chat-history.json.bad")
+                    bad.file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("chat-history.json.bad")
                 )
             } else {
                 format!("聊天历史解析失败({e})，原文件保留失败，请手动备份后再继续")
@@ -180,7 +212,9 @@ fn write_chat_history_bytes(path: &Path, json: &[u8]) -> bool {
 /// 异步落盘: 聊天 handler 不再在 async 上下文里做磁盘 IO(共享目录/磁盘忙时
 /// 会阻塞 tokio worker, 拖慢 WS 心跳与所有 API)。首次调用后按序号串行写。
 fn schedule_chat_save(json: Option<Vec<u8>>) {
-    let (Some(path), Some(json)) = (chat_history_file(), json) else { return };
+    let (Some(path), Some(json)) = (chat_history_file(), json) else {
+        return;
+    };
     let seq = CHAT_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     let task = move || {
         // 300ms 合并窗口: 连续发送/粘贴时只落最新快照(序号检查会跳过旧任务),
@@ -192,6 +226,8 @@ fn schedule_chat_save(json: Option<Vec<u8>>) {
         }
         if write_chat_history_bytes(&path, &json) {
             CHAT_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        } else {
+            push_log_err("聊天历史落盘失败：请检查磁盘空间/权限，当前消息可能在重启后丢失".into());
         }
     };
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -210,7 +246,9 @@ fn file_save_lock() -> &'static Mutex<()> {
 }
 
 fn schedule_file_events_save() {
-    let Some(path) = file_events_file() else { return };
+    let Some(path) = file_events_file() else {
+        return;
+    };
     let json = {
         let q = file_events().lock().unwrap_or_else(|e| e.into_inner());
         match serde_json::to_vec(&*q) {
@@ -233,6 +271,10 @@ fn schedule_file_events_save() {
         }
         if write_secret_atomic(&path, &json).is_ok() {
             FILE_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        } else {
+            push_log_err(
+                "文件历史落盘失败：请检查磁盘空间/权限，当前文件消息可能在重启后丢失".into(),
+            );
         }
     };
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -408,7 +450,9 @@ fn discovery_id() -> &'static str {
 /// 最近发现过的设备 IP(最多 32): 多播被企业/路由器过滤时, 启动和手动刷新
 /// 会直接向这些地址发单播 probe, 不再依赖组播能否通过。
 fn peer_cache_file() -> Option<PathBuf> {
-    if cfg!(test) { return None; }
+    if cfg!(test) {
+        return None;
+    }
     ui_pref_dir().map(|d| d.join("peer-cache.json"))
 }
 
@@ -419,25 +463,162 @@ fn peer_cache() -> &'static Mutex<Vec<String>> {
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
             .unwrap_or_default();
-        Mutex::new(saved.into_iter().filter(|s| !s.trim().is_empty()).take(32).collect())
+        Mutex::new(
+            saved
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .take(32)
+                .collect(),
+        )
     })
 }
 
 fn cached_peer_ips() -> Vec<String> {
-    peer_cache().lock().unwrap_or_else(|e| e.into_inner()).clone()
+    peer_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 fn remember_peer_ip(ip: &str) {
     let ip = ip.trim();
-    if ip.is_empty() { return; }
+    if ip.is_empty() {
+        return;
+    }
     let mut cache = peer_cache().lock().unwrap_or_else(|e| e.into_inner());
-    if cache.iter().any(|x| x == ip) { return; }
+    if cache.iter().any(|x| x == ip) {
+        return;
+    }
     cache.push(ip.to_string());
-    if cache.len() > 32 { cache.remove(0); }
-    if let Some(path) = peer_cache_file() {
-        if let Ok(json) = serde_json::to_string(&*cache) {
-            let _ = write_secret_atomic(&path, json.as_bytes());
+    if cache.len() > 32 {
+        cache.remove(0);
+    }
+    drop(cache);
+    // 收包线程绝不做 fsync: 33 个伪造源轮换时旧实现每包建临时文件+sync_all,
+    // 能把 UDP 线程和磁盘队列同时打满。改为后台合并写。
+    schedule_peer_cache_save();
+}
+
+fn schedule_peer_cache_save() {
+    use std::sync::atomic::AtomicBool;
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        PENDING.store(false, Ordering::SeqCst);
+        let Some(path) = peer_cache_file() else {
+            return;
+        };
+        let json = {
+            let c = peer_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match serde_json::to_vec(&*c) {
+                Ok(v) => v,
+                Err(_) => return,
+            }
+        };
+        let _ = write_secret_atomic(&path, &json);
+    });
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct PeerBinding {
+    ip: String,
+    token: String,
+    last_seen: f64,
+}
+
+/// 设备身份 TOFU 绑定: id -> 最近一次可信来源。
+/// 发现 id 是明文广播的，仅靠内存 30s 条目无法阻止"等条目过期后从攻击者 IP 抢注"。
+/// 这里把绑定持久化，重启/过期后仍拒绝同一 id 从不同 IP 无条件迁移；
+/// 彻底的身份认证仍需签名，但这条绑定把最常见的抢注路径关掉。
+fn peer_bindings_file() -> Option<PathBuf> {
+    if cfg!(test) {
+        return None;
+    }
+    ui_pref_dir().map(|d| d.join("peer-bindings.json"))
+}
+
+fn peer_bindings() -> &'static Mutex<HashMap<String, PeerBinding>> {
+    static B: OnceLock<Mutex<HashMap<String, PeerBinding>>> = OnceLock::new();
+    B.get_or_init(|| {
+        let now = now_f64();
+        let mut map = peer_bindings_file()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str::<HashMap<String, PeerBinding>>(&s).ok())
+            .unwrap_or_default();
+        // 24 小时未出现才遗忘: 足够挡住"等 30s 条目过期再抢注"的即时攻击,
+        // 又不会让长期离线/换网设备永久留在黑名单。
+        map.retain(|_, b| now - b.last_seen < 24.0 * 3600.0);
+        if map.len() > 512 {
+            let mut pairs: Vec<(String, f64)> =
+                map.iter().map(|(k, b)| (k.clone(), b.last_seen)).collect();
+            pairs.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let keep: HashSet<String> = pairs.into_iter().take(512).map(|(k, _)| k).collect();
+            map.retain(|k, _| keep.contains(k));
         }
+        Mutex::new(map)
+    })
+}
+
+fn schedule_peer_bindings_save() {
+    use std::sync::atomic::AtomicBool;
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        // 合并写: 发现报文可能每 5s 一条, 不在收包线程做 fsync。
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        PENDING.store(false, Ordering::SeqCst);
+        let Some(path) = peer_bindings_file() else {
+            return;
+        };
+        let json = {
+            let m = peer_bindings().lock().unwrap_or_else(|e| e.into_inner());
+            match serde_json::to_vec(&*m) {
+                Ok(v) => v,
+                Err(_) => return,
+            }
+        };
+        let _ = write_secret_atomic(&path, &json);
+    });
+}
+
+fn remember_peer_binding(id: &str, ip: &str, token: &str) {
+    let mut m = peer_bindings().lock().unwrap_or_else(|e| e.into_inner());
+    let now = now_f64();
+    let changed = match m.get_mut(id) {
+        Some(b) => {
+            let changed = b.ip != ip || b.token != token;
+            b.last_seen = now; // 在线期间持续刷新, 供换 IP 时的 stale 判断
+            changed
+        }
+        None => true,
+    };
+    if changed {
+        m.insert(
+            id.to_string(),
+            PeerBinding {
+                ip: ip.to_string(),
+                token: token.to_string(),
+                last_seen: now,
+            },
+        );
+        if m.len() > 512 {
+            m.retain(|_, b| now - b.last_seen < 24.0 * 3600.0);
+        }
+    }
+    // 心跳只刷新内存 last_seen; 每 5 分钟才落盘一次, 避免每包 fsync, 同时
+    // 保证重启后绑定不会因为长时间未变更而显得"过期"。
+    static LAST_SAVE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let last = LAST_SAVE.load(Ordering::Relaxed);
+    let should_save = changed || (now - last as f64) >= 300.0;
+    if should_save {
+        LAST_SAVE.store(now as u64, Ordering::Relaxed);
+        drop(m);
+        schedule_peer_bindings_save();
     }
 }
 
@@ -448,13 +629,20 @@ fn local_name_slot() -> &'static Mutex<String> {
 
 fn set_local_name(name: &str) {
     let name = name.trim();
-    if name.is_empty() { return; }
+    if name.is_empty() {
+        return;
+    }
     *local_name_slot().lock().unwrap_or_else(|e| e.into_inner()) = name.chars().take(24).collect();
 }
 
 fn local_name() -> String {
-    let configured = local_name_slot().lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if !configured.is_empty() { return configured; }
+    let configured = local_name_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if !configured.is_empty() {
+        return configured;
+    }
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .map(|s| s.trim().to_string())
@@ -504,20 +692,55 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
             .take(24)
             .collect::<String>()
     };
-    let nickname = clean(v.get("name").and_then(|x| x.as_str()).unwrap_or("CC Flash 电脑"));
+    let nickname = clean(
+        v.get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("CC Flash 电脑"),
+    );
     let nickname = if nickname.is_empty() {
         "未命名设备".into()
     } else {
         nickname
     };
     let platform = clean(v.get("platform").and_then(|x| x.as_str()).unwrap_or(""));
-    let token = v.get("tok").and_then(|x| x.as_str()).unwrap_or("")
-        .chars().filter(|c| c.is_ascii_hexdigit()).take(64).collect::<String>();
+    let token = v
+        .get("tok")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(64)
+        .collect::<String>();
     let busy = v.get("busy").and_then(|x| x.as_bool()).unwrap_or(false);
     let ip = source_ip_string(src);
     let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
     let known = map.contains_key(&id);
     let previous = map.get(&id).cloned();
+    // 持久化 TOFU 绑定: 即使内存条目已过 30s TTL, 也不允许同一 id 从新 IP
+    // 无条件顶替。否则攻击者只要等条目过期就能用"受害设备 id + 自己的 IP"
+    // 抢注, 之后真机从原 IP 续期会被下面的 prev.ip 检查拒绝。
+    // 允许 IPv6 link-local -> IPv4 的迁移(令牌一致), 覆盖双栈/换址场景。
+    if let Some(b) = peer_bindings()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .cloned()
+    {
+        // 设备已 10 分钟没有任何宣告时允许换 IP/换令牌(真实 DHCP/重启);
+        // 在线期间则严格绑定, 挡住"等条目 30s 过期后从攻击者 IP 抢注"。
+        let b_stale = now_f64() - b.last_seen > 600.0;
+        if b.ip != ip {
+            let b_link_local_v6 = b.ip.starts_with("fe80:") || b.ip.contains('%');
+            let new_ipv4 = !ip.contains(':');
+            let token_ok = !b.token.is_empty() && b.token == token;
+            if !(b_link_local_v6 && new_ipv4 && token_ok) && !b_stale {
+                return IngestResult::default();
+            }
+        } else if !b.token.is_empty() && b.token != token && !b_stale {
+            // 同 IP 但令牌变空/变化: 旧版空令牌兼容不能成为降级覆盖入口。
+            return IngestResult::default();
+        }
+    }
     // 已登记设备 id 只允许从原 IP 续期: id 是明文广播的, 否则同网段任意主机
     // 可用"已知 id + 自己的 IP"覆盖目标条目(列表显示真设备名, 发送却落到攻击者)。
     // 真实设备换 IP(DHCP)时最多等旧条目 TTL(30s)自然过期后重新登记。
@@ -558,13 +781,16 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
     // 随机 id 洪泛占满 64 条上限(不同 IP 的伪造仍受上限约束)。
     map.retain(|_, d| d.ip != ip);
     let is_new = !known;
-    let changed = previous.map(|old| {
-        old.port != port as u16
-            || old.nickname != nickname
-            || old.busy != busy
-            || old.platform != platform
-            || old.ip != ip
-    }).unwrap_or(false);
+    let changed = previous
+        .map(|old| {
+            old.port != port as u16
+                || old.nickname != nickname
+                || old.busy != busy
+                || old.platform != platform
+                || old.ip != ip
+        })
+        .unwrap_or(false);
+    let binding_id = id.clone();
     map.insert(
         id.clone(),
         DeviceInfo {
@@ -575,12 +801,17 @@ fn ingest_peer_packet_ex(v: &serde_json::Value, src: std::net::SocketAddr) -> In
             platform,
             busy,
             last_seen: now_f64(),
-            token,
+            token: token.clone(),
         },
     );
     drop(map);
+    remember_peer_binding(&binding_id, &ip, &token);
     remember_peer_ip(&ip);
-    IngestResult { new_device: is_new, changed: is_new || changed, heard: true }
+    IngestResult {
+        new_device: is_new,
+        changed: is_new || changed,
+        heard: true,
+    }
 }
 
 /// 单测兼容: 只关心是否首次出现
@@ -618,7 +849,10 @@ fn device_json(d: &DeviceInfo, now: f64) -> serde_json::Value {
 }
 
 fn device_list_json(now: f64) -> Vec<serde_json::Value> {
-    device_snapshot(now).iter().map(|d| device_json(d, now)).collect()
+    device_snapshot(now)
+        .iter()
+        .map(|d| device_json(d, now))
+        .collect()
 }
 
 fn schedule_devices_presence() {
@@ -640,9 +874,8 @@ fn schedule_devices_presence() {
     if PENDING.swap(true, std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    let wait = std::time::Duration::from_millis(
-        MIN_GAP_MS.saturating_sub(now_ms.saturating_sub(last)),
-    );
+    let wait =
+        std::time::Duration::from_millis(MIN_GAP_MS.saturating_sub(now_ms.saturating_sub(last)));
     std::thread::spawn(move || {
         std::thread::sleep(wait);
         LAST_MS.store(
@@ -731,7 +964,11 @@ fn announce_packet_bytes() -> Option<Vec<u8>> {
 
 /// 主动探测包: 不登记为设备, 只让收到包的对端立即单播回自己的宣告。
 fn probe_packet_bytes() -> Option<Vec<u8>> {
-    if !broadcast_allowed(is_running(), LAN_ACTIVE.load(Ordering::Relaxed), PORT.load(Ordering::Relaxed)) {
+    if !broadcast_allowed(
+        is_running(),
+        LAN_ACTIVE.load(Ordering::Relaxed),
+        PORT.load(Ordering::Relaxed),
+    ) {
         return None;
     }
     Some(
@@ -808,17 +1045,23 @@ fn send_discovery_bye() {
 /// 向指定局域网 IP 发单播 probe(手动探测): 多播/广播被交换机或防火墙拦截时,
 /// 只要目标放行 UDP 53318-53321 入站, 单播仍可触发对方回宣告。
 fn send_probe_to(ip: std::net::IpAddr) -> bool {
-    let Some(packet) = probe_packet_bytes() else { return false; };
+    let Some(packet) = probe_packet_bytes() else {
+        return false;
+    };
     match ip {
         std::net::IpAddr::V4(v4) => {
-            let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else { return false };
+            let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else {
+                return false;
+            };
             for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
                 let _ = sock.send_to(&packet, (v4, port));
             }
             true
         }
         std::net::IpAddr::V6(v6) => {
-            let Ok(sock) = UdpSocket::bind(("::", 0)) else { return false };
+            let Ok(sock) = UdpSocket::bind(("::", 0)) else {
+                return false;
+            };
             for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
                 let _ = sock.send_to(&packet, (v6, port));
             }
@@ -831,24 +1074,41 @@ fn send_probe_to(ip: std::net::IpAddr) -> bool {
 /// 双方首次能发现，但后续 announce 收不到，设备状态就会在在线/离线间跳。
 /// 已知 peer IP 时每 3s 直接单播一份 announce，不再依赖组播通路。
 fn send_unicast_announcements() {
-    let Some(packet) = announce_packet_bytes() else { return };
-    let Ok(v4) = UdpSocket::bind(("0.0.0.0", 0)) else { return };
+    let Some(packet) = announce_packet_bytes() else {
+        return;
+    };
+    let Ok(v4) = UdpSocket::bind(("0.0.0.0", 0)) else {
+        return;
+    };
     let mut v6: Option<UdpSocket> = None;
     for raw in cached_peer_ips() {
         let (host, zone) = raw.split_once('%').unwrap_or((raw.as_str(), ""));
         if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-            if ip.is_loopback() { continue; }
+            if ip.is_loopback() {
+                continue;
+            }
             for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
                 let _ = v4.send_to(&packet, (ip, port));
             }
         } else if let Ok(ip) = host.parse::<std::net::Ipv6Addr>() {
-            if ip.is_loopback() { continue; }
-            let idx = if zone.is_empty() { 0 } else { iface_index(zone).unwrap_or(0) };
-            if ip.is_unicast_link_local() && idx == 0 { continue; }
-            if v6.is_none() { v6 = UdpSocket::bind(("::", 0)).ok(); }
+            if ip.is_loopback() {
+                continue;
+            }
+            let idx = if zone.is_empty() {
+                0
+            } else {
+                iface_index(zone).unwrap_or(0)
+            };
+            if ip.is_unicast_link_local() && idx == 0 {
+                continue;
+            }
+            if v6.is_none() {
+                v6 = UdpSocket::bind(("::", 0)).ok();
+            }
             if let Some(sock) = v6.as_ref() {
                 for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
-                    let dst = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, idx));
+                    let dst =
+                        std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, idx));
                     let _ = sock.send_to(&packet, dst);
                 }
             }
@@ -861,15 +1121,23 @@ fn send_unicast_announcements() {
 /// 单播探测不依赖组播组，能穿过常见的企业 Wi-Fi 组播过滤。只扫私网/链路本地，
 /// 每个网卡最多 1024 个地址，避免误扫公网或大网段。
 fn send_subnet_probes() {
-    let Some(packet) = probe_packet_bytes() else { return };
-    let Ok(ifaces) = if_addrs::get_if_addrs() else { return };
-    let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else { return };
+    let Some(packet) = probe_packet_bytes() else {
+        return;
+    };
+    let Ok(ifaces) = if_addrs::get_if_addrs() else {
+        return;
+    };
+    let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) else {
+        return;
+    };
     let mut seen = std::collections::HashSet::new();
     for it in ifaces {
         if discovery_iface_skipped(&it.name) {
             continue;
         }
-        let if_addrs::IfAddr::V4(v4) = it.addr else { continue };
+        let if_addrs::IfAddr::V4(v4) = it.addr else {
+            continue;
+        };
         if v4.ip.is_loopback() || !is_lan_peer(std::net::IpAddr::V4(v4.ip)) {
             continue;
         }
@@ -906,24 +1174,37 @@ fn send_subnet_probes() {
 
 /// 向历史设备地址发单播 probe: 发送到整个发现端口范围, 兼容对方端口顺延。
 fn send_unicast_probes() {
-    let Some(packet) = probe_packet_bytes() else { return };
+    let Some(packet) = probe_packet_bytes() else {
+        return;
+    };
     for raw in cached_peer_ips() {
         let (host, zone) = raw.split_once('%').unwrap_or((raw.as_str(), ""));
         if let Ok(v4) = host.parse::<std::net::Ipv4Addr>() {
-            if v4.is_loopback() { continue; }
+            if v4.is_loopback() {
+                continue;
+            }
             if let Ok(sock) = UdpSocket::bind(("0.0.0.0", 0)) {
                 for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
                     let _ = sock.send_to(&packet, (v4, port));
                 }
             }
         } else if let Ok(v6) = host.parse::<std::net::Ipv6Addr>() {
-            if v6.is_loopback() { continue; }
-            let idx = if zone.is_empty() { 0 } else { iface_index(zone).unwrap_or(0) };
+            if v6.is_loopback() {
+                continue;
+            }
+            let idx = if zone.is_empty() {
+                0
+            } else {
+                iface_index(zone).unwrap_or(0)
+            };
             // link-local 没有 zone 时无法路由, 跳过而不是发一个必然失败的包
-            if v6.is_unicast_link_local() && idx == 0 { continue; }
+            if v6.is_unicast_link_local() && idx == 0 {
+                continue;
+            }
             if let Ok(sock) = UdpSocket::bind(("::", 0)) {
                 for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
-                    let dst = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(v6, port, 0, idx));
+                    let dst =
+                        std::net::SocketAddr::V6(std::net::SocketAddrV6::new(v6, port, 0, idx));
                     let _ = sock.send_to(&packet, dst);
                 }
             }
@@ -953,15 +1234,21 @@ fn discovery_iface_skipped(name: &str) -> bool {
 /// 错误的接口 —— 表现为桌面端明明开着服务, 却永远发现不了同一 Wi-Fi 的手机。
 /// 同时补发子网定向广播(如 10.1.2.255), 某些路由器/Android 过滤组播但放行广播。
 fn send_announcement_on_all_interfaces(packet: &[u8], dest_port: u16) -> bool {
-    let Ok(ifaces) = if_addrs::get_if_addrs() else { return false };
+    let Ok(ifaces) = if_addrs::get_if_addrs() else {
+        return false;
+    };
     let mut sent_iface = false;
     for it in ifaces {
         // 跳过 VPN / 虚拟网卡: 宣告只应留在真实局域网
         if discovery_iface_skipped(&it.name) {
             continue;
         }
-        let if_addrs::IfAddr::V4(v4) = it.addr else { continue };
-        if v4.ip.is_loopback() { continue; }
+        let if_addrs::IfAddr::V4(v4) = it.addr else {
+            continue;
+        };
+        if v4.ip.is_loopback() {
+            continue;
+        }
         let sk = match socket2::Socket::new(
             socket2::Domain::IPV4,
             socket2::Type::DGRAM,
@@ -975,13 +1262,14 @@ fn send_announcement_on_all_interfaces(packet: &[u8], dest_port: u16) -> bool {
         // 关键: 显式把多播出口钉在这块网卡上
         let _ = sk.set_multicast_if_v4(&v4.ip);
         let _ = sk.bind(&std::net::SocketAddr::from((v4.ip, 0)).into());
-        let group = socket2::SockAddr::from(std::net::SocketAddr::from((DISCOVERY_GROUP, dest_port)));
+        let group =
+            socket2::SockAddr::from(std::net::SocketAddr::from((DISCOVERY_GROUP, dest_port)));
         if sk.send_to(packet, &group).is_ok() {
             sent_iface = true;
         }
-        let bcast = v4.broadcast.unwrap_or_else(|| {
-            Ipv4Addr::from(u32::from(v4.ip) | !u32::from(v4.netmask))
-        });
+        let bcast = v4
+            .broadcast
+            .unwrap_or_else(|| Ipv4Addr::from(u32::from(v4.ip) | !u32::from(v4.netmask)));
         if bcast != v4.ip {
             let dst = socket2::SockAddr::from(std::net::SocketAddr::from((bcast, dest_port)));
             let _ = sk.send_to(packet, &dst);
@@ -1061,10 +1349,14 @@ fn source_ip_string(src: std::net::SocketAddr) -> String {
 
 /// 从每个 IPv6 网卡各发一份到 link-local 多播组。
 fn send_announcement_on_all_interfaces_v6(packet: &[u8], dest_port: u16) -> bool {
-    let Ok(ifaces) = if_addrs::get_if_addrs() else { return false };
+    let Ok(ifaces) = if_addrs::get_if_addrs() else {
+        return false;
+    };
     let mut sent = false;
     for it in ifaces {
-        let if_addrs::IfAddr::V6(v6) = it.addr else { continue };
+        let if_addrs::IfAddr::V6(v6) = it.addr else {
+            continue;
+        };
         if v6.ip.is_loopback() {
             continue;
         }
@@ -1072,7 +1364,9 @@ fn send_announcement_on_all_interfaces_v6(packet: &[u8], dest_port: u16) -> bool
         if discovery_iface_skipped(&it.name) {
             continue;
         }
-        let Some(idx) = iface_index(&it.name) else { continue };
+        let Some(idx) = iface_index(&it.name) else {
+            continue;
+        };
         let Ok(sk) = socket2::Socket::new(
             socket2::Domain::IPV6,
             socket2::Type::DGRAM,
@@ -1083,7 +1377,10 @@ fn send_announcement_on_all_interfaces_v6(packet: &[u8], dest_port: u16) -> bool
         let _ = sk.set_only_v6(true);
         let _ = sk.set_multicast_if_v6(idx);
         let _ = sk.set_multicast_loop_v6(true);
-        if sk.bind(&std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)).into()).is_err() {
+        if sk
+            .bind(&std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)).into())
+            .is_err()
+        {
             continue;
         }
         let dst = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
@@ -1124,7 +1421,9 @@ fn ensure_discovery_v6(port: u16) {
     let mut joined = false;
     if let Ok(ifaces) = if_addrs::get_if_addrs() {
         for it in ifaces {
-            let if_addrs::IfAddr::V6(v6) = it.addr else { continue };
+            let if_addrs::IfAddr::V6(v6) = it.addr else {
+                continue;
+            };
             if v6.ip.is_loopback() || discovery_iface_skipped(&it.name) {
                 continue;
             }
@@ -1152,7 +1451,9 @@ fn ensure_discovery_v6(port: u16) {
                 let mut any = false;
                 if let Ok(ifs) = if_addrs::get_if_addrs() {
                     for it in ifs {
-                        let if_addrs::IfAddr::V6(v6) = it.addr else { continue };
+                        let if_addrs::IfAddr::V6(v6) = it.addr else {
+                            continue;
+                        };
                         if v6.ip.is_loopback() || discovery_iface_skipped(&it.name) {
                             continue;
                         }
@@ -1167,11 +1468,15 @@ fn ensure_discovery_v6(port: u16) {
                     DISCOVERY_V6_JOINED.store(true, Ordering::SeqCst);
                 }
             }
-            let Ok((n, src)) = listener.recv_from(&mut buf) else { continue };
+            let Ok((n, src)) = listener.recv_from(&mut buf) else {
+                continue;
+            };
             if src.ip().is_loopback() || !is_running() || !discovery_packet_admit(src.ip()) {
                 continue;
             }
-            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) else { continue };
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) else {
+                continue;
+            };
             let t = v.get("t").and_then(|x| x.as_str()).unwrap_or("announce");
             if t == "probe" {
                 if is_lan_peer(src.ip())
@@ -1183,7 +1488,8 @@ fn ensure_discovery_v6(port: u16) {
                         .map(|at| at.elapsed() >= Duration::from_millis(500))
                         .unwrap_or(true);
                     if due {
-                        if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes()) {
+                        if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes())
+                        {
                             // 必须保留 src 的 scope id: fe80:: 目标没有 scope 时 send 直接失败
                             let mut dst = src;
                             dst.set_port(reply_port(&v));
@@ -1199,12 +1505,20 @@ fn ensure_discovery_v6(port: u16) {
             }
             if t == "bye" {
                 let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                if is_lan_peer(src.ip()) && !id.is_empty() && !is_self_discovery_packet(Some(id), src.ip()) {
+                if is_lan_peer(src.ip())
+                    && !id.is_empty()
+                    && !is_self_discovery_packet(Some(id), src.ip())
+                {
                     let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
                     let tok = v.get("tok").and_then(|x| x.as_str()).unwrap_or("").trim();
-                    let same = map.get(id).map(|d| {
-                        d.ip == source_ip_string(src) && (d.token.is_empty() || d.token == tok)
-                    }).unwrap_or(false);
+                    let same = map
+                        .get(id)
+                        .map(|d| {
+                            // 空令牌 bye 不再放行: 旧版兼容会让任何知道 id 的人
+                            // 用空 tok 删掉条目, 为随后抢注腾位置。
+                            d.ip == source_ip_string(src) && !d.token.is_empty() && d.token == tok
+                        })
+                        .unwrap_or(false);
                     if same && map.remove(id).is_some() {
                         drop(map);
                         broadcast_event("devices:changed");
@@ -1217,10 +1531,9 @@ fn ensure_discovery_v6(port: u16) {
             if res.new_device || res.changed {
                 broadcast_event("devices:changed");
             }
-            // 新设备/字段变化立即推；普通 valid 心跳进入 1s 合并器，尾包必达。
-            if res.new_device || res.changed {
-                broadcast_devices_presence();
-            } else if res.heard {
+            // 所有在线态更新统一走 1s 合并: changed 也直接全量广播时,
+            // 一个 busy/昵称交替的伪造包就能把设备表塞满所有 WS。
+            if res.new_device || res.changed || res.heard {
                 schedule_devices_presence();
             }
             if !is_lan_peer(src.ip()) {
@@ -1273,19 +1586,23 @@ fn ensure_discovery() {
         return;
     };
     DISCOVERY_ACTIVE_PORT.store(active_port, Ordering::Relaxed);
-    push_log(format!("设备发现监听 UDP {active_port}（可用顺延范围 {DISCOVERY_PORT}-{DISCOVERY_PORT_LAST}）"));
+    push_log(format!(
+        "设备发现监听 UDP {active_port}（可用顺延范围 {DISCOVERY_PORT}-{DISCOVERY_PORT_LAST}）"
+    ));
     ensure_discovery_v6(active_port);
     {
-        let _ = sock.set_multicast_loop_v4(true);   // 同机多实例测试; 自身包会按 id 忽略
-        let _ = sock.set_multicast_ttl_v4(1);       // 只留在局域网
-        let _ = sock.set_broadcast(true);           // Android 过滤组播时的广播兜底
+        let _ = sock.set_multicast_loop_v4(true); // 同机多实例测试; 自身包会按 id 忽略
+        let _ = sock.set_multicast_ttl_v4(1); // 只留在局域网
+        let _ = sock.set_broadcast(true); // Android 过滤组播时的广播兜底
         let _ = sock.set_read_timeout(Some(Duration::from_secs(1)));
 
         let mut joined = false;
         if let Ok(ifaces) = if_addrs::get_if_addrs() {
             for it in ifaces {
                 if let if_addrs::IfAddr::V4(v4) = it.addr {
-                    if v4.ip.is_loopback() { continue; }
+                    if v4.ip.is_loopback() {
+                        continue;
+                    }
                     if sock.join_multicast_v4(&DISCOVERY_GROUP, &v4.ip).is_ok() {
                         joined = true;
                     }
@@ -1293,12 +1610,16 @@ fn ensure_discovery() {
             }
         }
         if !joined {
-            joined = sock.join_multicast_v4(&DISCOVERY_GROUP, &Ipv4Addr::UNSPECIFIED).is_ok();
+            joined = sock
+                .join_multicast_v4(&DISCOVERY_GROUP, &Ipv4Addr::UNSPECIFIED)
+                .is_ok();
         }
         DISCOVERY_JOINED.store(joined, Ordering::SeqCst);
         if !joined {
             set_discovery_error("加入局域网多播组失败，其他 CC Flash 设备可能无法自动出现");
-            push_log_warn("局域网多播发现加入组播组失败，其他 CC Flash 设备可能无法自动出现".into());
+            push_log_warn(
+                "局域网多播发现加入组播组失败，其他 CC Flash 设备可能无法自动出现".into(),
+            );
         }
 
         let listener = match sock.try_clone() {
@@ -1321,7 +1642,8 @@ fn ensure_discovery() {
             // 每个来源的单播回包节流: 同一设备最多 15s 回一次, 避免 N 台设备
             // 互发宣告形成无谓的 N² 流量。
             let mut last_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
-            let mut last_probe_reply: HashMap<std::net::IpAddr, std::time::Instant> = HashMap::new();
+            let mut last_probe_reply: HashMap<std::net::IpAddr, std::time::Instant> =
+                HashMap::new();
             loop {
                 // 切 Wi-Fi / 插拔网卡后, 新接口需要重新 join 组播组, 否则只能发广播、
                 // 收不到别人(设备列表 30s 后清空, 直到重启 App)。每 30s 幂等 rejoin。
@@ -1348,12 +1670,16 @@ fn ensure_discovery() {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-                if src.ip().is_loopback() { continue; }
+                if src.ip().is_loopback() {
+                    continue;
+                }
                 // 服务已停止时不再刷新设备表(广播线程同样会停)
                 if !is_running() || !discovery_packet_admit(src.ip()) {
                     continue;
                 }
-                let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) else { continue };
+                let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf[..n]) else {
+                    continue;
+                };
                 let t = v.get("t").and_then(|x| x.as_str()).unwrap_or("announce");
                 // 主动探测: 立即单播回自己的宣告(1s/来源限流), 不再等 15s 常规回包节流
                 if t == "probe" {
@@ -1366,7 +1692,9 @@ fn ensure_discovery() {
                             .map(|at| at.elapsed() >= Duration::from_millis(500))
                             .unwrap_or(true);
                         if due {
-                            if let (Some(s), Some(pkt)) = (reply_sock.as_ref(), announce_packet_bytes()) {
+                            if let (Some(s), Some(pkt)) =
+                                (reply_sock.as_ref(), announce_packet_bytes())
+                            {
                                 let mut dst = src;
                                 dst.set_port(reply_port(&v));
                                 let _ = s.send_to(&pkt, dst);
@@ -1382,12 +1710,22 @@ fn ensure_discovery() {
                 // 正常退出: 同 IP 同 id 才能移除, 防止伪造 bye 清掉别人
                 if t == "bye" {
                     let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                    if is_lan_peer(src.ip()) && !id.is_empty() && !is_self_discovery_packet(Some(id), src.ip()) {
+                    if is_lan_peer(src.ip())
+                        && !id.is_empty()
+                        && !is_self_discovery_packet(Some(id), src.ip())
+                    {
                         let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
                         let tok = v.get("tok").and_then(|x| x.as_str()).unwrap_or("").trim();
-                        let same = map.get(id).map(|d| {
-                            d.ip == source_ip_string(src) && (d.token.is_empty() || d.token == tok)
-                        }).unwrap_or(false);
+                        let same = map
+                            .get(id)
+                            .map(|d| {
+                                // 空令牌 bye 不再放行: 旧版兼容会让任何知道 id 的人
+                                // 用空 tok 删掉条目, 为随后抢注腾位置。
+                                d.ip == source_ip_string(src)
+                                    && !d.token.is_empty()
+                                    && d.token == tok
+                            })
+                            .unwrap_or(false);
                         if same && map.remove(id).is_some() {
                             drop(map);
                             broadcast_event("devices:changed");
@@ -1400,13 +1738,15 @@ fn ensure_discovery() {
                 if res.new_device || res.changed {
                     broadcast_event("devices:changed");
                 }
-                if res.new_device || res.changed {
-                    broadcast_devices_presence();
-                } else if res.heard {
+                // 所有在线态更新统一走 1s 合并: changed 也直接全量广播时,
+                // 一个 busy/昵称交替的伪造包就能把设备表塞满所有 WS。
+                if res.new_device || res.changed || res.heard {
                     schedule_devices_presence();
                 }
                 // 单播回包只发给局域网来源: 公网伪造包不回, 避免把本机信息发到外网。
-                if !is_lan_peer(src.ip()) { continue; }
+                if !is_lan_peer(src.ip()) {
+                    continue;
+                }
                 // 单播回包: 新增来源立即回, 已知来源 15s 一次。reply_sock 绑定在
                 // 0.0.0.0:DISCOVERY_PORT, 对端按来源端口 53318 接收。
                 let due = last_reply
@@ -1418,7 +1758,7 @@ fn ensure_discovery() {
                         let _ = s.send_to(&pkt, (src.ip(), reply_port(&v)));
                         last_reply.insert(src.ip(), std::time::Instant::now());
                         if last_reply.len() > 128 {
-                            last_reply.clear();   // 防止大量伪造源地址把表撑大
+                            last_reply.clear(); // 防止大量伪造源地址把表撑大
                         }
                     }
                 }
@@ -1428,31 +1768,31 @@ fn ensure_discovery() {
         std::thread::spawn(move || {
             let mut last_unicast = std::time::Instant::now();
             loop {
-            // 移动端默认安全模式(仅 127.0.0.1): 不广播本机 —— 否则其他设备会在
-            // 列表里看到手机、点进去却连不上。用户开启局域网访问并重启服务后才广播。
-            if let Some(bytes) = announce_packet_bytes() {
-                for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
-                    // 逐网卡显式指定出口, 避免 Wi-Fi + VPN/虚拟网卡时走错接口
-                    let per_iface = send_announcement_on_all_interfaces(&bytes, port);
-                    if !per_iface {
-                        let _ = sock.send_to(&bytes, (DISCOVERY_GROUP, port));
+                // 移动端默认安全模式(仅 127.0.0.1): 不广播本机 —— 否则其他设备会在
+                // 列表里看到手机、点进去却连不上。用户开启局域网访问并重启服务后才广播。
+                if let Some(bytes) = announce_packet_bytes() {
+                    for port in DISCOVERY_PORT..=DISCOVERY_PORT_LAST {
+                        // 逐网卡显式指定出口, 避免 Wi-Fi + VPN/虚拟网卡时走错接口
+                        let per_iface = send_announcement_on_all_interfaces(&bytes, port);
+                        if !per_iface {
+                            let _ = sock.send_to(&bytes, (DISCOVERY_GROUP, port));
+                        }
+                        // 广播兜底: 部分 Android 网络默认过滤组播, 广播在多数家用路由器仍可达
+                        let _ = sock.send_to(&bytes, (Ipv4Addr::new(255, 255, 255, 255), port));
                     }
-                    // 广播兜底: 部分 Android 网络默认过滤组播, 广播在多数家用路由器仍可达
-                    let _ = sock.send_to(&bytes, (Ipv4Addr::new(255, 255, 255, 255), port));
                 }
-            }
-            // 已知 peer 直接单播心跳：绕过 Android/企业 Wi-Fi 的单向组播过滤。
-            send_unicast_announcements();
-            // 即使没有新报文，也每 3s 推一次权威在线态：保证设备静默 12s 后，
-            // 前端不依赖 HTTP 轮询也能准时从 online 切成 offline。
-            broadcast_devices_presence();
-            // 单播 probe 兼容旧版对端：新 peer 直接收 announce，旧 peer 只有
-            // probe 回包才会主动回 announce；5s 一次确保 last_seen 不会被 12s 宽限判离线。
-            if last_unicast.elapsed() >= Duration::from_secs(5) {
-                last_unicast = std::time::Instant::now();
-                send_unicast_probes();
-            }
-            std::thread::sleep(Duration::from_secs(3));
+                // 已知 peer 直接单播心跳：绕过 Android/企业 Wi-Fi 的单向组播过滤。
+                send_unicast_announcements();
+                // 即使没有新报文，也每 3s 推一次权威在线态：保证设备静默 12s 后，
+                // 前端不依赖 HTTP 轮询也能准时从 online 切成 offline。
+                broadcast_devices_presence();
+                // 单播 probe 兼容旧版对端：新 peer 直接收 announce，旧 peer 只有
+                // probe 回包才会主动回 announce；5s 一次确保 last_seen 不会被 12s 宽限判离线。
+                if last_unicast.elapsed() >= Duration::from_secs(5) {
+                    last_unicast = std::time::Instant::now();
+                    send_unicast_probes();
+                }
+                std::thread::sleep(Duration::from_secs(3));
             }
         });
     }
@@ -1471,7 +1811,11 @@ async fn device_hello(
         .filter(|c| *c != '\0')
         .take(NICK_MAX_CHARS)
         .collect::<String>();
-    let nickname = if nickname.is_empty() { "未命名设备".into() } else { nickname };
+    let nickname = if nickname.is_empty() {
+        "未命名设备".into()
+    } else {
+        nickname
+    };
     // 只有本机页面(回环)的昵称用于 UDP 广播; 远程浏览器没有自己的监听端口,
     // 不再登记为"可发送目标"(旧实现把 ip:本服务端口 当成对方地址, 点击必然失败)。
     if ip.is_loopback() {
@@ -1497,10 +1841,21 @@ fn discovery_packet_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std
     RATE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 fn discovery_packet_admit(peer: std::net::IpAddr) -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static LAST_CLEAN_MS: AtomicU64 = AtomicU64::new(0);
     let now = std::time::Instant::now();
-    let mut m = discovery_packet_rate().lock().unwrap_or_else(|e| e.into_inner());
-    if m.len() > 256 {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let mut m = discovery_packet_rate()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // 旧实现每个包都对 >256 的表做一次 retain; 大量伪造源时 O(n) 扫描把
+    // UDP 线程钉死。清理最多 1s 一次, 与限流窗口同粒度。
+    if m.len() > 256 && now_ms.saturating_sub(LAST_CLEAN_MS.load(AtomicOrdering::Relaxed)) >= 1000 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 2);
+        LAST_CLEAN_MS.store(now_ms, AtomicOrdering::Relaxed);
     }
     let e = m.entry(rate_key(peer)).or_insert((0, now));
     if now.duration_since(e.1).as_millis() >= 1000 {
@@ -1527,7 +1882,9 @@ fn discovery_probe_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std:
 }
 fn discovery_probe_allow(peer: std::net::IpAddr) -> bool {
     let now = std::time::Instant::now();
-    let mut m = discovery_probe_rate().lock().unwrap_or_else(|e| e.into_inner());
+    let mut m = discovery_probe_rate()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if m.len() > 256 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
     }
@@ -1573,7 +1930,10 @@ async fn discovery_probe(
             .await
             .unwrap_or(false);
         if !sent {
-            return err(StatusCode::SERVICE_UNAVAILABLE, "探测包发送失败，请检查服务是否运行");
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "探测包发送失败，请检查服务是否运行",
+            );
         }
         push_log(format!("手动单播探测 {ip} ← {peer}"));
         return Json(serde_json::json!({
@@ -1582,9 +1942,7 @@ async fn discovery_probe(
         .into_response();
     }
     // 自动探测只走多播/广播/缓存 peer；/24 全扫仅由用户显式 scan:true 触发。
-    tokio::task::spawn_blocking(send_discovery_probe)
-        .await
-        .ok();
+    tokio::task::spawn_blocking(send_discovery_probe).await.ok();
     if body.as_ref().and_then(|b| b.scan).unwrap_or(false) {
         tokio::task::spawn_blocking(send_subnet_probes).await.ok();
     }
@@ -1596,6 +1954,41 @@ async fn discovery_probe(
 fn uploaders() -> &'static Mutex<HashMap<String, String>> {
     static UP: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     UP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct UploadDone {
+    name: String,
+    size: u64,
+    ts: f64,
+}
+
+/// 上传幂等账本: 客户端响应丢失后重试前先查这里, 已完成则直接标记成功,
+/// 避免同名文件被自动顺延成 `xxx(1)` 产生重复。
+fn upload_results() -> &'static Mutex<HashMap<String, UploadDone>> {
+    static M: OnceLock<Mutex<HashMap<String, UploadDone>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn record_upload_result(id: &str, name: &str, size: u64) {
+    let id = id.trim();
+    if id.is_empty() {
+        return;
+    }
+    let mut m = upload_results().lock().unwrap_or_else(|e| e.into_inner());
+    let now = now_f64();
+    m.retain(|_, r| now - r.ts < 24.0 * 3600.0);
+    if m.len() > 2000 {
+        m.clear();
+    }
+    m.insert(
+        id.chars().take(64).collect(),
+        UploadDone {
+            name: name.to_string(),
+            size,
+            ts: now,
+        },
+    );
 }
 
 /// 结构化日志条目(loguru 风格): 全量时间戳 + 级别 + 来源位置 + 消息
@@ -1611,7 +2004,9 @@ struct LogEntry {
 }
 
 impl LogEntry {
-    fn lvl_upper(&self) -> String { self.level.to_uppercase() }
+    fn lvl_upper(&self) -> String {
+        self.level.to_uppercase()
+    }
 }
 
 fn req_log() -> &'static Mutex<VecDeque<LogEntry>> {
@@ -1738,19 +2133,39 @@ fn files_permits() -> &'static tokio::sync::Semaphore {
     S.get_or_init(|| tokio::sync::Semaphore::new(2))
 }
 
+/// 上传断点查询/取消的并发闸: 两者都会做 metadata / 整文件读取 / 阻塞删除,
+/// 且原实现没有许可, 高频请求可把 tokio 阻塞线程池打满。
+fn upload_meta_permits() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| tokio::sync::Semaphore::new(8))
+}
+
 /// 单来源并发槽位(IPv6 按 /64 聚合)。全局闸之外再做一层公平性限制:
 /// 否则一台设备就能占满 16 个上传/32 个下载许可, 把所有其他设备挡在 429 外。
 #[derive(Clone, Copy)]
-enum PeerSlotKind { Upload, Download }
+enum PeerSlotKind {
+    Upload,
+    Download,
+    Ws,
+    Files,
+}
 fn peer_slots(kind: PeerSlotKind) -> &'static Mutex<HashMap<std::net::IpAddr, usize>> {
     static UP: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
     static DOWN: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
+    static WS: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
+    static FILES: OnceLock<Mutex<HashMap<std::net::IpAddr, usize>>> = OnceLock::new();
     match kind {
         PeerSlotKind::Upload => UP.get_or_init(|| Mutex::new(HashMap::new())),
         PeerSlotKind::Download => DOWN.get_or_init(|| Mutex::new(HashMap::new())),
+        PeerSlotKind::Ws => WS.get_or_init(|| Mutex::new(HashMap::new())),
+        PeerSlotKind::Files => FILES.get_or_init(|| Mutex::new(HashMap::new())),
     }
 }
-fn peer_slot_try_acquire(peer: std::net::IpAddr, max: usize, kind: PeerSlotKind) -> Option<PeerSlot> {
+fn peer_slot_try_acquire(
+    peer: std::net::IpAddr,
+    max: usize,
+    kind: PeerSlotKind,
+) -> Option<PeerSlot> {
     let key = rate_key(peer);
     let mut m = peer_slots(kind).lock().unwrap_or_else(|e| e.into_inner());
     if m.len() > 1024 {
@@ -1782,7 +2197,9 @@ struct PeerSlot {
 }
 impl Drop for PeerSlot {
     fn drop(&mut self) {
-        let mut m = peer_slots(self.kind).lock().unwrap_or_else(|e| e.into_inner());
+        let mut m = peer_slots(self.kind)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(n) = m.get_mut(&self.key) {
             *n = n.saturating_sub(1);
             if *n == 0 {
@@ -1813,7 +2230,12 @@ fn now_ts() -> String {
         }
         format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec
         )
     }
     #[cfg(windows)]
@@ -1900,7 +2322,11 @@ fn default_share_dir() -> PathBuf {
     let old = Path::new(&home).join(SHARE_DIR_NAME_LEGACY);
     if !new.exists() && old.is_dir() {
         match std::fs::rename(&old, &new) {
-            Ok(()) => push_log(format!("已将共享目录 {} 迁移为 {}", old.display(), new.display())),
+            Ok(()) => push_log(format!(
+                "已将共享目录 {} 迁移为 {}",
+                old.display(),
+                new.display()
+            )),
             Err(e) => {
                 // 迁移失败绝不能静默用新空目录: 用户升级后会看到"共享文件全没了"。
                 // 直接继续使用旧目录, 文件仍在列表里, 下次启动再尝试迁移。
@@ -1933,7 +2359,12 @@ fn share_slot() -> &'static Mutex<PathBuf> {
     SHARE.get_or_init(|| Mutex::new(default_share_dir()))
 }
 
-pub fn share_dir() -> PathBuf { share_slot().lock().unwrap_or_else(|e| e.into_inner()).clone() }
+pub fn share_dir() -> PathBuf {
+    share_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
 
 /// 更换共享目录(与 PyQt 版一致: 运行中锁定, 停止后下次启动生效); 同步持久化选择
 pub fn set_share_dir(p: PathBuf) {
@@ -1947,8 +2378,12 @@ pub fn set_share_dir(p: PathBuf) {
     clear_share_tickets();
 }
 
-
-pub fn is_running() -> bool { running_slot().lock().unwrap_or_else(|e| e.into_inner()).is_some() }
+pub fn is_running() -> bool {
+    running_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
+}
 
 /// 调系统默认程序打开文件/目录/URL(macOS: open / Windows: start / Linux: xdg-open)
 pub fn open_with_system(target: &str) -> Result<(), String> {
@@ -1995,11 +2430,7 @@ pub fn open_with_system(target: &str) -> Result<(), String> {
             .arg(target);
         c
     };
-    #[cfg(not(any(
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    )))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "android")))]
     let mut cmd = {
         let mut c = std::process::Command::new("xdg-open");
         c.arg(target);
@@ -2066,13 +2497,43 @@ pub fn lan_ip() -> String {
     // ("VirtualBox Host-Only Network"/"WireGuard Tunnel"/"ZeroTier One"), 只按前缀会漏,
     // 一旦枚举顺序靠前就会把二维码指向手机不可达的虚拟地址。
     const TUNNEL_PREFIXES: &[&str] = &[
-        "utun", "tun", "tap", "wg", "ppp", "vethernet", "docker", "vmnet", "virbr",
-        "tailscale", "zerotier", "zt", "wireguard", "vboxnet", "ham", "br-", "cni",
-        "flannel", "kube", "orbstack", "colima", "lima", "multipass",
+        "utun",
+        "tun",
+        "tap",
+        "wg",
+        "ppp",
+        "vethernet",
+        "docker",
+        "vmnet",
+        "virbr",
+        "tailscale",
+        "zerotier",
+        "zt",
+        "wireguard",
+        "vboxnet",
+        "ham",
+        "br-",
+        "cni",
+        "flannel",
+        "kube",
+        "orbstack",
+        "colima",
+        "lima",
+        "multipass",
     ];
     const VIRTUAL_KEYWORDS: &[&str] = &[
-        "virtualbox", "vmware", "hyper-v", "tailscale", "zerotier", "wireguard",
-        "openvpn", "hamachi", "wsl", "docker", "veth", "virtual adapter",
+        "virtualbox",
+        "vmware",
+        "hyper-v",
+        "tailscale",
+        "zerotier",
+        "wireguard",
+        "openvpn",
+        "hamachi",
+        "wsl",
+        "docker",
+        "veth",
+        "virtual adapter",
     ];
     let is_tunnel = |name: &str| {
         let n = name.to_ascii_lowercase();
@@ -2111,11 +2572,17 @@ pub fn lan_ip() -> String {
                         }
                     } else if v4.ip.is_link_local() {
                         // 169.254/16: 只有在没有更好地址时才用(直连网线等)
-                        if !linklocal.contains(&s) { linklocal.push(s); }
+                        if !linklocal.contains(&s) {
+                            linklocal.push(s);
+                        }
                     } else if v4.ip.is_private() {
-                        if !private.contains(&s) { private.push(s); }
+                        if !private.contains(&s) {
+                            private.push(s);
+                        }
                     } else if is_cgnat(&v4.ip) {
-                        if !cgnat.contains(&s) { cgnat.push(s); }
+                        if !cgnat.contains(&s) {
+                            cgnat.push(s);
+                        }
                     } else if !other.contains(&s) {
                         other.push(s);
                     }
@@ -2129,7 +2596,9 @@ pub fn lan_ip() -> String {
                     }
                     let s = ip.to_string();
                     if (ip.segments()[0] & 0xfe00) == 0xfc00 {
-                        if !v6_ula.contains(&s) { v6_ula.push(s); }
+                        if !v6_ula.contains(&s) {
+                            v6_ula.push(s);
+                        }
                     } else if !v6_global.contains(&s) {
                         v6_global.push(s);
                     }
@@ -2178,7 +2647,10 @@ async fn bind_dualstack(p: u16) -> Option<tokio::net::TcpListener> {
     if let Ok(l) = tokio::net::TcpListener::bind(("::", p)).await {
         // 少数系统 net.ipv6.bindv6only=1: [::] 绑上但 v4 不通, 此时必须放弃回落,
         // 否则局域网里绝大多数 IPv4 设备全部失联
-        if tokio::net::TcpStream::connect(("127.0.0.1", p)).await.is_ok() {
+        if tokio::net::TcpStream::connect(("127.0.0.1", p))
+            .await
+            .is_ok()
+        {
             push_log(format!("监听 [::]:{p}（IPv6 双栈，兼容 v4-mapped 连接）"));
             return Some(l);
         }
@@ -2186,7 +2658,9 @@ async fn bind_dualstack(p: u16) -> Option<tokio::net::TcpListener> {
     }
     match tokio::net::TcpListener::bind(("0.0.0.0", p)).await {
         Ok(l) => {
-            push_log(format!("监听 0.0.0.0:{p}（仅 IPv4 —— 本机无 IPv6 或 bindv6only=1）"));
+            push_log(format!(
+                "监听 0.0.0.0:{p}（仅 IPv4 —— 本机无 IPv6 或 bindv6only=1）"
+            ));
             Some(l)
         }
         Err(_) => None,
@@ -2231,8 +2705,7 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
     // 等在途 stop 收尾再拿锁(stop 入口先置 STOPPING 再抢同一把锁, 顺序天然互斥),
     // 拿到锁后复查一次 —— 关闭"检查通过后 stop 才开始"的残余空档, 地址不再漂移
     let _guard = loop {
-        let stop_deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(3500);
+        let stop_deadline = std::time::Instant::now() + std::time::Duration::from_millis(3500);
         while STOPPING.load(Ordering::SeqCst) && std::time::Instant::now() < stop_deadline {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
@@ -2254,10 +2727,11 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         }
     }
     let share = share_dir();
-    std::fs::create_dir_all(&share)
-        .map_err(|e| format!("共享目录不可用: {e}"))?;
+    std::fs::create_dir_all(&share).map_err(|e| format!("共享目录不可用: {e}"))?;
     if is_dangerous_share_dir(&share) {
-        push_log_warn("警告: 当前共享目录是家目录/其上级或磁盘根，整个目录会对局域网开放".to_string());
+        push_log_warn(
+            "警告: 当前共享目录是家目录/其上级或磁盘根，整个目录会对局域网开放".to_string(),
+        );
     }
     tauri::async_runtime::block_on(async move {
         // 启动清理必须与上传的"占位→标记→登记"共用 file_op_lock:
@@ -2269,7 +2743,11 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
             // 顺序敏感: 必须先清硬中断残留 —— 若先跑 clean_stale_parts(7天TTL按
             // is_part_artifact 删标记), 老标记被删而半截成品留下, 后者再也识别不出来。
             // 仍有在途上传时跳过破坏性清理: stop() 的 3s 等待不是硬保证。
-            if active_uploads().lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            if active_uploads()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_empty()
+            {
                 clean_incomplete_uploads(&share); // 标记在 → 成品必是半截(启动时无在途上传)
             } else {
                 push_log_warn("仍有在途上传，本次启动跳过残留清理".into());
@@ -2291,7 +2769,9 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
         // 本次启动的监听意图固定下来: 绑定期间用户拨动开关只影响下次启动。
         let want_lan = open_lan();
         for p in candidates {
-            if !tried.insert(p) { continue; }
+            if !tried.insert(p) {
+                continue;
+            }
             if want_lan {
                 // 双栈 + v4 自检 + 无 IPv6/bindv6only=1 回落 0.0.0.0 ——
                 // 此前只裸 bind("[::]"): 禁 IPv6 的主机全部端口启动失败,
@@ -2325,19 +2805,25 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
 
         PORT.store(port, Ordering::Relaxed);
         LAN_ACTIVE.store(want_lan, Ordering::SeqCst);
-        ensure_discovery();   // 局域网多播发现(整个进程只启动一次)
-        // 绑定成功才落盘偏好, 且写**实际生效端口**(含被占顺延): 重启后回放的就是
-        // 手机上还能打开的那个地址, 而不是曾被占用过的首选值
+        ensure_discovery(); // 局域网多播发现(整个进程只启动一次)
+                            // 绑定成功才落盘偏好, 且写**实际生效端口**(含被占顺延): 重启后回放的就是
+                            // 手机上还能打开的那个地址, 而不是曾被占用过的首选值
         if preferred.is_some() {
             // 原子写: 半截端口("16")会让下次启动回放错误端口, 已分享的地址静默失效
             let _ = write_secret_atomic(&port_pref_file(), port.to_string().as_bytes());
         }
         push_log_ok(format!("服务已启动 端口 {port} 目录 {}", share.display()));
         if preferred.is_some() && preferred != Some(port) {
-            push_log_warn(format!("首选端口 {} 被占用，已顺延至 {port}", preferred.unwrap_or(0)));
+            push_log_warn(format!(
+                "首选端口 {} 被占用，已顺延至 {port}",
+                preferred.unwrap_or(0)
+            ));
         }
         let n = std::fs::read_dir(&share).map(|it| it.count()).unwrap_or(0);
-        push_log(format!("共享目录当前 {n} 个文件 · 访问地址: http://{}:{port}", lan_ip()));
+        push_log(format!(
+            "共享目录当前 {n} 个文件 · 访问地址: http://{}:{port}",
+            lan_ip()
+        ));
 
         let (tx, rx) = oneshot::channel::<()>();
         let app = router(share).into_make_service_with_connect_info::<SocketAddr>();
@@ -2399,8 +2885,11 @@ pub fn start(preferred: Option<u16>) -> Result<u16, String> {
                 while conns.join_next().await.is_some() {}
             }
         });
-        *running_slot().lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(ServerHandle { port, shutdown: tx, task });
+        *running_slot().lock().unwrap_or_else(|e| e.into_inner()) = Some(ServerHandle {
+            port,
+            shutdown: tx,
+            task,
+        });
         broadcast_event("status:up");
         // 启动即宣告 + 主动探测, 不等 5s 周期; 同网段已有设备会立即回包。
         send_discovery_announce();
@@ -2458,7 +2947,9 @@ fn clean_stale_parts(share: &Path) {
         if depth > CLEAN_MAX_DEPTH {
             return;
         }
-        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in rd.flatten() {
             if !budget.tick() {
                 return;
@@ -2468,8 +2959,7 @@ fn clean_stale_parts(share: &Path) {
             if md.is_dir() {
                 walk(&p, n, depth + 1, budget);
             } else if md.is_file()
-                && p
-                    .file_name()
+                && p.file_name()
                     .and_then(|s| s.to_str())
                     // 只回收"带会话指纹的旧断点"和系统的原子写临时名; 普通用户文件
                     // 即使同名同后缀也保留。.ccup 由 clean_incomplete_uploads 单独处理。
@@ -2498,7 +2988,10 @@ fn clean_stale_parts(share: &Path) {
     let mut budget = CleanBudget::new();
     walk(share, &mut n, 0, &mut budget);
     if n > 0 {
-        push_log(format!("已清理 {n} 个过期的上传断点文件(超过 {}s)", UPLOAD_PART_TTL_SECS));
+        push_log(format!(
+            "已清理 {n} 个过期的上传断点文件(超过 {}s)",
+            UPLOAD_PART_TTL_SECS
+        ));
     }
     if budget.capped {
         push_log_warn("启动清理达到 1.5s/2 万条预算，剩余部分下次启动继续".into());
@@ -2515,7 +3008,9 @@ fn clean_incomplete_uploads(share: &Path) {
         if depth > CLEAN_MAX_DEPTH {
             return;
         }
-        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in rd.flatten() {
             if !budget.tick() {
                 return;
@@ -2538,7 +3033,9 @@ fn clean_incomplete_uploads(share: &Path) {
                 walk(&p, n, depth + 1, budget);
                 continue;
             }
-            let Some(fname) = p.file_name().and_then(|s| s.to_str()) else { continue };
+            let Some(fname) = p.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
             // 用 strip 而不是字节切片: 名为 ".ccup" 的文件会让 fname[1..0] 越界 panic
             let Some(final_name) = fname
                 .strip_prefix('.')
@@ -2575,7 +3072,9 @@ fn clean_incomplete_uploads(share: &Path) {
                 // 成品大小与声明吻合时清标记；不吻合时保留标记/成品，绝不自动删成品
                 // (避免把用户自己的 .x.ccup 文件误判后删掉同名文件)。
                 let old_style = token.len() == 16
-                    && token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
+                    && token
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
                 if old_style && declared.is_some() {
                     let complete = declared.map_or(false, |d| {
                         d > 0
@@ -2767,9 +3266,10 @@ pub fn stop() -> bool {
             {
                 task.abort(); // 超时必须显式中止: 直接 drop JoinHandle 是 detach 不是取消,
                               // 反复启停会在后台累积僵尸 serve 任务/连接
-                // abort 后短等任务真正退出: 否则紧接的 start() 可能因旧 listener
-                // 尚未释放而不必要地顺延端口(网页端表现为地址漂移失联)
-                let _ = tokio::time::timeout(std::time::Duration::from_millis(300), &mut task).await;
+                              // abort 后短等任务真正退出: 否则紧接的 start() 可能因旧 listener
+                              // 尚未释放而不必要地顺延端口(网页端表现为地址漂移失联)
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_millis(300), &mut task).await;
             }
             // 等全部在途上传响应停服信号并完成自清理: axum 的连接任务是独立 spawn 的,
             // abort serve future 不会停掉它们; 不等待的话, 紧接着的 start() 会在
@@ -2803,21 +3303,20 @@ pub fn autostart() -> Result<u16, String> {
     start(last_preferred_port())
 }
 
-/// 桌面端默认开放局域网(产品定位就是同 Wi-Fi 互传); 移动端默认安全模式(仅 127.0.0.1),
-/// 由用户在 CC设置 里显式开启 —— 手机经常接入不可信的公共 Wi-Fi, 默认不能裸奔。
-static OPEN_LAN: AtomicBool = AtomicBool::new(cfg!(not(any(
-    target_os = "android",
-    target_os = "ios"
-))));
+/// 桌面端与移动端都作为独立节点监听局域网(产品定位就是同 Wi-Fi 互传)。
+/// 移动端首次启动自动生成本机访问令牌, 同网段设备需配对码; 不再提供"仅回环"开关。
+static OPEN_LAN: AtomicBool = AtomicBool::new(true);
 const OPEN_LAN_PREF_FILE: &str = "open_lan_pref";
 
-fn open_lan_pref_file() -> PathBuf { port_pref_file().with_file_name(OPEN_LAN_PREF_FILE) }
+fn open_lan_pref_file() -> PathBuf {
+    port_pref_file().with_file_name(OPEN_LAN_PREF_FILE)
+}
 
 fn open_lan() -> bool {
     // 桌面端与移动端都始终监听局域网(产品定位就是同一 Wi-Fi 互传), 不再提供开关;
     // 历史 open_lan_pref=0 不再生效, 避免"设置页没有入口却停在仅本机"的死角。
     // 移动端仍自动生成本机访问令牌, 同网段设备需配对码。
-    true
+    OPEN_LAN.load(Ordering::Relaxed)
 }
 
 pub fn set_open_lan(open: bool) {
@@ -2836,7 +3335,10 @@ pub fn set_open_lan(open: bool) {
 }
 
 pub fn status() -> (bool, u16, String) {
-    let running = running_slot().lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    let running = running_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
     (running, PORT.load(Ordering::Relaxed), lan_ip())
 }
 
@@ -2892,7 +3394,8 @@ fn safe_rel_path(raw: &str, for_upload: bool) -> Option<String> {
         // 带换行的文件名, 跨端互传必出问题)与 RTL 覆写符(U+202A-E, "exe.jpg" 反转
         // 伪装扩展名的社工手法)一律上传拒绝 —— 既有含这些字符的文件仍可下载/删除
         if for_upload
-            && seg.chars()
+            && seg
+                .chars()
                 .any(|c| c.is_control() || ('\u{202A}'..='\u{202E}').contains(&c))
         {
             return None;
@@ -2912,7 +3415,12 @@ fn safe_rel_path(raw: &str, for_upload: bool) -> Option<String> {
             // (写入被静默丢弃或挂起, rename 转正必失败 → 上传"成功"后文件消失)。
             // stem 必须再 trim: Windows 解析时剥掉点前尾随空格, "con .txt" 实为 CON 设备;
             // 另 CONIN$/CONOUT$ 同属保留设备名
-            let stem = seg.split('.').next().unwrap_or("").trim().to_ascii_uppercase();
+            let stem = seg
+                .split('.')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_uppercase();
             if matches!(
                 stem.as_str(),
                 "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
@@ -2986,7 +3494,10 @@ fn session_hash(upload_id: &str) -> String {
 }
 
 fn session_part_path(share: &Path, name: &str, upload_id: &str) -> (PathBuf, PathBuf) {
-    let part = share.join(format!("{name}.{}{UPLOAD_PART_SUFFIX}", session_hash(upload_id)));
+    let part = share.join(format!(
+        "{name}.{}{UPLOAD_PART_SUFFIX}",
+        session_hash(upload_id)
+    ));
     (part.clone(), part_meta_path(&part))
 }
 
@@ -2995,6 +3506,11 @@ fn session_part_path(share: &Path, name: &str, upload_id: &str) -> (PathBuf, Pat
 /// 只改末段文件名, 子目录前缀不动; 无扩展名/点开头文件(.gitignore, 首段为空)整体视为
 /// stem, 避免 ".gitignore" 被拆成空 stem + "gitignore" 扩展名。循环上限防病态目录。
 /// 上传入口 create_new 撞名后调用(整文件直传路径); 单测覆盖变体规则
+fn dedup_hints() -> &'static Mutex<HashMap<String, u32>> {
+    static H: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    H.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn dedup_rel_name(dir: &Path, rel: &str) -> String {
     if !dir.join(rel).exists() {
         return rel.to_string();
@@ -3007,13 +3523,29 @@ fn dedup_rel_name(dir: &Path, rel: &str) -> String {
         Some((s, e)) if !s.is_empty() => (s, Some(e)),
         _ => (file, None),
     };
-    for i in 1..10000u32 {
+    // 上次命中的序号作为起点: 同一目录反复上传同名文件时, 旧实现每次都从 1
+    // 开始做最多 1 万次 stat; 且调用发生在全局 file_op_lock 内, 慢盘会串行
+    // 拖死所有上传/删除。
+    let key = format!("{}|{}", dir.display(), rel);
+    let hint = dedup_hints()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .copied()
+        .unwrap_or(1)
+        .max(1);
+    for i in hint..10000u32 {
         let cand = match ext {
             Some(e) => format!("{stem}({i}).{e}"),
             None => format!("{stem}({i})"),
         };
         let full = format!("{dirp}{cand}");
         if !dir.join(&full).exists() {
+            let mut h = dedup_hints().lock().unwrap_or_else(|e| e.into_inner());
+            if h.len() > 4096 {
+                h.clear();
+            }
+            h.insert(key, i.saturating_add(1));
             return full;
         }
     }
@@ -3025,9 +3557,25 @@ fn is_inline_safe(name: &str) -> bool {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     matches!(
         ext.as_str(),
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "avif" | "pdf"
-            | "txt" | "md" | "log" | "csv"
-            | "mp3" | "mp4" | "webm" | "mov" | "m4a" | "ogg" | "wav"
+        "jpg"
+            | "jpeg"
+            | "png"
+            | "gif"
+            | "webp"
+            | "bmp"
+            | "avif"
+            | "pdf"
+            | "txt"
+            | "md"
+            | "log"
+            | "csv"
+            | "mp3"
+            | "mp4"
+            | "webm"
+            | "mov"
+            | "m4a"
+            | "ogg"
+            | "wav"
     )
 }
 
@@ -3040,7 +3588,11 @@ fn is_session_part_name(fname: &str) -> bool {
     let Some(pre) = rest else { return false };
     pre.rsplit('.')
         .next()
-        .map(|h| h.len() == 16 && h.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
+        .map(|h| {
+            h.len() == 16
+                && h.bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
         .unwrap_or(false)
 }
 
@@ -3053,7 +3605,11 @@ fn session_part_meta_matches(file: &Path, fname: &str) -> bool {
         .strip_suffix(UPLOAD_PART_META_SUFFIX)
         .or_else(|| low.strip_suffix(UPLOAD_PART_SUFFIX))
         .and_then(|pre| pre.rsplit('.').next())
-        .filter(|h| h.len() == 16 && h.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
+        .filter(|h| {
+            h.len() == 16
+                && h.bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
     else {
         return false;
     };
@@ -3062,7 +3618,9 @@ fn session_part_meta_matches(file: &Path, fname: &str) -> bool {
     } else {
         part_meta_path(file)
     };
-    let Ok(content) = std::fs::read_to_string(meta) else { return false };
+    let Ok(content) = std::fs::read_to_string(meta) else {
+        return false;
+    };
     let id = content.lines().next().unwrap_or("").trim();
     !id.is_empty() && session_hash(id) == hash
 }
@@ -3086,8 +3644,6 @@ fn is_junk_file(fname: &str) -> bool {
     f == ".ds_store" || f == "thumbs.db" || f == "desktop.ini" || f.starts_with("._")
 }
 
-
-
 /// 正在流式写入的会话计数。取消请求不能直接删除仍被 handler 打开的 part，
 /// 否则 Unix 上会写入已删除 inode、Windows 上会因句柄占用删除失败。
 fn active_uploads() -> &'static Mutex<HashMap<String, usize>> {
@@ -3104,9 +3660,13 @@ fn active_key(path: &Path) -> String {
     // 只有 Windows 默认大小写不敏感; Linux/区分大小写 APFS 的 Report.pdf 与
     // report.pdf 是两个文件, 统一小写会让无关文件互相锁死。
     #[cfg(windows)]
-    { path.to_string_lossy().to_lowercase() }
+    {
+        path.to_string_lossy().to_lowercase()
+    }
     #[cfg(not(windows))]
-    { path.to_string_lossy().to_string() }
+    {
+        path.to_string_lossy().to_string()
+    }
 }
 
 /// 在途计数减一(上传成功/失败/中止均调用; 归零即移除 key)
@@ -3169,7 +3729,11 @@ fn new_upload_token() -> String {
 /// 标记首行是否为系统生成的会话令牌(前缀 + 16 位小写十六进制)
 fn is_upload_token(s: &str) -> bool {
     s.strip_prefix(UPLOAD_TOKEN_PREFIX)
-        .map(|t| t.len() == 16 && t.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
+        .map(|t| {
+            t.len() == 16
+                && t.bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
         .unwrap_or(false)
 }
 
@@ -3179,7 +3743,10 @@ fn is_upload_token(s: &str) -> bool {
 /// 不需要整份读入内存 —— /api/files 每 5s 会对每个标记调用一次。
 fn read_ccup_prefix(path: &Path, max: usize) -> Option<String> {
     use std::io::Read;
-    if !std::fs::metadata(path).map(|m| m.is_file()).unwrap_or(false) {
+    if !std::fs::metadata(path)
+        .map(|m| m.is_file())
+        .unwrap_or(false)
+    {
         return None;
     }
     let f = std::fs::File::open(path).ok()?;
@@ -3198,7 +3765,9 @@ fn ccup_marker_token(s: &str) -> (&str, bool) {
 }
 
 fn is_system_ccup(path: &Path) -> bool {
-    let Some(s) = read_ccup_prefix(path, 128) else { return false; };
+    let Some(s) = read_ccup_prefix(path, 128) else {
+        return false;
+    };
     let (t, legacy) = ccup_marker_token(&s);
     // 二进制/非 UTF8/空内容不再被当成系统标记: 用户自建的 .x.ccup(含 0 字节)
     // 不应把同名成品永久隐藏/锁成"上传中"(旧实现 Err/空 => true)。
@@ -3208,10 +3777,16 @@ fn is_system_ccup(path: &Path) -> bool {
 /// 成品是否仍处于"上传中": 对应 .{名}.ccup 标记是系统标记且不是完成的 "ok"。
 /// "ok" 是成功落盘但标记删除失败的状态, 成品必须可列出/可下载。
 fn marker_is_incomplete(file: &Path) -> bool {
-    let Some(dir) = file.parent() else { return false };
-    let Some(base) = file.file_name().and_then(|s| s.to_str()) else { return false };
+    let Some(dir) = file.parent() else {
+        return false;
+    };
+    let Some(base) = file.file_name().and_then(|s| s.to_str()) else {
+        return false;
+    };
     let marker = dir.join(format!(".{base}.ccup"));
-    let Some(s) = read_ccup_prefix(&marker, 128) else { return false };
+    let Some(s) = read_ccup_prefix(&marker, 128) else {
+        return false;
+    };
     let (t, legacy) = ccup_marker_token(&s);
     let system = t == "ok" || is_upload_token(t) || legacy;
     if !system {
@@ -3245,7 +3820,9 @@ impl Drop for UploadCleanup {
             self.key.clone(),
         );
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move { abort_upload(&path, &marker, &token, &key).await; });
+            handle.spawn(async move {
+                abort_upload(&path, &marker, &token, &key).await;
+            });
         } else {
             drop_active(&self.key);
         }
@@ -3259,7 +3836,14 @@ async fn abort_upload(path: &std::path::Path, marker: &std::path::Path, token: &
     let _op = file_op_lock().lock().await;
     let owned = tokio::fs::read(marker)
         .await
-        .map(|b| String::from_utf8_lossy(&b).lines().next().unwrap_or("").trim() == token)
+        .map(|b| {
+            String::from_utf8_lossy(&b)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                == token
+        })
         .unwrap_or(false);
     if owned {
         // 只有成品确实消失(删除成功或本来就不存在)才移除标记: Windows 上杀软/
@@ -3330,7 +3914,9 @@ fn media_sessions() -> &'static Mutex<HashMap<String, MediaSession>> {
     M.get_or_init(|| Mutex::new(HashMap::new()))
 }
 fn media_session_allows(token: &str, peer: std::net::IpAddr) -> bool {
-    if token.is_empty() { return false; }
+    if token.is_empty() {
+        return false;
+    }
     let now = std::time::Instant::now();
     let mut m = media_sessions().lock().unwrap_or_else(|e| e.into_inner());
     m.retain(|_, s| s.expires_at > now);
@@ -3364,7 +3950,10 @@ async fn share_ticket(
 ) -> Response {
     let peer = normalize_peer(addr.ip());
     if !ticket_issue_allow(peer) {
-        return err(StatusCode::TOO_MANY_REQUESTS, "分享链接生成过于频繁，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "分享链接生成过于频繁，请稍后再试",
+        );
     }
     let Some(name) = safe_rel_path(&req.name, false) else {
         return err(StatusCode::BAD_REQUEST, "非法的文件名");
@@ -3392,7 +3981,8 @@ async fn share_ticket(
             generated.clone(),
             ShareTicket {
                 name: name.clone(),
-                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(SHARE_TICKET_TTL_SECS),
+                expires_at: std::time::Instant::now()
+                    + std::time::Duration::from_secs(SHARE_TICKET_TTL_SECS),
                 size,
                 etag,
             },
@@ -3410,7 +4000,10 @@ async fn media_session(
 ) -> Response {
     let peer = normalize_peer(addr.ip());
     if !ticket_issue_allow(peer) {
-        return err(StatusCode::TOO_MANY_REQUESTS, "媒体会话创建过于频繁，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "媒体会话创建过于频繁，请稍后再试",
+        );
     }
     let token = {
         let mut m = media_sessions().lock().unwrap_or_else(|e| e.into_inner());
@@ -3421,12 +4014,17 @@ async fn media_session(
         }
         let token = loop {
             let t = random_token();
-            if !m.contains_key(&t) { break t; }
+            if !m.contains_key(&t) {
+                break t;
+            }
         };
-        m.insert(token.clone(), MediaSession {
-            peer,
-            expires_at: now + std::time::Duration::from_secs(MEDIA_SESSION_TTL_SECS),
-        });
+        m.insert(
+            token.clone(),
+            MediaSession {
+                peer,
+                expires_at: now + std::time::Duration::from_secs(MEDIA_SESSION_TTL_SECS),
+            },
+        );
         token
     };
     Json(serde_json::json!({ "token": token, "ttl": MEDIA_SESSION_TTL_SECS })).into_response()
@@ -3440,10 +4038,18 @@ async fn valid_ticket(query: &str, raw_path: &str) -> Option<String> {
     let ticket = query
         .split('&')
         .find_map(|kv| kv.strip_prefix("ticket="))
-        .map(|v| percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string())?;
+        .map(|v| {
+            percent_encoding::percent_decode_str(v)
+                .decode_utf8_lossy()
+                .to_string()
+        })?;
     let decoded = raw_path
         .split('/')
-        .map(|s| percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string())
+        .map(|s| {
+            percent_encoding::percent_decode_str(s)
+                .decode_utf8_lossy()
+                .to_string()
+        })
         .collect::<Vec<_>>()
         .join("/");
     let name = safe_rel_path(decoded.trim_start_matches('/'), false)?;
@@ -3457,7 +4063,11 @@ async fn valid_ticket(query: &str, raw_path: &str) -> Option<String> {
         }
         (t.size, t.etag.clone())
     };
-    if ticket_file_matches_async(&share_dir(), &name, size, &etag).await { Some(ticket) } else { None }
+    if ticket_file_matches_async(&share_dir(), &name, size, &etag).await {
+        Some(ticket)
+    } else {
+        None
+    }
 }
 
 /// 原子取出票据: 校验与移除在同一把锁内完成。
@@ -3466,10 +4076,18 @@ async fn take_ticket(query: &str, raw_path: &str) -> Option<(String, ShareTicket
     let ticket = query
         .split('&')
         .find_map(|kv| kv.strip_prefix("ticket="))
-        .map(|v| percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string())?;
+        .map(|v| {
+            percent_encoding::percent_decode_str(v)
+                .decode_utf8_lossy()
+                .to_string()
+        })?;
     let decoded = raw_path
         .split('/')
-        .map(|s| percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string())
+        .map(|s| {
+            percent_encoding::percent_decode_str(s)
+                .decode_utf8_lossy()
+                .to_string()
+        })
         .collect::<Vec<_>>()
         .join("/");
     let name = safe_rel_path(decoded.trim_start_matches('/'), false)?;
@@ -3507,14 +4125,22 @@ fn query_ticket_value(query: &str) -> Option<String> {
     query
         .split('&')
         .find_map(|kv| kv.strip_prefix("ticket="))
-        .map(|v| percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string())
+        .map(|v| {
+            percent_encoding::percent_decode_str(v)
+                .decode_utf8_lossy()
+                .to_string()
+        })
 }
 
 /// 把 `/api/download` 之后的原始路径解码成安全相对路径。
 fn ticket_path_name(raw_path: &str) -> Option<String> {
     let decoded = raw_path
         .split('/')
-        .map(|s| percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string())
+        .map(|s| {
+            percent_encoding::percent_decode_str(s)
+                .decode_utf8_lossy()
+                .to_string()
+        })
         .collect::<Vec<_>>()
         .join("/");
     safe_rel_path(decoded.trim_start_matches('/'), false)
@@ -3566,12 +4192,20 @@ fn remember_ticket(id: &str, t: &ShareTicket, peer: std::net::IpAddr) {
 
 /// 是否是 `bytes=0-...` 整包 Range：已消费票据不允许再用它重放整文件。
 fn range_starts_at_zero(req: &axum::extract::Request) -> bool {
-    let Some(v) = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok()) else {
+    let Some(v) = req
+        .headers()
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+    else {
         return false;
     };
-    let Some(raw) = v.strip_prefix("bytes=") else { return false; };
+    let Some(raw) = v.strip_prefix("bytes=") else {
+        return false;
+    };
     let first = raw.split(',').next().unwrap_or("").trim();
-    let Some((a, _)) = first.split_once('-') else { return false; };
+    let Some((a, _)) = first.split_once('-') else {
+        return false;
+    };
     !a.trim().is_empty() && a.trim().parse::<u64>() == Ok(0)
 }
 
@@ -3584,7 +4218,9 @@ async fn recent_ticket_allows(id: &str, name: &str, peer: std::net::IpAddr) -> b
         m.retain(|_, r| {
             now < r.expires_at && now.duration_since(r.used_at).as_secs() < RECENT_TICKET_TTL_SECS
         });
-        let Some(r) = m.get(id) else { return false; };
+        let Some(r) = m.get(id) else {
+            return false;
+        };
         if r.peer != peer || r.name != name || now >= r.expires_at {
             return false;
         }
@@ -3625,7 +4261,7 @@ fn ticket_admit(peer: std::net::IpAddr) -> bool {
     }
     let e = m.entry(rate_key(peer)).or_insert((0, now));
     if now.duration_since(e.1).as_secs() >= TICKET_FAIL_WINDOW_SECS {
-        *e = (0, now);   // 窗口过期: 重新计数
+        *e = (0, now); // 窗口过期: 重新计数
     }
     if e.0 >= TICKET_FAIL_FREE {
         return false;
@@ -3647,7 +4283,9 @@ fn ticket_issue_rate() -> &'static Mutex<HashMap<std::net::IpAddr, (u32, std::ti
 
 fn ticket_issue_allow(peer: std::net::IpAddr) -> bool {
     let now = std::time::Instant::now();
-    let mut m = ticket_issue_rate().lock().unwrap_or_else(|e| e.into_inner());
+    let mut m = ticket_issue_rate()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if m.len() > 1024 {
         m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < 60);
     }
@@ -3775,10 +4413,6 @@ fn write_secret(path: &Path, data: &[u8]) -> std::io::Result<()> {
         std::fs::write(path, data)
     }
 }
-
-
-
-
 
 /// 轻量 MIME 映射: 替代 mime_guess 的完整类型表(体积收益明显)。
 /// 覆盖前端静态资源、下载预览白名单与常见文档/压缩包; 未知类型回退 octet-stream,
@@ -4010,7 +4644,11 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
         "no-store"
     };
     match Frontend::get(path) {
-        Some(f) => (static_headers(mime_for_path(Path::new(path)), cache), f.data).into_response(),
+        Some(f) => (
+            static_headers(mime_for_path(Path::new(path)), cache),
+            f.data,
+        )
+            .into_response(),
         None => {
             // 资源文件(带扩展名或 /assets/)缺失必须 404, 不能 SPA 兜底成 index.html:
             // 升级后旧页面/Service Worker 请求已删除的 /assets/old-hash.js 会拿到
@@ -4021,8 +4659,15 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
                 return err(StatusCode::NOT_FOUND, "Not Found");
             }
             match Frontend::get("index.html") {
-                Some(f) => (static_headers("text/html; charset=utf-8", "no-store"), f.data).into_response(),
-                None => err(StatusCode::NOT_FOUND, "前端资源未构建(先执行 npm run build)"),
+                Some(f) => (
+                    static_headers("text/html; charset=utf-8", "no-store"),
+                    f.data,
+                )
+                    .into_response(),
+                None => err(
+                    StatusCode::NOT_FOUND,
+                    "前端资源未构建(先执行 npm run build)",
+                ),
             }
         }
     }
@@ -4043,14 +4688,22 @@ struct FileEntry {
 }
 
 /// 递归收集文件(深度上限 8, 跳过上传断点临时文件); name 为相对路径
-fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>, visited: &mut usize) {
+fn collect_files(
+    dir: &Path,
+    base: &Path,
+    depth: usize,
+    out: &mut Vec<FileEntry>,
+    visited: &mut usize,
+) {
     // depth 为当前目录相对层级(根=0), 其内文件路径段数 = depth+1;
     // 用 >= 而非 >: 否则 8 层目录里的文件(9 段)会进列表, 但 safe_rel_path 拒收 9 段,
     // 出现"列得出、下载/删除全 400"的自相矛盾
     if depth >= UPLOAD_MAX_DEPTH || out.len() >= FILES_LIST_MAX || *visited >= FILES_LIST_MAX * 4 {
         return;
     }
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         if out.len() >= FILES_LIST_MAX || *visited >= FILES_LIST_MAX * 4 {
             return; // 文件/目录访问都有预算: 空目录树也不能无限拖垮阻塞线程池
@@ -4107,9 +4760,23 @@ fn collect_files(dir: &Path, base: &Path, depth: usize, out: &mut Vec<FileEntry>
     }
 }
 
-async fn files(State(share): State<PathBuf>) -> Response {
+async fn files(
+    State(share): State<PathBuf>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+) -> Response {
+    let peer = normalize_peer(addr.ip());
     let Ok(_permit) = files_permits().try_acquire() else {
-        return err(StatusCode::TOO_MANY_REQUESTS, "文件列表刷新过快，请稍后重试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "文件列表刷新过快，请稍后重试",
+        );
+    };
+    // 全局 2 个许可必须再按来源限 1 条: 两台慢请求即可让所有设备刷新失败。
+    let Some(_peer_slot) = peer_slot_try_acquire(peer, 1, PeerSlotKind::Files) else {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "该设备文件列表请求过多，请稍后再试",
+        );
     };
     // 同步递归遍历放进阻塞线程: 大目录时别把 tokio worker 卡住(饿死 WS 心跳等其他任务)
     let (out, visited) = tokio::task::spawn_blocking(move || {
@@ -4120,7 +4787,8 @@ async fn files(State(share): State<PathBuf>) -> Response {
         {
             let mut up = uploaders().lock().unwrap_or_else(|e| e.into_inner());
             // 裁剪: 外部删除/改名后条目会永久残留, 无界增长会拖慢每次列表请求
-            let names: std::collections::HashSet<&str> = out.iter().map(|f| f.name.as_str()).collect();
+            let names: std::collections::HashSet<&str> =
+                out.iter().map(|f| f.name.as_str()).collect();
             up.retain(|k, _| names.contains(k.as_str()));
             if up.len() > 10_000 {
                 up.clear();
@@ -4155,7 +4823,10 @@ async fn download(
     };
     // 单来源并发上限 8(总闸 32): 否则一台设备慢读 32 条即可让全员 429
     let Some(download_slot) = peer_slot_try_acquire(peer, 8, PeerSlotKind::Download) else {
-        return err(StatusCode::TOO_MANY_REQUESTS, "该设备下载并发过多，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "该设备下载并发过多，请稍后再试",
+        );
     };
     // 通配路由捕获值带前导 "/", 先去掉再做相对路径校验(读路径不拦保留设备名, 否则既有文件取不回)
     let Some(name) = safe_rel_path(raw.trim_start_matches('/'), false) else {
@@ -4177,15 +4848,18 @@ async fn download(
             return Err((StatusCode::NOT_FOUND, "文件不存在".to_string()));
         }
         if is_part_artifact(&open_path, real_base) {
-            let user_ccup = real_base.to_ascii_lowercase().ends_with(".ccup")
-                && !is_system_ccup(&open_path);
+            let user_ccup =
+                real_base.to_ascii_lowercase().ends_with(".ccup") && !is_system_ccup(&open_path);
             if !user_ccup {
                 return Err((StatusCode::NOT_FOUND, "文件不存在".to_string()));
             }
         }
         // 上传中的文件带 .{名}.ccup 标记: 拒绝下载, 否则客户端会拿到 200 的半截文件
         if marker_is_incomplete(&open_path) {
-            return Err((StatusCode::CONFLICT, "文件正在上传中，请稍后再下载".to_string()));
+            return Err((
+                StatusCode::CONFLICT,
+                "文件正在上传中，请稍后再下载".to_string(),
+            ));
         }
         let file = std::fs::File::open(&open_path)
             .map_err(|_| (StatusCode::NOT_FOUND, "文件不存在".to_string()))?;
@@ -4241,7 +4915,9 @@ async fn download(
             if s.is_empty() {
                 // 后缀区间 bytes=-N(取末尾 N 字节): 浏览器/播放器读取 MP4 moov 等
                 // 场景会用到; 不支持时会退化成 200 全量, 浪费带宽且拖慢起播。
-                let Ok(suffix) = e.parse::<u64>() else { return Ok(false) };
+                let Ok(suffix) = e.parse::<u64>() else {
+                    return Ok(false);
+                };
                 if suffix == 0 || size == 0 {
                     return Err(());
                 }
@@ -4251,7 +4927,9 @@ async fn download(
             }
             // 语法无效的 Range(畸形首段)按 RFC 9110 应忽略并回整体 200, 而非 416
             // (416 只用于"语法有效但不可满足")
-            let Ok(s) = s.parse::<u64>() else { return Ok(false) };
+            let Ok(s) = s.parse::<u64>() else {
+                return Ok(false);
+            };
             if e.is_empty() {
                 // N-
                 if s >= size {
@@ -4261,7 +4939,9 @@ async fn download(
                 return Ok(true);
             }
             // N-M; 多区间("0-99,200-300" 的尾段含逗号)与畸形尾段语法无效 → 忽略走整体 200
-            let Ok(e) = e.parse::<u64>() else { return Ok(false) };
+            let Ok(e) = e.parse::<u64>() else {
+                return Ok(false);
+            };
             if s > e {
                 return Ok(false);
             }
@@ -4298,7 +4978,8 @@ async fn download(
     // 不截断会多发 M 之后的字节, 与 CONTENT_LENGTH 声明不符 → 破坏 HTTP 分帧
     // 全量也必须 take(size): 打开后文件仍可能被上传继续写大, 不截断会让响应体
     // 超过已声明的 Content-Length, 破坏 HTTP 分帧
-    let bounded = tokio::io::AsyncReadExt::take(tokio_file, if is_partial { end_excl - start } else { size });
+    let bounded =
+        tokio::io::AsyncReadExt::take(tokio_file, if is_partial { end_excl - start } else { size });
     let reader = tokio::io::BufReader::with_capacity(CHUNK_HINT, bounded);
     // 下载空闲/慢读看门狗: 上传侧有 120s 空闲闸, 下载侧旧实现完全没有 —— 慢读或
     // 干脆不读的客户端会让 hyper 停止轮询响应体, 许可与单来源槽位被永久占住。
@@ -4310,7 +4991,14 @@ async fn download(
     let alive_notify = std::sync::Arc::new(tokio::sync::Notify::new());
     let (abort_tx, abort_rx) = futures_util::future::AbortHandle::new_pair();
     let base = futures_util::stream::unfold(
-        (reader, DownloadAlive { alive: alive.clone(), notify: alive_notify.clone() }, false),
+        (
+            reader,
+            DownloadAlive {
+                alive: alive.clone(),
+                notify: alive_notify.clone(),
+            },
+            false,
+        ),
         {
             let progress = progress.clone();
             move |(mut r, guard, done)| {
@@ -4320,11 +5008,8 @@ async fn download(
                         return None;
                     }
                     let mut buf = vec![0u8; 64 * 1024];
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(45),
-                        r.read(&mut buf),
-                    )
-                    .await
+                    match tokio::time::timeout(std::time::Duration::from_secs(45), r.read(&mut buf))
+                        .await
                     {
                         Ok(Ok(0)) => None,
                         Ok(Ok(n)) => {
@@ -4385,7 +5070,11 @@ async fn download(
             "下载 {name} ({}) ← {}{}",
             humans(if is_partial { end_excl - start } else { size }),
             peer,
-            if is_partial { format!(" · 续传自 {start}") } else { String::new() }
+            if is_partial {
+                format!(" · 续传自 {start}")
+            } else {
+                String::new()
+            }
         ));
     }
     let mime = mime_for_path(&path);
@@ -4394,6 +5083,24 @@ async fn download(
     // 分享链接直接下载时保存的文件名可能变成 URL 末段或乱码。
     let base_name = name.rsplit('/').next().unwrap_or(&name);
     let enc = percent_encoding::utf8_percent_encode(base_name, percent_encoding::NON_ALPHANUMERIC);
+    // ASCII 兜底文件名: 旧 WebView/旧下载管理器不解析 filename* 时至少得到
+    // 可读、无路径分隔符的名字; 中文等非 ASCII 逐字替换为下划线。
+    let ascii_name: String = base_name
+        .chars()
+        .take(120)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "-._ ()[]{}".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let ascii_name = if ascii_name.trim().is_empty() {
+        "file"
+    } else {
+        ascii_name.as_str()
+    };
     let mut rh = HeaderMap::new();
     rh.insert(header::CONTENT_TYPE, mime.parse().unwrap());
     rh.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
@@ -4422,7 +5129,10 @@ async fn download(
     let disp = if inline { "inline" } else { "attachment" };
     rh.insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!("{disp}; filename*=UTF-8''{enc}")).unwrap(),
+        HeaderValue::from_str(&format!(
+            "{disp}; filename=\"{ascii_name}\"; filename*=UTF-8''{enc}"
+        ))
+        .unwrap(),
     );
     rh.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
     // 媒体 URL 带短时媒体会话令牌: 禁止通过 Referer 把完整 URL 带到外链
@@ -4430,7 +5140,11 @@ async fn download(
         HeaderName::from_static("referrer-policy"),
         HeaderValue::from_static("no-referrer"),
     );
-    let status = if is_partial { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK };
+    let status = if is_partial {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
     (status, rh, Body::from_stream(stream)).into_response()
 }
 
@@ -4451,7 +5165,10 @@ async fn upload(
     };
     // 单来源最多占 4 条(总闸 16): 一台设备不能凭慢速上传饿死整个局域网
     let Some(_peer_slot) = peer_slot_try_acquire(peer, 4, PeerSlotKind::Upload) else {
-        return err(StatusCode::TOO_MANY_REQUESTS, "该设备上传并发过多，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "该设备上传并发过多，请稍后再试",
+        );
     };
     let raw = headers
         .get("X-Filename")
@@ -4468,6 +5185,16 @@ async fn upload(
         .filter(|c| *c != '\0')
         .take(NICK_MAX_CHARS)
         .collect::<String>();
+    // 客户端上传幂等键(可缺省): 只用于"响应丢失后的重试查完成", 不参与落盘命名。
+    let upload_id = headers
+        .get("X-Upload-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect::<String>();
+    let upload_id = (!upload_id.is_empty()).then_some(upload_id);
     // 请求头未经过 axum 解码, 在此解一次; safe_rel_path 不再解码(避免双重解码)
     let decoded = percent_decode_str(raw).decode_utf8_lossy().to_string();
     let Some(name) = safe_rel_path(&decoded, true) else {
@@ -4482,7 +5209,9 @@ async fn upload(
         use std::os::windows::ffi::OsStrExt;
         let units: usize = share.join(&name).as_os_str().encode_wide().count();
         if units > 259 {
-            push_log_warn(format!("上传拒绝 {name}: 路径过长({units} UTF-16 单元 > 260)"));
+            push_log_warn(format!(
+                "上传拒绝 {name}: 路径过长({units} UTF-16 单元 > 260)"
+            ));
             return err(
                 StatusCode::BAD_REQUEST,
                 "路径过长（Windows 单路径上限 260 字符），请缩短目录层级或文件名",
@@ -4498,7 +5227,10 @@ async fn upload(
         },
         None => None,
     };
-    let content_length = match headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()) {
+    let content_length = match headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+    {
         Some(s) => match s.trim().parse::<u64>() {
             Ok(v) => Some(v),
             Err(_) => None,
@@ -4507,7 +5239,10 @@ async fn upload(
     };
     let size = match (header_size, content_length) {
         (Some(a), Some(b)) if a != b => {
-            return err(StatusCode::BAD_REQUEST, "X-File-Size 与 Content-Length 不一致");
+            return err(
+                StatusCode::BAD_REQUEST,
+                "X-File-Size 与 Content-Length 不一致",
+            );
         }
         (Some(a), _) => a,
         (None, Some(b)) => b,
@@ -4537,8 +5272,8 @@ async fn upload(
         }
     }
     let path = share.join(&name); // safe_rel_path 逐段已校验, 不会越界
-    // 越界预检必须在建目录之前: create_dir_all 会跟随符号链接, 先建后查会把目录建到界外。
-    // 对"最近存在的祖先"做 canonical 校验(其下若链向界外, 在此拦截, 且未创建任何东西)
+                                  // 越界预检必须在建目录之前: create_dir_all 会跟随符号链接, 先建后查会把目录建到界外。
+                                  // 对"最近存在的祖先"做 canonical 校验(其下若链向界外, 在此拦截, 且未创建任何东西)
     if let Some(parent) = path.parent() {
         let mut probe = parent.to_path_buf();
         // 必须走 tokio::fs: 同步 exists() 在 NFS/SMB/休眠外接盘上会卡住整个
@@ -4560,7 +5295,10 @@ async fn upload(
         }
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
             push_log_err(format!("上传 {name}: 建目录失败({e}) ← {addr}"));
-            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("创建目录失败: {e}"));
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("创建目录失败: {e}"),
+            );
         }
         // 事后复验(TOCTOU 窗口): 发现越界回滚 —— 非递归删除, 此刻必为空目录
         match (
@@ -4613,7 +5351,9 @@ async fn upload(
                     use std::os::windows::ffi::OsStrExt;
                     let units = share.join(&next).as_os_str().encode_wide().count();
                     if units > 259 {
-                        push_log_warn(format!("上传拒绝 {name}: 同名改名后路径过长({units} UTF-16 单元 > 260)"));
+                        push_log_warn(format!(
+                            "上传拒绝 {name}: 同名改名后路径过长({units} UTF-16 单元 > 260)"
+                        ));
                         return err(
                             StatusCode::BAD_REQUEST,
                             "同名自动改名后路径超过 Windows 260 字符上限，请缩短文件名或所在目录",
@@ -4637,8 +5377,13 @@ async fn upload(
     // 的合法文件名会卡在 marker 创建失败, 跨平台永远传不上去。
     if base.len() + 6 > 249 {
         let _ = tokio::fs::remove_file(&path).await;
-        push_log_warn(format!("上传拒绝 {final_name}: 文件名过长(含 .ccup 标记超出上限)"));
-        return err(StatusCode::BAD_REQUEST, "文件名过长（含上传标记超出系统上限），请缩短文件名");
+        push_log_warn(format!(
+            "上传拒绝 {final_name}: 文件名过长(含 .ccup 标记超出上限)"
+        ));
+        return err(
+            StatusCode::BAD_REQUEST,
+            "文件名过长（含上传标记超出系统上限），请缩短文件名",
+        );
     }
     let Some(dir) = path.parent() else {
         let _ = tokio::fs::remove_file(&path).await;
@@ -4661,12 +5406,24 @@ async fn upload(
             let _ = tokio::fs::remove_file(&marker).await;
         } else if t != "ok" && !is_upload_token(&t) {
             let _ = tokio::fs::remove_file(&path).await;
-            return err(StatusCode::CONFLICT, "同名 .ccup 文件已存在，请先清理或改名后重试");
+            return err(
+                StatusCode::CONFLICT,
+                "同名 .ccup 文件已存在，请先清理或改名后重试",
+            );
         }
     }
-    let marker_body = if size > 0 { format!("{token}\n{size}") } else { token.clone() };
+    let marker_body = if size > 0 {
+        format!("{token}\n{size}")
+    } else {
+        token.clone()
+    };
     let marker_result = async {
-        match tokio::fs::OpenOptions::new().create_new(true).write(true).open(&marker).await {
+        match tokio::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&marker)
+            .await
+        {
             Ok(mut mf) => {
                 use tokio::io::AsyncWriteExt;
                 mf.write_all(marker_body.as_bytes()).await
@@ -4674,7 +5431,12 @@ async fn upload(
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 // 陈旧标记(正常应被启动清理移除): 清掉重建, 保证本次上传受保护
                 let _ = tokio::fs::remove_file(&marker).await;
-                match tokio::fs::OpenOptions::new().create_new(true).write(true).open(&marker).await {
+                match tokio::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&marker)
+                    .await
+                {
                     Ok(mut mf) => {
                         use tokio::io::AsyncWriteExt;
                         mf.write_all(marker_body.as_bytes()).await
@@ -4712,7 +5474,11 @@ async fn upload(
     if log_admit(peer) {
         push_log(format!(
             "上传开始 {name} (声明 {}) ← {peer}{}",
-            if size > 0 { humans(size) } else { "未知大小".into() },
+            if size > 0 {
+                humans(size)
+            } else {
+                "未知大小".into()
+            },
             if final_name != name {
                 format!(" · 已有同名，将改存为 {final_name}")
             } else {
@@ -4721,7 +5487,7 @@ async fn upload(
         ));
     }
     let started = std::time::Instant::now();
-    let mut kick = ws_kick().subscribe();   // 停服信号: 立刻中止在途上传并清理
+    let mut kick = ws_kick().subscribe(); // 停服信号: 立刻中止在途上传并清理
     let mut stream = body.into_data_stream();
     let mut written: u64 = 0;
     let mut last_check: u64 = 0;
@@ -4734,7 +5500,9 @@ async fn upload(
             drop(file);
             upload_cleanup.armed = false;
             abort_upload(&path, &marker, &token, &akey).await;
-            push_log_warn(format!("上传中止 {name}: 服务停止，已清理半截文件 ← {peer}"));
+            push_log_warn(format!(
+                "上传中止 {name}: 服务停止，已清理半截文件 ← {peer}"
+            ));
             return err(StatusCode::SERVICE_UNAVAILABLE, "服务正在停止，上传已中止");
         }
         // 总时长上限: 空闲超时挡不住"每 119s 滴一个字节"的慢速滴流
@@ -4783,7 +5551,9 @@ async fn upload(
             drop(file);
             upload_cleanup.armed = false;
             abort_upload(&path, &marker, &token, &akey).await;
-            push_log_err(format!("上传中断 {name}: 连接断开，已清理半截文件 ← {peer}"));
+            push_log_err(format!(
+                "上传中断 {name}: 连接断开，已清理半截文件 ← {peer}"
+            ));
             return err(StatusCode::INTERNAL_SERVER_ERROR, "上传中断");
         };
         // 周期查盘(审查回归): size=0 与谎报 size 的请求体绕过了启动预检,
@@ -4818,21 +5588,27 @@ async fn upload(
             drop(file);
             upload_cleanup.armed = false;
             abort_upload(&path, &marker, &token, &akey).await;
-            push_log_err(format!("上传失败 {name}: 写入失败({e})，已清理半截文件 ← {peer}"));
+            push_log_err(format!(
+                "上传失败 {name}: 写入失败({e})，已清理半截文件 ← {peer}"
+            ));
             return err(StatusCode::INTERNAL_SERVER_ERROR, format!("写入失败: {e}"));
         }
         written += c.len() as u64;
         // 低速闸: 空闲超时挡不住"每 119s 滴一个字节"的连接, 16 个槽位可被占满数小时。
-        // 连续 60s 增量不足 16KB 即视为占槽不传, 中止并清理。
+        // 连续 60s 增量不足 128KB(约 2.1KB/s)即视为占槽不传, 中止并清理。
+        // 16KB/60s 的旧阈值(273B/s)仍可让 4 条连接低成本锁死上传槽位。
         if rate_at.elapsed().as_secs() >= 60 {
-            if written.saturating_sub(rate_bytes) < 16 * 1024 {
+            if written.saturating_sub(rate_bytes) < 128 * 1024 {
                 drop(file);
                 upload_cleanup.armed = false;
                 abort_upload(&path, &marker, &token, &akey).await;
                 push_log_warn(format!(
-                    "上传中止 {name}: 速率过低(60s < 16KB)，已清理半截文件 ← {peer}"
+                    "上传中止 {name}: 速率过低(60s < 128KB)，已清理半截文件 ← {peer}"
                 ));
-                return err(StatusCode::REQUEST_TIMEOUT, "上传速率过低，请检查网络后重试");
+                return err(
+                    StatusCode::REQUEST_TIMEOUT,
+                    "上传速率过低，请检查网络后重试",
+                );
             }
             rate_at = std::time::Instant::now();
             rate_bytes = written;
@@ -4843,12 +5619,14 @@ async fn upload(
         drop(file);
         upload_cleanup.armed = false;
         abort_upload(&path, &marker, &token, &akey).await;
-        push_log_err(format!("上传失败 {name}: 落盘失败({e})，已清理半截文件 ← {peer}"));
+        push_log_err(format!(
+            "上传失败 {name}: 落盘失败({e})，已清理半截文件 ← {peer}"
+        ));
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("落盘失败: {e}"));
     }
-    drop(file);   // Windows 上先关句柄, 标记/成品才可能删除成功
-    // 声明了大小就必须收满: 分片/提前"正常收尾"的截断体不能当成功 ——
-    // 否则标记被当"已完成"移除, 落盘即静默损坏文件, 对端拿到 Content-Length 自洽的半截
+    drop(file); // Windows 上先关句柄, 标记/成品才可能删除成功
+                // 声明了大小就必须收满: 分片/提前"正常收尾"的截断体不能当成功 ——
+                // 否则标记被当"已完成"移除, 落盘即静默损坏文件, 对端拿到 Content-Length 自洽的半截
     if size > 0 && written != size {
         upload_cleanup.armed = false;
         abort_upload(&path, &marker, &token, &akey).await;
@@ -4885,7 +5663,7 @@ async fn upload(
             }
         }
     }
-    upload_cleanup.armed = false;   // 成功路径已自行释放计数, 防止 Drop 二次递减
+    upload_cleanup.armed = false; // 成功路径已自行释放计数, 防止 Drop 二次递减
     drop_active(&akey);
     if log_admit(peer) {
         push_log_ok(format!(
@@ -4903,18 +5681,24 @@ async fn upload(
     if !uploader.is_empty() {
         let mut up = uploaders().lock().unwrap_or_else(|e| e.into_inner());
         if up.len() >= 10_000 {
-            up.clear();   // 防无界增长: 极端批量上传时整体重置, 旧文件回落通用头像
+            up.clear(); // 防无界增长: 极端批量上传时整体重置, 旧文件回落通用头像
         }
         up.insert(final_name.clone(), uploader.clone());
     }
     // 文件即消息: 持久化一条投递事件(独立上限, 不占文本聊天额度), 刷新/重启后
     // 时间线仍能看到发送过的文件; 内部会广播 chat:new 让所有端刷新。
     record_file_event(final_name.clone(), written, uploader.clone());
+    if let Some(uid) = upload_id.as_deref() {
+        record_upload_result(uid, &final_name, written);
+    }
     // 广播列表变更(审查回归: 整文件直传回滚重写 handler 时丢失) —— WS 在线时前端
     // 已停掉 5s 列表轮询, 无此广播则手机上传完成后桌面列表永不自动刷新
-    let _ = event_bus().send(serde_json::json!({
-        "type": "files:changed", "action": "uploaded",
-    }).to_string());
+    let _ = event_bus().send(
+        serde_json::json!({
+            "type": "files:changed", "action": "uploaded",
+        })
+        .to_string(),
+    );
     // final: 改名后的实际落盘名(相对路径), 前端据此提示"已存为 xxx"
     Json(serde_json::json!({
         "ok": true,
@@ -4941,7 +5725,9 @@ fn valid_ledger(raw: Option<serde_json::Value>) -> Option<HashMap<String, Ledger
     let raw = raw?.as_object()?.clone();
     let mut out = HashMap::new();
     for (k, v) in raw {
-        let Ok(off) = k.parse::<u64>() else { return None };
+        let Ok(off) = k.parse::<u64>() else {
+            return None;
+        };
         let cell: LedgerCell = serde_json::from_value(v).ok()?;
         if cell.len == 0 || cell.hash.is_empty() {
             return None;
@@ -4980,6 +5766,12 @@ async fn upload_progress(
     State(share): State<PathBuf>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
+    let Ok(_permit) = upload_meta_permits().try_acquire() else {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "断点查询过于频繁，请稍后再试",
+        );
+    };
     let raw = params.get("name").map(String::as_str).unwrap_or("");
     let Some(name) = safe_rel_path(raw, true) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
@@ -5067,12 +5859,43 @@ async fn upload_progress(
     .into_response()
 }
 
+/// 上传幂等查询: 客户端超时/响应丢失后, 重试前先确认该 uploadId 是否已完成。
+async fn upload_status(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let Ok(_permit) = upload_meta_permits().try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "查询过于频繁，请稍后再试");
+    };
+    let id = params.get("id").map(String::as_str).unwrap_or("").trim();
+    if id.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "缺少上传标识");
+    }
+    let hit = upload_results()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(id)
+        .cloned();
+    match hit {
+        Some(r) => Json(serde_json::json!({
+            "ok": true, "done": true, "name": r.name, "size": r.size
+        }))
+        .into_response(),
+        None => Json(serde_json::json!({ "ok": true, "done": false })).into_response(),
+    }
+}
+
 /// 用户取消上传时立即清理断点, 已写入数据不再等 7 天 TTL 白占磁盘。
 /// 只允许删除与 id 匹配的会话产物, 防止猜 id 删他人断点。
 async fn upload_cancel(
     State(share): State<PathBuf>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
+    let Ok(_permit) = upload_meta_permits().try_acquire() else {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "取消请求过于频繁，请稍后再试",
+        );
+    };
     let raw = params.get("name").map(String::as_str).unwrap_or("");
     let Some(name) = safe_rel_path(raw, true) else {
         return err(StatusCode::BAD_REQUEST, "缺少或非法的文件名");
@@ -5166,8 +5989,15 @@ async fn delete_file(
     // "收到 200 但字节已全部消失"; key 与 upload 的占位路径同构(share.join(名))
     {
         let m = active_uploads().lock().unwrap_or_else(|e| e.into_inner());
-        if m.get(&active_key(&share.join(&resolved_name))).copied().unwrap_or(0) > 0 {
-            return err(StatusCode::CONFLICT, "该文件正在上传中，请等上传完成后再删除");
+        if m.get(&active_key(&share.join(&resolved_name)))
+            .copied()
+            .unwrap_or(0)
+            > 0
+        {
+            return err(
+                StatusCode::CONFLICT,
+                "该文件正在上传中，请等上传完成后再删除",
+            );
         }
     }
     // 标记检查涉及共享目录上的文件读取(可能是 NFS/休眠盘): 放进阻塞线程,
@@ -5202,11 +6032,14 @@ async fn delete_file(
     // 用户自建的同名 .ccup 也不属于上传中 —— 二者都不应把文件永久锁成 409。
     if let Some(t) = marker_token {
         if is_upload_token(&t) {
-            return err(StatusCode::CONFLICT, "该文件正在上传中，请等上传完成后再删除");
+            return err(
+                StatusCode::CONFLICT,
+                "该文件正在上传中，请等上传完成后再删除",
+            );
         }
         if t == "ok" {
             if let Some(marker) = marker_path {
-                let _ = tokio::fs::remove_file(marker).await;   // 完成标记残留: 顺手回收
+                let _ = tokio::fs::remove_file(marker).await; // 完成标记残留: 顺手回收
             }
         }
     }
@@ -5232,13 +6065,23 @@ async fn delete_file(
             if log_admit(peer) {
                 push_log(format!(
                     "删除 {name}{} ← {}",
-                    if resolved_name != name { format!("（实际 {resolved_name}）") } else { String::new() },
+                    if resolved_name != name {
+                        format!("（实际 {resolved_name}）")
+                    } else {
+                        String::new()
+                    },
                     peer
                 ));
             }
-            uploaders().lock().unwrap_or_else(|e| e.into_inner()).remove(&name);
+            uploaders()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&name);
             if resolved_name != name {
-                uploaders().lock().unwrap_or_else(|e| e.into_inner()).remove(&resolved_name);
+                uploaders()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&resolved_name);
             }
             // 文件删除后其时间线卡片一并消失: 清掉持久化的文件事件并通知各端重拉
             {
@@ -5275,7 +6118,10 @@ struct ChatList<'a> {
 
 async fn chat_get() -> Response {
     let Ok(_permit) = chat_read_permits().try_acquire() else {
-        return err(StatusCode::TOO_MANY_REQUESTS, "聊天历史读取并发过多，请稍后重试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "聊天历史读取并发过多，请稍后重试",
+        );
     };
     let q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
     let files = file_events()
@@ -5285,7 +6131,10 @@ async fn chat_get() -> Response {
         .cloned()
         .collect::<Vec<_>>();
     // ip 仅进服务端日志, 不随接口下发 —— 局域网内没必要让所有客户端互相看到地址
-    let body = match serde_json::to_vec(&ChatList { messages: q.iter().collect(), files }) {
+    let body = match serde_json::to_vec(&ChatList {
+        messages: q.iter().collect(),
+        files,
+    }) {
         Ok(b) => b,
         Err(e) => {
             push_log_err(format!("聊天历史序列化失败: {e}"));
@@ -5302,6 +6151,9 @@ struct ChatIn {
     /// 引用回复: 客户端传被引用消息的快照; 字段全部可选, 旧客户端不传即普通消息
     #[serde(default)]
     quote: Option<ChatQuoteIn>,
+    /// 客户端幂等键(旧客户端不传则不去重)
+    #[serde(default, alias = "clientId")]
+    client_id: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -5317,14 +6169,25 @@ async fn chat_post(
 ) -> Response {
     let peer = normalize_peer(addr.ip());
     let Ok(_permit) = chat_write_permits().try_acquire() else {
-        return err(StatusCode::TOO_MANY_REQUESTS, "消息发送并发过多，请稍后重试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "消息发送并发过多，请稍后重试",
+        );
     };
     if !chat_admit(peer) {
-        return err(StatusCode::TOO_MANY_REQUESTS, "消息发送过于频繁，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "消息发送过于频繁，请稍后再试",
+        );
     }
     // 剥 NUL: 前端 mdChat 用 \u0000 做占位符包裹已转义的代码块, 消息体携带 NUL
     // 可伪造占位符把代码块内容"搬运"到任意位置(渲染错乱; 无 XSS, 占位符内容已转义)
-    let text = body.message.trim().chars().filter(|c| *c != '\0').collect::<String>();
+    let text = body
+        .message
+        .trim()
+        .chars()
+        .filter(|c| *c != '\0')
+        .collect::<String>();
     if text.is_empty() {
         return err(StatusCode::BAD_REQUEST, "消息内容不能为空");
     }
@@ -5333,36 +6196,74 @@ async fn chat_post(
         .filter(|c| *c != '\0')
         .take(NICK_MAX_CHARS)
         .collect::<String>();
-    let nickname = if nickname.is_empty() { DEFAULT_NICK.into() } else { nickname };
+    let nickname = if nickname.is_empty() {
+        DEFAULT_NICK.into()
+    } else {
+        nickname
+    };
     // 超限必须明确拒绝: 旧实现静默截断后仍回 ok, 发送方以为已发出、接收方只看到前半段。
     let text_len = text.chars().count();
     if text_len > MSG_MAX_CHARS {
         return err(
             StatusCode::BAD_REQUEST,
-            format!(
-                "消息超过 {MSG_MAX_CHARS} 字符上限（当前 {text_len}），请删减后再发送"
-            ),
+            format!("消息超过 {MSG_MAX_CHARS} 字符上限（当前 {text_len}），请删减后再发送"),
         );
     }
     let message = text;
     // 引用快照同样消毒/截断: 内容来自客户端, 不能信任其长度
     let quote = body.quote.and_then(|q| {
-        let qtext = q.message.unwrap_or_default().trim().chars()
-            .filter(|c| *c != '\0').take(MSG_MAX_CHARS).collect::<String>();
-        if qtext.is_empty() { return None; }
-        let qnick = q.nickname.unwrap_or_default().trim().chars()
-            .filter(|c| *c != '\0').take(NICK_MAX_CHARS).collect::<String>();
+        let qtext = q
+            .message
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .filter(|c| *c != '\0')
+            .take(MSG_MAX_CHARS)
+            .collect::<String>();
+        if qtext.is_empty() {
+            return None;
+        }
+        let qnick = q
+            .nickname
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .filter(|c| *c != '\0')
+            .take(NICK_MAX_CHARS)
+            .collect::<String>();
         Some(ChatQuote {
             id: q.id.unwrap_or(0),
-            nickname: if qnick.is_empty() { DEFAULT_NICK.into() } else { qnick },
+            nickname: if qnick.is_empty() {
+                DEFAULT_NICK.into()
+            } else {
+                qnick
+            },
             message: qtext,
         })
     });
+    let client_id = body
+        .client_id
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect::<String>();
+    let client_id = (!client_id.is_empty()).then_some(client_id);
     // id 分配与入队必须在同一临界区: 分两段加锁时并发发送会算出重复 id,
     // 前端 :key="m.id" 出现重复键导致列表渲染错乱。
     // 锁内只做内存序列化, 落盘交给 schedule_chat_save 的阻塞线程(见函数注释)。
     let (msg, save) = {
         let mut q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
+        // 同一来源 + 同一 client_id 视为重试: 直接返回已有 id, 不重复入队/广播。
+        if let Some(cid) = client_id.as_deref() {
+            if let Some(existing) = q.iter().rev().find(|m| m.client_id.as_deref() == Some(cid)) {
+                return Json(serde_json::json!({
+                    "ok": true, "id": existing.id, "duplicate": true
+                }))
+                .into_response();
+            }
+        }
         let id = next_chat_id();
         let msg = ChatMsg {
             id,
@@ -5371,6 +6272,7 @@ async fn chat_post(
             timestamp: now_f64(),
             ip: peer.to_string(),
             quote,
+            client_id,
         };
         q.push_back(msg.clone());
         // 条数 + 总字符双上限: 20 万字 × 200 条可达数千万字符, 会拖垮内存、历史落盘
@@ -5385,7 +6287,11 @@ async fn chat_post(
     schedule_chat_save(save);
     let id = msg.id;
     let preview: String = msg.message.chars().take(CHAT_PREVIEW_CHARS).collect();
-    let dots = if msg.message.chars().count() > CHAT_PREVIEW_CHARS { "…" } else { "" };
+    let dots = if msg.message.chars().count() > CHAT_PREVIEW_CHARS {
+        "…"
+    } else {
+        ""
+    };
     push_log(format!("聊天 {}: {preview}{dots} ← {}", msg.nickname, peer));
     broadcast_event("chat:new");
     Json(serde_json::json!({ "ok": true, "id": id })).into_response()
@@ -5400,7 +6306,10 @@ async fn chat_delete(
     let peer = normalize_peer(addr.ip());
     // 删除同样会重写整段历史: 不限流时可用 DELETE 洪水持续消耗磁盘 IO
     if !chat_del_admit(peer) {
-        return err(StatusCode::TOO_MANY_REQUESTS, "删除操作过于频繁，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "删除操作过于频繁，请稍后再试",
+        );
     }
     let (removed, save) = {
         let mut q = chat_log().lock().unwrap_or_else(|e| e.into_inner());
@@ -5441,7 +6350,9 @@ struct SharedClip {
 
 fn shared_clip_file() -> Option<PathBuf> {
     // 单测共享进程/真实用户目录: 测试不落盘
-    if cfg!(test) { return None; }
+    if cfg!(test) {
+        return None;
+    }
     ui_pref_dir().map(|d| d.join("shared-clipboard.json"))
 }
 
@@ -5465,7 +6376,9 @@ fn clip_save_lock() -> &'static Mutex<()> {
     L.get_or_init(|| Mutex::new(()))
 }
 fn schedule_clip_save(json: Option<Vec<u8>>) {
-    let (Some(path), Some(json)) = (shared_clip_file(), json) else { return };
+    let (Some(path), Some(json)) = (shared_clip_file(), json) else {
+        return;
+    };
     let seq = CLIP_SAVE_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     let task = move || {
         let _g = clip_save_lock().lock().unwrap_or_else(|e| e.into_inner());
@@ -5475,8 +6388,12 @@ fn schedule_clip_save(json: Option<Vec<u8>>) {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = write_secret_atomic(&path, &json);
-        CLIP_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        if write_secret_atomic(&path, &json).is_ok() {
+            CLIP_SAVED_SEQ.store(seq, Ordering::SeqCst);
+        } else {
+            // 不推进序号: 下一次更高序号的快照仍会重试, 同时必须让用户看到失败。
+            push_log_err("共享剪贴板落盘失败：请检查磁盘空间/权限".into());
+        }
     };
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         let _ = handle.spawn_blocking(task);
@@ -5486,7 +6403,10 @@ fn schedule_clip_save(json: Option<Vec<u8>>) {
 }
 
 async fn clipboard_get() -> Response {
-    let c = shared_clip().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let c = shared_clip()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     Json(serde_json::json!({
         "text": c.text,
         "updatedAt": c.updated_at,
@@ -5510,7 +6430,10 @@ async fn clipboard_post(
     // 剪贴板含最高 2 万字且每次落盘: 限流防止单设备高频 POST 拖慢磁盘/worker。
     // 正常自动同步约 40 次/分钟, 240 次/分钟不会误伤。
     if !clip_admit(peer) {
-        return err(StatusCode::TOO_MANY_REQUESTS, "剪贴板更新过于频繁，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "剪贴板更新过于频繁，请稍后再试",
+        );
     }
     // 与聊天一样剥 NUL 并截断: 内容来自客户端, 不能信任其长度/控制字符
     let text = body
@@ -5535,7 +6458,11 @@ async fn clipboard_post(
         let mut c = shared_clip().lock().unwrap_or_else(|e| e.into_inner());
         c.text = text.clone();
         c.updated_at = now_f64();
-        c.from = if from.is_empty() { DEFAULT_NICK.into() } else { from };
+        c.from = if from.is_empty() {
+            DEFAULT_NICK.into()
+        } else {
+            from
+        };
         // 锁内只序列化; 落盘交给阻塞线程
         (c.updated_at, serde_json::to_vec(&*c).ok())
     };
@@ -5556,7 +6483,10 @@ async fn clipboard_delete(
     let peer = normalize_peer(addr.ip());
     // 与 POST 共用限流: 每次清空都会落盘 + 广播, 不能无限循环调用
     if !clip_admit(peer) {
-        return err(StatusCode::TOO_MANY_REQUESTS, "剪贴板更新过于频繁，请稍后再试");
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "剪贴板更新过于频繁，请稍后再试",
+        );
     }
     let (had_content, save) = {
         let mut c = shared_clip().lock().unwrap_or_else(|e| e.into_inner());
@@ -5599,6 +6529,14 @@ async fn ws_handler(
     let Ok(ws_permit) = ws_permits().try_acquire() else {
         return err(StatusCode::SERVICE_UNAVAILABLE, "WS 连接数已达上限");
     };
+    // 单来源最多 8 条: 全局 64 条否则会被一台设备一次性占满, 其他客户端
+    // 永久 503(实时聊天/设备在线态全部失效)。
+    let Some(ws_peer_slot) = peer_slot_try_acquire(peer, 8, PeerSlotKind::Ws) else {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "该设备 WS 连接过多，请稍后再试",
+        );
+    };
     let mut rx = event_bus().subscribe();
     let mut kick = ws_kick().subscribe();
     push_log(format!("WS 连接建立 ← {peer}"));
@@ -5606,6 +6544,7 @@ async fn ws_handler(
     let ws = ws.max_message_size(64 * 1024).max_frame_size(16 * 1024);
     ws.on_upgrade(move |mut socket: axum::extract::ws::WebSocket| async move {
         let _ws_permit = ws_permit;
+        let _ws_peer_slot = ws_peer_slot;
         // 应用层心跳: 半开连接(漫游/AP 休眠)靠它暴露, 客户端看门狗据此强制重连
         let mut hb = tokio::time::interval(std::time::Duration::from_secs(15));
         loop {
@@ -5702,7 +6641,11 @@ pub(crate) fn ui_pref_dir() -> Option<PathBuf> {
         let base = std::env::var("XDG_CONFIG_HOME")
             .ok()
             .map(PathBuf::from)
-            .or_else(|| std::env::var("HOME").ok().map(|h| Path::new(&h).join(".config")))?;
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| Path::new(&h).join(".config"))
+            })?;
         return Some(base.join("com.ccflash.app"));
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -5758,11 +6701,17 @@ async fn ctrl_status() -> Response {
 // ---- 诊断包 / 日志导出 / 悬浮球本地导入: 不依赖公网, 不新增压缩库 ---- //
 
 /// 固定 DOS 时间戳(2026-11-25): stored ZIP 不关心压缩, 只保证解压工具显示合理日期。
-fn zip_dos_date() -> u16 { (46 << 9) | (11 << 5) | 25 }
+fn zip_dos_date() -> u16 {
+    (46 << 9) | (11 << 5) | 25
+}
 
 fn zip_store(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
-    fn u16b(v: &mut Vec<u8>, x: u16) { v.extend_from_slice(&x.to_le_bytes()); }
-    fn u32b(v: &mut Vec<u8>, x: u32) { v.extend_from_slice(&x.to_le_bytes()); }
+    fn u16b(v: &mut Vec<u8>, x: u16) {
+        v.extend_from_slice(&x.to_le_bytes());
+    }
+    fn u32b(v: &mut Vec<u8>, x: u32) {
+        v.extend_from_slice(&x.to_le_bytes());
+    }
     let mut out = Vec::new();
     let mut central = Vec::new();
     let date = zip_dos_date();
@@ -5775,8 +6724,8 @@ fn zip_store(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
         u32b(&mut out, 0x04034b50);
         u16b(&mut out, 20);
         u16b(&mut out, 0x0800); // UTF-8
-        u16b(&mut out, 0);      // stored
-        u16b(&mut out, 0);      // time
+        u16b(&mut out, 0); // stored
+        u16b(&mut out, 0); // time
         u16b(&mut out, date);
         u32b(&mut out, crc);
         u32b(&mut out, size);
@@ -5822,17 +6771,28 @@ fn zip_store(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
 fn mask_ip(ip: &str) -> String {
     if ip.contains(':') {
         let parts: Vec<&str> = ip.split("::").next().unwrap_or(ip).split(':').collect();
-        return format!("{}::", parts.into_iter().take(4).collect::<Vec<_>>().join(":"));
+        return format!(
+            "{}::",
+            parts.into_iter().take(4).collect::<Vec<_>>().join(":")
+        );
     }
     let mut parts: Vec<&str> = ip.split('.').collect();
-    if parts.len() == 4 { parts[3] = "*"; parts.join(".") } else { "unknown".into() }
+    if parts.len() == 4 {
+        parts[3] = "*";
+        parts.join(".")
+    } else {
+        "unknown".into()
+    }
 }
 
 fn mask_ip_token(token: &str) -> String {
     // URL: 保留协议/路径, 只替换 host 中的 IP
     for scheme in ["http://", "https://"] {
         if let Some(rest) = token.strip_prefix(scheme) {
-            let (hostport, tail) = rest.split_once('/').map(|(a, b)| (a, format!("/{b}"))).unwrap_or((rest, String::new()));
+            let (hostport, tail) = rest
+                .split_once('/')
+                .map(|(a, b)| (a, format!("/{b}")))
+                .unwrap_or((rest, String::new()));
             let (host, port) = if let Some(stripped) = hostport.strip_prefix('[') {
                 if let Some(end) = stripped.find(']') {
                     (&stripped[..end], &hostport[end + 2..])
@@ -5842,13 +6802,26 @@ fn mask_ip_token(token: &str) -> String {
             } else {
                 hostport.split_once(':').unwrap_or((hostport, ""))
             };
-            if let Ok(ip) = host.trim_matches('[').trim_matches(']').parse::<std::net::IpAddr>() {
-                let port = if port.is_empty() { String::new() } else { format!(":{port}") };
+            if let Ok(ip) = host
+                .trim_matches('[')
+                .trim_matches(']')
+                .parse::<std::net::IpAddr>()
+            {
+                let port = if port.is_empty() {
+                    String::new()
+                } else {
+                    format!(":{port}")
+                };
                 return format!("{scheme}{}{}{tail}", mask_ip(&ip.to_string()), port);
             }
         }
     }
-    let core = token.trim_matches(|c: char| matches!(c, ',' | '.' | ';' | '(' | ')' | '[' | ']' | '"' | '\'' | '→' | '←'));
+    let core = token.trim_matches(|c: char| {
+        matches!(
+            c,
+            ',' | '.' | ';' | '(' | ')' | '[' | ']' | '"' | '\'' | '→' | '←'
+        )
+    });
     if let Ok(ip) = core.parse::<std::net::IpAddr>() {
         return token.replace(core, &mask_ip(&ip.to_string()));
     }
@@ -5863,20 +6836,43 @@ fn mask_ip_token(token: &str) -> String {
 
 fn redact_diagnostic_message(msg: &str, share: &Path) -> String {
     // 聊天/文件事件正文可能含文件名、消息片段; 诊断包只保留"发生过"的事实
-    const SENSITIVE: [&str; 8] = ["聊天 ", "聊天消息", "上传", "下载", "悬浮球导入", "清理", "文件历史", "文件列表"];
+    const SENSITIVE: [&str; 8] = [
+        "聊天 ",
+        "聊天消息",
+        "上传",
+        "下载",
+        "悬浮球导入",
+        "清理",
+        "文件历史",
+        "文件列表",
+    ];
     if SENSITIVE.iter().any(|k| msg.contains(k)) {
         return "<redacted: chat/file event>".into();
     }
     let share_s = share.to_string_lossy();
-    let replaced = if share_s.is_empty() { msg.to_string() } else { msg.replace(&*share_s, "<share>") };
-    replaced.split_whitespace().map(mask_ip_token).collect::<Vec<_>>().join(" ")
+    let replaced = if share_s.is_empty() {
+        msg.to_string()
+    } else {
+        msg.replace(&*share_s, "<share>")
+    };
+    replaced
+        .split_whitespace()
+        .map(mask_ip_token)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn diagnostics_logs(share: &Path) -> String {
     let q = req_log().lock().unwrap_or_else(|e| e.into_inner());
     let mut out = String::new();
     for e in q.iter() {
-        out.push_str(&format!("{} [{}] {} - {}\n", e.ts, e.lvl_upper(), e.loc, redact_diagnostic_message(&e.msg, share)));
+        out.push_str(&format!(
+            "{} [{}] {} - {}\n",
+            e.ts,
+            e.lvl_upper(),
+            e.loc,
+            redact_diagnostic_message(&e.msg, share)
+        ));
     }
     out
 }
@@ -5884,7 +6880,10 @@ fn diagnostics_logs(share: &Path) -> String {
 fn diagnostics_entries() -> Vec<(String, Vec<u8>)> {
     let (running, port, ip) = status();
     let share = share_dir();
-    let share_name = share.file_name().and_then(|s| s.to_str()).unwrap_or("share");
+    let share_name = share
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("share");
     let meta = serde_json::json!({
         "app": crate::config::APP_NAME,
         "version": APP_VERSION,
@@ -5917,7 +6916,9 @@ fn diagnostics_entries() -> Vec<(String, Vec<u8>)> {
             for ent in rd.flatten() {
                 let name = ent.file_name();
                 let name = name.to_string_lossy();
-                if !name.starts_with("pref-pet-dbg-") { continue; }
+                if !name.starts_with("pref-pet-dbg-") {
+                    continue;
+                }
                 if let Ok(data) = std::fs::read(ent.path()) {
                     if data.len() <= 512 * 1024 {
                         entries.push((format!("prefs/{name}"), data));
@@ -5937,20 +6938,44 @@ fn diagnostics_entries() -> Vec<(String, Vec<u8>)> {
 fn export_path_blocked(path: &Path) -> bool {
     let s = path.to_string_lossy().to_ascii_lowercase();
     [
-        "/.ssh/", "\\.ssh\\", "/.gnupg/", "\\.gnupg\\",
-        "/.config/autostart/", "\\.config\\autostart\\",
-        "/library/launchagents/", "/library/launchdaemons/",
+        "/.ssh/",
+        "\\.ssh\\",
+        "/.gnupg/",
+        "\\.gnupg\\",
+        "/.config/autostart/",
+        "\\.config\\autostart\\",
+        "/library/launchagents/",
+        "/library/launchdaemons/",
         "\\start menu\\programs\\startup\\",
-        "/.bashrc", "/.zshrc", "/.profile",
-    ].iter().any(|x| s.contains(x))
+        "/.bashrc",
+        "/.zshrc",
+        "/.profile",
+    ]
+    .iter()
+    .any(|x| s.contains(x))
 }
 
 fn write_export_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
-    if !parent.exists() { return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "保存目录不存在")); }
-    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("export");
-    let tmp = parent.join(format!(".{name}.tmp-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "保存目录不存在",
+        ));
+    }
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("export");
+    let tmp = parent.join(format!(
+        ".{name}.tmp-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     let mut f = std::fs::File::create(&tmp)?;
     use std::io::Write;
     f.write_all(bytes)?;
@@ -6016,14 +7041,22 @@ pub async fn save_text_file_cmd(path: String, content: String) -> serde_json::Va
 
 fn unique_import_name(share: &Path, name: &str) -> PathBuf {
     let first = share.join(name);
-    if !first.exists() { return first; }
+    if !first.exists() {
+        return first;
+    }
     let p = Path::new(name);
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
     for i in 1..10000 {
-        let n = if ext.is_empty() { format!("{stem} ({i})") } else { format!("{stem} ({i}).{ext}") };
+        let n = if ext.is_empty() {
+            format!("{stem} ({i})")
+        } else {
+            format!("{stem} ({i}).{ext}")
+        };
         let candidate = share.join(n);
-        if !candidate.exists() { return candidate; }
+        if !candidate.exists() {
+            return candidate;
+        }
     }
     share.join(format!("{stem}-{}", std::process::id()))
 }
@@ -6043,17 +7076,54 @@ async fn link_import_file(temp: &Path, share: &Path, name: &str) -> Result<Strin
         match tokio::fs::hard_link(temp, &dest).await {
             Ok(()) => {
                 let _ = tokio::fs::remove_file(temp).await;
-                return Ok(dest.file_name().and_then(|s| s.to_str()).unwrap_or(name).to_string());
+                return Ok(dest
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(name)
+                    .to_string());
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied) => {
-                // FAT/exFAT/SMB 等不支持硬链接: 目标不存在时 rename 仍是同盘原子转正
-                if dest.exists() { continue; }
-                match tokio::fs::rename(temp, &dest).await {
-                    Ok(()) => return Ok(dest.file_name().and_then(|s| s.to_str()).unwrap_or(name).to_string()),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                // FAT/exFAT/SMB 等不支持硬链接。不能用 "exists() 再 rename":
+                // POSIX rename 会覆盖检查后并发出现的同名文件, 造成静默丢文件。
+                // 改为 create_new 原子占位 + 复制; 慢一点但不会覆盖任何既有文件。
+                let mut out = match tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&dest)
+                    .await
+                {
+                    Ok(f) => f,
                     Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
                     Err(e) => return Err(format!("转正失败: {e}")),
+                };
+                let mut input = match tokio::fs::File::open(temp).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        let _ = tokio::fs::remove_file(&dest).await;
+                        return Err(format!("转正失败: {e}"));
+                    }
+                };
+                if let Err(e) = tokio::io::copy(&mut input, &mut out).await {
+                    let _ = tokio::fs::remove_file(&dest).await;
+                    return Err(format!("转正失败: {e}"));
                 }
+                if let Err(e) = out.sync_all().await {
+                    let _ = tokio::fs::remove_file(&dest).await;
+                    return Err(format!("转正失败: {e}"));
+                }
+                drop(out);
+                let _ = tokio::fs::remove_file(temp).await;
+                return Ok(dest
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(name)
+                    .to_string());
             }
             Err(e) => return Err(format!("转正失败: {e}")),
         }
@@ -6076,14 +7146,20 @@ pub async fn pet_upload_paths_cmd(
         return serde_json::json!({ "ok": false, "error": "没有可上传的文件" });
     }
     let share = share_dir();
-    let uploader: String = uploader.chars().filter(|c| *c != '\0').take(NICK_MAX_CHARS).collect();
+    let uploader: String = uploader
+        .chars()
+        .filter(|c| *c != '\0')
+        .take(NICK_MAX_CHARS)
+        .collect();
     let mut sources: Vec<(PathBuf, u64)> = Vec::new();
     let mut total: u64 = 0;
     for raw in &paths {
         let p = PathBuf::from(raw);
         let meta = match tokio::fs::metadata(&p).await {
             Ok(m) => m,
-            Err(_) => return serde_json::json!({ "ok": false, "error": format!("读不到文件: {}", p.display()) }),
+            Err(_) => {
+                return serde_json::json!({ "ok": false, "error": format!("读不到文件: {}", p.display()) })
+            }
         };
         if !meta.is_file() {
             return serde_json::json!({ "ok": false, "error": "悬浮球仅支持拖入文件，文件夹请从主窗口上传" });
@@ -6099,21 +7175,43 @@ pub async fn pet_upload_paths_cmd(
     let started = std::time::Instant::now();
     let mut done_total: u64 = 0;
     let mut files: Vec<serde_json::Value> = Vec::new();
-    for (src, expected) in sources {
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+    'files: for (src, expected) in sources {
+        let name_for_err = src
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
         let Some(raw_name) = src.file_name().and_then(|s| s.to_str()) else {
-            return serde_json::json!({ "ok": false, "error": "文件名不是有效 UTF-8" });
+            errors
+                .push(serde_json::json!({ "name": name_for_err, "error": "文件名不是有效 UTF-8" }));
+            continue;
         };
         let Some(name) = safe_rel_path(raw_name, true) else {
-            return serde_json::json!({ "ok": false, "error": format!("文件名不合法: {raw_name}") });
+            errors.push(serde_json::json!({ "name": raw_name, "error": format!("文件名不合法: {raw_name}") }));
+            continue;
         };
         let temp = import_temp_name(&share);
         let mut input = match tokio::fs::File::open(&src).await {
             Ok(f) => f,
-            Err(e) => return serde_json::json!({ "ok": false, "error": format!("打开失败 {}: {e}", src.display()) }),
+            Err(e) => {
+                errors.push(
+                    serde_json::json!({ "name": raw_name, "error": format!("打开失败: {e}") }),
+                );
+                continue;
+            }
         };
-        let mut output = match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&temp).await {
+        let mut output = match tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .await
+        {
             Ok(f) => f,
-            Err(e) => return serde_json::json!({ "ok": false, "error": format!("创建临时文件失败: {e}") }),
+            Err(e) => {
+                errors.push(serde_json::json!({ "name": raw_name, "error": format!("创建临时文件失败: {e}") }));
+                continue;
+            }
         };
         let mut buf = vec![0u8; 256 * 1024];
         let mut size: u64 = 0;
@@ -6123,53 +7221,102 @@ pub async fn pet_upload_paths_cmd(
                 Ok(n) => n,
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&temp).await;
-                    return serde_json::json!({ "ok": false, "error": format!("读取失败: {e}") });
+                    errors.push(
+                        serde_json::json!({ "name": raw_name, "error": format!("读取失败: {e}") }),
+                    );
+                    continue 'files;
                 }
             };
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut output, &buf[..n]).await {
                 let _ = tokio::fs::remove_file(&temp).await;
-                return serde_json::json!({ "ok": false, "error": format!("写入失败: {e}") });
+                errors.push(
+                    serde_json::json!({ "name": raw_name, "error": format!("写入失败: {e}") }),
+                );
+                continue 'files;
             }
             size += n as u64;
             done_total += n as u64;
             if last_emit.elapsed() >= std::time::Duration::from_millis(120) {
                 last_emit = std::time::Instant::now();
-                let pct = if total == 0 { 0 } else { (done_total * 100 / total).min(99) };
-                let _ = app.emit("pet-upload-progress", serde_json::json!({ "pct": pct, "name": name }));
+                let pct = if total == 0 {
+                    0
+                } else {
+                    (done_total * 100 / total).min(99)
+                };
+                let _ = app.emit(
+                    "pet-upload-progress",
+                    serde_json::json!({ "pct": pct, "name": name }),
+                );
             }
         }
         if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut output).await {
             let _ = tokio::fs::remove_file(&temp).await;
-            return serde_json::json!({ "ok": false, "error": format!("落盘失败: {e}") });
+            errors.push(serde_json::json!({ "name": raw_name, "error": format!("落盘失败: {e}") }));
+            continue 'files;
         }
         if let Err(e) = output.sync_all().await {
             let _ = tokio::fs::remove_file(&temp).await;
-            return serde_json::json!({ "ok": false, "error": format!("同步失败: {e}") });
+            errors.push(serde_json::json!({ "name": raw_name, "error": format!("同步失败: {e}") }));
+            continue 'files;
         }
         if size != expected {
             let _ = tokio::fs::remove_file(&temp).await;
-            return serde_json::json!({ "ok": false, "error": format!("源文件在上传过程中发生变化: {raw_name}") });
+            errors.push(
+                serde_json::json!({ "name": raw_name, "error": "源文件在上传过程中发生变化" }),
+            );
+            continue 'files;
         }
         let final_name = match link_import_file(&temp, &share, &name).await {
             Ok(n) => n,
-            Err(e) => return serde_json::json!({ "ok": false, "error": e }),
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&temp).await;
+                errors.push(serde_json::json!({ "name": raw_name, "error": e }));
+                continue 'files;
+            }
         };
         {
             let mut up = uploaders().lock().unwrap_or_else(|e| e.into_inner());
-            if up.len() >= 10_000 { up.clear(); }
+            if up.len() >= 10_000 {
+                up.clear();
+            }
             up.insert(final_name.clone(), uploader.clone());
         }
         record_file_event(final_name.clone(), size, uploader.clone());
         // 批量中第 N 个失败时, 前面已成功的文件也要让主窗/手机端立即看到
         broadcast_event("files:changed");
-        push_log_ok(format!("悬浮球导入 {final_name} ({}) ← 本机拖入", humans(size)));
+        push_log_ok(format!(
+            "悬浮球导入 {final_name} ({}) ← 本机拖入",
+            humans(size)
+        ));
         files.push(serde_json::json!({ "name": final_name, "size": size }));
     }
-    let _ = app.emit("pet-upload-progress", serde_json::json!({ "pct": 100, "name": "" }));
     broadcast_event("files:changed");
-    push_log_ok(format!("悬浮球导入完成 {} 个文件，用时 {}ms", files.len(), started.elapsed().as_millis()));
-    serde_json::json!({ "ok": true, "files": files })
+    if errors.is_empty() {
+        let _ = app.emit(
+            "pet-upload-progress",
+            serde_json::json!({ "pct": 100, "name": "" }),
+        );
+        push_log_ok(format!(
+            "悬浮球导入完成 {} 个文件，用时 {}ms",
+            files.len(),
+            started.elapsed().as_millis()
+        ));
+    } else {
+        push_log_warn(format!(
+            "悬浮球导入部分完成: 成功 {} 个，失败 {} 个，用时 {}ms",
+            files.len(),
+            errors.len(),
+            started.elapsed().as_millis()
+        ));
+    }
+    serde_json::json!({
+        "ok": errors.is_empty(),
+        "files": files,
+        "errors": errors,
+    })
 }
 
 // ---- Tauri 命令(桌面窗口经 invoke 调用, 免端口发现/CORS) ----
@@ -6236,7 +7383,10 @@ fn install_pin(pin: &str) -> std::io::Result<()> {
 fn write_secret_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     use std::sync::atomic::AtomicU64;
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("secret");
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("secret");
     // 唯一临时名: 固定 `.name.tmp` 在并发写(PIN/聊天/偏好调试)时会互相覆盖。
     let tmp = path.with_file_name(format!(
         ".{name}.tmp-{}-{}",
@@ -6245,10 +7395,31 @@ fn write_secret_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     ));
     write_secret(&tmp, data)?;
     if let Err(e) = std::fs::rename(&tmp, path) {
-        // Windows 目标已存在时部分环境 rename 不替换: 极小窗口内先删旧文件再重试
+        // Windows 目标已存在时部分环境 rename 不替换。旧实现先删目标再重试,
+        // 第二次 rename 仍失败时会把唯一副本删掉(PIN/聊天历史静默丢失)。
+        // 改为先把旧文件改名到 .bak, 新文件失败时回滚; 不覆盖唯一副本。
         if cfg!(windows) && path.exists() {
-            let _ = std::fs::remove_file(path);
-            return std::fs::rename(&tmp, path);
+            let bak = path.with_file_name(format!(
+                ".{name}.bak-{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            if std::fs::rename(path, &bak).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
+            }
+            return match std::fs::rename(&tmp, path) {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(&bak);
+                    Ok(())
+                }
+                Err(e2) => {
+                    // 恢复旧文件; 恢复也失败时保留 .bak 供人工恢复, 绝不删唯一副本。
+                    let _ = std::fs::rename(&bak, path);
+                    let _ = std::fs::remove_file(&tmp);
+                    Err(e2)
+                }
+            };
         }
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
@@ -6295,7 +7466,9 @@ fn access_pin() -> &'static Mutex<Option<String>> {
                     if enabled == Some(false) {
                         // 明确关闭路径会同时删除码值; 这里仍有码值说明关闭未完成或标记写失败。
                         // fail-closed: 保留保护并告警, 下次显式关闭成功后再撤码。
-                        push_log_warn("访问令牌标记为关闭但码值仍存在，按 fail-closed 保留保护".into());
+                        push_log_warn(
+                            "访问令牌标记为关闭但码值仍存在，按 fail-closed 保留保护".into(),
+                        );
                         Some(pin)
                     } else {
                         Some(pin)
@@ -6354,15 +7527,19 @@ const PIN6_MAX_SECS: u64 = 600;
 const PIN6_FAIL_FREE: u32 = 40;
 const PIN6_BASE_SECS: u64 = 60;
 
-fn pin_fails() -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
-    static FAILS: OnceLock<Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
-        OnceLock::new();
+fn pin_fails(
+) -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static FAILS: OnceLock<
+        Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>,
+    > = OnceLock::new();
     FAILS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
-fn pin_prefix_fails() -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
-    static FAILS: OnceLock<Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>> =
-        OnceLock::new();
+fn pin_prefix_fails(
+) -> &'static Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static FAILS: OnceLock<
+        Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>,
+    > = OnceLock::new();
     FAILS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -6479,7 +7656,14 @@ fn pin_admit(peer: std::net::IpAddr, ok: bool) -> bool {
         if pm.len() > 4096 {
             pm.retain(|_, (_, t)| now.duration_since(*t).as_secs() < PIN_FAIL_MAX_SECS);
         }
-        if pin_locked(&mut pm, p, now, PIN6_FAIL_FREE, PIN6_BASE_SECS, PIN6_MAX_SECS) {
+        if pin_locked(
+            &mut pm,
+            p,
+            now,
+            PIN6_FAIL_FREE,
+            PIN6_BASE_SECS,
+            PIN6_MAX_SECS,
+        ) {
             return false;
         }
         drop(pm);
@@ -6490,7 +7674,14 @@ fn pin_admit(peer: std::net::IpAddr, ok: bool) -> bool {
         if m.len() > 1024 {
             m.retain(|_, (_, t)| now.duration_since(*t).as_secs() < PIN_FAIL_MAX_SECS);
         }
-        if pin_locked(&mut m, peer, now, PIN_FAIL_FREE, PIN_FAIL_BASE_SECS, PIN_FAIL_MAX_SECS) {
+        if pin_locked(
+            &mut m,
+            peer,
+            now,
+            PIN_FAIL_FREE,
+            PIN_FAIL_BASE_SECS,
+            PIN_FAIL_MAX_SECS,
+        ) {
             return false;
         }
         if ok {
@@ -6502,7 +7693,10 @@ fn pin_admit(peer: std::net::IpAddr, ok: bool) -> bool {
             m.remove(&peer);
             drop(m);
             if let Some(p) = pfx {
-                pin_prefix_fails().lock().unwrap_or_else(|e| e.into_inner()).remove(&p);
+                pin_prefix_fails()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&p);
             }
             return true;
         }
@@ -6550,8 +7744,8 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
             }
         }
         *slot = None;
-        clear_share_tickets();                           // 关闭保护: 已签发的下载凭证一并作废
-        let _ = ws_kick().send(());                       // 关闭/开启令牌都重新握手: 旧 WS 不得继续订阅
+        clear_share_tickets(); // 关闭保护: 已签发的下载凭证一并作废
+        let _ = ws_kick().send(()); // 关闭/开启令牌都重新握手: 旧 WS 不得继续订阅
         push_log_warn("访问令牌已关闭 —— 局域网设备不再需要配对".into());
         return serde_json::json!({ "ok": true });
     }
@@ -6560,7 +7754,10 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     // 先原子落盘成功再改内存: 写失败必须报错 —— 否则 UI 显示"已开启"，
     // 重启后读不到文件，保护静默消失（比没有保护更危险）
     if let Err(e) = install_pin(&pin) {
-        push_log_err(format!("访问令牌开启失败: 无法写入 {} ({e})", path.display()));
+        push_log_err(format!(
+            "访问令牌开启失败: 无法写入 {} ({e})",
+            path.display()
+        ));
         return serde_json::json!({
             "ok": false,
             "error": format!("访问令牌保存失败（{}），保护未开启: {e}", path.display())
@@ -6569,7 +7766,7 @@ pub fn set_access_pin_cmd(enable: bool) -> serde_json::Value {
     *slot = Some(pin.clone());
     // 轮换配对码 = 旧凭证作废: 必须真的清掉票据, 否则日志宣称的"旧分享链接失效"是假的
     clear_share_tickets();
-    let _ = ws_kick().send(());                           // 新码生效: 旧连接必须重新认证
+    let _ = ws_kick().send(()); // 新码生效: 旧连接必须重新认证
     push_log_ok("访问令牌已开启（已生成新配对码，旧分享链接随之失效）".into());
     serde_json::json!({ "ok": true, "pin": pin })
 }
@@ -6581,7 +7778,10 @@ pub async fn control_status_cmd() -> serde_json::Value {
         let (running, port, ip) = status();
         let share = strip_verbatim(&share_dir().to_string_lossy());
         let (free, total) = disk_space();
-        let pin = access_pin().lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let pin = access_pin()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         serde_json::json!({
             "running": running, "port": port, "ip": ip, "share": share,
             "free": free.map(humans).unwrap_or_else(|| "无法获取".into()),
@@ -6596,7 +7796,9 @@ pub async fn control_status_cmd() -> serde_json::Value {
         })
     })
     .await
-    .unwrap_or_else(|_| serde_json::json!({ "running": false, "port": 0, "ip": "--", "error": "状态读取失败" }))
+    .unwrap_or_else(
+        |_| serde_json::json!({ "running": false, "port": 0, "ip": "--", "error": "状态读取失败" }),
+    )
 }
 
 /// 移动端不能"托管任意共享目录": 手机沙盒里没有用户可浏览的目录概念,
@@ -6646,7 +7848,9 @@ fn path_component_eq(a: &Path, b: &Path) -> bool {
             (None, None) => return true,
             (Some(x), Some(y)) => {
                 let eq = if cfg!(windows) {
-                    x.as_os_str().to_string_lossy().eq_ignore_ascii_case(&y.as_os_str().to_string_lossy())
+                    x.as_os_str()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&y.as_os_str().to_string_lossy())
                 } else {
                     x == y
                 };
@@ -6669,7 +7873,9 @@ fn path_starts_with_components(child: &Path, base: &Path) -> bool {
     }
     cc[..bc.len()].iter().zip(bc.iter()).all(|(x, y)| {
         if cfg!(windows) {
-            x.as_os_str().to_string_lossy().eq_ignore_ascii_case(&y.as_os_str().to_string_lossy())
+            x.as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&y.as_os_str().to_string_lossy())
         } else {
             x == y
         }
@@ -6737,7 +7943,9 @@ pub fn set_share_dir_cmd(path: String, force: Option<bool>) -> serde_json::Value
     let shown = canon.to_string_lossy().to_string();
     set_share_dir(canon);
     if force.unwrap_or(false) {
-        push_log_warn(format!("共享目录已切换为 {shown}（高风险目录，用户已二次确认）"));
+        push_log_warn(format!(
+            "共享目录已切换为 {shown}（高风险目录，用户已二次确认）"
+        ));
     } else {
         push_log(format!("共享目录已切换为 {shown}（下次启动生效）"));
     }
@@ -6754,12 +7962,51 @@ fn is_executable_name(name: &str) -> bool {
         .to_ascii_lowercase();
     matches!(
         ext.as_str(),
-        "exe" | "com" | "bat" | "cmd" | "msi" | "scr" | "cpl" | "msc" | "ps1"
-            | "vbs" | "vbe" | "js" | "jse" | "wsf" | "wsh" | "hta" | "lnk" | "url"
-            | "reg" | "command" | "app" | "workflow" | "scpt" | "osascript" | "terminal"
-            | "sh" | "bash" | "zsh" | "fish" | "py" | "pyw" | "pl" | "rb" | "jar"
-            | "pkg" | "mpkg" | "dmg" | "appx" | "msix" | "deb" | "rpm"
-            | "desktop" | "appimage" | "run" | "bin"
+        "exe"
+            | "com"
+            | "bat"
+            | "cmd"
+            | "msi"
+            | "scr"
+            | "cpl"
+            | "msc"
+            | "ps1"
+            | "vbs"
+            | "vbe"
+            | "js"
+            | "jse"
+            | "wsf"
+            | "wsh"
+            | "hta"
+            | "lnk"
+            | "url"
+            | "reg"
+            | "command"
+            | "app"
+            | "workflow"
+            | "scpt"
+            | "osascript"
+            | "terminal"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "py"
+            | "pyw"
+            | "pl"
+            | "rb"
+            | "jar"
+            | "pkg"
+            | "mpkg"
+            | "dmg"
+            | "appx"
+            | "msix"
+            | "deb"
+            | "rpm"
+            | "desktop"
+            | "appimage"
+            | "run"
+            | "bin"
     )
 }
 
@@ -6778,7 +8025,9 @@ pub fn open_path_cmd(path: String) -> serde_json::Value {
     #[cfg(unix)]
     let has_exec_bit = {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(&canon).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+        std::fs::metadata(&canon)
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
     };
     #[cfg(not(unix))]
     let has_exec_bit = false;
@@ -6802,16 +8051,23 @@ pub fn reveal_path_cmd(path: String) -> serde_json::Value {
         return serde_json::json!({ "ok": false, "error": "仅允许显示共享目录内的文件" });
     }
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg("-R").arg(&canon).status();
+    let result = std::process::Command::new("open")
+        .arg("-R")
+        .arg(&canon)
+        .status();
     #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("explorer").arg(format!("/select,{}", canon.display())).status();
+    let result = std::process::Command::new("explorer")
+        .arg(format!("/select,{}", canon.display()))
+        .status();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let result = {
         let parent = canon.parent().unwrap_or(&share_canon);
         std::process::Command::new("xdg-open").arg(parent).status()
     };
     match result {
-        Ok(s) if s.success() => serde_json::json!({ "ok": true }),
+        // explorer.exe /select 正常执行也常返回 1: Windows 上只要进程成功启动
+        // 就视为已定位, 不能把系统正常行为报成"启动失败"。
+        Ok(s) if s.success() || cfg!(windows) => serde_json::json!({ "ok": true }),
         Ok(_) => serde_json::json!({ "ok": false, "error": "系统文件管理器启动失败" }),
         Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
     }
@@ -6825,7 +8081,11 @@ pub fn open_url_cmd(url: String) -> serde_json::Value {
         || url.starts_with("https://")
         || url.starts_with("x-apple.systempreferences:")
         || url.starts_with("ms-settings:");
-    match if allowed { open_with_system(&url) } else { Err("仅允许 http/https 或系统设置链接".into()) } {
+    match if allowed {
+        open_with_system(&url)
+    } else {
+        Err("仅允许 http/https 或系统设置链接".into())
+    } {
         Ok(()) => serde_json::json!({ "ok": true }),
         Err(e) => serde_json::json!({ "ok": false, "error": e }),
     }
@@ -6895,7 +8155,8 @@ fn copy_file_blocking(name: String) -> serde_json::Value {
              $c = New-Object System.Collections.Specialized.StringCollection; \
              $c.Add('{}') | Out-Null; \
              [System.Windows.Forms.Clipboard]::SetFileDropList($c)",
-            p.replace('\'', "''"));
+            p.replace('\'', "''")
+        );
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-STA", "-NoProfile", "-Command", &ps]);
         // CREATE_NO_WINDOW: 否则每点一次"复制"都闪一个 PowerShell 黑窗(像流氓软件)
@@ -6908,7 +8169,9 @@ fn copy_file_blocking(name: String) -> serde_json::Value {
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let res: Result<std::process::Output, std::io::Error> = Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported, "Linux/Android 暂不支持复制文件到剪贴板"));
+        std::io::ErrorKind::Unsupported,
+        "Linux/Android 暂不支持复制文件到剪贴板",
+    ));
     match res {
         Ok(out) if out.status.success() => {
             serde_json::json!({ "ok": true })
@@ -6926,7 +8189,9 @@ fn copy_file_blocking(name: String) -> serde_json::Value {
 /// 挪到独立线程执行, 带超时回收。
 fn run_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || { let _ = tx.send(f()); });
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
     rx.recv_timeout(std::time::Duration::from_secs(10)).ok()
 }
 
@@ -7019,7 +8284,11 @@ fn browser_origin_guard(req: &axum::extract::Request) -> Result<bool, Response> 
     if !host_ok {
         return Err(err(StatusCode::BAD_REQUEST, "非法的 Host"));
     }
-    if let Some(origin) = req.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+    if let Some(origin) = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
         // 全部精确匹配: 子串匹配可被 tauri.localhost.evil.com 绕过(该域名合法注册即含此子串),
         // 叠加 CorsLayer::permissive 的 ACAO:* 后攻击者 JS 可读取全部响应
         let self_ok = origin == format!("http://{host}")
@@ -7063,7 +8332,17 @@ fn browser_origin_guard(req: &axum::extract::Request) -> Result<bool, Response> 
 fn mask_pin(query: &str) -> String {
     query
         .split('&')
-        .map(|kv| if kv.starts_with("pin=") { "pin=***" } else if kv.starts_with("ticket=") { "ticket=***" } else if kv.starts_with("media=") { "media=***" } else { kv })
+        .map(|kv| {
+            if kv.starts_with("pin=") {
+                "pin=***"
+            } else if kv.starts_with("ticket=") {
+                "ticket=***"
+            } else if kv.starts_with("media=") {
+                "media=***"
+            } else {
+                kv
+            }
+        })
         .collect::<Vec<_>>()
         .join("&")
 }
@@ -7089,7 +8368,7 @@ fn is_lan_peer(ip: std::net::IpAddr) -> bool {
             let s = v6.segments();
             v6.is_loopback()
                 || (s[0] & 0xfe00) == 0xfc00   // fc00::/7 ULA
-                || (s[0] & 0xffc0) == 0xfe80   // fe80::/10 link-local
+                || (s[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
         }
     }
 }
@@ -7115,10 +8394,7 @@ fn is_local_source(ip: std::net::IpAddr) -> bool {
 /// 统一折回纯 v4 再判定; 真实 IPv6 客户端(非映射形态)原样保留
 fn normalize_peer(ip: std::net::IpAddr) -> std::net::IpAddr {
     match ip {
-        std::net::IpAddr::V6(v6) => v6
-            .to_ipv4_mapped()
-            .map(std::net::IpAddr::V4)
-            .unwrap_or(ip),
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map(std::net::IpAddr::V4).unwrap_or(ip),
         _ => ip,
     }
 }
@@ -7206,7 +8482,12 @@ async fn log_middleware(
     if is_api && (cross_lan_origin || mobile_pin_required || !is_local_source(peer)) {
         // 公网地址(非私网/链路本地)默认必须带访问令牌: 主机有公网 IPv6 且防火墙
         // 未拦入站时, 旧行为会把共享目录直接暴露给互联网。私网/本机仍零配置直连。
-        if !is_lan_peer(peer) && access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+        if !is_lan_peer(peer)
+            && access_pin()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_none()
+        {
             return err(
                 StatusCode::FORBIDDEN,
                 "公网地址访问需先在电脑端「CC设置」开启访问令牌",
@@ -7270,18 +8551,31 @@ async fn log_middleware(
             }
             // 无效票据 = 正在猜码: 按来源 IP 限流, 给 48bit 票据再加一层探测成本
             if query.split('&').any(|kv| kv.starts_with("ticket="))
-                && access_pin().lock().unwrap_or_else(|e| e.into_inner()).is_some()
+                && access_pin()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_some()
                 && !ticket_admit(peer)
             {
-                return err(StatusCode::TOO_MANY_REQUESTS, "分享链接尝试过于频繁，请稍后再试");
+                return err(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "分享链接尝试过于频繁，请稍后再试",
+                );
             }
         }
-        let pin_enabled = access_pin().lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let pin_enabled = access_pin()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if let Some(pin) = pin_enabled {
             let given = query
                 .split('&')
                 .find_map(|kv| kv.strip_prefix("pin="))
-                .map(|v| percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string())
+                .map(|v| {
+                    percent_encoding::percent_decode_str(v)
+                        .decode_utf8_lossy()
+                        .to_string()
+                })
                 .or_else(|| {
                     req.headers()
                         .get("X-Access-Pin")
@@ -7297,7 +8591,11 @@ async fn log_middleware(
             // 轰炸延长(pin_admit 锁定中不记数), 到期自动解, 最短 15s 对真人无感
             // 只有真正提交了配对码才进入失败计数；无码请求直接走 401，
             // 否则正常页面轮询会把自己轰进退避锁定。
-            let admitted = if given.is_some() { pin_admit(peer, ok) } else { true };
+            let admitted = if given.is_some() {
+                pin_admit(peer, ok)
+            } else {
+                true
+            };
             let is_nav = method == "GET"
                 && req
                     .headers()
@@ -7383,9 +8681,14 @@ async fn log_middleware(
         }
     }
     // 昵称: 优先 X-Nickname 头, 其次 ?nick= 参数(浏览器端避免自定义头触发 CORS 预检)
-    let qnick = query.split('&').find_map(|kv| kv.strip_prefix("nick=")).map(|v| {
-        percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string()
-    });
+    let qnick = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("nick="))
+        .map(|v| {
+            percent_encoding::percent_decode_str(v)
+                .decode_utf8_lossy()
+                .to_string()
+        });
     // 日志昵称消毒: 剥 CR/LF 防伪造日志条目; 截断到 NICK_MAX(查询参数昵称不受 chat_post 截断约束)
     let nick: String = qnick
         .unwrap_or_else(|| {
@@ -7481,15 +8784,16 @@ impl Drop for BodyPeerGuard {
         }
     }
 }
-async fn body_gate_mw(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
+async fn body_gate_mw(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let path = req.uri().path();
     let body_route = matches!(
         path,
-        "/api/chat" | "/api/discovery/probe" | "/api/clipboard" | "/api/share-ticket"
-            | "/api/media-session" | "/api/hello"
+        "/api/chat"
+            | "/api/discovery/probe"
+            | "/api/clipboard"
+            | "/api/share-ticket"
+            | "/api/media-session"
+            | "/api/hello"
     ) && req.method() == axum::http::Method::POST;
     if body_route {
         let peer = req
@@ -7501,20 +8805,23 @@ async fn body_gate_mw(
             if m.len() > 1024 {
                 m.retain(|_, n| *n > 0);
             }
-            let n = m.entry(p).or_insert(0);
+            // 与其它来源级限流一致按 /64 聚合; 用完整 IPv6 地址时一个 /64
+            // 轮换 8 个地址就能占满全局 32 个 body 许可。
+            let n = m.entry(rate_key(p)).or_insert(0);
             if *n >= BODY_PEER_MAX {
                 return err(StatusCode::TOO_MANY_REQUESTS, "该设备请求过多，请稍后重试");
             }
             *n += 1;
         }
-        let _peer_guard = BodyPeerGuard(peer);
+        let _peer_guard = BodyPeerGuard(peer.map(rate_key));
         let Ok(permit) = body_gate().try_acquire() else {
             return err(StatusCode::TOO_MANY_REQUESTS, "请求过多，请稍后重试");
         };
-        let res = match tokio::time::timeout(std::time::Duration::from_secs(30), next.run(req)).await {
-            Ok(r) => r,
-            Err(_) => err(StatusCode::REQUEST_TIMEOUT, "请求处理超时"),
-        };
+        let res =
+            match tokio::time::timeout(std::time::Duration::from_secs(30), next.run(req)).await {
+                Ok(r) => r,
+                Err(_) => err(StatusCode::REQUEST_TIMEOUT, "请求处理超时"),
+            };
         drop(permit);
         return res;
     }
@@ -7527,17 +8834,41 @@ fn router(share: PathBuf) -> Router {
         .route("/api/download/*name", get(download))
         .route("/api/upload", post(upload))
         .route("/api/upload_progress", get(upload_progress))
+        .route("/api/upload_status", get(upload_status))
         .route("/api/upload_cancel", post(upload_cancel))
         .route("/api/delete/*name", delete(delete_file))
         // 单条消息上限 20 万字(UTF-8 最多 800KB) + 引用快照/JSON 转义余量 → 4MB
-        .route("/api/chat", get(chat_get).post(chat_post).layer(DefaultBodyLimit::max(256 * 1024)))
+        .route(
+            "/api/chat",
+            get(chat_get)
+                .post(chat_post)
+                .layer(DefaultBodyLimit::max(256 * 1024)),
+        )
         .route("/api/chat/:id", delete(chat_delete))
-        .route("/api/clipboard", get(clipboard_get).post(clipboard_post).delete(clipboard_delete).layer(DefaultBodyLimit::max(128 * 1024)))
-        .route("/api/share-ticket", post(share_ticket).layer(DefaultBodyLimit::max(16 * 1024)))
-        .route("/api/media-session", post(media_session).layer(DefaultBodyLimit::max(4 * 1024)))
-        .route("/api/hello", post(device_hello).layer(DefaultBodyLimit::max(16 * 1024)))
+        .route(
+            "/api/clipboard",
+            get(clipboard_get)
+                .post(clipboard_post)
+                .delete(clipboard_delete)
+                .layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/share-ticket",
+            post(share_ticket).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/media-session",
+            post(media_session).layer(DefaultBodyLimit::max(4 * 1024)),
+        )
+        .route(
+            "/api/hello",
+            post(device_hello).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/api/devices", get(device_list))
-        .route("/api/discovery/probe", post(discovery_probe).layer(DefaultBodyLimit::max(4 * 1024)))
+        .route(
+            "/api/discovery/probe",
+            post(discovery_probe).layer(DefaultBodyLimit::max(4 * 1024)),
+        )
         .route("/ws", get(ws_handler))
         .route("/api/info", get(info))
         .route("/api/control/status", get(ctrl_status))
@@ -7588,7 +8919,8 @@ mod tests {
     /// hyper 回完即断, read_to_end 才有尽头
     fn http_raw(port: u16, req: &str) -> (u16, String, Vec<u8>) {
         let mut s = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-        s.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
         s.write_all(req.as_bytes()).unwrap();
         let mut buf = Vec::new();
         let _ = s.read_to_end(&mut buf);
@@ -7617,8 +8949,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn collect_files_skips_symlinked_dirs() {
-        let root = std::env::temp_dir().join(format!("ccflash-symlink-test-{}", std::process::id()));
-        let outside = std::env::temp_dir().join(format!("ccflash-symlink-outside-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("ccflash-symlink-test-{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("ccflash-symlink-outside-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&outside);
         std::fs::create_dir_all(&root).unwrap();
@@ -7641,34 +8975,59 @@ mod tests {
     #[test]
     fn notification_events_cover_upload_delete_and_full_chat() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        let share = std::env::temp_dir().join(format!("ccflash-notification-test-{}", std::process::id()));
+        let share =
+            std::env::temp_dir().join(format!("ccflash-notification-test-{}", std::process::id()));
         std::fs::create_dir_all(&share).unwrap();
         let peer = "192.168.1.50:43210".parse::<SocketAddr>().unwrap();
         let mut events = event_bus().subscribe();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let response = super::upload(State(share.clone()), axum::extract::ConnectInfo(peer), HeaderMap::new(), Body::empty()).await;
+            let response = super::upload(
+                State(share.clone()),
+                axum::extract::ConnectInfo(peer),
+                HeaderMap::new(),
+                Body::empty(),
+            )
+            .await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             assert!(events.try_recv().is_err(), "失败上传不得发出完成通知");
 
             let mut headers = HeaderMap::new();
             headers.insert("X-Filename", "phone.txt".parse().unwrap());
             headers.insert("X-File-Size", "5".parse().unwrap());
-            let response = super::upload(State(share.clone()), axum::extract::ConnectInfo(peer), headers, Body::from("hello")).await;
+            let response = super::upload(
+                State(share.clone()),
+                axum::extract::ConnectInfo(peer),
+                headers,
+                Body::from("hello"),
+            )
+            .await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(std::fs::read(share.join("phone.txt")).unwrap(), b"hello");
             // 上传成功会先记一条文件消息(chat:new), 再广播列表变更(files:changed)
-            let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+            let event: serde_json::Value =
+                serde_json::from_str(&events.try_recv().unwrap()).unwrap();
             assert_eq!(event, serde_json::json!({ "type": "chat:new" }));
-            let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
-            assert_eq!(event, serde_json::json!({ "type": "files:changed", "action": "uploaded" }));
+            let event: serde_json::Value =
+                serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+            assert_eq!(
+                event,
+                serde_json::json!({ "type": "files:changed", "action": "uploaded" })
+            );
 
-            let response = delete_file(State(share.clone()), axum::extract::ConnectInfo(peer), AxPath("phone.txt".into())).await;
+            let response = delete_file(
+                State(share.clone()),
+                axum::extract::ConnectInfo(peer),
+                AxPath("phone.txt".into()),
+            )
+            .await;
             assert_eq!(response.status(), StatusCode::OK);
             // 删除时文件事件一并清除, 同样先 chat:new 再 files:changed
-            let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+            let event: serde_json::Value =
+                serde_json::from_str(&events.try_recv().unwrap()).unwrap();
             assert_eq!(event, serde_json::json!({ "type": "chat:new" }));
-            let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+            let event: serde_json::Value =
+                serde_json::from_str(&events.try_recv().unwrap()).unwrap();
             assert_eq!(event, serde_json::json!({ "type": "files:changed" }));
 
             let saved = {
@@ -7678,13 +9037,24 @@ mod tests {
             for i in 0..=CHAT_MAX {
                 // 本测试关注历史/ID, 不测限流: 每 50 条清一次配额
                 if i % 50 == 0 {
-                    chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+                    chat_rate()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clear();
                 }
-                let response = chat_post(axum::extract::ConnectInfo(peer), Json(ChatIn {
-                    nickname: Some("phone".into()), message: format!("message {i}"), quote: None,
-                })).await;
+                let response = chat_post(
+                    axum::extract::ConnectInfo(peer),
+                    Json(ChatIn {
+                        nickname: Some("phone".into()),
+                        message: format!("message {i}"),
+                        quote: None,
+                        client_id: None,
+                    }),
+                )
+                .await;
                 assert_eq!(response.status(), StatusCode::OK);
-                let event: serde_json::Value = serde_json::from_str(&events.try_recv().unwrap()).unwrap();
+                let event: serde_json::Value =
+                    serde_json::from_str(&events.try_recv().unwrap()).unwrap();
                 assert_eq!(event["type"], "chat:new");
             }
             let mut log = chat_log().lock().unwrap_or_else(|e| e.into_inner());
@@ -7702,21 +9072,39 @@ mod tests {
         let peer = "192.168.1.51:43210".parse::<SocketAddr>().unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+            chat_rate()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
             let too_long = "x".repeat(MSG_MAX_CHARS + 1);
             let response = chat_post(
                 axum::extract::ConnectInfo(peer),
-                Json(ChatIn { nickname: Some("test".into()), message: too_long, quote: None }),
+                Json(ChatIn {
+                    nickname: Some("test".into()),
+                    message: too_long,
+                    quote: None,
+                    client_id: None,
+                }),
             )
             .await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-            chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+            chat_rate()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         });
     }
 
     /// 上传一个分片: 返回 (状态码, JSON 响应)。sess = 会话 id(真实客户端按
     /// 名字+大小+修改时间派生, 同会话分片同 id, 新会话新 id)
-    fn upload(port: u16, sess: &str, name: &str, offset: u64, total: u64, data: &[u8]) -> (u16, serde_json::Value) {
+    fn upload(
+        port: u16,
+        sess: &str,
+        name: &str,
+        offset: u64,
+        total: u64,
+        data: &[u8],
+    ) -> (u16, serde_json::Value) {
         let head = format!(
             "POST /api/upload HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
              X-Filename: {}\r\nX-File-Size: {total}\r\nX-Upload-Offset: {offset}\r\n\
@@ -7760,7 +9148,9 @@ mod tests {
         assert!(!ct_eq("123456", "1234567"));
         let token = random_token();
         assert_eq!(token.len(), 12);
-        assert!(token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+        assert!(token
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
 
         let peer: std::net::IpAddr = "192.168.9.9".parse().unwrap();
         let now = std::time::Instant::now();
@@ -7768,9 +9158,23 @@ mod tests {
         for _ in 0..PIN_FAIL_FREE {
             pin_count(&mut map, peer, now);
         }
-        assert!(pin_locked(&mut map, peer, now, PIN_FAIL_FREE, PIN_FAIL_BASE_SECS, PIN_FAIL_MAX_SECS));
+        assert!(pin_locked(
+            &mut map,
+            peer,
+            now,
+            PIN_FAIL_FREE,
+            PIN_FAIL_BASE_SECS,
+            PIN_FAIL_MAX_SECS
+        ));
         let later = now + std::time::Duration::from_secs(PIN_FAIL_BASE_SECS + 1);
-        assert!(!pin_locked(&mut map, peer, later, PIN_FAIL_FREE, PIN_FAIL_BASE_SECS, PIN_FAIL_MAX_SECS));
+        assert!(!pin_locked(
+            &mut map,
+            peer,
+            later,
+            PIN_FAIL_FREE,
+            PIN_FAIL_BASE_SECS,
+            PIN_FAIL_MAX_SECS
+        ));
     }
 
     /// 媒体会话: 绑定来源 IP, 过期后失效, 不消费(可重复 GET/Range)
@@ -7781,24 +9185,39 @@ mod tests {
         {
             let mut m = media_sessions().lock().unwrap_or_else(|e| e.into_inner());
             m.clear();
-            m.insert("abcdef123456".into(), MediaSession {
-                peer,
-                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
-            });
+            m.insert(
+                "abcdef123456".into(),
+                MediaSession {
+                    peer,
+                    expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                },
+            );
         }
         assert!(media_session_allows("abcdef123456", peer));
-        assert!(media_session_allows("abcdef123456", peer), "同 IP 可重复使用");
+        assert!(
+            media_session_allows("abcdef123456", peer),
+            "同 IP 可重复使用"
+        );
         assert!(!media_session_allows("abcdef123456", other), "换 IP 不可用");
         assert!(!media_session_allows("missing", peer));
         {
             let mut m = media_sessions().lock().unwrap_or_else(|e| e.into_inner());
-            m.insert("expired123456".into(), MediaSession {
-                peer,
-                expires_at: std::time::Instant::now() - std::time::Duration::from_secs(1),
-            });
+            m.insert(
+                "expired123456".into(),
+                MediaSession {
+                    peer,
+                    expires_at: std::time::Instant::now() - std::time::Duration::from_secs(1),
+                },
+            );
         }
-        assert!(!media_session_allows("expired123456", peer), "过期会话不可用");
-        media_sessions().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        assert!(
+            !media_session_allows("expired123456", peer),
+            "过期会话不可用"
+        );
+        media_sessions()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 普通 .ccpart 是用户文件, 只有能对上 meta 会话指纹的断点才隐藏/清理
@@ -7809,15 +9228,24 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let user = tmp.join("report.ccpart");
         std::fs::write(&user, b"user data").unwrap();
-        assert!(!is_part_artifact(&user, "report.ccpart"), "普通用户 .ccpart 不应被隐藏");
+        assert!(
+            !is_part_artifact(&user, "report.ccpart"),
+            "普通用户 .ccpart 不应被隐藏"
+        );
 
         let (part, meta) = session_part_path(&tmp, "demo.bin", "session-22");
         std::fs::write(&part, b"chunk").unwrap();
         std::fs::write(&meta, b"session-22\ndemo.bin\n{}").unwrap();
         let fname = part.file_name().unwrap().to_string_lossy().to_string();
-        assert!(is_part_artifact(&part, &fname), "带匹配 meta 的断点应被隐藏");
+        assert!(
+            is_part_artifact(&part, &fname),
+            "带匹配 meta 的断点应被隐藏"
+        );
         std::fs::remove_file(&meta).unwrap();
-        assert!(!is_part_artifact(&part, &fname), "meta 不匹配/缺失时按用户文件处理");
+        assert!(
+            !is_part_artifact(&part, &fname),
+            "meta 不匹配/缺失时按用户文件处理"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -7847,10 +9275,14 @@ mod tests {
     /// 清理某文件名的全部会话断点产物: part 文件名带会话指纹(idhash), 需按前缀扫
     fn clean_parts(share: &Path, name: &str) {
         let prefix = format!("{name}.");
-        let Ok(rd) = std::fs::read_dir(share) else { return };
+        let Ok(rd) = std::fs::read_dir(share) else {
+            return;
+        };
         for e in rd.flatten() {
             let fn_ = e.file_name().to_string_lossy().to_string();
-            if fn_.starts_with(&prefix) && (fn_.ends_with(".ccpart") || fn_.ends_with(".ccpart.meta")) {
+            if fn_.starts_with(&prefix)
+                && (fn_.ends_with(".ccpart") || fn_.ends_with(".ccpart.meta"))
+            {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -7872,15 +9304,27 @@ mod tests {
         let (st, j) = upload(port, "any", name, 0, 6, b"AAAAAA");
         assert_eq!(st, 200, "首传应成功: {j}");
         assert_eq!(j["ok"], serde_json::json!(true));
-        assert_eq!(std::fs::read(share.join(name)).unwrap(), b"AAAAAA", "落盘内容必须一致");
+        assert_eq!(
+            std::fs::read(share.join(name)).unwrap(),
+            b"AAAAAA",
+            "落盘内容必须一致"
+        );
 
         // 2) 同名再传不同内容 → 自动改存 (1), 原文件不覆盖(1.1.5/1.1.6 改名策略)
         let (st, j) = upload(port, "other", name, 0, 6, b"BBBBBB");
         assert_eq!(st, 200, "同名改名应成功: {j}");
         let v1 = "__e2e_v112_upload(1).txt";
         assert_eq!(j["final"], serde_json::json!(v1), "应改存为 (1) 变体: {j}");
-        assert_eq!(std::fs::read(share.join(name)).unwrap(), b"AAAAAA", "原文件不得被覆盖");
-        assert_eq!(std::fs::read(share.join(v1)).unwrap(), b"BBBBBB", "(1) 应为新内容");
+        assert_eq!(
+            std::fs::read(share.join(name)).unwrap(),
+            b"AAAAAA",
+            "原文件不得被覆盖"
+        );
+        assert_eq!(
+            std::fs::read(share.join(v1)).unwrap(),
+            b"BBBBBB",
+            "(1) 应为新内容"
+        );
 
         // 3) 下载全量(原文件)
         let (_st, _h, body) = http_raw(
@@ -7901,7 +9345,10 @@ mod tests {
             ),
         );
         assert_eq!(st, 200);
-        assert!(h.to_ascii_lowercase().contains("content-length: 6"), "head: {h}");
+        assert!(
+            h.to_ascii_lowercase().contains("content-length: 6"),
+            "head: {h}"
+        );
         assert!(body.is_empty(), "HEAD 不应带响应体");
 
         // 5) Range 单区间 → 206
@@ -7943,7 +9390,12 @@ mod tests {
                 "POST /api/media-session HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             ),
         );
-        assert_eq!(st, 200, "媒体会话创建应成功: {}", String::from_utf8_lossy(&body));
+        assert_eq!(
+            st,
+            200,
+            "媒体会话创建应成功: {}",
+            String::from_utf8_lossy(&body)
+        );
         let media: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let token = media["token"].as_str().unwrap_or("");
         assert!(!token.is_empty(), "媒体会话应返回 token: {media}");
@@ -7968,8 +9420,12 @@ mod tests {
         let _ = std::fs::remove_file(share.join("__e2e_v112_upload(1).txt"));
         stop();
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
     }
 
@@ -7997,7 +9453,11 @@ mod tests {
             ),
         );
         let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(q["received"], serde_json::json!(0), "空账本不得回落 part 长度谎报完成: {q}");
+        assert_eq!(
+            q["received"],
+            serde_json::json!(0),
+            "空账本不得回落 part 长度谎报完成: {q}"
+        );
         assert!(q["chunks"].is_object(), "空账本应下发空对象而非 null");
 
         // 场景 2: 旧版数字账本 {"0":5}(v1.1.5/6 形状) → 形状不可信, 同样必须报 0
@@ -8012,15 +9472,23 @@ mod tests {
             ),
         );
         let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(q["received"], serde_json::json!(0), "非法形状账本不得回落 part 长度: {q}");
+        assert_eq!(
+            q["received"],
+            serde_json::json!(0),
+            "非法形状账本不得回落 part 长度: {q}"
+        );
         assert!(q["chunks"].is_null(), "非法形状账本不得下发");
 
         let _ = std::fs::remove_file(share.join(name));
         clean_parts(&share, name);
         stop();
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
     }
 
@@ -8050,7 +9518,11 @@ mod tests {
         );
         let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(q["ok"], serde_json::json!(true), "cancel 应成功: {q}");
-        assert_eq!(q["removed"], serde_json::json!(true), "无在途 handler 时应直删: {q}");
+        assert_eq!(
+            q["removed"],
+            serde_json::json!(true),
+            "无在途 handler 时应直删: {q}"
+        );
         assert!(!part.exists(), "part 应被删除");
         assert!(!meta.exists(), "meta 应被删除");
 
@@ -8058,8 +9530,12 @@ mod tests {
         clean_parts(&share, name);
         stop();
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
     }
 
@@ -8078,7 +9554,10 @@ mod tests {
     #[test]
     fn udp_ingest_reports_new_and_changed() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let src: std::net::SocketAddr = "192.168.80.20:5000".parse().unwrap();
         let mut p = udp_packet("state-device", 1688, "State");
         let a = ingest_peer_packet_ex(&p, src);
@@ -8088,7 +9567,10 @@ mod tests {
         p["busy"] = serde_json::json!(true);
         let c = ingest_peer_packet_ex(&p, src);
         assert!(!c.new_device && c.changed, "忙碌变化应报告 changed");
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 同一设备先经 IPv6 link-local、后经 IPv4 宣告: 应迁移到 IPv4。
@@ -8097,7 +9579,10 @@ mod tests {
     #[test]
     fn udp_ingest_prefers_ipv4_over_link_local_v6() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let v6: std::net::SocketAddr = "[fe80::1]:5000".parse().unwrap();
         let v4: std::net::SocketAddr = "192.168.60.21:5000".parse().unwrap();
         let mut p = udp_packet("dual-stack-device", 1688, "Phone");
@@ -8112,7 +9597,10 @@ mod tests {
             .map(|d| d.ip.clone())
             .unwrap_or_default();
         assert_eq!(ip, "192.168.60.21", "应优先保留 IPv4 地址");
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// UDP 发现报文: 合法包登记, 自身/异常 app/系统端口/超界端口全部拒绝,
@@ -8120,10 +9608,16 @@ mod tests {
     #[test]
     fn udp_ingest_filters_invalid_packets() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let ip: std::net::IpAddr = "192.168.50.10".parse().unwrap();
 
-        assert!(ingest_peer_packet(&udp_packet("peer-a", 1688, "MacBook"), ip));
+        assert!(ingest_peer_packet(
+            &udp_packet("peer-a", 1688, "MacBook"),
+            ip
+        ));
         assert!(
             !ingest_peer_packet(
                 &serde_json::json!({"app":"evil","id":"peer-x","port":1688}),
@@ -8147,16 +9641,17 @@ mod tests {
         );
         for bad_port in [0u64, 80, 1023, 70000] {
             assert!(
-                !ingest_peer_packet(&udp_packet("peer-b", bad_port, "bad"), "192.168.50.13".parse().unwrap()),
+                !ingest_peer_packet(
+                    &udp_packet("peer-b", bad_port, "bad"),
+                    "192.168.50.13".parse().unwrap()
+                ),
                 "非法端口 {bad_port} 必须丢弃"
             );
         }
-        assert!(
-            ingest_peer_packet(
-                &udp_packet("peer-c", 1688, "a\u{1}b\u{202E}c"),
-                "192.168.50.14".parse().unwrap()
-            )
-        );
+        assert!(ingest_peer_packet(
+            &udp_packet("peer-c", 1688, "a\u{1}b\u{202E}c"),
+            "192.168.50.14".parse().unwrap()
+        ));
         let guard = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(guard.get("peer-a").map(|d| d.port), Some(1688));
         assert!(guard.contains_key("peer-c"));
@@ -8164,17 +9659,26 @@ mod tests {
         assert!(!guard.contains_key("peer-b"));
         assert_eq!(discovery_id().len(), 16, "发现 id 固定 16 位十六进制");
         drop(guard);
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 同一源 IP 只保留最新 id(重启换 id 不堆重复项); 不同 IP 的条目受 64 条上限约束。
     #[test]
     fn udp_ingest_dedups_same_ip_and_caps_peers() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let ip: std::net::IpAddr = "192.168.60.5".parse().unwrap();
         assert!(ingest_peer_packet(&udp_packet("old-id", 1688, "old"), ip));
-        assert!(!ingest_peer_packet(&udp_packet("new-id", 1689, "new"), ip), "同 IP 新 id 不得替换真实设备");
+        assert!(
+            !ingest_peer_packet(&udp_packet("new-id", 1689, "new"), ip),
+            "同 IP 新 id 不得替换真实设备"
+        );
 
         {
             let guard = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
@@ -8187,12 +9691,18 @@ mod tests {
             let src = std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, i + 1));
             ingest_peer_packet(&udp_packet(&format!("flood-{i}"), 1688, "n"), src);
         }
-        let len = multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).len();
+        let len = multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len();
         assert_eq!(len, DISCOVERY_PEERS_MAX, "peers 应恰好填满上限");
 
         // 满额时同 IP 的新 id 也不能驱逐原条目
         let same_ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
-        assert!(!ingest_peer_packet(&udp_packet("flood-0-new", 1688, "n"), same_ip));
+        assert!(!ingest_peer_packet(
+            &udp_packet("flood-0-new", 1688, "n"),
+            same_ip
+        ));
         {
             let guard = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(guard.len(), DISCOVERY_PEERS_MAX);
@@ -8207,38 +9717,79 @@ mod tests {
             ),
             "满额后新 IP 应被拒绝"
         );
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 设备快照: 15s 未更新的条目被剔除; 同 ip:port 只保留最后活跃的一条。
     #[test]
     fn udp_device_snapshot_prunes_and_dedups_endpoint() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let now = now_f64();
         {
             let mut map = multicast_peers().lock().unwrap_or_else(|e| e.into_inner());
-            map.insert("a".into(), DeviceInfo {
-                id: "a".into(), ip: "192.168.70.1".into(), port: 1688,
-                nickname: "A".into(), platform: "macos".into(), busy: false,
-                last_seen: now, token: String::new(),
-            });
-            map.insert("b".into(), DeviceInfo {
-                id: "b".into(), ip: "192.168.70.1".into(), port: 1688,
-                nickname: "B".into(), platform: "macos".into(), busy: false,
-                last_seen: now + 0.5, token: String::new(),
-            });
-            map.insert("old".into(), DeviceInfo {
-                id: "old".into(), ip: "192.168.70.2".into(), port: 1688,
-                nickname: "O".into(), platform: "macos".into(), busy: false,
-                last_seen: now - 1000.0, token: String::new(),
-            });
+            map.insert(
+                "a".into(),
+                DeviceInfo {
+                    id: "a".into(),
+                    ip: "192.168.70.1".into(),
+                    port: 1688,
+                    nickname: "A".into(),
+                    platform: "macos".into(),
+                    busy: false,
+                    last_seen: now,
+                    token: String::new(),
+                },
+            );
+            map.insert(
+                "b".into(),
+                DeviceInfo {
+                    id: "b".into(),
+                    ip: "192.168.70.1".into(),
+                    port: 1688,
+                    nickname: "B".into(),
+                    platform: "macos".into(),
+                    busy: false,
+                    last_seen: now + 0.5,
+                    token: String::new(),
+                },
+            );
+            map.insert(
+                "old".into(),
+                DeviceInfo {
+                    id: "old".into(),
+                    ip: "192.168.70.2".into(),
+                    port: 1688,
+                    nickname: "O".into(),
+                    platform: "macos".into(),
+                    busy: false,
+                    last_seen: now - 1000.0,
+                    token: String::new(),
+                },
+            );
         }
         let list = device_snapshot(now);
-        assert_eq!(list.len(), 1, "过期条目剔除 + 同端点去重后应只剩一条: {list:?}");
+        assert_eq!(
+            list.len(),
+            1,
+            "过期条目剔除 + 同端点去重后应只剩一条: {list:?}"
+        );
         assert_eq!(list[0].id, "b", "同一端点保留最后活跃的条目");
-        assert!(multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).get("old").is_none());
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        assert!(multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get("old")
+            .is_none());
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 安全模式(仅回环)/服务停止/未绑定端口时不得广播本机。
@@ -8269,7 +9820,9 @@ mod tests {
 
         let tx = UdpSocket::bind(("127.0.0.1", 0)).expect("bind tx");
         tx.send_to(
-            udp_packet("peer-e2e-udp", 17715, "E2E Peer").to_string().as_bytes(),
+            udp_packet("peer-e2e-udp", 17715, "E2E Peer")
+                .to_string()
+                .as_bytes(),
             rx_addr,
         )
         .expect("send udp");
@@ -8283,21 +9836,33 @@ mod tests {
 
         let (_st, _h, body) = http_raw(
             port,
-            &format!("GET /api/devices HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+            &format!(
+                "GET /api/devices HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            ),
         );
         let q: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let found = q["devices"]
             .as_array()
-            .map(|a| a.iter().any(|d| d["id"] == "peer-e2e-udp" && d["port"] == 17715))
+            .map(|a| {
+                a.iter()
+                    .any(|d| d["id"] == "peer-e2e-udp" && d["port"] == 17715)
+            })
             .unwrap_or(false);
         assert!(found, "UDP 报文应出现在 /api/devices: {q}");
 
         stop();
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
-        multicast_peers().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 前端所有下载/预览都先发 HEAD 预检; axum 的 get() 必须自动接住 HEAD,
@@ -8330,8 +9895,12 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         stop();
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
     }
 
@@ -8355,7 +9924,10 @@ mod tests {
         let index: axum::http::Uri = "/".parse().unwrap();
         let resp2 = rt.block_on(static_handler(index));
         assert_eq!(
-            resp2.headers().get(header::CACHE_CONTROL).and_then(|v| v.to_str().ok()),
+            resp2
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
             Some("no-store"),
             "index.html 必须 no-store"
         );
@@ -8378,17 +9950,29 @@ mod tests {
     fn origin_guard_blocks_lan_page_from_local_service() {
         // 自身页面: 放行且不是 cross_lan(享受本机 PIN 豁免)
         assert_eq!(
-            browser_origin_guard(&origin_req("192.168.1.5:1688", Some("http://192.168.1.5:1688"))).ok(),
+            browser_origin_guard(&origin_req(
+                "192.168.1.5:1688",
+                Some("http://192.168.1.5:1688")
+            ))
+            .ok(),
             Some(false)
         );
         // 另一台设备的私网页面 → 目标私网 IP: 放行, 但标记 cross_lan(true)
         assert_eq!(
-            browser_origin_guard(&origin_req("192.168.1.5:1688", Some("http://192.168.1.99:8080"))).ok(),
+            browser_origin_guard(&origin_req(
+                "192.168.1.5:1688",
+                Some("http://192.168.1.99:8080")
+            ))
+            .ok(),
             Some(true)
         );
         // 恶意私网页面打 127.0.0.1: 直接拒绝
         assert!(
-            browser_origin_guard(&origin_req("127.0.0.1:1688", Some("http://192.168.1.99:8080"))).is_err(),
+            browser_origin_guard(&origin_req(
+                "127.0.0.1:1688",
+                Some("http://192.168.1.99:8080")
+            ))
+            .is_err(),
             "私网 Origin 不得访问 loopback"
         );
         // 公网域名 Origin: 拒绝
@@ -8411,7 +9995,10 @@ mod tests {
     #[test]
     fn chat_rate_limits_per_ip() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        chat_rate()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let ip: std::net::IpAddr = "192.168.77.10".parse().unwrap();
         for _ in 0..CHAT_PER_MIN {
             assert!(chat_admit(ip));
@@ -8421,14 +10008,20 @@ mod tests {
             chat_admit("192.168.77.11".parse().unwrap()),
             "其他 IP 不受影响"
         );
-        chat_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        chat_rate()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// 票据开票限流: 每 IP 60 张/分钟, 其他 IP 不受影响。
     #[test]
     fn ticket_issue_rate_limits_per_ip() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        ticket_issue_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        ticket_issue_rate()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let ip: std::net::IpAddr = "192.168.88.10".parse().unwrap();
         for _ in 0..TICKET_ISSUE_PER_MIN {
             assert!(ticket_issue_allow(ip));
@@ -8438,7 +10031,10 @@ mod tests {
             ticket_issue_allow("192.168.88.11".parse().unwrap()),
             "其他 IP 不受影响"
         );
-        ticket_issue_rate().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        ticket_issue_rate()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// .ccup 标记识别: 新旧系统标记都隐藏成品, 用户自建/二进制文件不误判。
@@ -8457,21 +10053,30 @@ mod tests {
 
         std::fs::write(&marker, b"0123456789abcdef\n5").unwrap();
         assert!(is_system_ccup(&marker), "旧版裸 16hex 标记应识别");
-        assert!(marker_is_incomplete(&final_file), "旧版进行中标记应隐藏成品");
+        assert!(
+            marker_is_incomplete(&final_file),
+            "旧版进行中标记应隐藏成品"
+        );
 
         std::fs::write(&marker, b"ok").unwrap();
         assert!(!marker_is_incomplete(&final_file), "完成标记不应隐藏成品");
 
         std::fs::write(&marker, b"hello user data").unwrap();
         assert!(!is_system_ccup(&marker), "用户自建 .ccup 不应算系统标记");
-        assert!(!marker_is_incomplete(&final_file), "用户 .ccup 不应锁住成品");
+        assert!(
+            !marker_is_incomplete(&final_file),
+            "用户 .ccup 不应锁住成品"
+        );
 
         std::fs::write(&marker, [0xffu8, 0xfe, 0x00, 0x01]).unwrap();
         assert!(!is_system_ccup(&marker), "二进制 .ccup 不应算系统标记");
 
         std::fs::write(&marker, b"").unwrap();
         assert!(!is_system_ccup(&marker), "0 字节 .ccup 不应算系统标记");
-        assert!(!marker_is_incomplete(&final_file), "0 字节 .ccup 不应锁住成品");
+        assert!(
+            !marker_is_incomplete(&final_file),
+            "0 字节 .ccup 不应锁住成品"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -8491,7 +10096,12 @@ mod tests {
             body
         );
         let (st, _h, resp) = http_raw(port, &req);
-        assert_eq!(st, 200, "发布共享剪贴板应成功: {}", String::from_utf8_lossy(&resp));
+        assert_eq!(
+            st,
+            200,
+            "发布共享剪贴板应成功: {}",
+            String::from_utf8_lossy(&resp)
+        );
 
         let (st, _h, resp) = http_raw(
             port,
@@ -8527,8 +10137,12 @@ mod tests {
         let _ = stop();
         // 恢复用户真实端口偏好: 测试端口不能落盘成下次启动的地址
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
     }
     /// 自定义 HTTP/1.1 accept 循环必须保留 WebSocket 升级能力:
@@ -8553,6 +10167,7 @@ mod tests {
                     nickname: Some("ws-test".into()),
                     message: "hello ws".into(),
                     quote: None,
+                    client_id: None,
                 }),
             )
             .await;
@@ -8573,14 +10188,25 @@ mod tests {
         });
         stop();
         match orig_pref {
-            Some(s) => { let _ = std::fs::write(&pref, s); }
-            None => { let _ = std::fs::remove_file(&pref); }
+            Some(s) => {
+                let _ = std::fs::write(&pref, s);
+            }
+            None => {
+                let _ = std::fs::remove_file(&pref);
+            }
         }
     }
 
     #[test]
     fn executable_extensions_are_blocked_for_open() {
-        for n in ["a.command", "setup.exe", "run.sh", "tool.py", "x.lnk", "x.desktop"] {
+        for n in [
+            "a.command",
+            "setup.exe",
+            "run.sh",
+            "tool.py",
+            "x.lnk",
+            "x.desktop",
+        ] {
             assert!(super::is_executable_name(n), "{n}");
         }
         for n in ["report.pdf", "photo.png", "notes.md"] {
@@ -8596,7 +10222,10 @@ mod tests {
         ];
         let z = super::zip_store(&entries);
         assert_eq!(&z[0..4], b"PK\x03\x04");
-        assert!(z.windows(4).any(|w| w == b"PK\x01\x02"), "central directory");
+        assert!(
+            z.windows(4).any(|w| w == b"PK\x01\x02"),
+            "central directory"
+        );
         assert!(z.windows(4).any(|w| w == b"PK\x05\x06"), "EOCD");
         assert!(z.windows(9).any(|w| w == b"meta.json"), "UTF-8 name");
     }
@@ -8608,7 +10237,9 @@ mod tests {
         let temp = dir.join(".ccflash-import.tmp.ccpart");
         std::fs::write(&temp, b"complete").unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let name = rt.block_on(super::link_import_file(&temp, &dir, "a.txt")).expect("link");
+        let name = rt
+            .block_on(super::link_import_file(&temp, &dir, "a.txt"))
+            .expect("link");
         assert_eq!(name, "a.txt");
         assert!(!temp.exists(), "temp 应被删除");
         assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"complete");
@@ -8625,10 +10256,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-
     #[test]
     fn diagnostics_export_writes_valid_zip() {
-        let path = std::env::temp_dir().join(format!(".ccflash-diag-test-{}.zip", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!(".ccflash-diag-test-{}.zip", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let r = super::export_diagnostics_to(&path.to_string_lossy());
         assert_eq!(r["ok"], true, "{r}");
@@ -8641,7 +10272,8 @@ mod tests {
 
     #[test]
     fn save_text_file_cmd_writes_utf8() {
-        let path = std::env::temp_dir().join(format!(".ccflash-log-test-{}.log", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!(".ccflash-log-test-{}.log", std::process::id()));
         let r = super::save_text_to(&path.to_string_lossy(), "日志 ok\n");
         assert_eq!(r["ok"], true);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "日志 ok\n");
@@ -8654,7 +10286,10 @@ mod tests {
         let chat = super::redact_diagnostic_message("聊天 张三: 会议密码 ← 192.168.1.9", share);
         assert!(!chat.contains("会议密码"), "{chat}");
         assert!(!chat.contains("192.168.1.9"), "{chat}");
-        let path = super::redact_diagnostic_message("服务已启动 目录 /Users/alice/CC-Flash 地址 http://10.1.2.3:1688", share);
+        let path = super::redact_diagnostic_message(
+            "服务已启动 目录 /Users/alice/CC-Flash 地址 http://10.1.2.3:1688",
+            share,
+        );
         assert!(!path.contains("/Users/alice"), "{path}");
         assert!(!path.contains("10.1.2.3"), "{path}");
         assert!(path.contains("10.1.2.*"), "{path}");
@@ -8667,9 +10302,103 @@ mod tests {
         assert!(names.contains(&"meta.json"));
         assert!(names.contains(&"config.json"));
         assert!(names.contains(&"logs.txt"));
-        let all = e.iter().map(|(_, d)| String::from_utf8_lossy(d)).collect::<Vec<_>>().join("\n");
+        let all = e
+            .iter()
+            .map(|(_, d)| String::from_utf8_lossy(d))
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(!all.contains("pinCode"), "不能包含配对码字段");
         assert!(!all.contains("chat-history"), "不能包含聊天持久化文件");
     }
+    #[test]
+    fn chat_client_id_is_idempotent() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        {
+            let mut q = super::chat_log().lock().unwrap_or_else(|e| e.into_inner());
+            q.clear();
+        }
+        super::chat_rate()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        super::NEXT_CHAT_ID.store(0, Ordering::SeqCst);
+        let peer: std::net::SocketAddr = "192.168.1.88:43210".parse().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mk = || super::ChatIn {
+            nickname: Some("idem".into()),
+            message: "same message".into(),
+            quote: None,
+            client_id: Some("cid-test-1".into()),
+        };
+        let r1 = rt.block_on(super::chat_post(
+            axum::extract::ConnectInfo(peer),
+            Json(mk()),
+        ));
+        let r2 = rt.block_on(super::chat_post(
+            axum::extract::ConnectInfo(peer),
+            Json(mk()),
+        ));
+        assert_eq!(r1.status(), StatusCode::OK);
+        assert_eq!(r2.status(), StatusCode::OK);
+        let q = super::chat_log().lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(q.len(), 1, "同一 clientId 只能入队一次");
+        drop(q);
+        super::chat_log()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        super::NEXT_CHAT_ID.store(0, Ordering::SeqCst);
+    }
 
+    #[test]
+    fn peer_binding_rejects_ip_switch_while_online() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        super::multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        super::peer_bindings()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        let id = "bind-test-01";
+        let pkt = serde_json::json!({
+            "app": "ccflash", "id": id, "port": 1688,
+            "name": "绑定测试机", "platform": "test", "tok": "abcd1234"
+        });
+        let a: std::net::SocketAddr = "192.168.1.61:50000".parse().unwrap();
+        let b: std::net::SocketAddr = "192.168.1.62:50000".parse().unwrap();
+        let r1 = super::ingest_peer_packet_ex(&pkt, a);
+        assert!(r1.new_device);
+        let r2 = super::ingest_peer_packet_ex(&pkt, b);
+        assert!(!r2.new_device, "在线期间同 id 从新 IP 宣告必须拒绝");
+        let snap = super::device_snapshot(super::now_f64());
+        assert!(snap.iter().any(|d| d.id == id && d.ip == "192.168.1.61"));
+        assert!(!snap.iter().any(|d| d.id == id && d.ip == "192.168.1.62"));
+        super::multicast_peers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        super::peer_bindings()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+
+    #[test]
+    fn upload_results_roundtrip() {
+        super::record_upload_result("uid-test-1", "report.pdf", 1234);
+        let r = super::upload_results()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get("uid-test-1")
+            .cloned()
+            .expect("幂等账本应记录完成结果");
+        assert_eq!(r.name, "report.pdf");
+        assert_eq!(r.size, 1234);
+        super::upload_results()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove("uid-test-1");
+    }
 }

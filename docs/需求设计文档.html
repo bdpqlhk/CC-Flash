@@ -55,10 +55,10 @@ pre code{background:none;color:inherit;padding:0}
 </style>
 </head>
 <body>
-<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-24 同步</b>　传输历史支持搜索/清空；对端配对码保存前验证，401 清缓存并重新弹框、429 明确提示限流；文件投递事件持久化（刷新后文件卡片不丢）；手机设置页按 dir-5 改造且访问令牌可关可开；附近设备支持多选同时发送、点设备不再自动弹面板；Android 熄屏保活（Wi-Fi/CPU 锁 + 忽略电池优化）；手机发送/设备/文件三页按 dir-2 信号台改造；Android <code>versionCode</code>/<code>versionName</code> 与四段交付文件名修复。详情见 <a href="./整个过程历史改动记录_2026-11-24.html" style="color:#7ef0c8">历史改动记录 2026-11-24</a>。</div>
-<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>最新实现 v1.2.9 · 2026-11-25</b>　已按最新代码校对：桌面增强（文件搜索、托盘复制地址、悬浮球拖拽/双项右键、诊断包、日志导出）与全量审查修复（可执行文件打开防护、诊断日志脱敏、PIN 开关 fail-closed、粘贴/未读/搜索选择等状态修复）已落地。　v1.2.8 合并原 1.2.7.1-1.2.7.4 四个构建（旧 tag/Release 已撤下）。2026-11-24 同步：传输历史搜索/清空、对端配对码保存前验证与 401/429 处理、文件投递事件持久化、手机设置页 dir-5 与令牌开关、Android 版本字段与四段交付文件名修复；详见 <a href="./整个过程历史改动记录_2026-11-24.html">历史改动记录 2026-11-24</a>。　2026-11-23 全量复审修复：Windows 文件名尾随点/ADS 别名防护、上传强制声明大小、PIN 独立 enabled 标记 + CSPRNG、缩略图/预览媒体会话令牌、移动 App 宽屏 FILES 页修复、发送面板层级/剪贴板口径/批量重试/审计日志/发现 bye 令牌等；同日完成全功能自测（24/24 单测 + 真实 API/UI 回归）、产物瘦身（dist 541,530 B，arm64 .app 4.12 MiB）与全端 UX 校准（中文四标签、宽屏 1080px 居中、横屏压缩、触控热区）；详情见 <a href="./整个过程历史改动记录_2026-11-23.html">历史改动记录 2026-11-23</a>。　2026-11-21 收尾：聊天历史序列化改为借用视图、CI Android 工具链参数合并、文档全量校准；同日手机 App 改为信号台四页（发送 / 设备 / 文件 / 设置，底部四标签），桌面端与浏览器保持原布局。　2026-11-20 复审：移动端令牌全来源校验、下载许可看门狗回收、聊天/文件并发限制、偏好原子写、Android 7.0+、浏览器不提供跨设备直发；2026-11-19 安全加固：系统剪贴板同步改为默认关闭（CC设置可选开启）、移动端自动生成本机访问令牌、桌面始终开放局域网（CC设置不再提供开关）、缺少 Apple/Windows 证书时发布未签名包，并在 Release 说明中注明打开方式。设备发现已并入桌面「消息发送」左侧设备栏与手机 App（四页：发送 / 设备 / 文件 / 设置）；浏览器保持原聊天室单页（无底部标签 / 发现）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　细节以 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与仓库 README 为准。</div>
+
+
+
 
 <div class="layout">
 <nav class="toc">
@@ -84,11 +84,11 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC Flash · 需求设计文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-25</b></span>
-<span>状态：<b>已实现，应用版本 1.2.6，macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
+<span>文档日期：<b>2026-11-26</b></span>
+<span>状态：<b>已实现，应用版本 1.2.9（tag v1.2.9.1），macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
 <span>技术栈：<b>Tauri 2 + Rust(axum) + Vue3</b></span>
 </div>
-</header>
+</header><div class="doc-status" style="margin:16px 0 20px;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.1 · 2026-11-26</span></div><p style="margin:0 0 4px">已按最新代码校对。最近更新：桌面增强六项（文件搜索、托盘复制地址、悬浮球拖拽与双项右键、诊断包、日志导出）、全量审查修复、六皮肤对比度校准与安装包两轮瘦身。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div>
 
 <!-- ================= 1 ================= -->
 <section id="s1">
@@ -113,7 +113,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>零配置</b>：安装即用，端口/目录全自动，端口被占自动顺延；</li>
 <li><b>零学习成本</b>：所有操作一目了然，文案口语化（"保姆级"标准）；</li>
 <li><b>可信赖的反馈</b>：每个动作都有 toast 提示（上传/下载/复制/清空/错误），服务状态常驻可见（三圆点脉冲徽标）；</li>
-<li><b>低刺激视觉</b>：亮色 / 暗色 / 跟随系统三种模式 × <b>6 套可切换配色</b>（信号台 / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
+<li><b>低刺激视觉</b>：亮色 / 暗色 / 跟随系统三种模式 × <b>6 套可切换配色</b>（曜石金 / 深空蓝 / 石墨玫瑰 / 森林薄荷 / 暗夜紫 / 墨色琥珀），颜色语义化（蓝=主操作、绿=成功/分享、红=危险）。</li>
 </ul>
 </section>
 
@@ -147,7 +147,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-03</td><td>排序（最新/名称/大小）、分页（<b>每页 10 条</b>，智能页码省略）、全选与批量删除；「N 个文件」计数徽标紧跟标题展示</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-07</td><td>文件列表自动同步：WebSocket 事件推送即时呈现（任何设备上传/删除各端立刻更新），断开时降级为每 5 秒轮询兜底；手动刷新按钮加载期间带旋转动效</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-04</td><td>按平台差异化操作按钮：<b>真实桌面</b>（mac/win/linux 壳）=打开/复制/删除/分享；<b>Android/iOS 壳与浏览器</b>=下载/删除/分享（移动端无系统程序打开/剪贴板复制能力，原按钮是死路）；可内联预览的类型额外显示「预览」</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-05</td><td>上传前磁盘空间预检（按声明大小 + 256MB 安全余量），空间不足明确拒绝；<b>流式落盘每 64MB 复查剩余</b>，低于余量即中止——size=0/谎报大小的请求体也无法灌满磁盘；单次上传总时长上限 6 小时、空闲 120s 中止，<b>连续 60s 增量不足 16KB 也中止</b>，慢速滴流不能长期占用连接；服务端上传/下载/WS 并发闸 16/32/64；<b>下载断点续传</b>：Range 206/416 语义完整，浏览器断下自动续传。<b>上传断点续传</b>随 v1.1.8 整文件直传决策移入后期规划（中断的半截文件立即清理，目录不残留残缺文件）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-05</td><td>上传前磁盘空间预检（按声明大小 + 256MB 安全余量），空间不足明确拒绝；<b>流式落盘每 64MB 复查剩余</b>，低于余量即中止——size=0/谎报大小的请求体也无法灌满磁盘；单次上传总时长上限 6 小时、空闲 120s 中止，<b>连续 60s 增量不足 128KB 也中止</b>，慢速滴流不能长期占用连接；服务端上传/下载/WS 并发闸 16/32/64；<b>下载断点续传</b>：Range 206/416 语义完整，浏览器断下自动续传。<b>上传断点续传</b>随 v1.1.8 整文件直传决策移入后期规划（中断的半截文件立即清理，目录不残留残缺文件）</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-06</td><td>分享 = 复制链接（全平台统一，含温馨提示话术）；开启访问令牌时链接携带<b>一次性票据</b>——仅授权下载该文件、10 分钟有效，接收方免输配对码（关闭令牌时链接为直连地址）；关闭令牌或轮换配对码时未使用票据全部作废，无效票据按来源 IP 限流；点「分享」立即完成复制</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-10</td><td rowspan="4">聊天室</td><td>局域网实时聊天（WebSocket 推送即时到达，断开降级 3s 轮询），与文件卡片同处「传输」时间线；消息保留最近 200 条；页面可见且窗口聚焦时自动已读，浏览器标签标题同步未读</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-11</td><td>昵称可自定义（≤20 字，自动记忆）；未设置时自动生成「系统+浏览器-随机数」昵称；头像由昵称哈希映射 emoji</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -172,10 +172,10 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>FR-41</td><td>手机浏览器：<b>合并传输页单列</b>——消息/文件卡片同一条时间线，共享文件收进底部 86dvh 抽屉面板；输入栏贴底，不再设置独立聊天悬浮球/聊天面板</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-42</td><td>底部文件面板打开时锁定背景滚动，面板内滑动不穿透；状态/IP 2.5s 刷新；窄屏正文与文件列表字号整体上调，操作热区放大</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-43</td><td>失联全屏提示：服务停止/地址变更后，已打开的旧页面连续 2 次状态请求失败（约 5s）即整页切换为「无信号」测试卡画面（含断连原因与重开指引），恢复可达自动返回；失联同时清空共享列表/聊天残留数据（恢复首拉的历史不计未读），删除/分享/复制链接等动作友好拦截（桌面端走进程内通信，无此场景）；<b>Android/iOS 壳</b>在遮罩上提供「重新启动本机服务」按钮（点按钮重新拉起本机服务），避免设置页被遮罩盖住后只能清应用数据</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × <b>6 套配色</b>（信号台/深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀），默认信号台暗色；即时生效并记忆，三级文字色随主题色相联动；<b>桌面端聊天气泡跟随主题</b>（接收方主题卡片面、发送方轻染强调色）；信号台在浏览器/移动端也使用深色气泡，其他皮肤仍白底黑字</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-50</td><td rowspan="2">外观</td><td>亮色 / 暗色 / 跟随系统三种模式 × <b>6 套配色</b>（曜石金/深空蓝/石墨玫瑰/森林薄荷/暗夜紫/墨色琥珀），默认曜石金暗色；即时生效并记忆，三级文字色随主题色相联动；<b>桌面端聊天气泡跟随主题</b>（接收方主题卡片面、发送方轻染强调色）；信号台在浏览器/移动端也使用深色气泡，其他皮肤仍白底黑字</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-51</td><td>页脚版权：桌面与网页端页面底部统一展示「© 2026-现在 by hangkun.li」，内容短时贴底、长时顺延</td><td><span class="tag t-could">Could</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-60</td><td>可靠性</td><td>本机 IP 变化（DHCP）检测：地址栏/二维码/统计自动刷新 + 醒目提示改用新地址</td><td><span class="tag t-must">Must</span></td><td><span class="tag t-ok">已实现</span></td></tr>
-<tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：读取 GitHub Releases <b>列表</b>（只认正式版、跳过 prerelease，避免未签名产物进入更新通道），启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
+<tr><td>FR-70</td><td rowspan="2">维护</td><td>版本更新检查：读取 GitHub Releases <b>列表</b>（正式版与 prerelease 都进入检查，但 prerelease 弹框明确标注未签名/可能触发 Gatekeeper/SmartScreen，由用户确认），启动后静默检查（24h 频控）；「关于」卡可手动检查；发现新版弹框展示当前/最新版本与更新说明，一键前往下载页</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-71</td><td>运行参数服务端统一下发：昵称/消息长度上限、轮询间隔等由服务接口携带，网页端自动跟随（改服务端配置重启即全端生效，无需重新构建前端）</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-72</td><td rowspan="3">维护</td><td>多平台自动发版：推送 v* 标签（<b>支持四段 vX.Y.Z.W，CI 校验前三位与应用版本一致</b>）自动构建 macOS（分架构双包 aarch64 / x64 dmg）、Windows（NSIS exe）、Android（单包 arm64-v8a APK）并挂载到 Release；Android 只构建主流 64 位机型单包，必须配置 <code>ANDROID_KEYSTORE_*</code> Secrets 走 release 签名（证书固定、版本可覆盖升级），任一缺失 CI 直接失败（正式 Release 不允许 debug 包）；Android 上传前校验 Release 仍为草稿，重跑已发布 tag 不会改写线上资产；desktop 构建失败时 APK 仍可写入草稿但 Release 不公开</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
 <tr><td>FR-74</td><td>软件介绍页：侧边栏「介绍」入口打开全屏介绍（Hero / 功能四卡 / 三步上手 / 技术实现 / FAQ 手风琴），粘性顶栏锚点导航 + 滚动定位高亮、Esc 关闭、<code>v-if</code> 延迟挂载不增加启动成本；Hero「立即开始传输」进文件传输页、「去启动服务」进服务中心、「查看使用说明」页内跳转如何使用</td><td><span class="tag t-should">Should</span></td><td><span class="tag t-ok">已实现</span></td></tr>
@@ -193,7 +193,7 @@ pre code{background:none;color:inherit;padding:0}
 <li>协议：<code>POST /api/upload</code>，文件名（相对路径）放请求头 <code>X-Filename</code>（URL 编码），声明大小放 <code>X-File-Size</code> 或 <code>Content-Length</code>（必须至少一个，二者不一致 400、都缺失 411），body 为文件本体（单请求整文件直传）；</li>
 <li>服务端先做磁盘空间预检（按声明大小）；<b>流式落盘每 64MB 复查剩余空间</b>，不足即中止并清理半截文件（防 size=0/谎报大小灌满磁盘）；</li>
 <li><b>单请求整文件直传</b>（v1.1.8 定策）：body 逐帧流式落盘、零内存占用；<code>create_new</code> 原子占位 + 同名自动改名 <code>xxx(1).zip</code> 顺延，任何场景不覆盖既有文件；Windows MAX_PATH(260) 双重预检（原名 + 改名变体）；<b>长文件名含 <code>.ccup</code> 标记预检</b>（<code>base.len()+6 &gt; 249</code> 提前拒绝）；写首字节前落 <code>.{名}.ccup</code> 完整性标记（<code>ccflash-v1:</code>+会话令牌/声明大小；"ok"/空标记/用户自建文件区分处理），中断的半截文件立即清理，目录中不残留残缺文件；</li>
-<li>服务端<b>上传并发闸 16</b>、空闲 120s、总时长 6h、<b>低速闸（连续 60s 增量 &lt; 16KB）</b>；客户端<b>并发闸</b>限制同时 3 个文件在传（WebKit 每 host 6 连接预算），其余排队；上传期间手机屏幕<b>自动保持常亮</b>防锁屏冻结；上传断点续传移入后期规划（见里程碑）。</li>
+<li>服务端<b>上传并发闸 16</b>、空闲 120s、总时长 6h、<b>低速闸（连续 60s 增量 &lt; 128KB）</b>；客户端<b>并发闸</b>限制同时 3 个文件在传（WebKit 每 host 6 连接预算），其余排队；上传期间手机屏幕<b>自动保持常亮</b>防锁屏冻结；上传断点续传移入后期规划（见里程碑）。</li>
 </ul>
 <h3>4.2 下载与分享</h3>
 <ul>
@@ -309,7 +309,7 @@ pre code{background:none;color:inherit;padding:0}
 <section id="s10">
 <h2><span class="no">10</span>外观与动效规范</h2>
 <h3>10.1 皮肤系统</h3>
-<p>三种模式（亮色 / 暗色 / 跟随系统）× <b>6 套配色</b>（默认信号台暗色），经 <code>data-theme</code>（配色定色相）与 <code>data-mode</code>（定明暗）正交切换 CSS 变量实现，即时生效并记忆（localStorage，旧皮肤 id 启动时自动迁移）。桌面端聊天气泡跟随主题；信号台在浏览器/移动端也使用深色气泡，其他皮肤仍白底黑字：</p>
+<p>三种模式（亮色 / 暗色 / 跟随系统）× <b>6 套配色</b>（默认曜石金暗色），经 <code>data-theme</code>（配色定色相）与 <code>data-mode</code>（定明暗）正交切换 CSS 变量实现，即时生效并记忆（localStorage，旧皮肤 id 启动时自动迁移）。桌面端聊天气泡跟随主题；信号台在浏览器/移动端也使用深色气泡，其他皮肤仍白底黑字：</p>
 <table>
 <tr><th>配色</th><th>主色气质</th><th>文字三级色</th></tr>
 <tr><td>信号台（默认）</td><td>石墨黑 + 琥珀 #f2b441</td><td>暖米灰（工程网格/等宽读数）</td></tr>
@@ -378,7 +378,7 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>路径穿越双重防护</b>：URL 解码 → 相对路径逐段校验（拒绝空/./../首尾空格/非法字符，支持子目录）→ 与共享目录拼接后 canonicalize 校验前缀越界；上传建目录前对最近存在的祖先做越界预检（防符号链接把目录建到界外）；</li>
 <li><b>浏览器跨源防护</b>：Host 必须是 IP / localhost（<b>不再放行 <code>*.local</code></b>——同 Wi-Fi 攻击者可自架 mDNS 应答做 DNS 重绑定绕过访问码，二维码本就下发 IP，收紧无损正常路径）；带 Origin 的请求<b>精确匹配</b>放行自身与 WebView（<code>tauri://localhost</code>、<code>http(s)://tauri.localhost</code>；子串匹配可被 tauri.localhost.evil.com 绕过，禁止使用）；无 Origin 的 curl/局域网 App 不受影响；</li>
 <li><b>控制接口仅限本机</b>：/api/control/*（启停/日志/清空）拒绝非回环来源——局域网任意设备可调用的话人人能关停服务、读走全部活动日志；网页端状态走 /api/info，不受影响；旧版安全模式偏好不再生效，服务始终开放局域网。</li>
-<li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；Windows 路径长度（MAX_PATH 260，按 UTF-16 计）上传预检；<b>并发闸</b>下载 32 / 上传 16 / WS 64，上传连续 60s 增量 &lt; 16KB 即中止（防慢速滴流占满槽位）；</li>
+<li><b>资源有界</b>：日志单行 400 字符硬截断（防超长 URL 灌内存）并剥 CR/LF（防日志注入）；上传边收边校验声明大小，未知大小上传每 64MB 复查磁盘剩余；Windows 路径长度（MAX_PATH 260，按 UTF-16 计）上传预检；<b>并发闸</b>下载 32 / 上传 16 / WS 64，上传连续 60s 增量 &lt; 128KB 即中止（防慢速滴流占满槽位）；</li>
 <li><b>删除与清理边界</b>：删除符号链接只删链接本身（canonical 目标不删）；Windows 读路径拒绝尾随点/空格/ADS 别名，删除用 canonical 真实相对名做在途/标记保护；启动清理 <code>.ccpart</code> 只认带会话指纹且能对上 meta 首行 id FNV 指纹的命名（<code>&lt;name&gt;.&lt;16hex&gt;.ccpart/.meta</code>），普通 <code>.ccpart</code> 用户文件可见且保留；<code>.ccup</code> 只处理合法令牌/"ok"/空标记，用户自建同名文件不触碰；</li>
 <li><b>隐私与垃圾过滤</b>：系统垃圾文件（.DS_Store/._*/Thumbs.db/desktop.ini）不进列表、上传拒绝——.DS_Store 内含目录内曾出现过的文件名元数据；</li>
 <li><b>CSP 纵深防御</b>：WebView 配置最小 Content-Security-Policy（<code>script-src 'self'</code>、<code>object-src 'none'</code> 等），即便出现注入型 XSS 也限制其能力；<code>connect-src</code> 放行 <code>http:/ws:/wss:</code>，<code>img-src/media-src</code> 放行 <code>http:</code> 与 <code>blob:</code>，<code>frame-src</code> 放行 <code>http:</code>（<b>不再 'none'</b>）——移动壳既可能连本机节点也可能连电脑，应用内预览要从局域网地址加载图片/音视频/PDF，只留回环会把发版包整端拦死（v1.2.2 已删除各平台 conf 的重复 CSP，统一由基础配置继承）；html/svg/xml 仍由服务端 inline 白名单禁止同源打开（dev 模式无 CSP，必须用发版包验证）；</li>
@@ -433,7 +433,7 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td>大文件下载阈值</td><td>桌面浏览器一律原生流式下载（零内存、自带进度）；手机浏览器 ≤50MB 走 blob（有完成提示），&gt;50MB 回退原生下载（iOS Safari 数百 MB 即可能杀标签页）</td></tr>
 <tr><td>聊天持久化</td><td>仅内存 200 条，服务重启即清空（定位为临时接力，不做历史存档）</td></tr>
 <tr><td>跨平台</td><td>macOS / Windows / Android 已出包；Linux 可从源码构建；iOS 暂无安装包（Safari 访问网页版）</td></tr>
-<tr><td>更新检查方式</td><td>采用「GitHub Releases 检查 + 浏览器下载」轻量方案：前端读取 Releases <b>列表</b>（免鉴权、支持跨域、仅正式版/跳过 prerelease），发现新版弹框跳转下载页。检查失败一律静默，不影响正常使用；应用内自更新留作后续演进</td></tr>
+<tr><td>更新检查方式</td><td>采用「GitHub Releases 检查 + 浏览器下载」轻量方案：前端读取 Releases <b>列表</b>（免鉴权、支持跨域；正式版与 prerelease 都可见，prerelease 弹框标注风险），发现新版弹框跳转下载页。检查失败一律静默，不影响正常使用；应用内自更新留作后续演进</td></tr>
 <tr><td>后续演进项<br>（暂不实施）</td><td><b>mDNS 域名发现（wft.local）</b>：IP 变化后旧书签/旧页面自动跟随新地址。方案：Rust 侧引入 <code>mdns-sd</code> 广播 <code>_http._tcp</code> + A 记录，复用 2.5s 探测在 IP 变化时重注册，失联画面加"试试 wft.local"提示。<b>成本：约 60–80 行 / 半天。</b>硬限制：① Android 浏览器不解析 .local 主机名（系统限制），安卓用户无感；② 企业/访客网络常禁多播则静默失效；③ 同网段多实例名称冲突；④ 端口仍需手写（浏览器不读 SRV）。<b>触发条件：使用人群以 iPhone + 电脑为主时再做</b>；安卓为主的现有"失联画面 + 桌面端新二维码"路径已更可靠。</td></tr>
 </table>
 </section>
@@ -472,7 +472,7 @@ pre code{background:none;color:inherit;padding:0}
 <ul>
 <li><b>默认值变更</b>：系统剪贴板自动同步默认关闭；桌面始终开放局域网（CC设置不再提供开关）；移动端自动生成本机访问令牌（设置页可关闭，关闭前二次确认），启用后对所有来源（含本机网卡 IP）强制校验。</li>
 <li><b>剪贴板不限制内容</b>：开启后包括令牌/验证码在内的所有文本都会同步；paste 回传仍限定聊天输入框。</li>
-<li><b>发布口径</b>：缺少证书时仍发布未签名包，并在 Release 说明中注明打开方式，应用内更新只认正式版（跳过 prerelease）。</li>
+<li><b>发布口径</b>：缺少证书时仍发布未签名包，并在 Release 说明中注明打开方式，应用内更新也会看到 prerelease，但弹框标注未签名风险，由用户决定是否下载。</li>
 <li><b>稳定性</b>：WS 退避修复、下载空闲超时 + 单来源并发配额、限流固定窗口与 IPv6 /64 聚合、偏好/聊天历史原子写、启动清理不再误删、审计日志防洪水。</li>
 </ul>
 </section>
@@ -516,16 +516,16 @@ pre code{background:none;color:inherit;padding:0}
 <li><b>体验</b>：系统剪贴板自动同步默认关闭，关闭时粘贴只填充输入框不回传共享槽；发送面板跟随当前皮肤；手机设置页按 dir-3 扁平化并精简开关文案；设备卡右上收藏、右下传输历史；配对码取消按钮轻量化；昵称弹框空 toast 不再拦截点击；悬浮码收拢态透明。</li>
 <li><b>传输历史与对端配对码</b>：历史弹框支持按设备 / 内容 / 类型搜索，清空需二次确认；对端配对码保存前请求 <code>/api/devices</code> 验证，错误码不落盘；发送遇 401 自动清除缓存码并重新弹框（输入框留空），遇 429 明确提示限流，不再反复复用错码。</li>
 <li><b>手机三页信号台</b>：发送 / 设备 / 文件按 dir-2 改造为读数式界面（TARGET·UDP·MANIFEST 页头、刻度雷达盘、DEVICES/PORT/LINK 状态格、RSSI 设备行、manifest 序号 + 进度条 + 虚线投放区、方形输入与琥珀发送键）；仅作用于移动壳，桌面端与浏览器保持原布局；HISTORY 改为底部 sheet。</li>
-<li><b>发布与平台加固</b>：未签名/未公证桌面版公开发布但标记 prerelease（更新检查跳过）；Windows 用 Import-PfxCertificate + certificateThumbprint 签名；安装包使用 WebView2 引导器（Win10/11 通常已自带）；Android 改用 connectedDevice 前台服务（不受 dataSync 6h 配额）；服务端连接数上限 128 + 请求头 10s 超时、body 闸门按来源限流、共享目录与 start/stop 生命周期锁。</li>
+<li><b>发布与平台加固</b>：未签名/未公证桌面版公开发布并标记 prerelease，更新检查仍会提示但在弹框标注风险；Windows 用 Import-PfxCertificate + certificateThumbprint 签名；安装包使用 WebView2 引导器（Win10/11 通常已自带）；Android 改用 connectedDevice 前台服务（不受 dataSync 6h 配额）；服务端连接数上限 128 + 请求头 10s 超时、body 闸门按来源限流、共享目录与 start/stop 生命周期锁。</li>
 <li><b>设备多选与熄屏保活</b>：附近设备支持「多选」同时发送，文本与拖入文件依次投递到每台设备；点设备只选中，不再自动弹出「发送到设备」面板（面板仅由「手动发送」打开）；Android 前台服务增加 WifiLock / PARTIAL_WAKE_LOCK，并在首次启动申请忽略电池优化，减少熄屏后被厂商省电策略冻结导致「桌面端找不到手机 / 发送超时」。</li>
 <li><b>安全</b>：PIN 变更踢 WS、移动端立即同步 accessPin、PIN 按稳定设备 id 记忆、body 前置许可与上限、已消费票据拒绝整包 Range 重放。</li>
 </ul>
-<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 需求设计文档 · 2026-11-23 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
+<p class="small" style="text-align:center;padding:6px 0 20px">CC Flash · 需求设计文档 · 2026-11-26 · 与《技术实现文档》《保姆级使用说明》配套阅读</p>
 </main>
 </div>
 
 <div id="cc-v129-delta" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
-<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9 · 桌面增强与审查修复</h2>
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">v1.2.9.1 · 桌面增强与审查修复（2026-11-26）</h2>
 <p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段为最新代码增量，优先于文档中较早版本的描述。</p>
 <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
 <tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">能力</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">最新行为</th></tr>
@@ -536,6 +536,24 @@ pre code{background:none;color:inherit;padding:0}
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>诊断与日志</b></td><td style="border:1px solid #dfe3ea;padding:8px">诊断 ZIP 日志移除聊天/文件事件并脱敏 IP/共享路径；日志页导出完整 .log；导出原子写并异步执行。</td></tr>
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>安全与状态修复</b></td><td style="border:1px solid #dfe3ea;padding:8px">可执行/脚本不在应用内直接打开；悬浮球导入原子化；PIN 开关 fail-closed；修复全局粘贴文件、直发目标切换、发送失败草稿、清空远端文件卡、失焦误标已读、手机文件多选等问题。</td></tr>
 </table>
+</div>
+
+
+<div id="cc-v129-review2-req" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">2026-11-26 二次审查后的需求与验收补充</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
+<tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">场景</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">验收口径</th></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>多选直发文本</b></td><td style="border:1px solid #dfe3ea;padding:8px">A 成功、B 失败时：输入框保留原文；未成功的 B（及未尝试目标）保持选中；已成功的 A 不被重复发送；引用关系在全部成功前不丢失。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>多选直发文件</b></td><td style="border:1px solid #dfe3ea;padding:8px">单台失败不阻断后续目标；磁盘满/路径过长/服务端 500 等显示服务端真实原因；结束汇总“成功 N / 失败 M”；用户可从原文件重新选择重试。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>剪贴板隐私</b></td><td style="border:1px solid #dfe3ea;padding:8px">自动同步关闭时，右键粘贴、＋粘贴、聊天框粘贴都只填充输入框；任何路径都不得写共享槽。开启后才允许回传。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>重试幂等</b></td><td style="border:1px solid #dfe3ea;padding:8px">聊天响应丢失后重发不产生重复消息；上传响应丢失后点重试，若服务端已完成则恢复该行而非生成 <code>xxx(1)</code>。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>拖拽去向</b></td><td style="border:1px solid #dfe3ea;padding:8px">桌面共享文件抽屉打开时拖入文件只写本机共享；手机文件页同理；手动发送面板拖入文件夹按目录结构递归发送。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>失败卡片</b></td><td style="border:1px solid #dfe3ea;padding:8px">本机失败/取消的上传行不得屏蔽另一台设备成功上传的同名文件卡片；完成/在途行才参与同名去重。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>安全</b></td><td style="border:1px solid #dfe3ea;padding:8px">在线设备的 id 不能被另一 IP 无条件顶替；空令牌不能覆盖已有令牌/删除条目；单来源不能占满 WS、文件列表、断点查询与 body 许可。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>数据持久化</b></td><td style="border:1px solid #dfe3ea;padding:8px">文件历史损坏保留 <code>.bad</code>；聊天/文件/剪贴板写盘失败在日志中可见；Windows 原子写失败不删除唯一副本。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>平台</b></td><td style="border:1px solid #dfe3ea;padding:8px">Android 拒绝本地网络权限时明确提示；中文文件名在旧内核下载时仍有可读兜底名；未签名预发布更新提示带风险说明；Windows 定位文件不再误报失败。</td></tr>
+</table>
+<p style="color:#5a6474;font-size:13px;margin:12px 0 0">已知边界：发现身份为 TOFU 绑定，不是公钥签名；同一设备离线超过 10 分钟后仍允许换 IP。完全抵御主动代理/抢注需要后续引入设备密钥签名。</p>
 </div>
 
 </body>

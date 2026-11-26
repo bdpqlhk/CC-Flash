@@ -18,12 +18,12 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 </style>
 </head>
 <body>
-<div id="cc-current-version" style="margin:0;padding:8px 18px;background:#eef1f6;color:#344054;border-bottom:1px solid #dfe3ea;font:12.5px/1.6 -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;text-align:center">当前最新实现：<b>v1.2.9</b>（2026-11-26）· 本文为历史/方案快照，最新行为见 README 与《需求设计文档》《技术实现文档》。</div>
-<div style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>2026-11-23 同步</b>　设备在线态改为服务端权威 + WebSocket 实时 presence；发送面板跟随皮肤；移动设置页按 dir-3 扁平化；悬浮码透明、昵称弹框/配对取消/设备收藏历史入口修复。详情见 <a href="./整个过程历史改动记录_2026-11-23.html" style="color:#7ef0c8">历史改动记录 2026-11-23</a>。</div>
 
-<div id="cc-latest-note" style="margin:0;padding:10px 18px;background:#0d2b24;color:#d9fff3;border-bottom:1px solid #1e5a4a;font:13px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center"><b>历史文档 · 保留当时实现</b>　本文记录的是对应日期的版本状态，不作为当前交互说明。当前最新为 v1.2.6（2026-11-22）：设备发现已并入桌面「消息发送」左侧设备栏与手机 App「发送 / 设备 / 文件 / 设置」四页；浏览器保持原聊天室单页（无发现 / 发送 / 设置标签）；共享剪贴板在同一服务内双向（桌面 App 与手机 App 不自动互通）、默认关闭（CC设置可选开启）；桌面侧栏 176px、设备栏 200px、共享文件抽屉 320–380px（981–1180px 为带遮罩的覆盖层）。　最新实现详见 <a href="./技术实现文档.html" style="color:#7ef0c8">技术实现文档</a> 与 <a href="./需求设计文档.html" style="color:#7ef0c8">需求设计文档</a>。</div>
 
-<h1>CC Flash · 整个过程历史改动记录</h1>
+
+
+
+<div class="doc-status" style="margin:16px 0 20px;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.1 · 2026-11-26</span></div><p style="margin:0 0 4px">本文保留对应日期的实现快照，不作为当前交互说明。当前最新实现为 v1.2.9.1（应用版本 1.2.9）；最新改动见文末记录。</p><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div><h1>CC Flash · 整个过程历史改动记录</h1>
 <div class="meta">当前最新：<b>v1.2.6（2026-11-22 全量复审修复）</b> · 时段：<b>2026-11-03 至 2026-11-12</b> · 版本：<b>v1.1.7 → v1.2.1.1</b> · 与《技术实现文档》《后期规划》《需求设计文档》配套阅读</div>
 <div class="callout"><b>阅读说明</b>本文按当时实现记录，保留历史原貌。最新行为（应用内预览、Markdown、四段版本、CSP 与并发闸等）以当前 README 与《技术实现文档》为准。2026-11-12 一节记录的是工作区待提交改动。</div>
 
@@ -75,8 +75,8 @@ code{background:#eef1f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
 </ul>
 
 <h2>八、2026-11-12（工作区待提交）</h2>
-<p>本轮针对全平台（macOS / Windows / Linux / Android / iOS / 电脑浏览器 / 手机浏览器 / 微信内置浏览器）做完整深度审计后的集中修复与体验改版：</p>
-<ul>
+<p>本轮针对全平台（macOS / Windows / Linux / Android / iOS / 电脑浏览器 / 手机浏览器 / 微信内置浏览器）做完整深度审计后的集中修复与体验改版： 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p>
+<ul><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li>
 <li><b>应用内预览</b>：图片、PDF、纯文本、音视频全屏预览，右上角「关闭」或 Esc 回到聊天；Office/压缩包下载查看；html/svg/xml 不内联；文本超 2MB 提示下载；预览请求加代际校验与 15s 超时。</li>
 <li><b>聊天 Markdown 与多行输入</b>：标题/列表/引用/分割线/围栏代码块 + 行内代码/粗体/斜体/删除线/链接；输入框改为自动长高 textarea，桌面 Enter 发送、Shift+Enter 换行，触屏 Enter 换行后点发送。</li>
 <li><b>顶栏与共享文件</b>：标题/副标题居左，运行状态 + 地址 + 复制/二维码/浏览器按钮整组靠右上，地址宽度随内容自适应，窄于 900px 整组换行撑满；共享文件抽屉 340~400px、字号加大、分页占满底栏、缩略图/预览按钮可预览、默认收起；新文件绿点修复。</li>
