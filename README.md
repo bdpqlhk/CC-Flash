@@ -8,7 +8,7 @@
 [![CC Flash 演示](assets/demo.gif)](assets/demo.gif)
 -->
 
-技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.9**，含 2026-11-26 全量自测、两轮产物瘦身、六皮肤对比度收口与二次全量审查修复）。前端首屏主包 **320,231 B（约 312.5 KiB）**，介绍页按需另加载 23,363 B、二维码库 24,066 B，CSS **164,067 B（约 160.2 KiB）**，`dist` 合计 **约 604 KiB**；Rust release 二进制 **4,101,328 B**（strip + fat LTO + opt-level=z + panic=abort，服务端仅 HTTP/1.1）。Windows 安装包使用 WebView2 **引导器**（体积最小；WebView2 运行时缺失时需联网下载，Windows 10/11 通常已自带），Android 仅保留中英文资源、优化启动图标并只发 arm64-v8a 单包；macOS arm64 dmg **约 2.56 MiB** / .app **4.13 MiB**，Intel dmg **约 2.60 MiB** / .app **5.03 MiB**（本地未签名包使用 bzip2 UDBZ 压缩；签名/公证版以 CI 产物为准）。
+技术栈：**Tauri 2 + Rust(axum) + Vue3 + Vite**（当前应用版本 **1.2.9**，tag **v1.2.9.2**，含 2026-11-26 全量自测、两轮产物瘦身、六皮肤对比度收口与二次全量审查修复）。前端首屏主包 **320,231 B（约 312.5 KiB）**，介绍页按需另加载 23,363 B、二维码库 24,066 B，CSS **164,067 B（约 160.2 KiB）**，`dist` 合计 **约 604 KiB**；Rust release 二进制 **4,101,328 B**（strip + fat LTO + opt-level=z + panic=abort，服务端仅 HTTP/1.1）。Windows 安装包使用 WebView2 **引导器**（体积最小；WebView2 运行时缺失时需联网下载，Windows 10/11 通常已自带），Android 仅保留中英文资源、优化启动图标并只发 arm64-v8a 单包；macOS arm64 dmg **约 2.56 MiB** / .app **4.13 MiB**，Intel dmg **约 2.60 MiB** / .app **5.03 MiB**（本地未签名包使用 bzip2 UDBZ 压缩；签名/公证版以 CI 产物为准）。
 
 ## 功能特性
 

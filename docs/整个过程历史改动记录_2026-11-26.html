@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</title>
 <style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}.callout{background:#eef4ff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:14px 0}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
-<p style="margin:0 0 4px">本文保留对应日期的实现快照，不作为当前交互说明。当前最新实现为 v1.2.9.1（应用版本 1.2.9）；最近更新见下方记录。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div><h1>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</h1>
+<p style="margin:0 0 4px">本文保留对应日期的实现快照，不作为当前交互说明。当前最新实现为 v1.2.9.2（应用版本 1.2.9）；最近更新见下方记录。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div><h1>CC Flash · 2026-11-26 全量自测、两轮产物瘦身与六皮肤对比度收口</h1>
 <div class="meta">版本：v1.2.9.1（四段构建号，应用版本取前三段 1.2.9；含 11-25 桌面增强、11-26 二次全量审查修复）· 本轮在最新代码上重新跑全量功能自测，对 macOS 双架构产物做两轮可量化瘦身，并逐套皮肤修复对比度与窄窗文件卡片错位。</div>
 <div class="callout"><b>本轮结论</b>功能自测全部通过；macOS arm64 DMG 2,863,802 → 2,673,583 B（−6.6%），x64 2,981,355 → 2,707,366 B（−9.2%）；六套皮肤 × 明暗在手机壳/桌面壳/浏览器端的文字对比度审计均为 0 告警；窄窗文件卡操作按钮不再逐字换行。</div>
 
@@ -91,5 +91,14 @@
 <li>macOS 双架构 DMG 两轮瘦身：先 UDBZ，再以 <code>.app</code> 重建并换 63,605 B 精简卷图标。arm64 2,880,468 → 2,688,508 B（−6.66%），x64 3,001,712 → 2,727,798 B（−9.13%）；<code>hdiutil verify</code> 均通过，SHA-256：arm64 <code>ef114476…bfd4356</code>，x64 <code>82d0805e…34263d</code>。Windows/Android 本机缺 MSVC/JDK17/NDK，未在本地重打；CI 仍按原流程构建。</li>
 </ul>
 
-<div class="small">CC Flash · 2026-11-26 · 本文件记录最新代码上的自测、瘦身、视觉收口与二次审查修复</div>
+
+<h2>六、发布 v1.2.9.2（2026-11-27）</h2>
+<ul>
+<li>使用 <code>scripts/release.sh 1.2.9.2 "release: v1.2.9.2 二次全量审查修复与文档同步"</code> 提交并推送；提交 <code>8c114b9</code>，tag <code>v1.2.9.2</code>。</li>
+<li>GitHub Actions <code>45902291371</code> 全绿：prepare、macOS arm64/x64、Windows NSIS、Android arm64 与 publish 均成功。</li>
+<li>Release 已公开为 prerelease（未配置 macOS/Windows 签名证书），资产：<code>CC-Flash_1.2.9.2_aarch64.dmg</code>、<code>CC-Flash_1.2.9.2_x64.dmg</code>、<code>CC-Flash_1.2.9.2_x64-setup.exe</code>、<code>CC-Flash-v1.2.9.2-android-arm64-v8a.apk</code> 及两个 <code>.app.tar.gz</code>。</li>
+<li>Release 说明已按实际 tag 差异补写，并把“自动更新会跳过 prerelease”的旧提示改为“更新检查仍会显示，并标注未签名风险”。</li>
+</ul>
+
+<div class="small">CC Flash · 2026-11-26 / 11-27 · 本文件记录最新代码上的自测、瘦身、视觉收口、二次审查修复与 v1.2.9.2 发布</div>
 </body></html>
