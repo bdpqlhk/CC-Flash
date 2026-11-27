@@ -3,9 +3,9 @@
 # 用法(在 Windows 机器上, 项目根目录):
 #   powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 #
-# 产物:
-#   src-tauri\target\release\bundle\nsis\*-setup.exe   (NSIS 安装程序)
-#   src-tauri\target\release\bundle\msi\*.msi          (MSI 安装包)
+# 产物(本机默认全 bundle; 需 WiX 才出 msi):
+#   src-tauri\target\release\bundle\nsis\*-setup.exe   (NSIS 安装程序 —— Release 只发这个)
+#   src-tauri\target\release\bundle\msi\*.msi          (MSI 安装包 —— 仅本地产物, CI 不打包不上传)
 #   src-tauri\target\release\CC-Flash.exe              (绿色单文件)
 #
 # 前置条件:
@@ -46,9 +46,14 @@ Step "构建前端 (vite -> dist\)"
 npm run build
 if ($LASTEXITCODE -ne 0) { Write-Host "前端构建失败" -ForegroundColor Red; exit 1 }
 
-Step "Tauri 打包 (NSIS + MSI)"
-npm run tauri build
+Step "Tauri 打包 (NSIS; 与 Release 口径一致)"
+# 显式只打 NSIS: 缺 WiX 时 MSI 失败会把已产出的 NSIS 误判成整体失败(B3-9)
+npm run tauri build -- --bundles nsis
 if ($LASTEXITCODE -ne 0) { Write-Host "Tauri 打包失败" -ForegroundColor Red; exit 1 }
+
+Step "Tauri 打包 (MSI, 可选, 需 WiX)"
+npm run tauri build -- --bundles msi
+if ($LASTEXITCODE -ne 0) { Write-Host "MSI 打包失败(可选, 已忽略; NSIS 产物完好)" -ForegroundColor Yellow }
 
 Step "完成"
 Ok "产物目录: src-tauri\target\release\bundle\"

@@ -29,6 +29,18 @@ fn write_text_atomic(path: &std::path::Path, value: &str) -> std::io::Result<()>
         std::process::id(),
         SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
+    // 0600: pref 里有 access-pin 等敏感值, 默认 0644 在多用户机器上可被同机读(B2-12)
+    #[cfg(unix)]
+    let mut f = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?
+    };
+    #[cfg(not(unix))]
     let mut f = std::fs::File::create(&tmp)?;
     f.write_all(value.as_bytes())?;
     f.sync_all()?;

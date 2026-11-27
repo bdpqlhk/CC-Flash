@@ -1,0 +1,115 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>CC Flash · 2026-11-27 三遍全量深度审查与修复</title>
+<style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:920px;margin:24px auto;padding:0 18px;color:#1f2430;background:#f7f8fa;line-height:1.75}h1{font-size:24px}h2{font-size:19px;border-bottom:2px solid #4f8af7;padding-bottom:6px;margin-top:30px}h3{font-size:15.5px;margin:18px 0 8px}.meta{color:#5a6474;font-size:13px;margin-bottom:18px}.callout{background:#eef4ff;border-left:4px solid #4f8af7;padding:10px 14px;border-radius:6px;margin:14px 0}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff}td,th{border:1px solid #dfe3ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#eef1f6}code{background:#eef1f6;padding:1px 5px;border-radius:4px}.small{text-align:center;color:#5a6474;font-size:12.5px;padding:16px 0}</style></head><body>
+<p style="margin:0 0 4px">本文保留对应日期的实现快照，不作为当前交互说明。当前最新实现为 v1.2.9.2（应用版本 1.2.9）；最近更新见下方记录。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-27</b> 三遍全量深度审查（后端/前端/平台三路通读 → 逐行亲验 → 功能点×六端矩阵 + 对抗复核）并按清单修复；未发新版本。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1、v1.2.9.2。</li></ul><a href="./整个过程历史改动记录_2026-11-27.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-27 完整改动记录 →</a></div><h1>CC Flash · 2026-11-27 三遍全量深度审查与修复</h1>
+<div class="meta">版本：基于 v1.2.9.2（tag v1.2.9.2）之后的本地最新代码，工作树干净起步 · 范围：全部功能点 × 六端（mac / Windows / Android / iOS 代码分支 / 电脑浏览器 / 手机浏览器），不只当次 diff · 本轮不发版、不改版本号。</div>
+<div class="callout"><b>三遍结论</b>无 P0（崩溃 / 数据丢失 / 可利用安全漏洞）。关键防线（路径穿越、PIN 中间件、限流、panic=abort 下的 unwrap、连接/并发闸、XSS 转义、六端平台门控）经全量核验成立。共确认 P1 5 条、P2 约 12 条、P3 约 30 条；剔除误报 4 条；<code>cargo test --lib</code> 37/37 通过。</div>
+
+<h2>一、三遍方法</h2>
+<table>
+<tr><th>遍次</th><th>做法</th><th>产出</th></tr>
+<tr><td>第一遍</td><td>三路并行全量通读：Rust 后端（server.rs 10404 行 + lib.rs + config.rs + Android Kotlin）、前端（App.vue 7441 行 + style.css 5162 行 + 全部 JS/HTML/PWA）、平台发版（CI / 脚本 / capability / CSP / 文档版本口径）。</td><td>三份分级报告（P1×4、P2×18、P3×33）。</td></tr>
+<tr><td>第二遍</td><td>对全部 P1/P2 逐条按 <code>文件:行号</code> 亲验原始代码，剔除误报、修正触发前提。</td><td>4 项 P1 全部属实；2 处修正（uploadStatus 实际在用、open_lan 属有意设计）。</td></tr>
+<tr><td>第三遍</td><td>①功能点×六端矩阵交叉复查（15 个功能点端到端追踪 + WS 消息类型 / 字段级契约 / 错误码语义）；②15 项"存疑"对抗裁决 + 漏网狩猎（release.sh 细节、CI secrets 日志泄漏、config.rs↔config.js 常量逐对比对、Android 13/14/15 适配、测试模块）。</td><td>新发现 P1×2（其一亲验后降级 P2）；裁决成立 5 / 部分成立 6 / 不成立 4；<code>cargo test --lib</code> 37/37。</td></tr>
+</table>
+
+<h2>二、确认并已修复的问题（按严重度）</h2>
+<h3>P1（5 条，全部修复）</h3>
+<table>
+<tr><th>#</th><th>问题</th><th>位置</th><th>修复</th></tr>
+<tr><td>1</td><td>聊天 <code>client_id</code> 幂等去重只比 id 不比来源：另一台设备提交相同 id 会被误判重复、静默丢消息（注释与前端约定双漂移）。</td><td><code>server.rs chat_post</code></td><td>去重增加 <code>m.ip == peer</code> 来源比对，注释同步。</td></tr>
+<tr><td>2</td><td><code>loadFiles</code> 会话代际早退分支直接 return，跳过清 timer 与 <code>refreshing=false</code>：手动刷新转圈可能永久卡住。</td><td><code>App.vue loadFiles</code></td><td>收尾改 <code>try/finally</code> 统一执行（与 loadChat 对齐）。</td></tr>
+<tr><td>3</td><td><code>prefers-reduced-motion</code> 仅 2 处局部块，18 个 <code>@keyframes</code> 中 toast 弹入、雷达扫描、按钮旋转等不停：违反"减弱动态效果停用动画"验收线。</td><td><code>style.css</code></td><td>新增全局 reduce 兜底块（animation/transition 0.01ms + scroll auto）。</td></tr>
+<tr><td>4</td><td>直发上传只判 <code>status===200</code>、丢弃 <code>final</code> 同名改名回执：发送方不知对端实际落盘名，与本机上传行为不一致。</td><td><code>App.vue directSendFiles</code></td><td>解析 <code>final</code>，改名时 toast"已存为 …"（与本机上传同款）。</td></tr>
+<tr><td>5</td><td>CI 每版自动写入 Release 正文的"应用内自动更新会跳过 prerelease"与实际策略相反（<code>fetchLatestRelease(true)</code> 恒含 prerelease，README 已是新口径），下次发版会把 11-26 手工修正的正文再次覆盖；publish 重跑还会重复追加。</td><td><code>release.yml</code></td><td>文案改为与 README 一致的"更新检查仍会显示并标注风险"；追加前按标记去重；注释同步。</td></tr>
+</table>
+<h3>P2（已修复的主要项）</h3>
+<table>
+<tr><th>#</th><th>问题</th><th>修复</th></tr>
+<tr><td>1</td><td>服务端聊天 id 回退（历史文件丢失/崩溃丢尾部）时已读水位不重置，未读角标永久失效。</td><td><code>loadChat</code> 检测末条 id &lt; <code>seenChatId</code> 时清零并同步 fresh 基线。</td></tr>
+<tr><td>2</td><td>Esc 关闭链缺 8 个弹层（确认框/更新/自启说明/设备配对/历史/文件菜单/局域网询问/复制兜底）；<code>chatCovered</code> 漏 confirm/showUpdate/autostartTip（确认框打开时收到消息会误清未读）。</td><td>两集合按 z 序补全对齐。</td></tr>
+<tr><td>3</td><td>WS 重连 <code>loadSharedClip()</code> 不 <code>applyRemoteClipboard()</code>：断线期间对端剪贴板变化要等 4.5s 兜底。</td><td>onopen 路径补 apply，与 <code>sync:needed</code> 对齐。</td></tr>
+<tr><td>4</td><td><code>/api/hello</code> 前端发 <code>platform/busy</code>、后端 <code>HelloIn</code> 只收 nickname（serde 静默丢弃）——契约漂移。</td><td>前端只发 nickname，注释说明 busy/platform 由 UDP 宣告上报。</td></tr>
+<tr><td>5</td><td>取消上传只 abort XHR：abort 时服务端可能已落盘，UI 显示"已取消"但文件在共享目录。</td><td>取消后查 <code>upload_status</code> 幂等账本，已完成则转 done 并提示，否则再移除。</td></tr>
+<tr><td>6</td><td>公网来源 403（电脑端未开令牌）前端不识别：界面停在"已停止"且每轮刷不出真实原因。</td><td><code>refreshStatus</code> 识别 403：不计失联、服务端文案去重提示一次。</td></tr>
+<tr><td>7</td><td><code>peerBase</code> 端口缺失回落本机端口：残缺宣告会把"发给对端"的请求打到自己。</td><td>只认宣告值（0-65535），非法产出 port 0 URL 走网络错误；服务端宣告入口本就挡 0/超界。</td></tr>
+<tr><td>8</td><td><code>/api/clipboard</code>、<code>/api/upload_status</code> 不在 <code>NOISY_GET_PATHS</code>：剪贴板 4.5s 轮询挤占 2000 条日志环。</td><td>两路径入清单。</td></tr>
+<tr><td>9</td><td>亮色模式裸 <code>--accent</code> 文本对比度不足（rose≈3.2:1 / mint≈2.1:1 &lt; AA 4.5:1）。</td><td>新增亮色覆写：日志级别/方法名/移动统计数字走 <code>--accent-text</code>。</td></tr>
+<tr><td>10</td><td><code>--mint-2</code> 未定义（悬浮球复制提示文字色失效）；文件行操作按钮 <code>opacity:0</code> 键盘聚焦不可见。</td><td>改亮薄荷绿硬编码（胶囊底恒深色）；补 <code>:focus-within</code> 显形。</td></tr>
+<tr><td>11</td><td>文档口径 5 处过时：技术实现/保姆级 tag 停 v1.2.9.1、"未单独发版"（实际已随 v1.2.9.2 发布）、stable-only 表述、体积旧数据（dmg 写 4.1–4.3 MiB 实际 2.56）。</td><td>全部改为与 README / 实测一致。</td></tr>
+</table>
+<h3>P3（本轮已修）</h3>
+<ul>
+<li>注释漂移：上传"同名直接覆盖"×2 处改名语义、设备 TTL 15s→30s ×2、workflow "Android 5+"→7.0+（minSdk 24）×2、release.sh "npm install"→<code>npm ci</code>、update.js 旧策略注释。</li>
+<li>死代码：<code>plainFileUrl</code>、<code>sw.js</code> 不可达行、<code>package.json allowScripts</code>、capability 多授 4 项（inner-size / inner-position / set-focus / notification，全仓零调用）、style.css 两处注释吞规则残骸（.side-qr / .files-card 半截声明）。</li>
+<li>加固：非 Unix <code>write_secret</code> 补 <code>sync_all</code>（掉电不产生半截 PIN/聊天历史）；<code>chat_get</code> 改锁内快照、锁外序列化；悬浮球导入补 <code>STOPPING</code> 检查；<code>update.js</code> 超时覆盖到 body 读完。</li>
+<li>发版脚本：detached HEAD 提前拦截、版本段前导零报错修正、lock 同步失败提示改为如实描述 <code>npm ci</code> 门禁；build-windows.ps1 注明 MSI 仅本地产物、Release 只发 NSIS。</li>
+<li>UX 规范：设备活跃时间改"最后活跃 月日时分"（不再"xx 分钟前"）；清空聊天同步归零 <code>timelineStart/jumpCount</code>；悬浮球窗不再写无用 <code>peers</code>。</li>
+</ul>
+
+<h2>三、裁决为不修 / 维持现状（含理由）</h2>
+<table>
+<tr><th>项</th><th>结论与理由</th></tr>
+<tr><td>上传同名改名循环在 <code>file_op_lock</code> 内做慢盘 IO</td><td>影响有界（hint 起点 + 4096 缓存 + spawn_blocking，上限 1 万次 stat，仅撞名路径触发）；把占位/标记/在途登记挪出临界区会重新打开"并发 DELETE 假成功"窗口，重构风险大于收益，维持现状。</td></tr>
+<tr><td>媒体会话令牌不绑文件（同 IP 10 分钟可读全部共享文件）</td><td>有意设计（缩略图/预览免逐文件开票），README 已如实描述；是否收紧为绑文件名<b>留产品拍板</b>。</td></tr>
+<tr><td>桌面 <code>open_lan</code> 仅回环分支成死代码</td><td>"桌面始终开放局域网"是已发布的产品决策（README 明文），仅存历史兼容命令；不改行为。</td></tr>
+<tr><td>失联清空不清 <code>fileEvents/uploads/directReceipts</code></td><td>对抗复核：失联遮罩 <code>z-index:1002</code> 不透明全盖；fileEvents 恢复后由 loadChat 重建；uploads/directReceipts 属本机历史，网络抖动时清掉反而毁用户记录。维持现状。</td></tr>
+<tr><td>Intro FAQ 900px 裁切 / 诊断包 pet-dbg 泄敏 / iOS 缺本地网络键</td><td>三条均裁决<b>不成立</b>（内容实测 ≈160px；pet-dbg 仅窗口几何+白名单；iOS 未出包且四处文档如实披露）。</td></tr>
+<tr><td>style.css 152 行成对重复注释批量去重</td><td>高噪声大 diff、零功能收益，按最小 diff 原则不动；两处吞规则残骸（真正误导项）已清。</td></tr>
+<tr><td>CI 增强（cargo test 前置、钉 Rust 工具链、bundleVersion/版本段断言）</td><td><b>已执行</b>（同日拍板后）：新增 test 门禁 job、工具链钉 1.99.1、prepare 补三段映射与 0-99 段界断言、desktop/android 补构建产物版本断言、publish 清理非必需资产。</td></tr>
+</table>
+
+<h2>四、验证</h2>
+<ul>
+<li><code>cargo check</code> 通过（含 capability 删除后 ACL 重校验）；<code>cargo test --lib</code> 37/37 通过（两轮）。</li>
+<li><code>npm run build</code>（vite + terser + lightningcss 生产构建）通过；capability / package.json JSON 合法性、<code>bash -n scripts/release.sh</code> 通过。</li>
+<li>本轮为静态审查 + 单测级验证；<b>未做六端真机回归</b>——直发改名提示、取消上传转 done、Esc 链、未读角标回归等行为需在下次发版前按惯例全功能自测（含真机）。</li>
+</ul>
+
+<h2>五、留拍板项（首轮；四项已于同日收尾执行，见第三节）</h2>
+<ol>
+<li><s>媒体会话绑文件（安全加固）。</s>（已执行等价加固：inline=1 + 预览白名单才放行）</li>
+<li><s>浏览器端更新检查三路全断。</s>（已执行：「⋯ 更多」菜单补「检查更新 / 下载最新版」入口）</li>
+<li><s>移动壳与浏览器无介绍页入口。</s>（已执行：「⋯ 更多」菜单补「软件介绍」，渲染条件放开到非悬浮球窗）</li>
+<li><s>PIN 配对遮罩点击关闭。</s>（已执行：点遮罩 = 「稍后再输入」同一 60s snooze，码仍生效时下一次请求会再度弹回）</li>
+<li><s>CI 增强：cargo test 前置、钉工具链、bundleVersion/版本段断言。</s>（已执行）</li>
+<li>Release 资产中无版本号 <code>.app.tar.gz</code> 的去留。</li>
+<li><s><code>bundleVersion</code> 四段与 Apple CFBundleVersion 规范。</s>（已改为三段映射 1.2.902）</li>
+</ol>
+
+
+<h2>二、第二轮三遍全量深查与修复（2026-11-27 下午）</h2>
+<p>在首轮修复之上再次执行三遍法：①三路全量通读（后端/前端/平台文档）→ ②13 项关键发现逐行亲验 → ③功能点×六端矩阵 + 15 项对抗裁决（<code>cargo test</code> 实跑 5 轮、GitHub API 实测线上 Release）。<b>无 P0</b>；首轮 7 项修复复核全部在位。</p>
+<table>
+<tr><th>级别</th><th>确认与处置</th></tr>
+<tr><td>P1×2</td><td><b>设备重启 10 分钟发现黑洞</b>（TOFU 同 IP 换令牌拒 600s，bye 不清绑定）→ 同 IP 非空令牌轮换直接放行、跨 IP 仍严，补 <code>peer_binding_allows_same_ip_token_rotation</code> 回归测试；<b>悬浮球导入 exFAT/SMB 回退无 .ccup 标记</b> → 标记先行+大小声明+失败回收，并补导入循环 STOPPING 复查与 <code>action:uploaded</code> 广播。</td></tr>
+<tr><td>P2×19</td><td>已修：上传 size=0 绕检（校验改无条件）、错误日志 10 处过 log_admit、诊断脱敏补删除/票据+请求行文件名/昵称结构化脱敏、Esc 关确认框改 <code>resolveConfirm(false)</code>（上轮回归）、直发清草稿/多目标失败收窄/单败不中断、启动服务立即刷新 lanIp、平板宽屏行操作 5 处门控、清空后上传卡按水位过滤、亮色信号台设备行对比度、取消上传回写 final、关闭剪贴板同步自动清槽、线上 Release 只读门禁×3、publish 正文拉取失败即中止+确定性替换、私钥守卫（命中撤暂存/api-push 同源扫描/base64 PEM）。<b>拍板项</b>：B3-1 线上 v1.2.9.2 实为 stable 与文档冲突（是否改回 prerelease）。</td></tr>
+<tr><td>P3×约30</td><td>已修：UTF-16 截断统一 clampChars、聊天/剪贴板剥 U+0001、绑定表硬上限 512、偏好 0600、打开黑名单补 html/svg/webloc、FIFO 下载先 stat、meta 有界读、write_secret 父目录、日志轮询代际、停服不再轮询死端口、下载补 nosniff 前的同类防御、update.js 取语义最高版、release.sh 前导零拒绝/FORCE 重跑指引、toast 长文换行、减弱动态滚动、Esc 层级补三层、未读回清 watch、悬浮球窗副作用门控、本地上传显示服务端错误原因、死导入清理等。</td></tr>
+<tr><td>裁决修正</td><td>B2-8 测试顺序脆弱 <b>撤销</b>（全测试取 SERIAL，5 轮实跑全绿）；B2-9 Android 打开降 P3（无 UI 触发路径）。</td></tr>
+<tr><td>延后（含理由）</td><td>per-IP 连接上限（需压测）、Android FileProvider 打开（需真机）、iOS plist（未出包已披露）、幂等账本持久化（架构改动）、N2-1 测试注入临时 share（需改造 18+ 处测试）、B2-7 空目录清理（删空目录属产品行为选择）、CI 增强类 B3-9/10/11/12（发版流程拍板）、X2-6 限流拆桶、X2-7 悬浮球主题同步。</td></tr>
+<tr><td>文档同步</td><td>33 份文档状态块链接/日期/轮2条目统一到 11-27；需求设计 tag/六卡/FORCE 口径、后期规划基线 v1.2.9.2、技术实现（update 描述/外链三处/剪贴板限流与清槽/占位符）、设计稿（结构/页脚/令牌 FAQ）、README 中英体积按当前构建实测更新（主包 322,264 B、CSS 163,070 B、dist 584,313 B、二进制 4,150,928 B）。</td></tr>
+</table>
+<p>验证：<code>cargo check</code> ✓、<code>cargo test --lib</code> 39/39（含新增 TOFU 轮换测试）✓、<code>npm run build</code> ✓、三个 shell 脚本 <code>bash -n</code> ✓。六端真机回归未做，发版前按惯例补全功能自测。</p>
+
+
+<h2>三、拍板项执行记录（2026-11-27 收尾）</h2>
+<table>
+<tr><th>拍板/未修项</th><th>执行结果</th></tr>
+<tr><td>B3-1 线上 Release 状态</td><td><code>gh release edit v1.2.9.2 --prerelease</code> 已恢复 prerelease=true，未签名风险提示与 README/正文口径重新一致。</td></tr>
+<tr><td>B3-5 CFBundleVersion 四段</td><td><code>release.sh</code> 改三段映射 <code>M.N.(P×100+B)</code>（当前 <code>1.2.902</code>），prepare 增加同步断言。</td></tr>
+<tr><td>B2-7 空目录残留</td><td>新增 <code>prune_empty_parents</code>：删除成功与上传中止后自底向上剪空目录（至共享根、最多 8 层、锁外执行）。</td></tr>
+<tr><td>B2-6 单来源占满连接槽</td><td>accept 层加 32/来源连接上限 + Drop 计数守卫，全局 128 闸保留。</td></tr>
+<tr><td>X2-6 票据/媒体共用限流</td><td>媒体会话独立 60/min 桶。</td></tr>
+<tr><td>X2-4/B2-15 幂等不持久</td><td>聊天历史 ip 为空时回退按 client_id 判重；上传幂等账本 1s 尾随落盘并启动加载（测试进程隔离）。</td></tr>
+<tr><td>N2-1 测试污染真实目录</td><td>测试进程 share/端口偏好注入进程级 temp，<code>ensure_discovery</code> 测试下直接返回（不再向局域网宣告幽灵设备）。</td></tr>
+<tr><td>X2-7 悬浮球不同步主题</td><td>pet 窗监听 <code>storage</code> 事件，实时跟随主窗主题/明暗/昵称。</td></tr>
+<tr><td>B2-9/B2-11 平台打开边界</td><td>Android 本地文件打开/在文件夹中显示改为明确拒绝文案（URL 仍走系统浏览器）；iOS 键已由 build-all.sh 注入（未出包，维持披露）。</td></tr>
+<tr><td>CI 增强 / B3-9/10/11</td><td>test 门禁 job（cargo test + vite build）、工具链钉 1.99.1、三处构建产物版本断言、publish 清理 .app.tar.gz 等非必需资产、build-windows.ps1 改 NSIS 必过 + MSI 可选。</td></tr>
+<tr><td>152 行重复注释</td><td>style.css 相邻重复注释块去重 124 行（余下为非相邻重复，收益低不再追）。</td></tr>
+<tr><td>媒体会话绑文件（首轮拍板）</td><td>等价安全面：下载中间件要求 <code>inline=1</code> + <code>is_inline_safe</code> 白名单，令牌泄露不再覆盖 exe/zip；前端本就全部带 <code>inline=1</code>，预览不受影响。</td></tr>
+<tr><td>浏览器更新/介绍页入口（首轮拍板）</td><td>「⋯ 更多」菜单补「检查更新 / 下载最新版」与「软件介绍」；Intro 渲染条件改为 <code>introShow && !isQrPetWindow</code>。</td></tr>
+<tr><td>PIN 遮罩点击关闭（首轮拍板）</td><td><code>@click.self</code> 复用 snoozePin（60s），与产品"码仍生效会弹回"的自愈逻辑一致。</td></tr>
+</table>
+<p>验证：<code>cargo test --lib</code> 39/39、<code>cargo check</code> 无警告、<code>npm run build</code> ✓、介绍页程序化布局审计（1280/390）零溢出零重叠零 JS 错误。</p>
+
+<div class="small">CC Flash · 2026-11-27 · 三遍全量深度审查与修复 · 本文件为当前实现的同步说明</div>
+</body></html>

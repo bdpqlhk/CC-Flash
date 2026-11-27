@@ -59,6 +59,9 @@ pub const NOISY_GET_PATHS: &[&str] = &[
     "/api/control/logs",
     "/api/upload_progress",
     "/api/devices",
+    // 剪贴板同步开启后约 4.5s 轮询一次(WS 断线时靠它兜底), 不进日志环
+    "/api/clipboard",
+    "/api/upload_status",
 ];
 
 // ---- 传输 ---- //

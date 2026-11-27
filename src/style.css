@@ -1,5 +1,4 @@
 /* CC-Flash · TCode 风格侧边栏布局(增强打磨版) */
-/* CC-Flash · TCode 风格侧边栏布局(增强打磨版) */
 :root {
     --bg: #0d1017; --bg2: #111620; --panel: #151a23; --card: #161b26;
     --card-border: rgba(255,255,255,0.06); --card-hover: rgba(30,36,55,0.9);
@@ -26,7 +25,6 @@
 }
 
 
-/* ===== 主题预设(全部低刺激深色, 可整套切换) ===== */
 /* ===== 主题预设(全部低刺激深色, 可整套切换) ===== */
 [data-theme="rose"] {
     /* 石墨玫瑰: 石墨底 + 低饱和玫瑰红, 冷艳但不刺眼 */
@@ -83,7 +81,6 @@ body {
 .shell { display: flex; height: 100vh; overflow: hidden; }
 
 
-/* ===== 侧边栏 ===== */
 /* ===== 侧边栏 ===== */
 .sidebar {
     width: 176px; flex-shrink: 0; background: var(--panel);
@@ -168,7 +165,6 @@ body {
 .qr-pet.dragging { cursor: grabbing; }
 
 /* 卡片外观只属于展开态; 收拢态根元素全透明, 仅作「靠近」命中缓冲 */
-/* 卡片外观只属于展开态; 收拢态根元素全透明, 仅作「靠近」命中缓冲 */
 .qr-pet.expanded {
     border-radius: 14px;
     border: 2px solid rgba(240,89,107,.88); background: rgba(13,16,23,.94);
@@ -176,7 +172,6 @@ body {
     padding: 9px 8px 8px;
 }
 
-/* 停止态卡片: 保留品牌粉但调暗(而非变成无生气的灰), 暗底虚线空态与之呼应 */
 /* 停止态卡片: 保留品牌粉但调暗(而非变成无生气的灰), 暗底虚线空态与之呼应 */
 .qr-pet.expanded.down {
     border-color: rgba(240,89,107,.45);
@@ -213,13 +208,11 @@ body {
 }
 
 /* 绿点与环同组呼吸(见模板): 缩放/明暗/描边都作用于整组 —— 绿点天然随环一起缩放 */
-/* 绿点与环同组呼吸(见模板): 缩放/明暗/描边都作用于整组 —— 绿点天然随环一起缩放 */
 .pet-ring-rot {
     transform-box: view-box;
     transform-origin: 32px 32px;
 }
 
-/* 吸附边旋转让绿点始终落在屏幕可见的半侧(圆对称, 旋转本身不可见) */
 /* 吸附边旋转让绿点始终落在屏幕可见的半侧(圆对称, 旋转本身不可见) */
 .qr-pet.edge-right .pet-ring-rot { transform: rotate(-90deg); }
 
@@ -239,7 +232,6 @@ body {
 }
 
 /* 2s 一呼吸: 缩放为主(一眼可见) + 描边加粗 + 明暗 —— 零 blur 硬边 */
-/* 2s 一呼吸: 缩放为主(一眼可见) + 描边加粗 + 明暗 —— 零 blur 硬边 */
 @keyframes qrBreath {
     0%, 100% { opacity: .5; stroke-width: 2.6; transform: scale(.92); }
     50% { opacity: 1; stroke-width: 3.6; transform: scale(1.08); }
@@ -248,16 +240,13 @@ body {
 .qr-pet.expanded .qr-pet-shell { display: none; }
 
 /* 靠近: 整球轻微浮起(球体无动画, transform 不与呼吸打架), 1.5s 等待期的即时反馈 */
-/* 靠近: 整球轻微浮起(球体无动画, transform 不与呼吸打架), 1.5s 等待期的即时反馈 */
 .qr-pet:not(.expanded):hover .qr-pet-shell { transform: scale(1.05); }
 
-/* 服务停止: 整组静止在温和常亮态(粉色不转灰) —— 有无呼吸即状态 */
 /* 服务停止: 整组静止在温和常亮态(粉色不转灰) —— 有无呼吸即状态 */
 .qr-pet.down .pet-ring-breath {
     animation: none; opacity: .75; stroke-width: 3;
 }
 
-/* 微信主题绿 #07C160 为球芯主体，只叠加局部玻璃高光与底部阴影。 */
 /* 微信主题绿 #07C160 为球芯主体，只叠加局部玻璃高光与底部阴影。 */
 .qr-pet-avatar {
     width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
@@ -276,10 +265,8 @@ body {
 }
 
 /* 绿点已移入 SVG 环组(随环整体缩放); badgePop 弹入保留给 .pet-ring-dot */
-/* 绿点已移入 SVG 环组(随环整体缩放); badgePop 弹入保留给 .pet-ring-dot */
 @keyframes badgePop { from { transform: scale(0); } to { transform: scale(1); } }
 
-/* 展开 = 纯预览扫码卡; 面板按吸附边方向滑入(「靠近滑出」的滑出感) */
 /* 展开 = 纯预览扫码卡; 面板按吸附边方向滑入(「靠近滑出」的滑出感) */
 .qr-pet-panel { display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; }
 
@@ -316,7 +303,6 @@ body {
 .qr-pet-img { display: block; width: 100%; height: auto; border-radius: 5px; }
 
 /* 停止态面板: 白块 → 暗底虚线框 + 静默取景框, 与整体暗色一体(见 .down 覆盖) */
-/* 停止态面板: 白块 → 暗底虚线框 + 静默取景框, 与整体暗色一体(见 .down 覆盖) */
 .qr-pet.down .qr-pet-view {
     background: rgba(255,255,255,.035);
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
@@ -327,7 +313,6 @@ body {
 
 .qr-pet-empty svg { width: 46px; height: 46px; display: block; }
 
-/* 上下流光扫描线: 2s 一周期; 低饱和蓝光(降饱和度、压峰值透明度), 简洁不刺眼 */
 /* 上下流光扫描线: 2s 一周期; 低饱和蓝光(降饱和度、压峰值透明度), 简洁不刺眼 */
 .qr-pet-scan {
     position: absolute; left: 0; right: 0; top: 0; height: 30px; pointer-events: none;
@@ -345,15 +330,11 @@ body {
 body:has(.qr-pet) { overflow: hidden; background: transparent; }
 
 /* :has() 的全内核兜底(类由 pet 挂载时添加, 老内核也能命中) */
-/* :has() 的全内核兜底(类由 pet 挂载时添加, 老内核也能命中) */
 body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 /* 收起态(64px 列): 40px 迷你码常驻(流光同步, 更细更快更抓眼); 悬停浮出 132px 可扫大图 ——
-   绝对定位于列右侧, 仅悬停期间短暂盖住内容边缘, 移开即收; 点击仍走大图弹窗 */
-/* 收起态(64px 列): 40px 迷你码常驻(流光同步, 更细更快更抓眼); 悬停浮出 132px 可扫大图 ——
-   绝对定位于列右侧, 仅悬停期间短暂盖住内容边缘 { margin: 6px 6px 0; padding: 4px; position: relative; }
-
-/* 系统开启「减弱动态效果」: 停流光扫描线、双 C 呼吸环与面板滑入。 */
+   绝对定位于列右侧, 仅悬停期间短暂盖住内容边缘, 移开即收; 点击仍走大图弹窗
+   (历史事故: 此处曾有半截 .side-qr 声明被误并入注释, 选择器已随功能删除, 残骸一并清掉) */
 /* 系统开启「减弱动态效果」: 停流光扫描线、双 C 呼吸环与面板滑入。 */
 @media (prefers-reduced-motion: reduce) {
   .qr-pet-scan { display: none; }
@@ -362,11 +343,22 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
   .qr-pet:not(.expanded):hover .qr-pet-shell { transform: none; }
 }
 
+/* 全局兜底: 任何新写的动画/过渡在「减弱动态效果」下一律瞬时完成(验收线: 停用动画)。
+   单个 @keyframes(toast/radar/spin/breathe 等) 不再逐个补 reduce 块; 需要可见进度的
+   宽度/位移过渡同样被压缩为瞬时, 不影响功能反馈(状态仍会到达终态)。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px 10px 12px; border-top: 1px solid var(--card-border); }
 
 .side-ver { text-align: center; font-size: 10.5px; letter-spacing: .3px; color: var(--text3); opacity: .9; }
 
-/* 展开/收起按钮(侧边栏底部) */
 /* 展开/收起按钮(侧边栏底部) */
 .collapse-btn {
     display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -413,12 +405,10 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 
 /* ===== 主区 ===== */
-/* ===== 主区 ===== */
 .main { flex: 1; overflow-y: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; }
 
 
 
-/* 视图内容撑满视口, 消除底部空白 */
 /* 视图内容撑满视口, 消除底部空白 */
 .main > .card:last-child { flex: 1; margin-bottom: 0; }
 
@@ -429,12 +419,8 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .main > .card:last-child .svc-box { flex: 1; display: flex; flex-direction: column; }
 
 /* 共享文件卡: 占满"使用说明"移除后的剩余高度, 列表在卡内滚动;
-   卡片贴住页脚上方, 间距由页脚自带 padding 提供(与原 hint-card 拉伸行为一致) */
-/* 共享文件卡: 占满"使用说明"移除后的剩余高度, 列表在卡内滚动;
-   卡片贴住页脚上方 { flex: 1 1 auto; min-height: 0; margin-bottom: 0; display: flex; flex-direction: column; }
-
-/* 顶栏: 标题/副标题保持左侧原样式; 运行状态+地址栏+复制/二维码/浏览器按钮
-   作为一组靠右上。空间不足时整组自动换到下一行并占满宽度(flex-wrap 自适应)。 */
+   卡片贴住页脚上方, 间距由页脚自带 padding 提供(与原 hint-card 拉伸行为一致)
+   (历史事故: 此处曾有半截 .files-card 声明被误并入注释, 选择器已随改版删除, 残骸一并清掉) */
 /* 顶栏: 标题/副标题保持左侧原样式; 运行状态+地址栏+复制/二维码/浏览器按钮
    作为一组靠右上。空间不足时整组自动换到下一行并占满宽度(flex-wrap 自适应)。 */
 .topbar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; margin-bottom: 10px; }
@@ -513,7 +499,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .chip.stop { background: rgba(255,255,255,0.05); color: var(--text2); border: 1px solid var(--card-border); }
 
 /* 运行徽标: 三圆点由小到大依次点亮(波浪), 醒目的"实时"指示 */
-/* 运行徽标: 三圆点由小到大依次点亮(波浪), 醒目的"实时"指示 */
 
 
 
@@ -540,7 +525,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 
 /* 文件表 */
-/* 文件表 */
 .list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
 
 .list-head h3 { margin-bottom: 0; }
@@ -565,7 +549,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 /* 不用 :active 缩放: 过渡期内按钮缩离指针, 快速单击的 mouseup 落到行上 → click 不触发 */
 
-/* 五色区分:打开蓝 / 下载紫 / 复制橙 / 删除灰→红 / 分享绿 */
 /* 五色区分:打开蓝 / 下载紫 / 复制橙 / 删除灰→红 / 分享绿 */
 
 
@@ -596,7 +579,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 极窄屏下「昵称:」不能被拆成两行; 输入框允许收缩, 不顶出容器 */
 
 /* 消息内代码块与行内代码 */
-/* 消息内代码块与行内代码 */
 .chat-code { background: #0b0f16; border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-family: "SF Mono",Menlo,Consolas,monospace; font-size: 12px; line-height: 1.6; color: #c9d6e8; margin: 4px 0; }
 
 .chat-code code { background: none; padding: 0; border: none; }
@@ -606,13 +588,11 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 /* 单条消息操作: 桌面悬停/键盘聚焦显现, 触屏常驻半透明 —— 不挤压正文, 也不抢视觉 */
 
 /* 聊天消息内链接: 悬停变绿 + 提示跳转 */
-/* 聊天消息内链接: 悬停变绿 + 提示跳转 */
 .chat-link { color: #6ea8ff; text-decoration: none; border-bottom: 1px dashed rgba(110,168,255,0.55); cursor: pointer; transition: all var(--transition); word-break: break-all; }
 
 .chat-link:hover { color: #5de8a0; border-bottom: 1px solid #5de8a0; }
 
 
-/* 服务与日志页: 控制卡通栏, 底部日志拉伸吃满剩余高度(扫码卡/顶部地址重复区已删 —— 与顶栏冗余) */
 /* 服务与日志页: 控制卡通栏, 底部日志拉伸吃满剩余高度(扫码卡/顶部地址重复区已删 —— 与顶栏冗余) */
 .svc-ctrl { display: flex; flex-direction: column; }
 
@@ -657,7 +637,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .svc-box .logs { height: 170px; overflow-y: auto; overflow-x: hidden; font-family: "SF Mono",Menlo,Consolas,monospace; font-size: 12px; line-height: 1.7; color: var(--text2); word-break: break-all; overflow-wrap: anywhere; }
 
 /* 结构化日志行(loguru 形态): 行内流式排布 —— 换行自然折回行首, 不产生悬挂缩进 */
-/* 结构化日志行(loguru 形态): 行内流式排布 —— 换行自然折回行首, 不产生悬挂缩进 */
 .log-line { padding: 1px 0; font-size: 12px; line-height: 1.7; color: var(--text2); word-break: break-all; }
 
 .log-ts { color: var(--text3); }
@@ -686,7 +665,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 .log-empty { color: var(--text3); text-align: center; padding: 24px 0; }
 
-/* 日志关键词搜索: 标题行右侧, 与清空按钮同高 */
 /* 日志关键词搜索: 标题行右侧, 与清空按钮同高 */
 .log-search {
     display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px;
@@ -735,7 +713,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .app-foot { margin-top: auto; padding-top: 10px; text-align: center; color: var(--text3); font-size: 12px; user-select: none; }
 
 /* 版本更新: 关于页版本行 + 更新弹框 */
-/* 版本更新: 关于页版本行 + 更新弹框 */
 .about-ver { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 
 .ver-chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); color: var(--text2); }
@@ -752,7 +729,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 .upd-notes { margin: 0 0 4px; padding: 10px 12px; border-radius: var(--radius-xs); background: rgba(255,255,255,0.04); border: 1px solid var(--card-border); font-family: inherit; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 168px; overflow-y: auto; color: var(--text2); text-align: left; }
 
-/* CC设置页: 设置行 + iOS 风格开关 */
 /* CC设置页: 设置行 + iOS 风格开关 */
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 0; }
 
@@ -775,10 +751,8 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* 失联全屏: 电视"无信号"测试卡(网页端专用, 电脑/手机浏览器表现一致); 层级低于 toast, 高于其余全部 */
-/* 失联全屏: 电视"无信号"测试卡(网页端专用, 电脑/手机浏览器表现一致); 层级低于 toast, 高于其余全部 */
 .nosignal-overlay { position: fixed; inset: 0; z-index: 1002; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
 
-/* 移动壳连接门: 未配置电脑地址时的全屏引导(压过一切页面内容, 高于 nosignal) */
 /* 移动壳连接门: 未配置电脑地址时的全屏引导(压过一切页面内容, 高于 nosignal) */
 .cg-loading { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-bg); animation: dotWave 1.2s ease-in-out infinite; }
 
@@ -806,9 +780,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 
 .nosignal-overlay h3 { margin: 14px 0 0; font-size: 20px; }
 
-.nosignal-overlay .ns-line { margin: 4px 0 0; color: var(--text2); font-size: 13.5px; }
+.nosignal-overlay .ns-line { margin: 4px 0 0; color: var(--text2); font-size: 13.5px; line-height: 1.7; max-width: 560px; }
 
-.nosignal-overlay .ns-sub { margin: 0; color: var(--text3); font-size: 12.5px; }
+.nosignal-overlay .ns-sub { margin: 0; color: var(--text3); font-size: 12.5px; line-height: 1.7; max-width: 560px; }
 
 /* 网页端页头: 品牌左 + 状态/复制/二维码右, 单行排布; 窄屏标题区自动压缩 */
 
@@ -820,7 +794,6 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
     /* 窄屏页头: 收紧间距与控件尺寸, 标题区可压缩, 保证一行放得下 */
     /* 手机: 聊天走悬浮球 + 底部面板, 与 PyQt 版一致 */
 
-    /* 窄屏顶栏: 状态+复制/二维码/浏览器按钮与主标题同一行, 靠右; 标题区可收缩 */
     /* 窄屏顶栏: 状态+复制/二维码/浏览器按钮与主标题同一行, 靠右; 标题区可收缩 */
     .topbar { flex-wrap: nowrap; }
 
@@ -836,11 +809,9 @@ body.pet-bg-clear { overflow: hidden; background: transparent; }
 }
 
 /* 超窄屏(320px 级): 页头控件收紧, 保证品牌名与状态/图标同行不折行 */
-/* 超窄屏(320px 级): 页头控件收紧, 保证品牌名与状态/图标同行不折行 */
 @media (max-width: 360px) {
 }
 
-/* 再窄就舍弃副标题(纯装饰), 优先保证品牌与状态可读 */
 /* 再窄就舍弃副标题(纯装饰), 优先保证品牌与状态可读 */
 @media (max-width: 340px) {
   /* 超窄屏优先保住「消息发送」标题：状态胶囊只留呼吸点 */
@@ -860,9 +831,8 @@ body:has(.tx-composer) .toast-container { bottom: calc(92px + env(safe-area-inse
 body:has(.shell.has-mobile-tabs) .toast-container { bottom: calc(148px + env(safe-area-inset-bottom, 0px)); }
 body:has(.dialog-overlay) .toast-container { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); }
 
-.toast-msg { padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease; border: 1px solid var(--card-border); display: flex; align-items: center; gap: 12px; }
+.toast-msg { padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); animation: toastIn 0.3s ease; border: 1px solid var(--card-border); display: flex; align-items: center; gap: 12px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
 
-/* Toast 内操作(撤销): 文本色按钮, 不抢提示本身 */
 /* Toast 内操作(撤销): 文本色按钮, 不抢提示本身 */
 .toast-act { flex-shrink: 0; padding: 2px 6px; border: none; border-radius: 5px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 700; cursor: pointer; }
 
@@ -870,7 +840,6 @@ body:has(.dialog-overlay) .toast-container { bottom: auto; top: calc(12px + env(
 
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
-/* 窄屏: 提示条抬高到悬浮球/聊天输入栏之上并右对齐, 避免遮挡发送按钮 */
 /* 窄屏: 提示条抬高到悬浮球/聊天输入栏之上并右对齐, 避免遮挡发送按钮 */
 @media (max-width: 980px) {
     .toast-container { left: 16px; right: 16px; max-width: none; align-items: flex-end; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
@@ -881,7 +850,6 @@ body:has(.dialog-overlay) .toast-container { bottom: auto; top: calc(12px + env(
 .toast-error { background: rgba(242,89,107,0.2); color: #f57483; }
 
 /* 点对点发送弹框 */
-/* 点对点发送弹框 */
 
 
 
@@ -890,7 +858,6 @@ body:has(.dialog-overlay) .toast-container { bottom: auto; top: calc(12px + env(
 
 
 
-/* ===== 应用内文件预览: 全屏层 + 顶部关闭按钮(关闭即回聊天) ===== */
 /* ===== 应用内文件预览: 全屏层 + 顶部关闭按钮(关闭即回聊天) ===== */
 .pv-overlay {
     position: fixed; inset: 0; z-index: 1004;
@@ -952,7 +919,6 @@ body:has(.dialog-overlay) .toast-container { bottom: auto; top: calc(12px + env(
 
 
 /* 弹层允许滚动: iOS 键盘弹出/横屏矮视口时按钮不能被挤出屏幕 */
-/* 弹层允许滚动: iOS 键盘弹出/横屏矮视口时按钮不能被挤出屏幕 */
 .dialog-overlay {
     /* 配对/删除/二维码/昵称等模态必须高于预览与附近设备层: 401 时配对框不能被
        预览层(1004)或 peer 层(1003)盖住, 否则用户只看到"加载失败"却找不到输入框 */
@@ -982,7 +948,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 访问码配对弹框: 精简两行式 —— 标题 + 一句副题 + 居中输入 + 通栏渐变按钮 */
-/* 访问码配对弹框: 精简两行式 —— 标题 + 一句副题 + 居中输入 + 通栏渐变按钮 */
 .pin-box { max-width: 320px; }
 .dialog-ic { width: 42px; height: 42px; margin: 0 auto 10px; border-radius: 13px; display: grid; place-items: center; background: var(--accent-bg); color: var(--accent-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent); }
 
@@ -1003,7 +968,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .pin-box .pin-btn:active { transform: scale(0.98); }
 
 
-/* 窄屏:侧栏变顶部导航 */
 /* 窄屏:侧栏变顶部导航 */
 @media (max-width: 980px) {
     .shell { flex-direction: column; height: auto; min-height: 100vh; }
@@ -1057,11 +1021,9 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 微信内打开提示条 */
-/* 微信内打开提示条 */
 .wx-banner { position: sticky; top: 0; z-index: 940; flex: 0 0 auto; width: 100%; background: rgba(7,193,96,0.15); color: var(--accent-text); border-bottom: 1px solid rgba(7,193,96,0.35); padding: 8px 14px; text-align: center; font-size: 12.5px; line-height: 1.5; }
 
 
-/* ===== 服务配置输入 ===== */
 /* ===== 服务配置输入 ===== */
 .svc-input { width: 100%; padding: 8px 12px; font-size: 13.5px; font-family: "SF Mono","Cascadia Code",Consolas,monospace; border: 1px solid var(--card-border); border-radius: var(--radius-xs); background: rgba(255,255,255,0.04); color: var(--text); outline: none; transition: border-color var(--transition); }
 
@@ -1098,7 +1060,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* ===== 侧边栏「介绍」入口(桌面端) ===== */
-/* ===== 侧边栏「介绍」入口(桌面端) ===== */
 .intro-entry {
     display: inline-flex; align-items: center; gap: 4px;
     height: 22px; padding: 0 8px; border-radius: 999px; flex-shrink: 0;
@@ -1120,7 +1081,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* ===== 软件介绍页(桌面端全屏 overlay, 设计稿 docs/软件介绍页设计稿.html) ===== */
-/* ===== 软件介绍页(桌面端全屏 overlay, 设计稿 docs/软件介绍页设计稿.html) ===== */
 .intro-overlay {
     /* z-index 970: 高于聊天面板(950)/失联横幅(940), 低于弹框(998)/Toast(1001) ——
        否则启动后静默检查更新发现新版本时, 更新弹框会被盖在介绍页下面看不见也点不掉 */
@@ -1133,13 +1093,11 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 }
 
 /* 开合过渡: 配合模板 <Transition name="intro">, v-if 挂载/卸载时自动应用 */
-/* 开合过渡: 配合模板 <Transition name="intro">, v-if 挂载/卸载时自动应用 */
 .intro-enter-active, .intro-leave-active { transition: opacity 0.28s ease, transform 0.28s ease; }
 
 .intro-enter-from, .intro-leave-to { opacity: 0; transform: translateY(14px); }
 
 
-/* 粘性顶栏 */
 /* 粘性顶栏 */
 .intro-overlay .ihead {
     position: sticky; top: 0; z-index: 50;
@@ -1194,7 +1152,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 通用区块节奏(eyebrow → h2 → lead) */
-/* 通用区块节奏(eyebrow → h2 → lead) */
 .intro-overlay .sec { max-width: 1080px; margin: 0 auto; padding: 64px 24px; }
 
 .intro-overlay .sec + .sec { border-top: 1px solid var(--card-border); }
@@ -1204,7 +1161,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .intro-overlay .lead { font-size: 15px; color: var(--text2); line-height: 1.85; max-width: 640px; }
 
 
-/* Hero */
 /* Hero */
 .intro-overlay .hero { max-width: 1080px; margin: 0 auto; padding: 64px 24px 38px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 52px; align-items: center; }
 
@@ -1232,7 +1188,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .intro-overlay .feat-chip .tick { color: var(--success); font-weight: 700; }
 
 
-/* Hero 右侧: 应用窗口示意(纯 CSS) */
 /* Hero 右侧: 应用窗口示意(纯 CSS) */
 .intro-overlay .hero-visual {
     background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
@@ -1295,7 +1250,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 功能四卡片 */
-/* 功能四卡片 */
 .intro-overlay .card {
     background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius);
     padding: 24px 22px; transition: all var(--transition);
@@ -1322,7 +1276,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 三步上手 */
-/* 三步上手 */
 .intro-overlay .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 38px; }
 
 .intro-overlay .step {
@@ -1342,7 +1295,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .intro-overlay .step p { font-size: 13px; color: var(--text2); line-height: 1.8; }
 
-.intro-overlay .step code, .intro-overlay .pt code, .intro-overlay .code-note code {
+.intro-overlay .step code, .intro-overlay .pt code {
     font-family: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
     font-size: 11.5px; color: var(--accent-text);
     background: rgba(255,255,255,0.06); border: 1px solid var(--card-border);
@@ -1350,7 +1303,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 }
 
 
-/* 可靠性四点 */
 /* 可靠性四点 */
 .intro-overlay .points { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 38px; }
 
@@ -1369,42 +1321,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .intro-overlay .pt p { font-size: 13px; color: var(--text2); line-height: 1.8; }
 
 
-/* 代码卡片 */
-/* 代码卡片 */
-.intro-overlay .codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 20px; }
-
-.intro-overlay .code-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px; }
-
-.intro-overlay .code-card h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 7px; display: flex; align-items: center; gap: 8px; }
-
-.intro-overlay .code-card > p { font-size: 12.5px; color: var(--text2); line-height: 1.75; margin-bottom: 14px; }
-
-.intro-overlay .code-box {
-    position: relative; background: #0a0d13; border: 1px solid var(--card-border);
-    border-radius: var(--radius-sm); padding: 14px 16px;
-    font-family: "SF Mono", Menlo, Consolas, "Cascadia Code", monospace; font-size: 12px; line-height: 1.8; color: #b7c3de;
-    white-space: pre-wrap; word-break: break-all;
-}
-
-.intro-overlay .code-box .cm { color: var(--text3); }
-
-.intro-overlay .code-copy {
-    position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px;
-    border-radius: 6px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.05);
-    color: var(--text3); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit;
-    transition: all var(--transition);
-}
-
-.intro-overlay .code-copy:hover { color: var(--accent-text); border-color: rgba(79,138,247,0.4); }
-
-.intro-overlay .code-note { margin-top: 14px; font-size: 12px; color: var(--text3); line-height: 1.7; }
-
-.intro-overlay .code-note a { color: var(--accent-text); font-weight: 600; cursor: pointer; }
-
-.intro-overlay .code-note a:hover { text-decoration: underline; }
-
-
-/* FAQ 手风琴 */
 /* FAQ 手风琴 */
 .intro-overlay .faq { margin-top: 34px; display: flex; flex-direction: column; gap: 10px; max-width: 780px; }
 
@@ -1431,35 +1347,32 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 页脚 */
-/* 页脚 */
 .intro-overlay .ifoot { border-top: 1px solid var(--card-border); background: var(--bg2); }
 
 .intro-overlay .ifoot-in {
-    max-width: 1080px; margin: 0 auto; padding: 36px 24px;
-    display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+    max-width: 1080px; margin: 0 auto; padding: 30px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px 18px; flex-wrap: wrap;
 }
 
 .intro-overlay .ifoot-brand { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; }
 
 .intro-overlay .ifoot-brand .ib-lg { width: 30px; height: 30px; border-radius: 8px; }
 
-.intro-overlay .ifoot-links { display: flex; gap: 22px; font-size: 13px; color: var(--text2); }
+/* 版权靠右: 与品牌同一行(空间不足自动换行整行右对齐), 页脚只保留"品牌 + 版权"两要素 */
+.intro-overlay .ifoot-copy { font-size: 12px; color: var(--text3); margin-left: auto; text-align: right; }
 
-.intro-overlay .ifoot-links a { cursor: pointer; color: inherit; }
-
-.intro-overlay .ifoot-links a:hover { color: var(--accent-text); }
-
-.intro-overlay .ifoot-copy { font-size: 12px; color: var(--text3); width: 100%; text-align: center; padding-top: 6px; }
+@media (max-width: 700px) {
+    .intro-overlay .ifoot-copy { width: 100%; margin-left: 0; text-align: center; }
+}
 
 
-/* 介绍页响应式 */
 /* 介绍页响应式 */
 @media (max-width: 900px) {
     .intro-overlay .hero { grid-template-columns: 1fr; padding: 56px 22px; gap: 40px; }
     .intro-overlay .hero h1 { font-size: 34px; }
     .intro-overlay .inav { display: none; }
     .intro-overlay .steps { grid-template-columns: 1fr; }
-    .intro-overlay .points, .intro-overlay .codes { grid-template-columns: 1fr; }
+    .intro-overlay .points { grid-template-columns: 1fr; }
     .intro-overlay .sec { padding: 48px 22px; }
     .intro-overlay .sec h2 { font-size: 25px; }
 }
@@ -1486,7 +1399,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 }
 
 /* 支持 color-mix 的内核(Safari 16.2+/Chrome 111+)再升级为随主题强调色 */
-/* 支持 color-mix 的内核(Safari 16.2+/Chrome 111+)再升级为随主题强调色 */
 @supports (color: color-mix(in srgb, red 1%, blue)) {
     [data-mode="light"] {
         --accent-bg: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -1494,7 +1406,14 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     }
 }
 
-/* 暗色皮肤惯用的"白色微透表面"在亮底下不可见: 亮色下统一换黑基微透(仅亮色生效, 深色零改动) */
+/* 亮色下裸 accent 文本(日志级别/方法名/移动统计数字)必须走加深的 --accent-text:
+   主题原色 --accent 直接当正文在浅底上对比度不足(rose #d96386≈3.2:1 / mint #35c299≈2.1:1,
+   低于 AA 4.5:1)。边框/图标不受此限(图形 3:1 即可)。 */
+[data-mode="light"] .lvl-info,
+[data-mode="light"] .log-method,
+[data-mode="light"] .shell.has-mobile-tabs .m-dev-stats b,
+[data-mode="light"] .shell.has-mobile-tabs .m-drop b { color: var(--accent-text); }
+
 /* 暗色皮肤惯用的"白色微透表面"在亮底下不可见: 亮色下统一换黑基微透(仅亮色生效, 深色零改动) */
 [data-mode="light"] .nav-item:hover { background: rgba(15,23,42,0.05); }
 
@@ -1517,13 +1436,11 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 [data-mode="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,0.28); }
 
 /* toast 文字原为浅色系, 亮底下换深色保证可读 */
-/* toast 文字原为浅色系, 亮底下换深色保证可读 */
 [data-mode="light"] .toast-success { background: rgba(52,201,124,0.14); color: #0e7a44; }
 
 [data-mode="light"] .toast-error { background: rgba(242,89,107,0.12); color: #c0263d; }
 
 
-/* 主题模式分段选择(皮肤设置卡): 与文件页排序器同款的分段控制器, 不再是三块独立大按钮 */
 /* 主题模式分段选择(皮肤设置卡): 与文件页排序器同款的分段控制器, 不再是三块独立大按钮 */
 .mode-row { display: flex; gap: 2px; flex: 1; min-width: 0; width: auto; background: rgba(255,255,255,0.04); border: 1px solid var(--card-border); border-radius: var(--radius-xs); padding: 2px; }
 
@@ -1562,7 +1479,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .main.transfer-main { padding: 0 !important; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
 /* 传输页主区无边距, 顶部栏(标题 + 地址行)自带内距, 不挤压对话区 */
-/* 传输页主区无边距, 顶部栏(标题 + 地址行)自带内距, 不挤压对话区 */
 .main.transfer-main > .topbar { flex-shrink: 0; padding: 14px 16px 0; margin-bottom: 8px; }
 
 .transfer-page { flex: 1; min-height: 0; display: flex; background: var(--bg); position: relative; }
@@ -1571,7 +1487,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 房间头 */
-/* 房间头 */
 .tx-head {
     height: 58px; flex-shrink: 0; display: flex; align-items: center; gap: 9px;
     padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--card-border);
@@ -1579,14 +1494,11 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 }
 
 /* 桌面壳顶部已有完整标题与地址栏, 房间头压成一条轻量工具条, 只留房间徽标与右侧操作 */
-/* 桌面壳顶部已有完整标题与地址栏, 房间头压成一条轻量工具条, 只留房间徽标与右侧操作 */
 .tx-head.slim { height: 50px; padding: 0 12px; }
 
 /* 桌面壳工具条左侧的轻量状态提示: 填充空白, 不抢视觉 */
-/* 桌面壳工具条左侧的轻量状态提示: 填充空白, 不抢视觉 */
 .tx-room-brief { display: flex; align-items: center; font-size: 12.5px; color: var(--text3); white-space: nowrap; }
 
-/* 附近设备(最小实现): 已连接/最近活跃的局域网设备 */
 /* 附近设备(最小实现): 已连接/最近活跃的局域网设备 */
 
 
@@ -1612,7 +1524,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .tx-room-head h2 { min-width: 0; }
 
-/* 浏览器/移动端房间头的运行状态胶囊: 比顶栏版更紧凑 */
 /* 浏览器/移动端房间头的运行状态胶囊: 比顶栏版更紧凑 */
 .tx-room-head .chip { padding: 3px 9px; font-size: 11.5px; gap: 5px; flex-shrink: 0; }
 
@@ -1647,7 +1558,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .tx-hbtn b { font-size: 10px; font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--bg2); color: var(--text2); border-radius: 8px; padding: 2px 5px; }
 
-/* 桌面端首次使用: 文件夹按钮呼吸提示 + 指向按钮的气泡卡片(不自动收起) */
 /* 桌面端首次使用: 文件夹按钮呼吸提示 + 指向按钮的气泡卡片(不自动收起) */
 .tx-hbtn.hint-pulse { border-color: var(--accent); color: var(--accent-text); animation: hintPulse 1.9s ease-in-out infinite; }
 
@@ -1718,7 +1628,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 时间线 */
-/* 时间线 */
 .tx-list {
     flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
     padding: 14px 18px 8px; position: relative;
@@ -1739,10 +1648,8 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .tx-msg.out .tx-ava { order: -1; }
 
 /* 气泡宽度跟内容走: 默认 stretch 会被下方"时间+图标"行撑宽, 短消息出现大片空白 */
-/* 气泡宽度跟内容走: 默认 stretch 会被下方"时间+图标"行撑宽, 短消息出现大片空白 */
 .tx-col { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: min(72%, 560px); }
 
-/* row-reverse 已把整行靠右; 这里不能再 margin-left:auto, 否则底行会被推到聊天区最左 */
 /* row-reverse 已把整行靠右; 这里不能再 margin-left:auto, 否则底行会被推到聊天区最左 */
 .tx-msg.out .tx-col { align-items: flex-end; }
 
@@ -1754,7 +1661,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .tx-msg.out .tx-name, .tx-file.out .tx-name { flex-direction: row-reverse; margin: 0 2px 3px 0; }
 
-/* 聊天气泡统一浅底黑字: 深色主题下也保证正文可读, 发送方用强调色浅色调区分 */
 /* 聊天气泡统一浅底黑字: 深色主题下也保证正文可读, 发送方用强调色浅色调区分 */
 .tx-bubble {
     background: #fff; border: 1px solid rgba(0,0,0,0.08);
@@ -1814,12 +1720,10 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 }
 
 /* 气泡下方一行: 时间靠头像侧, 三个操作图标靠另一侧(微信式) */
-/* 气泡下方一行: 时间靠头像侧, 三个操作图标靠另一侧(微信式) */
 .tx-foot { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; }
 
 .tx-msg.out .tx-foot { flex-direction: row-reverse; }
 
-/* 气泡引用块: 与正文同处 v-html, 左侧竖线 + 单行省略 */
 /* 气泡引用块: 与正文同处 v-html, 左侧竖线 + 单行省略 */
 .tx-quote { border-left: 2px solid currentColor; opacity: .75; padding: 1px 0 1px 8px; margin-bottom: 6px; font-size: 11.5px; line-height: 1.45; max-width: 100%; overflow: hidden; }
 
@@ -1827,7 +1731,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .tx-quote span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 
-/* 气泡内 Markdown 块级元素: 标题/列表/引用/分割线/段落 */
 /* 气泡内 Markdown 块级元素: 标题/列表/引用/分割线/段落 */
 .tx-bubble .chat-p { margin: 0; }
 
@@ -1865,7 +1768,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .tx-msg-acts { display: flex; gap: 0; flex-shrink: 0; opacity: 0; pointer-events: none; transition: opacity .15s; }
 
 /* 发送方(自己)镜像: 复制·引用·删除; 接收方(他人): 删除·引用·复制 */
-/* 发送方(自己)镜像: 复制·引用·删除; 接收方(他人): 删除·引用·复制 */
 .tx-msg.out .tx-msg-acts { flex-direction: row-reverse; }
 
 .tx-msg:hover .tx-msg-acts, .tx-msg.active .tx-msg-acts, .tx-msg:focus-within .tx-msg-acts { opacity: 1; pointer-events: auto; }
@@ -1881,7 +1783,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .tx-msg-acts button.danger:hover { background: var(--danger-bg); color: var(--danger); }
 .tx-msg-acts button.copied { background: var(--success-bg); color: var(--success); }
 
-/* 引用输入条: 紧贴输入区上沿, 与 composer 共用 panel 背景 */
 /* 引用输入条: 紧贴输入区上沿, 与 composer 共用 panel 背景 */
 .tx-quoting {
     flex-shrink: 0; display: flex; align-items: center; gap: 8px;
@@ -1899,14 +1800,12 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 文件卡片 */
-/* 文件卡片 */
 .tx-file { display: flex; gap: 8px; margin: 11px 0; align-items: flex-start; }
 
 .tx-file.out { flex-direction: row-reverse; }
 
 .tx-file.out .tx-ava { order: -1; }
 
-/* 文件消息与文本消息一致: 昵称在卡片上方, 头像在另一侧 */
 /* 文件消息与文本消息一致: 昵称在卡片上方, 头像在另一侧 */
 .tx-file-col { display: flex; flex-direction: column; min-width: 0; max-width: calc(100% - 44px); }
 
@@ -1982,7 +1881,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 文件组 */
-/* 文件组 */
 .tx-groupcard {
     width: min(340px, 100%); background: var(--card);
     border: 1px solid var(--card-border); border-radius: 10px; padding: 10px; box-shadow: var(--shadow);
@@ -2022,7 +1920,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .tx-grow button { border: none; background: none; color: var(--accent-text); font-size: 10px; cursor: pointer; padding: 0 2px; }
 
 
-/* 上传总览 / 输入栏 / ＋ 面板 */
 /* 上传总览 / 输入栏 / ＋ 面板 */
 .tx-upload-strip {
     flex-shrink: 0; height: 26px; display: flex; align-items: center; gap: 8px;
@@ -2104,7 +2001,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 空态 / 停服 / 拖拽 */
-/* 空态 / 停服 / 拖拽 */
 .tx-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 5px; color: var(--text3); }
 
 .tx-empty-ic { color: var(--text3); font-size: 34px; display: flex; align-items: center; justify-content: center; }
@@ -2140,7 +2036,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 共享文件抽屉 / 面板 */
-/* 共享文件抽屉 / 面板 */
 .tx-files {
     /* 宽度随窗口适度放宽(320~380), 给文件名与「大小 · 月-日 时:分」留足一行空间;
        窄桌面(981–1180)改为覆盖式抽屉, 不再挤压聊天区 */
@@ -2159,7 +2054,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .tx-count { font-size: 11px; font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--bg2); color: var(--text2); border-radius: 9px; padding: 2px 6px; }
 
-/* 共享文件有新内容但抽屉关闭时的提示点 */
 /* 共享文件有新内容但抽屉关闭时的提示点 */
 .tx-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 24%, transparent); vertical-align: middle; }
 
@@ -2219,7 +2113,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .tx-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
 /* 可点击缩略图: 点击 = 打开(桌面)/预览或下载(浏览器端) */
-/* 可点击缩略图: 点击 = 打开(桌面)/预览或下载(浏览器端) */
 .tx-ficon.clickable, .tx-thumb.clickable { cursor: pointer; }
 
 .tx-ficon.clickable:hover, .tx-thumb.clickable:hover { filter: brightness(1.12); }
@@ -2232,13 +2125,13 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 .tx-frow-acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
 
-.tx-frow:hover .tx-frow-acts, .tx-frow.located .tx-frow-acts { opacity: 1; }
+/* 键盘 Tab 聚焦行内按钮时必须显形: 只有 :hover 会让不可见控件可操作且无焦点提示 */
+.tx-frow:hover .tx-frow-acts, .tx-frow:focus-within .tx-frow-acts, .tx-frow.located .tx-frow-acts { opacity: 1; }
 
 @media (hover: none) {
  .tx-frow-acts { opacity: 1; }
 }
 
-/* 行内操作: 统一线性图标 + 同尺寸热区, 删除走危险色, 避免 emoji/字符混排 */
 /* 行内操作: 统一线性图标 + 同尺寸热区, 删除走危险色, 避免 emoji/字符混排 */
 .tx-frow-acts button {
     width: 26px; height: 26px; padding: 0; border: 1px solid transparent; background: none;
@@ -2273,7 +2166,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 移动端文件操作面板 */
-/* 移动端文件操作面板 */
 .tx-action-overlay { position: fixed; inset: 0; z-index: 980; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; }
 
 .tx-action-sheet {
@@ -2293,7 +2185,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 @media (max-width: 980px) {
     /* fixed + visualViewport 高度/偏移: 键盘弹出时整页不滚动, 输入区始终贴键盘上方 */
-    /* fixed + visualViewport 高度/偏移: 键盘弹出时整页不滚动, 输入区始终贴键盘上方 */
     .shell.transfer-active { position: fixed; top: var(--app-vv-top, 0); left: 0; right: 0; height: 100vh; height: var(--app-vh, 100dvh); min-height: 0; }
 
     .tx-head { height: 52px; padding: 0 11px; gap: 7px; }
@@ -2309,14 +2200,12 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     .tx-hbtn.icon { width: 27px; }
 
     /* 窄屏页头只留高频入口: 清空消息收进「⋯」菜单, 标题不再被挤压 */
-    /* 窄屏页头只留高频入口: 清空消息收进「⋯」菜单, 标题不再被挤压 */
     .tx-clear-btn { display: none; }
 
     .app-foot { font-size: 10.5px; padding: 6px 0; }
 
     .tx-me { width: 27px; height: 27px; font-size: 14px; }
 
-    /* 移动 App 适配: 刘海/状态栏/横屏安全区 + 触控热区 */
     /* 移动 App 适配: 刘海/状态栏/横屏安全区 + 触控热区 */
     .tx-head { height: calc(52px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); padding-left: max(11px, env(safe-area-inset-left, 0px)); padding-right: max(11px, env(safe-area-inset-right, 0px)); }
 
@@ -2349,12 +2238,10 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     .tx-plus { width: 32px; height: 32px; }
 
     /* iOS Safari 聚焦 <16px 的输入框会自动放大整页, 导致右侧发送按钮被裁切 */
-    /* iOS Safari 聚焦 <16px 的输入框会自动放大整页, 导致右侧发送按钮被裁切 */
     .tx-input { height: 40px; max-height: 140px; font-size: 16px; padding: 8px 12px; }
 
     .tx-send { height: 38px; padding: 0 18px; font-size: 13px; }
 
-    /* 手机浏览器: 正文与文件列表字号整体上调, 提升可读性 */
     /* 手机浏览器: 正文与文件列表字号整体上调, 提升可读性 */
     .tx-bubble { font-size: 15px; }
 
@@ -2420,7 +2307,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     .tx-frow-acts { opacity: 1; }
 
     /* 触屏可读性/可点性: iOS 输入框 <16px 会缩放整页; 操作热区放大到接近 44px */
-    /* 触屏可读性/可点性: iOS 输入框 <16px 会缩放整页; 操作热区放大到接近 44px */
     .svc-input, .cg-row input, .connect-card input { font-size: 16px; }
 
     .tx-file-actions button { font-size: 12.5px; padding: 7px 5px; }
@@ -2432,7 +2318,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
     .tx-pg button { min-width: 28px; height: 28px; font-size: 13px; }
 }
 
-/* 横屏/矮屏: 收起空态插画, 文件面板略高, 把高度让给列表 */
 /* 横屏/矮屏: 收起空态插画, 文件面板略高, 把高度让给列表 */
 @media (max-width: 980px) and (max-height: 500px) {
     .tx-files { height: 92dvh; }
@@ -2453,7 +2338,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 
 
 /* 微信桌面客户端: 横幅必须是独立整行, 否则会变成左侧竖列压窄主区 */
-/* 微信桌面客户端: 横幅必须是独立整行, 否则会变成左侧竖列压窄主区 */
 .shell.has-wx-banner { flex-wrap: wrap; }
 
 .shell.has-wx-banner > .wx-banner { flex: 0 0 auto; width: 100%; }
@@ -2466,12 +2350,6 @@ input::placeholder, textarea::placeholder { color: var(--text3); opacity: 1; }
 .shell.real-desktop.transfer-active { height: 100vh; }
 
 
-/* ============================================================
- * iOS / 触屏体验优化
- * - 关闭移动端 backdrop-filter(滚动/键盘动画时重绘代价高)
- * - 减少 transition:all 与滚动容器内的无谓重绘
- * - 加大附近设备/头按钮的触控热区(Snapdrop 式大目标)
- * ============================================================ */
 /* ============================================================
  * iOS / 触屏体验优化
  * - 关闭移动端 backdrop-filter(滚动/键盘动画时重绘代价高)
@@ -2498,7 +2376,6 @@ button, a, [role="button"], .tx-frow, .tx-hbtn {
 @media (max-width: 980px) {
 
     /* 全屏遮罩/预览层在 iOS 上 blur 很贵, 背景本身已足够不透明 */
-    /* 全屏遮罩/预览层在 iOS 上 blur 很贵, 背景本身已足够不透明 */
     .dialog-overlay, .pv-overlay {
         -webkit-backdrop-filter: none;
         backdrop-filter: none;
@@ -2508,13 +2385,11 @@ button, a, [role="button"], .tx-frow, .tx-hbtn {
     .dialog-overlay { background: rgba(0, 0, 0, .68); }
 
     /* 高频交互元素只过渡真正变化的属性 */
-    /* 高频交互元素只过渡真正变化的属性 */
     .btn, .tx-hbtn, .tx-frow, .tx-send {
         transition: background-color .15s ease, color .15s ease,
                     border-color .15s ease, transform .15s ease;
     }
 
-    /* 触控热区: 设备条与头部按钮不小于 32/34px */
     /* 触控热区: 设备条与头部按钮不小于 32/34px */
 
 
@@ -2525,15 +2400,9 @@ button, a, [role="button"], .tx-frow, .tx-hbtn {
 
 
 /* 视口基准: 主壳是 position:fixed, body 高度为 0 时 iOS WebKit 的滚动/地址栏行为会异常 */
-/* 视口基准: 主壳是 position:fixed, body 高度为 0 时 iOS WebKit 的滚动/地址栏行为会异常 */
 html, body { height: 100%; }
 
 
-/* ============================================================
- * 移动端安全区修正(横屏刘海/竖屏 Home 条)
- * 原媒体查询里后置的 padding shorthand 会把 left/right 的 safe-area 覆盖掉;
- * 这里用完整四边 padding 重新落地, 并修正菜单/跳转按钮的定位。
- * ============================================================ */
 /* ============================================================
  * 移动端安全区修正(横屏刘海/竖屏 Home 条)
  * 原媒体查询里后置的 padding shorthand 会把 left/right 的 safe-area 覆盖掉;
@@ -2568,7 +2437,6 @@ html, body { height: 100%; }
 
 
 /* 移动端“加载更早的消息” */
-/* 移动端“加载更早的消息” */
 .tx-more-btn {
     border: 1px solid var(--card-border);
     background: var(--card);
@@ -2584,12 +2452,10 @@ html, body { height: 100%; }
 
 
 /* 附近设备: 对方配对码输入 */
-/* 附近设备: 对方配对码输入 */
 
 
 
 
-/* 触屏点击后不常驻焦点环; 键盘导航仍保留可见焦点 */
 /* 触屏点击后不常驻焦点环; 键盘导航仍保留可见焦点 */
 button:focus:not(:focus-visible) { outline: none; }
 
@@ -2600,20 +2466,17 @@ button:focus-visible, [role="button"]:focus-visible {
 
 
 /* 超窄屏(≤380): 头部信息过密, 状态胶囊只留呼吸点, 隐藏副标题, 标题不再被截断 */
-/* 超窄屏(≤380): 头部信息过密, 状态胶囊只留呼吸点, 隐藏副标题, 标题不再被截断 */
 @media (max-width: 380px) {
     .tx-head .tx-room-title p { display: none; }
     .tx-head .chip { padding: 4px 8px; }
 }
 
 /* 桌面壳窄窗: 顶栏副标题与房间头 brief 重复, 只留顶栏 */
-/* 桌面壳窄窗: 顶栏副标题与房间头 brief 重复, 只留顶栏 */
 @media (max-width: 980px) {
     .tx-room-brief { display: none; }
 }
 
 
-/* 桌面壳窄窗: 顶栏副标题与主区标题重复, 隐藏以把高度让给时间线 */
 /* 桌面壳窄窗: 顶栏副标题与主区标题重复, 隐藏以把高度让给时间线 */
 @media (max-width: 980px) {
     .topbar .sub { display: none; }
@@ -2679,7 +2542,6 @@ button:focus-visible, [role="button"]:focus-visible {
 
 
 /* 移动设置页头 */
-/* 移动设置页头 */
 .m-pagehead {
     flex: 0 0 auto;
     padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 6px;
@@ -2698,16 +2560,13 @@ button:focus-visible, [role="button"]:focus-visible {
 
 
 /* ---------- 发现页 ---------- */
-/* ---------- 发现页 ---------- */
 
 
-/* 平板/横向: 设备卡片两列 */
 /* 平板/横向: 设备卡片两列 */
 @media (min-width: 560px) and (max-width: 980px) {
 }
 
 
-/* ---------- LocalSend 式点对点发送面板 ---------- */
 /* ---------- LocalSend 式点对点发送面板 ---------- */
 
 
@@ -2745,13 +2604,11 @@ button:focus-visible, [role="button"]:focus-visible {
 
 
 /* 平板横屏等宽视口: 有三标签时也强制上下布局, 标签始终贴底 */
-/* 平板横屏等宽视口: 有三标签时也强制上下布局, 标签始终贴底 */
 .shell.has-mobile-tabs { flex-direction: column; height: 100vh; height: var(--app-vh, 100dvh); min-height: 0; overflow: hidden; }
 
 .shell.has-mobile-tabs > .main { flex: 1; min-height: 0; }
 
 
-/* 手机首次运行: 局域网可见性询问 */
 /* 手机首次运行: 局域网可见性询问 */
 .lan-ask-box { max-width: 330px; }
 
@@ -2780,13 +2637,11 @@ button:focus-visible, [role="button"]:focus-visible {
 
 
 /* iOS 聚焦 <16px 输入框会缩放整页: 剪贴板/发送面板的 textarea 在移动端统一 16px */
-/* iOS 聚焦 <16px 输入框会缩放整页: 剪贴板/发送面板的 textarea 在移动端统一 16px */
 @media (max-width: 980px) {
 
 }
 
 
-/* 宽屏浏览器从「更多」进入发现页时的返回按钮 */
 /* 宽屏浏览器从「更多」进入发现页时的返回按钮 */
 
 
@@ -2799,7 +2654,6 @@ button:focus-visible, [role="button"]:focus-visible {
 
 
 
-/* 浏览器/移动端实时状态: 单绿点 + 「实时」(替代三圆点波浪) */
 /* 浏览器/移动端实时状态: 单绿点 + 「实时」(替代三圆点波浪) */
 .chip .live-dot {
     width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
@@ -3249,6 +3103,12 @@ button:focus-visible, [role="button"]:focus-visible {
 [data-theme="signal"] .tx-device { border-radius: 3px; background: transparent; border: 1px solid transparent; }
 [data-theme="signal"] .tx-device:hover { background: #131a15; border-color: var(--card-border); }
 [data-theme="signal"] .tx-device.on { background: #1a2118; border-color: rgba(242,180,65,0.34); }
+/* 亮色信号台: hover/选中不能沿用上面的暗色硬编码底 —— 深色文字落在近黑底上
+   对比度≈1:1 完全不可读(审查 F2-7); 亮色改用纸面 hover/强调底 */
+[data-mode="light"][data-theme="signal"] .tx-device:hover { background: var(--card-hover); border-color: var(--card-border); }
+[data-mode="light"][data-theme="signal"] .tx-device.on { background: var(--accent-bg); border-color: color-mix(in srgb, var(--accent) 45%, var(--card-border)); }
+/* 亮色信号台计数小字: 裸 --accent 在浅底≈3.9:1 低于 AA, 走加深的 --accent-text(F3-3) */
+[data-mode="light"][data-theme="signal"] .tx-devices-head span { color: var(--accent-text); }
 [data-theme="signal"] .tx-device-info b { font: 500 11px/1.4 "SF Mono","PingFang SC",monospace; }
 [data-theme="signal"] .tx-device-info small { font: 11px/1.45 "SF Mono",Menlo,monospace; color: var(--text3); }
 [data-theme="signal"] .tx-hist-legend, [data-theme="signal"] .tx-devices-sub { font-family: "SF Mono","PingFang SC",monospace; letter-spacing: .08em; }
@@ -4509,19 +4369,6 @@ html[data-android-browser="1"] .tx-head {
 .intro-overlay .points .pt h3 { grid-column: 2; grid-row: 1; margin: 2px 0 8px; }
 .intro-overlay .points .pt p { grid-column: 1 / -1; grid-row: 2; }
 
-/* 介绍页代码块: 浅色主题下不要把深色终端底色和白字/暗字混用 */
-[data-mode="light"] .intro-overlay .code-box {
-    background: #f8f6ef;
-    border-color: var(--card-border);
-    color: var(--text);
-}
-[data-mode="light"] .intro-overlay .code-box .cm { color: var(--text3); }
-[data-mode="light"] .intro-overlay .code-copy {
-    background: var(--card);
-    border-color: var(--card-border);
-    color: var(--text2);
-}
-
 [data-mode="light"] .chip.run {
     background: rgba(40,122,86,0.10);
     color: #1f6a49;
@@ -5056,7 +4903,9 @@ html[data-android-browser="1"] .tx-head {
     border: 1px solid rgba(101, 185, 149, .45);
     border-radius: 4px;
     background: rgba(10, 16, 12, .9);
-    color: var(--mint-2);
+    /* --mint-2 从未定义(var 回退 guaranteed-invalid → 继承可能不可读); 胶囊底色恒为深色,
+       文字用亮薄荷绿硬编码, 与边框同色系, 亮/暗主题下对比都充足 */
+    color: #5de8a0;
     font: 700 8px/1 var(--mono);
     white-space: nowrap;
     pointer-events: none;

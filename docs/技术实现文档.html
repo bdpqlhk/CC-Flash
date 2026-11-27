@@ -80,12 +80,12 @@ pre code{background:none;color:inherit;padding:0}
 <header class="doc">
 <h1>CC Flash · 技术实现文档</h1>
 <div class="meta">
-<span>文档日期：<b>2026-11-26</b></span>
-<span>应用版本：<b>1.2.9</b>（tag v1.2.9.1；支持四段 tag vX.Y.Z.W）</span>
+<span>文档日期：<b>2026-11-27</b></span>
+<span>应用版本：<b>1.2.9</b>（tag v1.2.9.2；支持四段 tag vX.Y.Z.W）</span>
 <span>栈：<b>Tauri 2 + Rust(axum) + Vue3 + Vite</b></span>
 <span>平台：<b>macOS 11+ / Windows / Android 已出包；iOS 未交付</b></span>
 </div>
-</header><div class="doc-status" style="margin:16px 0 20px;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.2 · 2026-11-27</span></div><p style="margin:0 0 4px">已按最新代码校对。最近更新：桌面增强六项（文件搜索、托盘复制地址、悬浮球拖拽与双项右键、诊断包、日志导出）、全量审查修复、六皮肤对比度校准与安装包两轮瘦身。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div>
+</header><div class="doc-status" style="margin:16px 0 20px;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.2 · 2026-11-27</span></div><p style="margin:0 0 4px">已按最新代码校对。最近更新：桌面增强六项（文件搜索、托盘复制地址、悬浮球拖拽与双项右键、诊断包、日志导出）、全量审查修复、六皮肤对比度校准与安装包两轮瘦身。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-27</b> 拍板项执行：v1.2.9.2 恢复 prerelease、CFBundleVersion 三段映射、CI 测试门禁与钉 1.99.1、单来源连接上限、幂等账本落盘、空目录剪枝、测试临时目录隔离、悬浮球主题实时跟随。</li><li><b>2026-11-27</b> 二轮三遍深查修复：设备重启 10 分钟发现黑洞、悬浮球导入完整性标记、上传 size=0 绕检、诊断脱敏补删除/票据、Esc 确认框挂起、平板宽屏行操作、关闭剪贴板同步清槽、发布门禁与私钥守卫加固。</li><li><b>2026-11-27</b> 三遍全量深度审查与修复：聊天幂等按来源去重、手动刷新早退清理、减弱动态效果全局兜底、直发同名改名回执、Release 文案与更新策略对齐、Esc/未读遮罩补全、剪贴板重连补写、403 公网引导、亮色裸强调色对比度、capability 收权等；详见《整个过程历史改动记录_2026-11-27》。</li><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-27.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-27 完整改动记录 →</a></div>
 
 <div class="callout c-info">
 <b>v1.2.4 实现状态（2026-11-19 安全加固）</b>
@@ -147,7 +147,7 @@ cc-flash/
 ├── src/
 │   ├── App.vue                  # 全部 UI 与逻辑（单文件）
 │   ├── config.js                # 前端配置中心（轮询/阈值/API 路径/存储键/文案）
-│   ├── update.js                # 版本更新检查（GitHub Releases 列表，仅正式版 + 语义化比较）
+│   ├── update.js                # 版本更新检查（GitHub Releases 列表，正式版 + prerelease 均进结果、弹框标注未签名风险 + 语义化比较）
 │   ├── style.css                # 主题变量 + 全部样式（6 套配色 × 亮/暗/跟随）
 │   ├── main.js
 │   └── assets/no-signal.webp    # 失联"无信号"测试卡（构建期内联 base64）
@@ -225,7 +225,7 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <tr><th>方法</th><th>路径</th><th>功能</th><th>要点</th></tr>
 <tr><td>GET</td><td><code>/api/files</code></td><td>文件列表</td><td>递归收集（深度 ≤8，相对路径作 name，隐藏 .ccpart 产物与符号链接，<code>spawn_blocking</code>）→ name/size/modified(JSON 时间秒)，按修改时间倒序；<b>单次最多返回 5000 条</b>（<code>FILES_LIST_MAX</code>，超出置 <code>truncated:true</code>）；全局并发 2，<b>单来源 1</b>（IPv6 /64 聚合），防止一台慢设备占满列表许可</td></tr>
 <tr><td>GET</td><td><code>/api/download/*name</code></td><td>下载 / 应用内预览</td><td><b>并发闸 32 + 单来源 8</b>（IPv6 /64；超限 429）；通配路由支持子目录；<b>Range 断点续传</b>（单区间 206 + Content-Range + Accept-Ranges，416 越界；N-M 以 take 截断防分帧破坏）；目录 is_file 拒绝；流式（ReaderStream 1MB 块）；Content-Disposition 同时给 ASCII <code>filename=</code> 与 RFC5987 <code>filename*=</code> 中文名（<code>?inline=1</code> 且类型安全时用 inline）；<b>显式 Content-Length</b>；MIME 按扩展名猜；<code>.ccup</code> 标记仍属上传中 → 409 不返回半截文件；45s 无进展 / 总时长 2h 看门狗 abort 并释放许可</td></tr>
-<tr><td>POST</td><td><code>/api/media-session</code></td><td>缩略图/预览媒体会话</td><td>返回 <code>{token, ttl}</code>：12 位十六进制、10min、绑定来源 IP、可重复 HEAD/GET/Range；容量 2048，开票与分享票据共用每 IP 60/min 限流；仅用于读取，不授予上传/删除/API 能力；PIN 轮换/关闭时统一清空</td></tr>
+<tr><td>POST</td><td><code>/api/media-session</code></td><td>缩略图/预览媒体会话</td><td>返回 <code>{token, ttl}</code>：12 位十六进制、10min、绑定来源 IP、可重复 HEAD/GET/Range；容量 2048，独立每 IP 60/min 限流桶（2026-11-27 与分享票据拆分，悬停预取不再互相挤兑）；令牌仅放行 <code>inline=1</code> 且目标在预览白名单的读取，泄露不再等于 exe/zip 整目录可下；仅用于读取，不授予上传/删除/API 能力；PIN 轮换/关闭时统一清空</td></tr>
 <tr><td>POST</td><td><code>/api/share-ticket</code></td><td>签发分享票据</td><td>{name} → {ticket, ttl}；token 为 <b>12 位十六进制</b>（6 字节 CSPRNG——48bit 空间，绑定单文件 + 10min TTL + 下载即焚）；容量 2048 上限，先剪过期再淘汰最旧；<b>生成时检查唯一性</b>，碰撞不覆盖旧票；文件名走 safe_rel_path + 存在性/is_file 校验；<b>无效票据按来源 IP 限流</b>（连续 20 次失败暂停 10 分钟，成功即清零）</td></tr>
 <tr><td>POST</td><td><code>/api/upload</code></td><td>上传（单请求整文件直传）</td><td><b>并发闸 16</b>（超限 429）；<code>X-Filename</code>(URL编码, 相对路径) + 可选 <code>X-Upload-Id</code> + <code>X-File-Size</code>/<code>Content-Length</code>（必须至少一个，二者不一致 400、都缺失 411）；磁盘空间预检(不足→400，含 256MB 安全余量) → 路径越界预检 + create_dir_all + 建后复验(TOCTOU) → <code>create_new</code> 原子占位、被抢先则 <code>dedup_rel_name</code> 顺延 (1)(2)…（绝不覆盖同名）→ <b>长文件名含 marker 预检</b>（<code>base.len()+6 &gt; 249</code> → 400，避免卡在 <code>.ccup</code> 创建）→ 写首字节前落 <code>.{名}.ccup</code> 标记 → body 流式落盘（无分片/账本/会话状态）；"占位→标记→在途登记"与 DELETE 的复查/删除共用 <code>file_op_lock</code>（消除删在途仍回 200 的 TOCTOU 假成功）；写失败/断开/空闲 120s/总时长 6h/<b>低速闸（连续 60s 增量 &lt; 128KB）</b>/磁盘低于余量一律回滚半截文件；<code>sync_all</code> 失败同样回滚并 500；成功后 200{ok,name,final,size}（final = 改名后实际落盘名，前端据此提示"已存为"）；可选 <code>X-Upload-Id</code> 会记入内存幂等账本，重试前可由 <code>/api/upload_status</code> 查到"其实已成功"并落一条文件投递事件（广播 <code>chat:new</code>，时间线刷新后仍在）；剩余空间查询、路径 canonicalize、同名顺延 (<code>dedup_rel_name</code>) 均通过 <code>spawn_blocking</code> 执行，不阻塞 tokio worker</td></tr>
 <tr><td>GET</td><td><code>/api/upload_status</code></td><td>上传幂等查询</td><td>?id= → <code>{ok, done, name?, size?}</code>；查内存账本（24h / 2000 条上限）。前端在上传失败重试前先查，命中则把该行恢复为完成，不再重传成 <code>xxx(1)</code>；与 <code>upload_progress</code> 共用 8 个全局许可</td></tr>
@@ -240,9 +240,9 @@ if-addrs 枚举全部网卡 → 排除隧道类(utun/tun/tap/wg/ppp/vethernet/do
 <tr><td>POST</td><td><code>/api/hello</code></td><td>本机昵称上报</td><td>仅回环来源用于更新 UDP 广播昵称；远程浏览器不再登记为"可发送设备"（没有监听端口，旧实现会生成不可达的 ip:端口）</td></tr>
 <tr><td>POST</td><td><code>/api/discovery/probe</code></td><td>主动探测</td><td>桌面/手机 App 手动刷新或启动时调用：向 IPv4 多播 + IPv6 link-local 多播发 probe，收到 probe 的设备立即单播回自身宣告；每来源 30 次/分钟限流，浏览器不调用</td></tr>
 <tr><td>GET</td><td><code>/api/devices</code></td><td>附近设备</td><td>仅返回 UDP 多播/广播发现到的节点（真实监听端口）：15s TTL、上限 64 条；同一源 IP 只保留最新 id；在线态广播 1s 合并，peer-cache 写盘 5s 去抖；快照按 <code>ip:port</code> 再去重；设备 id 持久化在 <code>discovery-id</code>（重启不变，收藏不丢）；id→IP/token 另存 <code>peer-bindings.json</code>（TOFU，在线期间拒绝换 IP，10 分钟无宣告才允许 DHCP 迁移）；空令牌 announce 不能覆盖已有令牌，空令牌 <code>bye</code> 不再放行；报文端口限 <code>1024-65535</code>；昵称剥离控制字符/RTL 覆写；服务未运行/未绑定端口时不广播本机；浏览器页面不会出现</td></tr>
-<tr><td>GET</td><td><code>/api/clipboard</code></td><td>读取共享剪贴板</td><td>{text, updatedAt, from}；共享槽上限 20,000 字，持久化；空文本表示已清空。无独立限流（用户明确要求剪贴板不限流），但受访问令牌与同源 / 私网校验保护</td></tr>
+<tr><td>GET</td><td><code>/api/clipboard</code></td><td>读取共享剪贴板</td><td>{text, updatedAt, from}；共享槽上限 20,000 字，持久化；空文本表示已清空。POST/DELETE 受 clip_admit 240/min 限流（GET 走 NOISY 不记日志），受访问令牌与同源 / 私网校验保护</td></tr>
 <tr><td>POST</td><td><code>/api/clipboard</code></td><td>发布共享剪贴板</td><td>JSON {text}；消毒 / 截断到 20,000 字后写槽并广播 <code>clipboard:changed</code>；桌面 / 手机 App 可见时自动轮询本地剪贴板并调用本接口</td></tr>
-<tr><td>DELETE</td><td><code>/api/clipboard</code></td><td>清空共享剪贴板</td><td>清槽后广播 <code>clipboard:changed</code>；输入栏「粘贴」面板的「清空」使用</td></tr>
+<tr><td>DELETE</td><td><code>/api/clipboard</code></td><td>清空共享剪贴板</td><td>清槽后广播 <code>clipboard:changed</code>；关闭「系统剪贴板自动同步」时前端自动调用（2026-11-27 起，避免敏感文本滞留共享槽）</td></tr>
 <tr><td>GET</td><td><code>/api/control/status</code></td><td>状态</td><td>{running, port, ip, version, config}</td></tr>
 <tr><td>POST</td><td><code>/api/control/start</code></td><td>启动</td><td>JSON {port?}</td></tr>
 <tr><td>POST</td><td><code>/api/control/stop</code></td><td>停止</td><td>—</td></tr>
@@ -474,7 +474,7 @@ safe_rel_path → safe_join_existing → file_op_lock 内复查在途 → 删除
 <h3>9.2.3 聊天 Markdown 与多行输入</h3>
 <ul>
 <li><b>块级</b>：围栏代码块、<code>#</code>～<code>######</code> 标题、无序/有序列表、<code>&gt;</code> 引用、分割线；<b>行内</b>：行内代码、<code>[文字](链接)</code>、裸 URL、粗体、斜体、删除线。</li>
-<li><b>XSS 边界</b>：先整体 <code>escHtml</code>，再把匹配片段替换为自生成的标签；代码块/行内用 <code>\u0000</code>/<code>\u0001</code> 占位符隔离，服务端同时剥 NUL，防消息体伪造占位符搬运内容；链接点击走 <code>openExternal</code>（桌面系统浏览器）。</li>
+<li><b>XSS 边界</b>：先整体 <code>escHtml</code>，再把匹配片段替换为自生成的标签；代码块/行内用 <code>\u0000</code>/<code>\u0001</code> 占位符隔离，服务端同时剥 NUL 与 U+0001，防消息体伪造占位符搬运内容；链接点击走 <code>openExternal</code>（桌面系统浏览器）。</li>
 <li><b>输入</b>：<code>&lt;textarea rows="1"&gt;</code> 随内容长高（最高 160px，之后内部滚动）；桌面 Enter 发送 / Shift+Enter 换行；触屏 Enter 换行、点「发送」提交；<code>isComposing</code>/<code>keyCode 229</code> 时 Enter 不触发发送，避免中文 IME 把未上屏拼音发出去。</li>
 </ul>
 <h3>9.3 WebSocket 推送 + 轮询兜底</h3>
@@ -551,17 +551,17 @@ safe_rel_path → safe_join_existing → file_op_lock 内复查在途 → 删除
 </ul>
 <h3>9.10 版本更新检查（update.js）</h3>
 <ul>
-<li><code>fetchLatestRelease()</code>：直连 <code>repos/{repo}/releases?per_page=10</code> <b>列表</b>（免鉴权、支持跨域、AbortController 8s 超时）——按发布时间倒序跳过草稿；正式版与 <b>prerelease</b> 都参与比较，prerelease 弹框标注未签名风险，<code>/latest</code> 不返回，会永远收不到更新）；只接受本仓库 Releases 前缀的跳转地址，<b>任何失败返回 null 由调用方静默处理</b>；</li>
+<li><code>fetchLatestRelease()</code>：直连 <code>repos/{repo}/releases?per_page=10</code> <b>列表</b>（免鉴权、支持跨域、AbortController 8s 超时）——按创建时间倒序、代码取语义最高版，跳过草稿；正式版与 <b>prerelease</b> 都参与比较，prerelease 弹框标注未签名风险（<code>/latest</code> 不返回预发布版，故不用）；只接受本仓库 Releases 前缀的跳转地址，<b>任何失败返回 null 由调用方静默处理</b>；</li>
 <li><code>isNewer()</code>：语义化比较（剥 v 前缀、分段数值、短方补 0；支持四段构建号；预发布后缀按 semver 规则判旧）；</li>
 <li>触发：启动 3s 后静默检查 + localStorage 24h 频控（<code>wft-update-check</code>）；「关于」卡手动检查（失败有明确提示）；发现新版弹框，「前往下载」走 <code>open_url_cmd</code> 打开 Release 页。</li>
 </ul>
 <h3>9.11 软件介绍页（intro overlay）</h3>
 <ul>
-<li><b>入口</b>：侧边栏品牌行「ⓘ 介绍」胶囊按钮（桌面壳专属），点击打开全屏介绍页（Hero / 功能四卡 / 三步上手 / 技术实现 / FAQ 手风琴 / 页脚）；</li>
+<li><b>入口</b>：侧边栏品牌行「ⓘ 介绍」胶囊按钮（桌面壳专属），点击打开全屏介绍页（Hero / 功能六卡 / 三步上手 / 技术实现 / FAQ 手风琴 / 页脚）；</li>
 <li><b>延迟挂载</b>：<code>v-if="isDesktop && introShow"</code> + <code>&lt;Transition name="intro"&gt;</code>——约 220 个 DOM 节点首次打开才构建，开合过渡动画保留（CSS 从 <code>.open</code> 类切换改为 Vue transition 钩子）；</li>
 <li><b>交互</b>：粘性顶栏锚点导航 + IntersectionObserver scroll spy 高亮（<code>introSec</code>）、<code>introScrollTo()</code> 平滑滚动（56px 顶栏留边）、品牌「回到顶部」滚回 Hero 并重置高亮、Esc 关闭（onMounted 注册、onUnmounted 注销）、打开时锁 body 滚动、关闭时 <code>stopIntroSpy()</code> 防观察器泄漏；</li>
 <li><b>CTA 分流</b>：Hero「立即开始传输」→ <code>goTransferFromIntro()</code> 关页进文件传输；顶栏「去启动服务」→ <code>goServiceFromIntro()</code> 关页进服务中心；「查看使用说明」→ 页内跳「如何使用」区块；</li>
-<li><b>外链统一</b>：<code>openExternal(url, silent)</code> 为唯一入口（桌面 <code>open_url_cmd</code>、失败回退 <code>window.open</code>），openBrowser / goDownload / 聊天链接 / 介绍页链接四处共用，避免多份拷贝漂移；</li>
+<li><b>外链统一</b>：<code>openExternal(url, silent)</code> 为唯一入口（桌面 <code>open_url_cmd</code>、失败回退 <code>window.open</code>），openBrowser / goDownload / 聊天链接三处共用（介绍页跳转链接已随 2026-11-27 改版移除），避免多份拷贝漂移；</li>
 <li><b>分层</b>：z-index 970——高于聊天面板(950)、低于弹框(998)/Toast(1001)，保证启动后静默检查更新弹出的「发现新版本」不会被盖在介绍页下面。</li>
 </ul>
 <h3>9.12 悬浮码（qr-pet 窗）实现</h3>
@@ -619,9 +619,9 @@ npm run tauri build
   ├─ beforeBuildCommand: npm run build   (vite → dist/)
   ├─ cargo build --release               (静态嵌入 dist)
   └─ bundle
-      ├─ macOS  .app  ≈4.7 MiB    src-tauri/target/release/bundle/macos/
-      └─ macOS  .dmg  ≈4.1–4.3 MiB src-tauri/target/release/bundle/dmg/
-         (本机 aarch64 单架构实测, opt-level=z + 图标量化后)
+      ├─ macOS  .app  ≈4.13 MiB(arm64) / ≈5.03 MiB(x64)
+      └─ macOS  .dmg  ≈2.56 MiB(arm64) / ≈2.60 MiB(x64)
+         (v1.2.9.2 瘦身后实测: strip + fat LTO + opt-level=z + 图标量化, 数值与 README 一致)
 </pre>
 <ul>
 <li><code>bundle.active: true</code>（图标已生成后开启）；窗口配置 1180×840，最小 560×520；</li>
@@ -634,7 +634,7 @@ npm run tauri build
 <li><b>Android 构建与签名</b>：<code>tauri android build --apk --target aarch64</code> 只出 arm64-v8a 单包（覆盖 Android 7.0+ / minSdk 24 主流 64 位机型）。配置 <code>ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD</code> 四个 Secrets 后：keystore 解码到 <code>$RUNNER_TEMP</code>、导出 <code>CC_KEYSTORE_*</code> 环境变量 → 入库的 <code>gen/android/app/build.gradle.kts</code> 中 <code>signingConfigs.release</code> 读取并挂到 release 变体（<b>固定证书，版本间可覆盖安装</b>）；<b>任一 Secret 缺失直接 job 失败</b>——正式 Release 绝不允许 debug 包混入（debuggable、签名每次不同，用户无法覆盖升级）。release 变体显式 <code>usesCleartextTraffic=true</code>——应用全部流量是有意的局域网明文 HTTP，否则 API 全部被 <code>ERR_CLEARTEXT_NOT_PERMITTED</code> 拦死；R8 已配置 <code>SourceFile,LineNumberTable</code> 与 <code>com.ccflash.app.**</code> keep 规则（无规则时入口类被裁/行号丢失）；</li>
 <li><b>发布保护</b>：产物 <code>find ! -name "*unsigned*" ! -name "*-debug*"</code> 兜底；Android 上传前用 <code>gh release view --json isDraft</code> 校验 Release 仍为草稿——重跑已发布 tag 时 desktop 腿必失败，但 android 腿（always）原本会把新 APK 写进线上 Release，绕过"全绿才发布"；desktop job 失败时 APK 仍可写入草稿，但 Release 保持<b>草稿</b>，人工确认后手动 Publish；</li>
 <li>一键发版：<code>./scripts/release.sh X.Y.Z|X.Y.Z.W [提交信息]</code>——升版本（四段 tag 的应用版本取前三段）/同步兜底版本与 Android versionCode/提交/打标签/推送（3 次重试 + GitHub API 建 tag 引用兜底，应对 git 443 通道抖动），并轮询验证 Actions 已触发；脚本对暂存区做扩展名+内容双私钥扫描，并打印暂存/未跟踪清单，避免"一锅端"夹带；<b>workflow 改动必须经 release.sh 提交进 tag</b>，手打 tag 会用旧版工作流构建；</li>
-<li><b>重发保护</b>：远端已存在同名 tag 时 <code>release.sh</code> <b>默认拒绝</b>（重发会让 Release 资产 ≠ tag 代码），确认安全后用 <code>FORCE_REPUBLISH=1</code> 显式放行；<b>不再自动删除远端 tag 重推</b>，推送失败只尝试 API 建引用，已存在则明确失败；CI 侧 prepare 与 Android 上传前都会校验 Release 仍是草稿，已公开则拒绝改写线上资产。</li>
+<li><b>重发保护</b>：远端已存在同名 tag 时 <code>release.sh</code> <b>默认拒绝</b>（重发会让 Release 资产 ≠ tag 代码），确认安全后用 <code>FORCE_REPUBLISH=1</code> 显式放行；<b>默认不删除远端 tag；FORCE_REPUBLISH=1 且 Release 仍为草稿时会删除远端 tag 后重推</b>，推送失败只尝试 API 建引用，已存在则明确失败；CI 侧 prepare 与 Android 上传前都会校验 Release 仍是草稿，已公开则拒绝改写线上资产。</li>
 <li>注意：git 推送标签与 main 同批推送存在事件偶发丢失的情况，脚本采用分步推送 + 触发验证来规避。</li>
 </ul>
 </section>
@@ -778,8 +778,8 @@ npm run tauri build
 
 
 <div id="cc-v129-review2" style="max-width:920px;margin:26px auto;padding:0 18px;color:#1f2430;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.75">
-<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">2026-11-26 二次全量审查修复（v1.2.9.1 之后，未单独发版）</h2>
-<p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段是 v1.2.9.1 发布后的第二轮全量代码审查结论，优先于文档中较早版本的描述。</p>
+<h2 style="font-size:20px;border-bottom:2px solid #4f8af7;padding-bottom:7px">2026-11-26 二次全量审查修复（已随 v1.2.9.2 发布）</h2>
+<p style="color:#5a6474;font-size:13.5px;margin:10px 0 14px">本段是 v1.2.9.1 发布后的第二轮全量代码审查结论，已随 2026-11-27 的 v1.2.9.2 一并发布（见《整个过程历史改动记录_2026-11-26》§六），优先于文档中较早版本的描述。</p>
 <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
 <tr><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">领域</th><th style="border:1px solid #dfe3ea;padding:8px;text-align:left;background:#eef1f6">最新行为</th></tr>
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>发现身份</b></td><td style="border:1px solid #dfe3ea;padding:8px"><code>peer-bindings.json</code> 持久化 id→IP/token；在线期间同 id 换 IP 拒绝，10 分钟无宣告才允许 DHCP/重启迁移；空令牌不能覆盖已有令牌；空令牌 <code>bye</code> 拒绝；peer-cache 写盘改为 5s 合并，在线态广播统一 1s 节流。</td></tr>
@@ -787,8 +787,8 @@ npm run tauri build
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>幂等重试</b></td><td style="border:1px solid #dfe3ea;padding:8px">聊天 <code>clientId</code> 服务端去重；上传 <code>X-Upload-Id</code> 记录完成结果，<code>/api/upload_status</code> 供重试前查询；上传行重试命中直接恢复完成，不产生 <code>xxx(1)</code>；直发文件重试同样先查对端完成状态。</td></tr>
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>数据完整性</b></td><td style="border:1px solid #dfe3ea;padding:8px"><code>file-history.json</code> 损坏保留 <code>.bad-*</code>；聊天/文件/剪贴板写盘失败写 ERROR 日志；Windows <code>write_secret_atomic</code> 先备份目标再替换、失败回滚；悬浮球导入在 FAT/exFAT/SMB 上的 rename 回落改为 <code>create_new</code> + 复制，不再覆盖并发同名文件。</td></tr>
 <tr><td style="border:1px solid #dfe3ea;padding:8px"><b>直发与剪贴板</b></td><td style="border:1px solid #dfe3ea;padding:8px">多选文本/文件部分失败保留草稿与未成功目标，已成功设备不再重复发送；400/413/500/507 解析服务端错误并汇总；直发文本支持引用；剪贴板所有发布路径统一受自动同步开关约束；桌面共享文件抽屉内拖拽固定上传本机；手动发送拖拽支持文件夹递归；失败/取消上传行不再屏蔽同名远端文件卡。</td></tr>
-<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>平台与发版</b></td><td style="border:1px solid #dfe3ea;padding:8px">Android 16/17 本地网络权限被拒弹 Toast 指引；下载响应补 ASCII <code>filename=</code>；更新检查包含 prerelease 并在弹框标注未签名风险；<code>release.sh</code> 把完整四段版本写入 macOS <code>CFBundleVersion</code>（<code>bundle.macOS.bundleVersion</code>）；Windows “在文件夹中显示”不再把 explorer 退出码 1 报成失败。</td></tr>
-<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>仍属已知边界</b></td><td style="border:1px solid #dfe3ea;padding:8px">发现协议未引入公钥签名，TOFU 只能降低抢注窗口，不能替代强身份认证；Windows NSIS 仍使用 WebView2 引导器，离线/受限网络需预装运行时；Windows 文件版本仍为三段应用版本，macOS 已用 <code>CFBundleVersion</code> 区分四段构建。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>平台与发版</b></td><td style="border:1px solid #dfe3ea;padding:8px">Android 16/17 本地网络权限被拒弹 Toast 指引；下载响应补 ASCII <code>filename=</code>；更新检查包含 prerelease 并在弹框标注未签名风险；<code>release.sh</code> 把四段 tag 映射为三段写入 macOS <code>CFBundleVersion</code>（<code>M.N.(P×100+B)</code>，如 1.2.9.2 → 1.2.902，符合 Apple 1-3 段整数规范；CI prepare 同步断言）；Windows “在文件夹中显示”不再把 explorer 退出码 1 报成失败。</td></tr>
+<tr><td style="border:1px solid #dfe3ea;padding:8px"><b>仍属已知边界</b></td><td style="border:1px solid #dfe3ea;padding:8px">发现协议未引入公钥签名，TOFU 只能降低抢注窗口，不能替代强身份认证；Windows NSIS 仍使用 WebView2 引导器，离线/受限网络需预装运行时；Windows 文件版本仍为三段应用版本，macOS <code>CFBundleVersion</code> 以三段映射承载四段构建号。</td></tr>
 </table>
 </div>
 

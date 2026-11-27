@@ -26,6 +26,24 @@ fi
 BASE_TREE=$(gh api "repos/$REPO/commits/$BASE" --jq .commit.tree.sha)
 MSG=$(cat .git-commit-msg.txt 2>/dev/null || git log -1 --format=%B HEAD)
 
+# 私钥守卫(与 release.sh 同源): 应急通道不能绕过内容扫描 ——
+# 扫的是"将要推上去的提交范围"而非暂存区; 模式带类括号防本脚本自匹配
+if git diff --name-only "$BASE" HEAD | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|pfx|pem|ppk|gpg)$|(^|/)id_(rsa|ed25519|ecdsa)$|(^|/)\.netrc$' >/dev/null; then
+  echo "✘ 待推送提交含疑似私钥文件名, 拒绝 API 推送:" >&2
+  git diff --name-only "$BASE" HEAD | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|pfx|pem|ppk|gpg)$|(^|/)id_(rsa|ed25519|ecdsa)$|(^|/)\.netrc$' >&2
+  exit 1
+fi
+# 内容扫描只看"本范围改动过的文件": BASE 已存在的历史内容不追溯, 但
+# 新增/修改的私钥内容必须拦下
+changed_hits=$(git diff --name-only "$BASE" HEAD | while IFS= read -r f; do
+  git grep -IlE 'BEGIN [A-Z ]*PRIVATE KEY|LS0tLS1CRUdJ[T]i' HEAD -- "$f" 2>/dev/null || true
+done)
+if [ -n "$changed_hits" ]; then
+  echo "✘ 待推送提交内容含私钥(PEM/base64 PEM), 拒绝 API 推送:" >&2
+  echo "$changed_hits" >&2
+  exit 1
+fi
+
 # 收集变更: 逐个路径检查 HEAD 是否存在 —— 删除/改名时远端旧路径也要显式置 null,
 # 不能像旧版那样 --diff-filter=d 跳过, 否则远端会残留已删除文件。
 LINES=()

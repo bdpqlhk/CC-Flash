@@ -55,12 +55,26 @@ export async function fetchLatestRelease(includePrerelease = false) {
       signal: ctl.signal,
       headers: { "Accept": "application/vnd.github+json" },
     });
-    clearTimeout(timer);
-    if (!r.ok) return null;   // 404(还没发过 Release)/403(限流)等 → 视为无结果
+    if (!r.ok) {
+      clearTimeout(timer);
+      return null;   // 404(还没发过 Release)/403(限流)等 → 视为无结果
+    }
+    // 超时必须覆盖到 body 读完: 过早 clearTimeout 时, 响应头已到但 body 停滞
+    // 会让手动"检查更新"的 await 永久挂起(signal 在 json() 阶段仍然有效)
     const d = await r.json();
+    clearTimeout(timer);
     const list = Array.isArray(d) ? d : [d];
-    // 自动检查跳过 prerelease; 手动检查允许看到未签名/预发布包(由弹框提示风险)。
-    const rel = list.find((x) => x && !x.draft && (includePrerelease || !x.prerelease) && x.tag_name);
+    // 调用方统一传 includePrerelease=true(预发布/未签名版也进结果, 弹框标注风险);
+    // false 分支仅保留给未来需要 stable-only 的场景, 当前无调用方。
+    // 取语义最高版而非列表首条: GitHub 按 created_at 排序, 给旧版补发 hotfix 时
+    // 旧 tag 的 Release 会排在前面, find 会漏掉真正的最新版(审查 N2-3)
+    const cands = list.filter((x) => x && !x.draft && (includePrerelease || !x.prerelease) && x.tag_name);
+    let rel = null;
+    for (const x of cands) {
+      const vx = String(x.tag_name).replace(/^v/, "");
+      const vr = rel ? String(rel.tag_name).replace(/^v/, "") : "";
+      if (!rel || isNewer(vx, vr)) rel = x;
+    }
     if (!rel) return null;
     // 不信任 API 返回的任意跳转地址: 只接受本仓库 Releases 前缀, 否则回落到固定页面,
     // 防止上游/镜像被接管后把用户导向任意下载站

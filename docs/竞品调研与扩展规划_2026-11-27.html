@@ -1,0 +1,358 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CC Flash · 竞品调研与扩展规划（2026-11-27）</title>
+<style>
+:root{--paper:#fbfcfe;--ink:#1f2430;--sub:#5a6474;--line:#e3e7ee;--blue:#3563c9;--blue-bg:#eef4ff;--amber:#8a5a12;--amber-bg:#fff7e8;--red:#b3362a;--red-bg:#fdefec;--green:#1f7a4d;--green-bg:#ecf7f0;--code-bg:#eef1f6}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:#f4f6fa;line-height:1.75;font-size:14.5px}
+.layout{display:flex;max-width:1280px;margin:0 auto;gap:0;background:var(--paper);min-height:100vh;box-shadow:0 0 0 1px var(--line)}
+nav{position:sticky;top:0;align-self:flex-start;width:248px;flex:0 0 248px;height:100vh;overflow-y:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line);background:#f7f9fc;font-size:12.8px}
+nav .brand{font-weight:700;font-size:14px;margin-bottom:14px;color:var(--ink)}
+nav a{display:block;color:var(--sub);text-decoration:none;padding:4px 8px;border-radius:6px;margin:1px 0}
+nav a:hover{background:#e9eef7;color:var(--blue)}
+nav .lv2{padding-left:20px;font-size:12.3px}
+nav .grp{margin-top:14px;font-size:11.5px;color:#8a93a5;letter-spacing:.08em;padding-left:8px}
+main{flex:1;min-width:0;padding:34px 44px 80px}
+h1{font-size:25px;margin:0 0 6px;line-height:1.4}
+.meta{color:var(--sub);font-size:13px;margin-bottom:20px}
+h2{font-size:19.5px;margin:44px 0 14px;padding-bottom:7px;border-bottom:2px solid var(--blue)}
+h3{font-size:15.5px;margin:26px 0 10px}
+h4{font-size:14px;margin:18px 0 8px}
+p{margin:9px 0}
+a{color:var(--blue)}
+.callout{background:var(--blue-bg);border-left:4px solid var(--blue);padding:12px 16px;border-radius:6px;margin:14px 0}
+.callout.warn{background:var(--amber-bg);border-color:#d99a2b}
+.callout.red{background:var(--red-bg);border-color:var(--red)}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.2px;background:#fff}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#eef1f6;font-weight:600}
+code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-size:12.5px;font-family:"SF Mono",Menlo,Consolas,monospace}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;margin-right:4px;vertical-align:1px}
+.tag.f{background:var(--green-bg);color:var(--green)}
+.tag.i{background:var(--amber-bg);color:var(--amber)}
+.tag.d{background:var(--blue-bg);color:var(--blue)}
+.tag.p0{background:var(--red-bg);color:var(--red)}
+ul,ol{margin:8px 0;padding-left:22px}
+li{margin:4px 0}
+.small{color:var(--sub);font-size:12.5px}
+.src{font-size:12px;color:var(--sub);word-break:break-all}
+.kpi{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
+.kpi .c{flex:1;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.kpi .n{font-size:21px;font-weight:700;color:var(--blue)}
+.kpi .t{font-size:12.3px;color:var(--sub)}
+footer{margin-top:56px;padding-top:14px;border-top:1px solid var(--line);color:var(--sub);font-size:12.5px;text-align:center}
+@media (max-width:960px){nav{display:none}main{padding:22px 16px 60px}}
+</style></head><body>
+<div class="layout">
+<nav>
+<div class="brand">CC Flash · 竞品调研与扩展规划</div>
+<a href="#s1">一、摘要：核心判断</a>
+<a href="#s2">二、调研方法与样本</a>
+<div class="grp">竞品全景</div>
+<a href="#s3" class="lv2">三、海外分层盘点</a>
+<a href="#s4" class="lv2">四、国内分层盘点</a>
+<a href="#s5" class="lv2">五、功能对比总表</a>
+<div class="grp">洞察</div>
+<a href="#s6" class="lv2">六、用户痛点合并 TOP10</a>
+<a href="#s7" class="lv2">七、2025-2026 趋势判断</a>
+<a href="#s8" class="lv2">八、结合最新代码的盘点</a>
+<a href="#s9" class="lv2">九、CC-Flash 位次与差异化</a>
+<div class="grp">规划</div>
+<a href="#s10" class="lv2">十、扩展与提升方案</a>
+<a href="#s11" class="lv2">十一、决策点（需拍板）</a>
+<a href="#s12" class="lv2">十二、明确不做</a>
+<a href="#s13" class="lv2">十三、里程碑修订建议</a>
+<a href="#s14" class="lv2">十四、来源与局限</a>
+</nav>
+<main>
+<h1>CC Flash · 竞品调研与扩展规划</h1>
+<div class="meta">日期：2026-11-27 ｜ 基线：v1.2.9.2（tag v1.2.9.2 + 11-27 三遍全量审查修复，未发版）｜ 方法：海内外双路网络检索（不限于 Google/GitHub/YouTube，含 HN/Reddit/B 站/知乎/少数派/官网/issue 直读）+ 本仓库代码逐项盘点 ｜ 配套文档：<a href="./后期规划.html">《后期规划》</a>（本文为其调研输入与修订建议，不替代其红线与节奏）</div>
+
+<h2 id="s1">一、摘要：核心判断（先看这 8 条）</h2>
+<div class="callout">
+<ol>
+<li><span class="tag f">事实</span><b>赛道淘汰率极高，活跃度即护城河</b>：老三样 LANDrop（2021 停更）、Dukto（官方 discontinued）、NitroShare（2017 最后 release）集体退场；注意力集中在两强——<b>LocalSend（101,075★，v1.19.0 于 2026-11-24）</b>与 <b>PairDrop（11,909★，周更）</b>。CC-Flash 功能广度（聊天+剪贴板+六皮肤+悬浮球+诊断包+PWA）在开源同类中属第一梯队，但活跃度叙事还没建立。</li>
+<li><span class="tag f">事实</span><b>断点续传已从加分项变成及格线</b>：Quick Share 2025-02 起原生续传、croc/sendme/Ferry 全员续传，而 LocalSend 的续传 issue #1191 挂了两年半——<b>谁缺续传谁被横评直接扣分，甚至催生"专给 LocalSend 补续传"的兼容竞品</b>。这与本项目「不做分片上传」红线正面冲突，是本文最重要的决策点。</li>
+<li><span class="tag f">事实</span><b>国内手机↔手机场景刚被系统级收口</b>：互传联盟（小米/OPPO/vivo/荣耀）2026-11-24 上线跨品牌 NFC 一碰传，免安装无损免流量。<b>CC-Flash 不要正面硬刚手机互传，空间在「电脑是中心」的手机↔电脑、跨生态场景。</b></li>
+<li><span class="tag f">事实</span><b>国民级 App 的痛 =「限制 + 过期 + 压缩」</b>：微信文件过期单条视频 72.3 万播放、100MB/10GB 限制被做成"突破教程"、"手机和电脑近在咫尺却不互通"高赞 232——<b>「电脑常驻服务器 + 扫码即用（接收端零安装）」正是对 LocalSend 双端安装劝退与微信三件套的双向对位。</b></li>
+<li><span class="tag f">事实</span><b>系统级出现历史性变局</b>：EU DMA 逼 Apple 弃 AWDL 转 Wi-Fi Aware → 2025-11 Quick Share × AirDrop 互通（Pixel 10 起、2026 扩机型）；Windows 系统级传输在退（Nearby Sharing 边缘化、MTP over Bluetooth 弃用）。<b>第三方工具的窗口期在扩大，但差异化必须落在系统够不着的层（聊天/剪贴板/皮肤/诊断/跨网络中立性）。</b></li>
+<li><span class="tag f">事实</span><b>"局域网直传失败 → 中继回退"正在成为标准架构</b>：croc relay、iroh relay fallback、Tailscale Peer Relays、PairDrop TURN 公示化。纯 UDP 多播派（LocalSend、CC-Flash）是最后的孤岛。<b>海外用户把"不同网络也能用"列为入门第二门槛</b>（HN 923 分帖）。</li>
+<li><span class="tag i">推断</span><b>剪贴板/通知是留存主战场，纯传输低频化</b>：KDE Connect 上 HN 的主角是通知+剪贴板而非传文件；LocalSend 挂着 27 个 clipboard open issue。CC-Flash 的"文件/文本/剪贴板三合一 + 聊天时间线"方向正确，应继续加码"设备常连"类功能。</li>
+<li><span class="tag i">推断</span><b>iOS 是当前最大功能缺口</b>：少数派/B 站"iPhone×Windows 传输"是高热专题（20.6 万播放），这批用户恰是"没有 AirDrop 可用、又嫌微信慢"的精准人群；AirDrop 2026 才加的临时授权码（AirDrop Codes），CC-Flash 的 PIN+一次性票据一直就有——<b>有故事可讲，但没 iOS 包就讲不进这个人群。</b></li>
+</ol>
+</div>
+
+<h2 id="s2">二、调研方法与样本</h2>
+<table>
+<tr><th>维度</th><th>说明</th></tr>
+<tr><td>海外路径</td><td>GitHub API（README/issue/release 直读，gh 鉴权）、HN Algolia、pullpush（Reddit 镜像）、Brave/代理检索、官网与支持文档；本地代理 <code>127.0.0.1:7897</code>。</td></tr>
+<tr><td>国内路径</td><td>腾讯新闻/知乎/少数派/CSDN/SegmentFault/博客园、B 站公开 API（高赞评论）、360 检索、产品官网；知乎正文与贴吧触发验证码（如实记录为检索缺口）。</td></tr>
+<tr><td>样本</td><td>海外 20+ 对象（LocalSend/PairDrop/Snapdrop/LANDrop/Dukto/NitroShare/croc/sendme/FilePizza/Wormhole/Syncthing/Resilio/AirDrop/Quick Share/Nearby/KDE Connect/WebRTC 方案/Ferry/iroh/Tailscale…）；国内 15+ 对象（互传联盟/华为分享/荣耀/三星/微信/QQ/钉钉飞书/飞鸽/微力/坚果云/网盘/文件快传/WeFreeStar/…）。</td></tr>
+<tr><td>标注约定</td><td><span class="tag f">事实</span>=官网/API/issue/原帖直读；<span class="tag i">推断</span>=基于事实的判断；二手转述已注明。</td></tr>
+<tr><td>局限</td><td>知乎/贴吧正文未取到（验证码）；个别官方限制数值为第三方科普；B 站评论未做全站抽样；详见第十四节。</td></tr>
+</table>
+
+<h2 id="s3">三、海外分层盘点</h2>
+
+<h3>3.1 唯一同量级对手：LocalSend</h3>
+<div class="kpi">
+<div class="c"><div class="n">101,075★</div><div class="t">GitHub star（2026-11-27）</div></div>
+<div class="c"><div class="n">v1.19.0</div><div class="t">最新版 2026-11-24（3 天前）</div></div>
+<div class="c"><div class="n">1,048</div><div class="t">open issues（续传/后台/跨网全挂着）</div></div>
+<div class="c"><div class="n">Rust</div><div class="t">核心网络与 I/O 已全量重写（v1.18）</div></div>
+</div>
+<ul>
+<li><span class="tag f">事实</span>能力：文件/文件夹/文本、UDP 多播+HTTP 兜底发现、每设备即时 TLS 证书、收藏设备、二维码/hashtag 连接、<b>share via link（v1.18 新增，网页接收）</b>、Rust CLI（v1.18 起）、Android 后台传输与分享菜单、自定义主题。<b>无</b>直传断点续传、无跨网络中继、无连续聊天（#462）、无剪贴板同步（#163）。</li>
+<li><span class="tag f">事实</span>关键 open issue：#1191 断点续传（2024-03 挂至今）、#2153 Android 后台、#1123 Tailscale 检测（35👍）、#3750 多播进 VPN TUN（2026-11 仍 open）、#125 Socket Forbidden（59 评论）。</li>
+<li><span class="tag f">事实</span>用户骂点（HN/Reddit/B 站）：速度方差大（10GbE 实测仅 10MB/s、千文件衰减）、必须同网、前台必须开着 app、"时好时坏"回归、国内"找不到设备/发送失败"视频评论区高频。</li>
+<li><span class="tag i">推断</span>它刚做过的两件值得抄：<b>Rust 核心 + CLI 复用</b>（CC-Flash 天然同构）、<b>share-via-link 网页接收</b>（CC-Flash 票据+PWA 已有底子）。</li>
+</ul>
+
+<h3>3.2 浏览器系：PairDrop / Snapdrop</h3>
+<ul>
+<li><span class="tag f">事实</span>PairDrop：11,909★、v1.11.3（2026-11-26）周更级维护；WebRTC P2P + 官方 TURN、6 位码/二维码持久配对、临时公共房间（跨网）、多文件 ZIP、PWA、自托管。天花板已探明：<b>iOS 单次 ~200MB（#294）</b>、大文件中断（#120/#409）、后台不在线（#479）、信令未加密（#180）。</li>
+<li><span class="tag f">事实</span>Snapdrop 被 LimeWire 收购后遭用户弃用，PairDrop 是"收购前 fork 出来的可信版本"；2026-09 HN 又冒出 Rust 后端的 snapdrop.me（112 分）——<b>浏览器系的用户信任极其脆弱，开源+自托管是硬通货。</b></li>
+<li><span class="tag i">推断</span>浏览器直传做不了重活：<b>正确姿势是"接收器 + 小文件"，重活回原生</b>（LocalSend share-via-link、croc 浏览器版都走这条路）。CC-Flash 手机浏览器端应主动标注能力边界而非静默失败。</li>
+</ul>
+
+<h3>3.3 已死/半死的老三样</h3>
+<table>
+<tr><th>产品</th><th>现状（事实）</th><th>证据</th></tr>
+<tr><td>LANDrop</td><td>最后 release 2021-06，闭源；安卓保存路径差评多</td><td>GitHub 仓库</td></tr>
+<tr><td>Dukto</td><td>原作者官方声明 discontinued</td><td>msec.it 博客</td></tr>
+<tr><td>NitroShare</td><td>最后 release 2017</td><td>GitHub</td></tr>
+</table>
+<p class="small">教训：用户点名 Dukto"不支持断点续传，99% 断了就得重来"——<b>续传缺失是老工具集体死因之一</b>。出海传播不必对比老三样，直接对标 LocalSend 痛点清单更有说服力。</p>
+
+<h3>3.4 P2P/CLI 与同步系（差异定位）</h3>
+<table>
+<tr><th>对象</th><th>事实</th><th>对 CC-Flash 的启示</th></tr>
+<tr><td>croc（41,061★，日更级）</td><td>CLI 互传：断点续传、E2EE(PAKE)、<b>relay 回退</b>、浏览器版与 CLI 互通</td><td>relay+PAKE 是"无跨网络"缺口的标准答案；浏览器做接收器比做对等端可行</td></tr>
+<tr><td>sendme / iroh 1.0（13,117★，2026-06）</td><td>Rust：公钥寻址、QUIC 打洞、relay 回退、<b>ticket 不因 IP 漂移失效</b></td><td>与 CC-Flash 同语言，跨网络探索的首选集成路线（推断成本低于自研组网）</td></tr>
+<tr><td>Syncthing（90,893★）</td><td>持续块级同步，目标是"Safe From Data Loss"</td><td>另一个物种，勿入；但 HN 有"传输后加入持续同步"的 hybrid 呼唤</td></tr>
+<tr><td>Resilio Sync</td><td>2026-03 被 Nasuni 收购（企业化）</td><td>纯同步赛道已资本化收尾，消费级"传输+轻协作"仍有独立空间</td></tr>
+</table>
+
+<h3>3.5 系统级天花板（它们证明了什么）</h3>
+<table>
+<tr><th>系统</th><th>能力（事实）</th><th>含义</th></tr>
+<tr><td>AirDrop</td><td>无续传（1500 张照片失败抱怨成堆）；iOS 17.1+ 离开 Wi-Fi 走蜂窝续传；<b>iOS 26.2 AirDrop Codes 一次性授权码（2025-12）</b></td><td>"短码授权"与 CC-Flash PIN/票据交互同构，可作对外话术；系统级也会翻车，第三方工具永远有背书</td></tr>
+<tr><td>Quick Share</td><td><b>2025-02 起断点续传</b>（直连丢失走 Wi-Fi/蜂窝）；2025-11 与 AirDrop 互通（EU DMA → Wi-Fi Aware）</td><td>续传已是安卓用户默认预期；P2P Wi-Fi 标准化后，差异化要落在系统够不着的层</td></tr>
+<tr><td>Windows Nearby</td><td>不支持文件夹（Q&A 多年同问）、存在感弱；MTP over Bluetooth 2026-11 弃用</td><td>Windows 系统级在退 → 第三方跨端工具窗口期扩大</td></tr>
+<tr><td>KDE Connect</td><td>剪贴板同步（iOS 0.5.x 补齐）、通知镜像、远程输入；HN 476 分热帖主角是通知+剪贴板</td><td><b>留存靠"设备常连"功能，不靠传文件</b>——CC-Flash 聊天+剪贴板三合一方向正确</td></tr>
+</table>
+
+<h2 id="s4">四、国内分层盘点</h2>
+
+<h3>4.1 系统级：互传联盟刚收口手机↔手机</h3>
+<ul>
+<li><span class="tag f">事实</span>2026-11-24 互传联盟（小米/OPPO/vivo/荣耀）上线<b>跨品牌 NFC 一碰传</b>：无损、免流量、免安装（腾讯新闻报道）。</li>
+<li><span class="tag f">事实</span>华为分享/分享+（碰一碰、共享剪贴板、多屏协同）锁华为生态；荣耀互联（连接至 Windows）锁荣耀+Win；三星 Quick Share 已支持第三方 Windows PC。</li>
+<li><span class="tag i">推断</span><b>手机↔手机近场已被大厂系统级方案覆盖，CC-Flash 的叙事应收束到「电脑是中心的数字工作台」</b>：传到电脑、剪贴板接力、聊天式工作流、跨品牌跨生态。</li>
+</ul>
+
+<h3>4.2 国民级 App：三件套之痛就是获客文案</h3>
+<ul>
+<li><span class="tag f">事实</span><b>过期</b>：B 站"微信文件过期 30 秒找回"72.3 万播放，高赞"发明文件过期这个功能有什么用"（780 赞）。</li>
+<li><span class="tag f">事实</span><b>压缩</b>：互传联盟报道直接把"社交软件转发画质压缩"列为待解痛点。</li>
+<li><span class="tag f">事实</span><b>限制</b>：微信单文件手机约 100MB/电脑约 10GB/网页版 1GB（第三方科普数值）；"如何发大于 1GB 文件"教程 12.9 万播放。</li>
+<li><span class="tag f">事实</span><b>路径依赖</b>：高赞"同事之间，传个文件谁不是微信发过去"（170 赞）、"他们还是要用微信发"（291 赞）——<b>入口不进微信生态就很难改习惯，能做的是"微信里发链接/二维码 → 系统浏览器打开"的动线。</b></li>
+<li><span class="tag f">事实</span>微信内置浏览器拦截下载是高频排障话题（2025-2026 仍有大量教程）——CC-Flash 已有顶部横幅引导，应做成首传向导的一部分。</li>
+</ul>
+
+<h3>4.3 老牌与专业工具</h3>
+<table>
+<tr><th>产品</th><th>事实</th><th>启示</th></tr>
+<tr><td>飞鸽传书 IPMsg 9.2</td><td>断点+断网续传、超级剪贴板、跨网段 NAT 打洞、<b>信创全平台（统信/麒麟/国产 CPU）且收费</b></td><td>企业内网/信创是被验证的付费场景；续传+剪贴板它 2026 年还在首屏宣传</td></tr>
+<tr><td>微力同步 / 坚果云</td><td>同步盘（Resilio 国内版/网盘+局域网 P2P 加速），企业好评</td><td>同步归同步，传输归传输；"公司一台电脑当共享节点"的轻量方案夹在 IM 与网盘之间有空档（推断）</td></tr>
+<tr><td>QQ 面对面传</td><td>官方称点对点断点续传；使用率低</td><td>连腾讯自己都把续传写进卖点</td></tr>
+<tr><td>文件快传（52python 新品）</td><td>可自部署、6 位码、<b>分片+断点恢复</b>、跨设备剪贴板</td><td>国内新秀同样把断点当第一卖点</td></tr>
+</table>
+
+<h3>4.4 横评暴露的评测维度（2025-2026）</h3>
+<p><span class="tag f">事实</span>场景化获胜者：<b>长期自用 → LocalSend；临时给外人传 → PairDrop；手机电脑联动 → KDE Connect；速度黑马 → Blip</b>（文件夹直传+断点续传）。评测权重示例（BuyRanker）：任务匹配 35% + 入口便利 25% + 传输路径透明度 25% + 配置负担 15%。</p>
+<table>
+<tr><th>维度</th><th>谁在用</th><th>关键表述</th></tr>
+<tr><td>速度实测（1GB 耗时）</td><td>全部横评</td><td>局域网 <5 秒 vs 微信 3 分钟；LocalSend 200–400Mbps</td></tr>
+<tr><td>成功率/连接稳定</td><td>B 站/CSDN</td><td>国内用户第一大坎（"找不到设备"）</td></tr>
+<tr><td><b>断点续传</b></td><td>cnblogs/飞鸽/新品</td><td><b>硬指标，无此即失分</b></td></tr>
+<tr><td>文件夹直传</td><td>XDA/飞鸽</td><td>"用了就回不去"</td></tr>
+<tr><td>免安装/入口便利</td><td>BuyRanker 25%</td><td>临时场景"你先装一下这个 App…"劝退话术是反面教材</td></tr>
+<tr><td>安全透明（是否过服务器）</td><td>BuyRanker 25%</td><td>LocalSend 本地 TLS 最受信任；Snapdrop 云端化被骂</td></tr>
+<tr><td>画质/完整性（不压缩+哈希）</td><td>国内横评</td><td>"无损原画"是国内营销第一卖点</td></tr>
+<tr><td>企业维度（权限/审计/恢复）</td><td>PingCode/SegmentFault</td><td>与个人横评维度几乎不重叠</td></tr>
+</table>
+
+<h2 id="s5">五、功能对比总表</h2>
+<p class="small">图例：✅ 有｜⚠️ 部分/受限｜❌ 无｜❓ 未找到明确证据。数据截至 2026-11-27；CC-Flash 列按本仓库 v1.2.9.2 实际代码核对。</p>
+<table>
+<tr><th>功能</th><th><b>CC-Flash</b></th><th>LocalSend</th><th>PairDrop</th><th>croc/sendme</th><th>Syncthing</th><th>AirDrop</th><th>Quick Share</th><th>KDE Connect</th></tr>
+<tr><td>发现/配对</td><td><b>UDP 多播+PIN+票据</b></td><td>UDP 多播+HTTP 兜底；WebRTC 发现已合入</td><td>WebSocket 信令</td><td>代码/ticket</td><td>本地发现+全局 ID</td><td>蓝牙+AWDL</td><td>Google 服务+P2P</td><td>mDNS+配对码</td></tr>
+<tr><td>跨网络中继</td><td>❌</td><td>❌（Tailscale issue 挂着）</td><td>✅ TURN+公共房间</td><td>✅ relay 回退</td><td>✅ 全球节点</td><td>✅ 17.1+ 蜂窝续传</td><td>✅ 直连丢失续传</td><td>❌ 同网</td></tr>
+<tr><td>断点续传</td><td>❌（红线）</td><td>❌ 直传（#1191 挂 2 年半）</td><td>❌</td><td>✅</td><td>✅ 块级</td><td>❌</td><td>✅ 2025-02 起</td><td>❓ 未找到</td></tr>
+<tr><td>文件夹整传</td><td>✅ 拖拽/目录上传+多选直发</td><td>✅（iOS 常年 issue）</td><td>❌ #290</td><td>✅</td><td>✅</td><td>⚠️ macOS 可</td><td>⚠️ 有上限（二手）</td><td>✅</td></tr>
+<tr><td>聊天/消息</td><td><b>✅ 聊天会话（Markdown/引用/未读）</b></td><td>⚠️ 单发+历史 #462</td><td>⚠️ 单条</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr><td>剪贴板</td><td><b>✅ 三合一+同服务双向共享</b></td><td>⚠️ 单向发送 #163</td><td>⚠️ 粘贴发送</td><td>❌</td><td>⚠️ 小文本</td><td>⚠️ 仅联系人</td><td>❌</td><td>✅ 双向同步</td></tr>
+<tr><td>二维码</td><td><b>✅ 悬浮二维码球</b></td><td>⚠️ v1.19 恢复</td><td>✅ 配对/房间码</td><td>⚠️ 纯代码</td><td>⚠️ 配对码</td><td>⚠️ NameDrop</td><td>⚠️</td><td>✅</td></tr>
+<tr><td>PIN/一次性授权</td><td><b>✅ PIN+一次性票据+媒体会话</b></td><td>⚠️ 协议支持、设置有 bug #3318</td><td>✅ 6 位配对</td><td>✅ 代码即授权</td><td>⚠️ 设备信任</td><td>✅ 26.2 Codes</td><td>✅ 显式同意</td><td>✅ 配对码</td></tr>
+<tr><td>接收端免安装</td><td><b>✅ 扫码即用（浏览器/PWA）</b></td><td>⚠️ 双端要装（web 仅链接接收）</td><td>✅ 核心形态</td><td>✅ 浏览器版</td><td>❌</td><td>✅ 系统自带</td><td>✅</td><td>⚠️ 组件</td></tr>
+<tr><td>CLI</td><td>❓ 未做</td><td>✅ Rust CLI</td><td>✅</td><td>✅ 核心形态</td><td>✅</td><td>❌</td><td>❌</td><td>✅</td></tr>
+<tr><td>限速</td><td>❌（有并发闸/低速闸）</td><td>❌</td><td>❌</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr><td>传输加密</td><td>⚠️ 局域网 HTTP + 票据/PIN（HTTPS 自签未做）</td><td>✅ 每设备即时 TLS</td><td>⚠️ DTLS、信令未加密</td><td>✅ PAKE/TLS</td><td>✅ TLS+认证</td><td>✅ 系统级</td><td>✅</td><td>✅ 配对密钥</td></tr>
+<tr><td>诊断/排障</td><td><b>✅ 诊断包+日志导出</b></td><td>⚠️ 日志复制+可达性提示</td><td>⚠️ FAQ</td><td>⚠️ CLI 日志</td><td>✅ 完整诊断</td><td>❌ 黑盒</td><td>❌</td><td>⚠️</td></tr>
+<tr><td>主题/皮肤</td><td><b>✅ 6 套 × 3 模式</b></td><td>✅ 取色器</td><td>✅ 明暗</td><td>❌ CLI</td><td>⚠️ 跟随系统</td><td>系统级</td><td>系统级</td><td>跟随 Plasma</td></tr>
+<tr><td>活跃度</td><td>—</td><td>101k★ v1.19.0</td><td>11.9k★ 周更</td><td>41k★/1.3k★ 日更</td><td>90.9k★</td><td>年更</td><td>月更</td><td>4.2k★</td></tr>
+</table>
+<p class="small">CC-Flash 加粗项 = 开源同类中稀缺或独有；❌ 项与第八、十节的方案一一对应。</p>
+
+<h2 id="s6">六、用户痛点合并 TOP10（海外 + 国内，按票权排序）</h2>
+<table>
+<tr><th>#</th><th>痛点</th><th>证据（节选）</th><th>CC-Flash 现状</th></tr>
+<tr><td>1</td><td><b>中断不续传，大文件 99% 归零</b></td><td>LocalSend #1191 挂 2 年半；Dukto 死因之一；Quick Share/新品全员续传；飞鸽首屏宣传</td><td>❌（红线冲突，见决策点 D1）</td></tr>
+<tr><td>2</td><td><b>连接/发现失败（找不到设备、发送失败）</b></td><td>B 站教程评论区（67.6 万播放）；LocalSend #125/#3750；AP 隔离/VPN TUN/非 /24</td><td>⚠️ 有 UDP 发现+手动输入+诊断包，但缺"分段自诊断"引导</td></tr>
+<tr><td>3</td><td><b>只能同一局域网（跨网络缺口）</b></td><td>HN 923 分帖把"不同网络也能用"列第二门槛；Ferry/Zynk/Blip 全员宣传跨网</td><td>❌（纯 UDP 多播派）</td></tr>
+<tr><td>4</td><td><b>速度不稳/小文件批量衰减</b></td><td>HN 实测 10GbE 仅 10MB/s；千文件掉到 80KB/s</td><td>⚠️ 单流整传理论上稳，<b>但没有公开性能基准与实测叙事</b></td></tr>
+<tr><td>5</td><td><b>双端都要安装 / 接收端必须前台开着</b></td><td>横评劝退话术；LocalSend #2153（26👍）；"手机必须一直开着 app"</td><td><b>✅ 零安装扫码即用（核心差异化，但还没被传播出去）</b></td></tr>
+<tr><td>6</td><td><b>微信三件套：过期/压缩/限制</b></td><td>72.3 万播放视频+780 赞评论；100MB/10GB 突破教程</td><td>✅ 不过服务器、不压缩、无大小墙——<b>传播文案富矿</b></td></tr>
+<tr><td>7</td><td><b>文件夹不能整传/子文件丢失</b></td><td>Windows Nearby 多年同问；LocalSend folder issue 274 个</td><td>✅ 目录上传+拖拽</td></tr>
+<tr><td>8</td><td><b>接收保存路径不可控 / 杀后台 / 权限拒绝</b></td><td>LANDrop 差评 98 赞；LocalSend"没有权限"；小米互传"总失败"</td><td>⚠️ Android 已有前台服务/权限申请，<b>缺首传向导（路径/权限/白名单三步）</b></td></tr>
+<tr><td>9</td><td><b>浏览器端大文件中断 + iOS 200MB 天花板</b></td><td>PairDrop #120/#294；WebRTC 内存/SCTP 限制技术文</td><td>⚠️ 手机浏览器端需主动标注边界（现为静默失败风险）</td></tr>
+<tr><td>10</td><td><b>隐私/信任（收购即变味、AI 碰我文件）</b></td><td>Snapdrop→LimeWire 用户连夜逃；"不信任 AI 整理我文件"</td><td>✅ 开源+本地+无云；<b>AI 若做必须本地可关</b></td></tr>
+</table>
+
+<h2 id="s7">七、2025-2026 趋势判断</h2>
+<table>
+<tr><th>#</th><th>趋势</th><th>标签</th><th>对本项目的含义</th></tr>
+<tr><td>1</td><td>监管改写底层协议：EU DMA → Wi-Fi Aware → Quick Share×AirDrop 互通（2025-11 起）</td><td><span class="tag f">事实</span></td><td>局域网发现红利期还在，但"系统级互通"叙事将被双寡头拿走；差异化落在系统够不着的层</td></tr>
+<tr><td>2</td><td>断点续传从加分项变及格线</td><td><span class="tag f">事实</span></td><td>缺续传会直接催生"兼容协议补短板"的竞品（Ferry 已出现）；须正面决策（D1）</td></tr>
+<tr><td>3</td><td>"直传失败 → 中继回退"成为标准架构（croc/iroh/Tailscale Peer Relays/TURN）</td><td><span class="tag f">事实</span></td><td>2027 年前主流开源工具都会带可选中继；短期至少做指引与文案管理预期</td></tr>
+<tr><td>4</td><td>Rust 重写 = 性能叙事 + CLI 复用（LocalSend/iroh/新 Snapdrop 同路）</td><td><span class="tag f">事实</span></td><td>CC-Flash 的 Tauri2+Rust 是同代资产，应主动对外讲"核心传输层原生 Rust"</td></tr>
+<tr><td>5</td><td>协议生态位出现"寄生增强"路线（兼容 LocalSend 协议补短板）</td><td><span class="tag f">事实</span></td><td>协议互通（D4）是低成本高话题的传播型功能；本地发现协议也可保持开放文档</td></tr>
+<tr><td>6</td><td>AI 在传输本体无杀手应用；同步/管理侧渗透遭隐私反弹</td><td><span class="tag f">事实</span></td><td>近期只考虑"本地、可关"的轻功能（如本地摘要/分类收件箱）；云端 AI 处理文件踩雷</td></tr>
+<tr><td>7</td><td>剪贴板/通知成留存主战场，纯传输低频化</td><td><span class="tag i">推断</span></td><td>聊天+剪贴板是正确的护城河，继续加码"设备常连"（同步化、历史、接力）</td></tr>
+<tr><td>8</td><td>浏览器端分化：轻量即用 / 纯静态 / 只做接收器</td><td><span class="tag f">事实</span></td><td>手机浏览器定位"接收器+小文件"，重活引导到原生壳或电脑端，UI 明示边界</td></tr>
+</table>
+
+<h2 id="s8">八、结合最新代码的盘点（v1.2.9.2 + 11-27 审查修复）</h2>
+<h3>8.1 已落地（规划文档里仍标"待做"的，本文纠正口径）</h3>
+<table>
+<tr><th>能力</th><th>代码证据</th></tr>
+<tr><td>系统通知</td><td><code>tauri-plugin-notification</code> 注册 + <code>lib.rs</code> 调用</td></tr>
+<tr><td>传输历史</td><td><code>App.vue</code> historyOpen + recordTransfer</td></tr>
+<tr><td>流式 ZIP 打包下载（stored 零依赖）</td><td><code>server.rs zip_dos_date</code> 等打包路径</td></tr>
+<tr><td>文件搜索 / 托盘复制地址 / 悬浮球拖拽与右键 / 诊断包 / 日志导出</td><td>v1.2.5 桌面增强六项，代码均在</td></tr>
+<tr><td>公共 Wi-Fi 配对引导</td><td><code>lanAskPin</code> "公共 Wi-Fi 推荐"询问框</td></tr>
+<tr><td>PWA / 老内核守门 / 六皮肤 ×3 模式 / 诊断包脱敏</td><td><code>sw.js/gate.js</code>、<code>style.css</code>、<code>redact_diagnostic</code></td></tr>
+<tr><td>11-27 三遍全量审查修复（P1×5、P2×11、P3×20）</td><td>见《整个过程历史改动记录_2026-11-27》；<code>cargo test</code> 37/37</td></tr>
+</table>
+<h3>8.2 确认未做（= 本文规划的原料）</h3>
+<p>上传断点续传（红线）｜按需校验和（MD5/SHA256 展示）｜HTTPS 自签｜应用内 updater｜mDNS（有意不做）｜国际化 i18n｜上传限速｜iOS 出包（缺 <code>gen/apple</code> 与 NSLocalNetwork 声明）｜跨网络中继｜CLI｜回收站（删除仍为硬删）｜LocalSend 协议互通｜浏览器端能力边界标注。</p>
+<h3>8.3 现有架构对扩展的友好度（代码事实）</h3>
+<ul>
+<li>传输层是<b>整文件单请求直传 + 全局并发闸 + 幂等账本</b>：加"校验和/限速/秒传预检"是增量；加"断点"要重开账本（v1.1.5–1.1.7 的 <code>.ccpart</code> 路由与常量仍在，可复用历史代码但需重做完整性标记语义）。</li>
+<li>发现层 UDP 多播+广播+单播回包逐网卡出口，<b>与 LocalSend 协议（REST 53317）形态相近</b>，做互通层有结构基础。</li>
+<li>前后端常量集中（<code>config.rs</code>/<code>config.js</code> 成对）、CI 六端资产断言完整——新功能按既有模式落两端即可。</li>
+<li>红线体系成熟：不分片、轻量化（opt-level=z、无压缩栈）、零学习成本——扩展方案必须在该约束内表达（本文第十节均给约束内方案）。</li>
+</ul>
+
+<h2 id="s9">九、CC-Flash 位次与差异化</h2>
+<table>
+<tr><th>象限</th><th>内容</th></tr>
+<tr><td><b>优势（代码事实）</b></td><td>①接收端零安装（扫码即用）②电脑常驻服务器心智 ③功能广度第一梯队（聊天会话+剪贴板三合一+六皮肤+悬浮球+诊断包+传输历史+ZIP）④Rust 核心与 CI 六端发版链路 ⑤PIN+一次性票据+媒体会话的授权体系（与 AirDrop Codes 同构）⑥开源+本地+无云的隐私叙事</td></tr>
+<tr><td><b>短板（代码事实）</b></td><td>①断点续传（红线）②跨网络为零 ③iOS 缺包 ④HTTPS 明文 ⑤无 CLI ⑥无性能公开基准 ⑦海外几乎无知名度（对比 LocalSend 101k★）⑧浏览器端边界未标注</td></tr>
+<tr><td><b>机会（调研结论）</b></td><td>①LocalSend 三大痛点（续传/后台/跨网）全挂 issue 无人解决 ②微信三件套之痛给足获客文案 ③互传联盟收口手机互传后，"电脑中心"叙事空出 ④Windows 系统级传输退场 ⑤剪贴板/通知留存战 ⑥协议寄生增强路线被验证</td></tr>
+<tr><td><b>威胁（调研结论）</b></td><td>①Quick Share×AirDrop 互通挤压"跨生态"故事 ②断点续传及格线化（不做会被横评直接扣分）③中继回退标配化 ④赛道淘汰率高、活跃度即护城河（需持续 release 节奏）⑤AI/云端化踩隐私雷的舆论风险</td></tr>
+</table>
+
+<h2 id="s10">十、扩展与提升方案（分期，含可行性/成本/风险）</h2>
+<p class="small">排序原则沿用《后期规划》：安全缺口 > 高频痛点 > 传播型功能 > 平台扩张；每期一个主菜，其余配菜。成本为工程人日粗估（含测试），风险按影响面标注。</p>
+
+<h3>10.1 短期（下个版本，1–3 周）——全是低成本高确定性项</h3>
+<table>
+<tr><th>项</th><th>方案</th><th>成本</th><th>风险/影响面</th></tr>
+<tr><td><b>T1 接收体验三步向导</b><br><span class="tag d">痛点 #2/#8</span></td><td>首次上传/下载触发的分段引导：①连接自诊断（AP 隔离/防火墙/VPN 分段提示，复用诊断包数据）②Android 保存路径+电池白名单 ③微信内置浏览器"用系统浏览器打开"强化。全前端+现有诊断接口。</td><td>1–1.5 天</td><td>低；六端浏览器/壳通用，纯 UI</td></tr>
+<tr><td><b>T2 浏览器端能力边界标注</b><br><span class="tag d">痛点 #9</span></td><td>手机浏览器上传前对超大文件给出提示（参照 PairDrop iOS 200MB 教训的"诚实标注"而非静默失败）；下载走原生/流式说明。纯前端分支。</td><td>0.5 天</td><td>低</td></tr>
+<tr><td><b>T3 传输性能基准脚本</b><br><span class="tag d">痛点 #4</span></td><td>1GB 单文件 + 1000 小文件两档基准（内存曲线/吞吐/衰减），进 CI 或手动档；结果可直接写进 README 当实测叙事（对标 LocalSend 10MB/s 翻车帖）。</td><td>1 天</td><td>低；只加脚本不改传输逻辑</td></tr>
+<tr><td><b>T4 HTTPS 自签 + 扫码信任</b><br><span class="tag d">安全</span></td><td>《后期规划》3.1 的 P1 原样执行：自签证书随服务生成、二维码带指纹、手机首次扫码即信任。消除"HTTP 明文"在推广期的安全性质疑（LocalSend 每设备 TLS 是横评信任来源）。</td><td>2–3 天</td><td>中；证书生命周期、各端信任链要真机回归（六端）</td></tr>
+<tr><td><b>T5 回收站</b>（既有配菜）</td><td>硬删改移入 <code>.trash/</code>（复用隐藏目录规则），可选保留天数。防手滑。</td><td>0.5 天</td><td>低；注意 Windows/移动端路径差异</td></tr>
+<tr><td><b>T6 按需校验和</b>（既有配菜）</td><td>详情/右键显示 MD5/SHA256（大文件不自动算）。补齐"完整性验收"横评维度。</td><td>0.5 天</td><td>低；<code>spawn_blocking</code> 防阻塞</td></tr>
+</table>
+
+<h3>10.2 中期（1–2 个月，各期主菜候选）</h3>
+<table>
+<tr><th>项</th><th>方案（A/B/C）</th><th>成本</th><th>风险</th></tr>
+<tr><td><b>M1 断点续传（决策 D1，与红线冲突）</b><br><span class="tag p0">痛点 #1</span></td><td><b>A 维持红线</b>：不上传断点；配套"传输预检（同 size+hash 秒跳过）+ 中断后一键重传带进度预估"，文案明示取舍。<b>B 单流 Range 续传（推荐评估）</b>：不是并行分片——单请求上传，中断后按已收字节 <code>Content-Range</code> 续写，服务端复用既有 <code>.ccpart</code> 账本与完整性标记；保住"单请求整文件"的简洁语义，只加"续"不加"分片并发"。<b>C 仅下载侧</b>：上传永断点，下载已有 Range，明示。</td><td>A：1 天<br>B：4–6 天（含 e2e 与崩溃残留清理回归）<br>C：0.2 天</td><td>B 是对 1.1.2 回滚的再反转，必须以完整 e2e（半截/同名/停服/崩溃四态）护住，否则回到当年复杂度泥潭——<b>强烈建议先拍板再动</b></td></tr>
+<tr><td><b>M2 iOS 出包</b><br><span class="tag p0">平台缺口</span></td><td>依赖 $99/年 Apple 账号（既有决策点）；workflow 已留模板；需补 <code>gen/apple</code> 工程、<code>NSLocalNetworkUsageDescription</code>、后台策略与真机回归。做成后 = "iPhone×Windows"人群精准承接 + AirDrop Codes 对位话术。</td><td>账号 + 1–2 周（工程生成/权限/真机）</td><td>中高；iOS 后台/挂起行为需真机多轮（11-27 审查已识别 iOS 无前台恢复钩子）</td></tr>
+<tr><td><b>M3 分享链接增强 + 网页接收动线</b></td><td>既有"临时分享链接"延展：时长/次数/多文件打包管理页；并把"浏览器扫码 → 网页接收"对标 LocalSend share-via-link 做成对外演示动线（票据+PWA 底子已在）。</td><td>2–3 天</td><td>低</td></tr>
+<tr><td><b>M4 剪贴板同步化加码</b><br><span class="tag d">留存</span></td><td>现状"同服务双向共享剪贴板、默认关"基础上：①剪贴历史（本地环形缓冲，默认关）②跨网络场景暂缓（依赖中继）③桌面↔桌面跟随设备配对白名单。对标 KDE Connect 留存逻辑。</td><td>2–3 天</td><td>中；隐私默认姿态（默认关+文案明示"任何文本都会同步"已具备）</td></tr>
+<tr><td><b>M5 LocalSend 协议互通（传播型）</b><br><span class="tag d">趋势 5</span></td><td>CC-Flash 可发现并接收 LocalSend 设备的发送（其协议为公开 REST：prepare-upload → send），反向亦然。一次性做完 = "兼容生态最大玩家"的话题点，出海传播杠杆高。</td><td>3–5 天（协议对拍 + 双端 e2e）</td><td>中；协议细节以对方实现为准，注意 PIN 语义对齐；做之前先确认投入产出</td></tr>
+</table>
+
+<h3>10.3 长期（第 3 个月起，生态演进）</h3>
+<table>
+<tr><th>项</th><th>方案</th><th>成本/风险</th></tr>
+<tr><td><b>L1 跨网络中继（决策 D2）</b><br><span class="tag p0">痛点 #3</span></td><td><b>A 文档+指引</b>（零代码）：检测到非同网时给"手动输入公网 IP:端口/常见打洞指引"并管理预期。<b>B Tailscale/DERP 检测适配</b>（1–2 天）：对已组网用户自动识别并提示正确地址（LocalSend #1123 同款痛点）。<b>C iroh 集成探索</b>（Rust 同栈、公钥寻址+relay 回退）：先做 1 周 spike 验证"局域网直传失败 → relay 回退"的最小闭环，再定是否产品化。推荐 A→B 先行，C 探索后再拍板。</td><td>A 即刻；B 低风险；C spike 1 周、产品化 2 周+，引入新依赖与常驻中继的运维/信任成本（须可选、可自托管、明示"中继不可读"）</td></tr>
+<tr><td><b>L2 CLI</b></td><td><code>ccflash send/receive/serve</code>，复用既有 Rust 核（LocalSend CLI 路线）。脚本化/极客传播。</td><td>2–3 天；低风险</td></tr>
+<tr><td><b>L3 应用内 updater</b></td><td><code>tauri-plugin-updater</code> + minisign + GitHub Releases（既有规划）；与现"跳转下载"并存。需与 D3 签名决策联动。</td><td>2–3 天 + 签名密钥管理；中</td></tr>
+<tr><td><b>L4 i18n 英文化</b></td><td>vue-i18n + README.en 已有基础；出海传播前置项。</td><td>3–5 天（文案全量）；低</td></tr>
+<tr><td><b>L5 上架与签名</b></td><td>Apple 签名公证/Windows 签名/Google Play AAB/国内商店（软著）——按《后期规划》第六节执行，均依赖决策点。</td><td>外部成本为主</td></tr>
+<tr><td><b>L6 本地 AI 轻功能（观察项）</b></td><td>仅限"本地、可关"：传输记录智能摘要/收件箱分类（本地模型或纯规则）。<b>云 AI 处理文件明确不做（趋势 6 隐私雷）。</b></td><td>先观察；不排期</td></tr>
+</table>
+
+<h2 id="s11">十一、决策点（需拍板，本文不动手）</h2>
+<table>
+<tr><th>#</th><th>决策</th><th>选项</th><th>建议</th></tr>
+<tr><td>D1</td><td><b>断点续传与"不分片"红线的关系</b>（调研最高票痛点 vs 既有红线）</td><td>A 维持红线+预检补偿 ／ B 单流 Content-Range 续传（非并行分片）／ C 明示不做</td><td>倾向 <b>B</b>：语义仍是单请求整文件、只加"续"不加"分片并发"，<code>.ccpart</code> 账本代码可复用；但它是对 1.1.2 回滚的再反转，必须由你确认红线的本意是"拒绝复杂度"还是"拒绝一切续传语义"</td></tr>
+<tr><td>D2</td><td>跨网络路线</td><td>A 指引 → B Tailscale 适配 → C iroh spike</td><td>A+B 先行（1 周内见效），C 探索完再决定</td></tr>
+<tr><td>D3</td><td>iOS 账号购买时机（既有决策点，调研后权重上升）</td><td>立即 / 推广起量后</td><td>调研显示 iPhone×Windows 人群精准且大——若近期要传播，建议提前</td></tr>
+<tr><td>D4</td><td>LocalSend 协议互通是否立项</td><td>做 / 不做 / 缓做</td><td>中期传播价值高；等 M1/D1 定了再评估排期</td></tr>
+<tr><td>D5</td><td>应用内自更新 vs 保持跳转下载</td><td>插件化 / 维持现状</td><td>与签名证书决策绑定（未签名包做自动更新意义减半）</td></tr>
+<tr><td>D6</td><td>配对码默认开 or 默认关（既有决策点）</td><td>维持"默认关+可疑网络提示"或改默认开</td><td>维持既有结论；上架商店版本时再议"上架版默认开"</td></tr>
+</table>
+<p class="small">既有决策点（Apple 账号 $99、独立域名、Windows 签名证书、商店上架）沿用《后期规划》第八节，不再重复展开。</p>
+
+<h2 id="s12">十二、明确不做（范围红线，含调研新增）</h2>
+<div class="callout.red">
+<ul>
+<li><b>不正面做手机↔手机互传</b>：互传联盟 NFC 一碰传已系统级收口（推断），CC-Flash 叙事收束到"电脑是中心的工作台"。</li>
+<li><b>不做双向同步/块级同步</b>：Syncthing/Resilio 地盘（数据一致性深坑），既有红线延续。</li>
+<li><b>不做云端 AI 处理用户文件</b>：隐私舆论雷区；本地可关的轻功能才可讨论。</li>
+<li><b>不做并行分片上传</b>：红线原文保留；D1-B 的"单流续传"若被拍板，须以"不分片并发"为硬约束实现。</li>
+<li><b>不做 mDNS 主发现</b>：既有取舍（同 Wi-Fi 攻击者可自架应答，<code>server.rs</code> 注释已论证）；保持 UDP 多播+扫码双通道。</li>
+<li><b>不自建公共中继服务</b>：跨网络只做"可选、可自托管、明示信任模型"的路径，不运营中心化 relay（成本+信任双重不可控）。</li>
+<li><b>不追热点加微信内嵌/小程序传输</b>：入口做"链接/二维码 → 系统浏览器"动线即可。</li>
+</ul>
+</div>
+
+<h2 id="s13">十三、里程碑修订建议（与《后期规划》对齐）</h2>
+<table>
+<tr><th>阶段</th><th>原规划</th><th>调研后修订建议</th></tr>
+<tr><td><b>v1.2.x 收尾</b>（质量与安全）</td><td>HTTPS 自签 P1、配菜清尾</td><td>不变 + 新增 T1 向导 / T2 边界标注 / T3 性能基准 / T5 回收站 / T6 校验和（全部 ≤1.5 天级，符合"小步快跑可感知"）</td></tr>
+<tr><td><b>v1.3 能力扩展</b></td><td>临时分享链接增强、共享文件夹监控等</td><td><b>主菜二选一：M1 断点续传（若 D1 拍 B）或 M2 iOS（若 D3 拍立即）</b>；M3 分享链接增强照旧；M4 剪贴板同步化提为配菜首选（留存逻辑）</td></tr>
+<tr><td><b>v2.0 生态演进</b></td><td>iOS、上架、应用内更新、i18n</td><td>不变 + 新增 L1 跨网络（A/B 先行、C 探索制）与 L2 CLI、D4 协议互通作为传播组合拳</td></tr>
+<tr><td><b>工程基建线</b></td><td>测试进 CI、审计、Nightly、SHA256SUMS</td><td>不变；11-27 审查发现"CI 不跑任何测试、工具链浮动"已列拍板，建议随 v1.2.x 收尾一并落</td></tr>
+</table>
+<p><b>版本节奏提醒（事实）</b>：PairDrop 周更级 release、LocalSend 恢复月更、横评选活跃度——本项目 10-23 至 11-27 约 11 个 tag 的节奏已是优势，<b>调研结论是保持"每个版本都有可感知价值"的连续交付，比憋 2.0 大招更重要。</b></p>
+
+<h2 id="s14">十四、来源与局限（节选）</h2>
+<h4>海外</h4>
+<ul class="src">
+<li>LocalSend：github.com/localsend/localsend（README/CHANGELOG/issue #1191 #2153 #1123 #3750 #125 #3318；star 与 release 为 GitHub API 直读）｜官网 localsend.org</li>
+<li>HN：news.ycombinator.com/item?id=47933208（923 分实测帖）｜id=45994854（Wi-Fi Aware 互通 886 分）｜id=45557599（KDE Connect 476 分）｜id=49746346（snapdrop.me Show HN）</li>
+<li>PairDrop：github.com/schlagmichdoch/PairDrop（#120 #294 #290 #479 #180 #122）｜Snapdrop 收购公告与 reddit.com/r/selfhosted/comments/1je1s9o/</li>
+<li>系统级：blog.google/products-and-platforms/platforms/android/quick-share-airdrop ｜ arstechnica.com/gadgets/2025/11/…wi-fi-standards… ｜ support.apple.com/guide/iphone/use-airdrop… ｜ androidauthority.com（Quick Share 续传 2025-02）｜ 9to5mac.com（AirDrop Codes）</li>
+<li>croc/iroh/Syncthing：github.com/schollz/croc ｜ iroh.computer/blog/the-road-to-iroh-1-0 ｜ github.com/syncthing/syncthing ｜ tailscale.com/blog/peer-relays-international-networks ｜ github.com/F7rx/Ferry</li>
+<li>技术背景：dev.to/perkoon/what-breaks-when-you-try-to-send-huge-files…（WebRTC 硬约束）</li>
+</ul>
+<h4>国内</h4>
+<ul class="src">
+<li>互传联盟跨品牌一碰传：news.qq.com/rain/a/20261124A04US300（2026-11-24）</li>
+<li>B 站（高赞评论与播放数经公开 API）：BV1k6qgBxELi（过期 72.3 万）｜ BV1B3DMByEha（不互通 14.2 万）｜ BV1jX4y1W7FX（1GB 12.9 万）｜ BV1q9FaziEeR / BV1qT4y1t7Y2（LocalSend 骂点 67.6 万/5.8 万）｜ BV1Me411W79P / BV1pZZtB8ED5（微信路径依赖）</li>
+<li>横评与工具：cnblogs.com/AICDragon/articles/22320745（5 款决策指南）｜ buyranker.com/ranking/best-cross-platform-file-transfer-local-browser-2026 ｜ sspai.com/post/53889 与 /57286 ｜ segmentfault.com/a/1190000047837460 ｜ ipmsg.org.cn ｜ transfer.52python.cn</li>
+<li>检索局限：知乎/贴吧正文被验证码拦截（仅标题级样本）；微信限制数值为第三方科普；Quick Share 1000 文件上限为社区二手转述；"通话中互传"未找到公开资料。</li>
+</ul>
+
+<footer>CC Flash · 竞品调研与扩展规划 · 2026-11-27 · 基于 v1.2.9.2 + 11-27 三遍全量审查修复后的代码 · 与<a href="./后期规划.html">《后期规划》</a>配套阅读（本文为调研输入与修订建议，红线以《后期规划》与拍板结果为准）</footer>
+</main>
+</div>
+</body></html>

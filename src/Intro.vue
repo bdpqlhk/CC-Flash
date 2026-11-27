@@ -1,13 +1,11 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from "vue";
-import { GITHUB_REPO, RELEASES_PAGE, FOOTER_TEXT } from "./config";
+import { FOOTER_TEXT } from "./config";
 
 const props = defineProps({
   running: Boolean,
   shareUrl: String,
   qrData: String,
-  copyText: Function,
-  openExternal: Function,
 });
 const emit = defineEmits(["close", "service", "transfer"]);
 
@@ -32,14 +30,20 @@ const introSec = ref("feat");
 const faqOpen = ref(-1);
 let introSpy = null;
 function toggleFaq(i) { faqOpen.value = faqOpen.value === i ? -1 : i; }
+function smoothBehavior() {
+  // 系统开启「减弱动态效果」时显式 behavior:"smooth" 会绕过全局 CSS, 必须降级(F3-18)
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  } catch (e) { return "smooth"; }
+}
 function introScrollTo(sec) {
   const root = document.getElementById("introOverlay");
   const el = document.getElementById("sec-" + sec);
-  if (root && el) root.scrollTo({ top: el.offsetTop - 56, behavior: "smooth" });
+  if (root && el) root.scrollTo({ top: el.offsetTop - 56, behavior: smoothBehavior() });
 }
 function introScrollTop() {
   const root = document.getElementById("introOverlay");
-  if (root) root.scrollTo({ top: 0, behavior: "smooth" });
+  if (root) root.scrollTo({ top: 0, behavior: smoothBehavior() });
   introSec.value = "feat";
 }
 function startIntroSpy() {
@@ -175,13 +179,13 @@ onUnmounted(() => {
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></div>
-          <h3>消息工作台</h3>
+          <h3>周边设备</h3>
           <p>桌面左侧是周边设备栏，手机 App 四页切换。点设备只选中目标，不再自动弹面板；支持「多选」同时发给多台设备，文本与拖入文件依次投递；部分失败时保留草稿和未成功设备，下一次只发失败目标。状态实时同步，窄屏自动收起，浏览器保持简洁聊天室。</p>
           <div class="tags"><span class="tag">设备即目标</span><span class="tag">多选直发</span><span class="tag">直发回执</span><span class="tag">浏览器零打扰</span></div>
         </div>
         <div class="card">
           <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 5h3"/><circle cx="12" cy="18.2" r=".8" fill="currentColor" stroke="none"/></svg></div>
-          <h3>手机 App · 信号台</h3>
+          <h3>手机APP</h3>
           <p>发送 / 设备 / 文件三页按 dir-2 信号台重排：等宽读数、刻度雷达盘、RSSI 设备行、manifest 序号与进度条。Wi-Fi/CPU 锁 + 忽略电池优化，熄屏后仍可被找到。</p>
           <div class="tags"><span class="tag">dir-2 三页</span><span class="tag">多选发送</span><span class="tag">熄屏保活</span><span class="tag">本机节点</span></div>
         </div>
@@ -249,25 +253,6 @@ onUnmounted(() => {
           <p>macOS、Windows、Android App，外加电脑与手机浏览器。Windows 安装包使用 WebView2 引导器（Win10/11 通常已自带）；iOS 没有原生包，用 Safari 打开电脑地址即可。</p>
         </div>
       </div>
-      <div class="codes">
-        <div class="code-card">
-          <h3>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            桌面端安装
-          </h3>
-          <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需额外部署。未签名版本会标记为 prerelease，应用内更新检查仍会提示，但弹框会标注 Gatekeeper/SmartScreen 风险，由你决定是否下载；建议签名版发布后再升级。</p>
-          <div class="code-box"><button class="code-copy" @click="copyText(RELEASES_PAGE, '已复制')">复制</button><span class="cm"># 打开 Releases 页面</span><br />{{ RELEASES_PAGE }}</div>
-        </div>
-        <div class="code-card">
-          <h3>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            从源码构建
-          </h3>
-          <p>Rust + Vue 3 + Tauri 技术栈，两条命令构建当前平台的安装包。</p>
-          <div class="code-box"><button class="code-copy" @click="copyText(`npm install\nnpm run tauri build`, '已复制')">复制</button>npm install<br />npm run tauri build</div>
-        </div>
-      </div>
-      <p class="code-note">升级前请保留原共享目录（默认 <code>~/CC-Flash</code>）。问题反馈与建议欢迎提交 <a :href="'https://github.com/' + GITHUB_REPO + '/issues'" @click.prevent="openExternal('https://github.com/' + GITHUB_REPO + '/issues')">GitHub Issue</a>。</p>
     </section>
 
     <!-- 常见问题 -->
@@ -281,16 +266,11 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- 页脚 -->
+    <!-- 页脚: 品牌左 + 版权右 单行(跳转链接已按需求移除) -->
     <footer class="ifoot">
       <div class="ifoot-in">
         <div class="ifoot-brand">
           <img class="ib-lg" src="/logo.png" alt="logo" /> CC Flash
-        </div>
-        <div class="ifoot-links">
-          <a :href="'https://github.com/' + GITHUB_REPO" @click.prevent="openExternal('https://github.com/' + GITHUB_REPO)">GitHub</a>
-          <a :href="'https://github.com/' + GITHUB_REPO + '/issues'" @click.prevent="openExternal('https://github.com/' + GITHUB_REPO + '/issues')">反馈问题</a>
-          <a :href="RELEASES_PAGE" @click.prevent="openExternal(RELEASES_PAGE)">下载安装</a>
         </div>
         <div class="ifoot-copy">CC Flash（曹操是快😂）—— 局域网文件互传工具 · {{ FOOTER_TEXT }}</div>
       </div>

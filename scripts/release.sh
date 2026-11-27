@@ -70,6 +70,8 @@ if [ -n "$remote_tag" ]; then
 fi
 
 BRANCH="$(git branch --show-current)"
+# detached HEAD 下 BRANCH 为空, 尾部 git push origin "" 必失败且报错无指向 —— 提前拦
+[ -n "$BRANCH" ] || { echo "✘ 当前处于 detached HEAD, 无法确定推送分支; 请先 git checkout main"; exit 1; }
 [ "$BRANCH" = "main" ] || echo "⚠ 当前分支是 $BRANCH (推荐在 main 上发版)"
 
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)
@@ -91,6 +93,7 @@ echo "应用版本: $CUR → ${APP_VERSION}, tag: v$TAG_VERSION"
 ORIG_VERSION="$CUR"
 VERSION_CHANGED=0
 COMMITTED=0
+STAGED=0
 LOCK_BAK_DIR="$(mktemp -d)"
 cp package-lock.json "$LOCK_BAK_DIR/package-lock.json" 2>/dev/null || true
 cp src-tauri/Cargo.lock "$LOCK_BAK_DIR/Cargo.lock" 2>/dev/null || true
@@ -109,6 +112,11 @@ restore_on_fail() {
     if [ -n "${OLD_BVER:-}" ]; then
       node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.macOS=Object.assign({},j.bundle.macOS,{bundleVersion:process.argv[1]});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$OLD_BVER" || true
     fi
+  fi
+  # 版本文件已回写原值但 index 还是 add -A 后的暂存态: 撤暂存, 防止后续
+  # 手动 git commit 把半套版本改动(或守卫漏网文件)提交进 Public 仓库
+  if [ "$STAGED" = "1" ] && [ "$COMMITTED" = "0" ]; then
+    git reset -q HEAD 2>/dev/null || true
   fi
   rm -rf "$LOCK_BAK_DIR" 2>/dev/null || true
   return $rc
@@ -134,11 +142,24 @@ rm -f package.json.bak
 # 映射 major*1e7 + minor*1e5 + patch*1e2 + build, 上限 2.1e9。
 IFS=. read -r vM vN vP vB <<< "$VERSION"
 vB=${vB:-0}
-for part in "$vM" "$vN" "$vP" "$vB"; do [[ "$part" -ge 0 && "$part" -lt 100 ]] || { echo "✘ 版本段需在 0-99: $VERSION"; exit 1; }; done
+# 先按十进制归一(10#): 直接对 "08" 做算术比较会报 value too great for base, 错误信息会误导
+for part in "$vM" "$vN" "$vP" "$vB"; do
+  # 前导零直接拒绝: "1.08.0" 会写进 Cargo.toml 后被 cargo metadata 以
+  # "invalid leading zero" 拒绝, 用户看到的是晦涩的 cargo 报错(B3-7)
+  if [[ "$part" =~ ^0[0-9]+$ ]]; then
+    echo "✘ 版本段不得含前导零(cargo 会拒绝): $VERSION"
+    exit 1
+  fi
+  part=$((10#$part))
+  [[ "$part" -ge 0 && "$part" -lt 100 ]] || { echo "✘ 版本段需在 0-99: $VERSION"; exit 1; }
+done
 NEW_VCODE=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
-node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});j.bundle.macOS=Object.assign({},j.bundle.macOS,{bundleVersion:process.argv[2]});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$NEW_VCODE" "$VERSION"
+# macOS CFBundleVersion 只允许 1-3 段整数: 四段 tag 映射为 M.N.(P*100+B),
+# 如 1.2.9.2 → 1.2.902(第三段上限 99*100+99=9999, 满足 Apple 规范, 上架/公证不被拒)
+BUNDLE_VER="$vM.$vN.$((10#$vP * 100 + 10#$vB))"
+node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.bundle=j.bundle||{};j.bundle.android=Object.assign({},j.bundle.android,{versionCode:Number(process.argv[1])});j.bundle.macOS=Object.assign({},j.bundle.macOS,{bundleVersion:process.argv[2]});fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$NEW_VCODE" "$BUNDLE_VER"
 # 同步 package-lock 根 version(两处): 勿用全局 sed(lock 里有几千行依赖 version 字段)
-npm install --package-lock-only >/dev/null 2>&1 || echo "⚠ package-lock 同步失败(不阻断发版, CI 用 npm install)"
+npm install --package-lock-only >/dev/null 2>&1 || echo "⚠ package-lock 同步失败(不阻断发版, CI 用 npm ci 严格校验 lock, 不同步会整链报红)"
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null  # 刷新 Cargo.lock
 echo "Cargo.toml → $(grep -m1 '^version' src-tauri/Cargo.toml)"
 echo "config.js  → $(grep -m1 'APP_VERSION_FALLBACK' src/config.js)"
@@ -152,14 +173,18 @@ if [ -n "$untracked" ]; then
   echo "$untracked" | sed 's/^/    /'
 fi
 git add -A
+STAGED=1
 # 私钥守卫: 仓库为 Public, keystore 入库即泄露(任何人可签冒名更新包)。
 # 先把清单落到变量再 grep(不带 -q): grep -q 命中大列表开头即关管道,
 # git diff 吃 SIGPIPE 以 141 退出, pipefail 下整条 if 为假 —— 守卫恰好在
 # "发版夹带大量改动+私钥"这种该触发的场景被绕过(已实测复现)
 staged_files=$(git diff --cached --name-only)
-if echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)|(^|/)key\.properties$|(^|/)keystore\.properties$' >/dev/null; then
-  echo "✘ 暂存区含签名私钥/环境密钥文件, 已中止(请移出仓库目录并从暂存区移除)"
-  echo "$staged_files" | grep -iE '\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem)$|(^|/)\.env($|\.)|(^|/)key\.properties$|(^|/)keystore\.properties$'
+KEY_NAME_RE='\.(keystore|jks|p12|mobileprovision|b64|p8|key|cer|der|pfx|pem|ppk|gpg|jceks|bks|p7b|p7c)$|(^|/)\.env($|\.)|(^|/)key\.properties$|(^|/)keystore\.properties$|(^|/)id_(rsa|ed25519|ecdsa|dsa)$|(^|/)\.netrc$|(^|/)\.npmrc$|(^|/)credentials$'
+if echo "$staged_files" | grep -iE "$KEY_NAME_RE" >/dev/null; then
+  echo "✘ 暂存区含签名私钥/环境密钥文件, 已中止(请移出仓库目录后重试)"
+  echo "$staged_files" | grep -iE "$KEY_NAME_RE"
+  # 命中即撤暂存: 否则文件仍在 index, 后续误执行 git commit 会把私钥提交进 Public 仓库
+  git reset -q HEAD 2>/dev/null || true
   exit 1
 fi
 # 私钥内容守卫: 改扩展名(如把 keystore 命名成 .txt)可绕过上面的文件名检查。
@@ -167,9 +192,12 @@ fi
 # 模式写成字符类而非 ".*": 本文件自身就含这行守卫文本, 用 .* 会把 release.sh
 # 自己判成私钥文件(已实测发版被自己拦下)。[A-Z ]* 仍覆盖 RSA/EC/OPENSSH/
 # ENCRYPTED 等全部标准 PEM 头, 且不会匹配到本行字面量。
-if git grep --cached -IlE 'BEGIN [A-Z ]*PRIVATE KEY' >/dev/null 2>&1; then
-  echo "✘ 暂存文件内容含私钥(PEM PRIVATE KEY), 已中止:"
-  git grep --cached -IlE 'BEGIN [A-Z ]*PRIVATE KEY' || true
+# LS0tLS1CRUdJ[T]i 是 base64("-----BEGIN") 的字面量(类括号防本文件自匹配):
+# base64 包裹的 PEM 私钥不会出现明文头, 但其编码必然包含这段前缀
+if git grep --cached -IlE 'BEGIN [A-Z ]*PRIVATE KEY|LS0tLS1CRUdJ[T]i' >/dev/null 2>&1; then
+  echo "✘ 暂存文件内容含私钥(PEM/base64 PEM), 已中止:"
+  git grep --cached -IlE 'BEGIN [A-Z ]*PRIVATE KEY|LS0tLS1CRUdJ[T]i' || true
+  git reset -q HEAD 2>/dev/null || true
   exit 1
 fi
 # 二进制 keystore 守卫: JKS 魔数 FE ED FE ED / PKCS12 DER 30 82 / base64 证书 MII
@@ -183,6 +211,7 @@ while IFS= read -r f; do
   case "$magic" in
     feedfeed|3082*)
       echo "✘ 暂存文件 $f 是二进制 keystore/证书(PKCS12/JKS 魔数), 已中止"
+      git reset -q HEAD 2>/dev/null || true
       exit 1
       ;;
   esac
@@ -190,6 +219,7 @@ while IFS= read -r f; do
   case "$first" in
     MII*)
       echo "✘ 暂存文件 $f 以 MII 开头, 疑似 base64 证书/keystore, 已中止"
+      git reset -q HEAD 2>/dev/null || true
       exit 1
       ;;
   esac
@@ -206,6 +236,7 @@ while IFS= read -r f; do
         case "$b64magic" in
           feedfeed)
             echo "✘ 暂存文件 $f 是 base64 编码的 JKS keystore, 已中止"
+            git reset -q HEAD 2>/dev/null || true
             exit 1
             ;;
         esac
@@ -218,7 +249,11 @@ set -o pipefail
 echo "暂存文件: $(echo "$staged_files" | grep -c . || true) 个"
 # 注意: workflow 改动必须经由本脚本提交进 tag —— 手打 tag 会用旧版工作流构建
 if git diff --cached --quiet; then
-  echo "⚠ 暂无改动可提交(检查版本号是否真的变了)"
+  echo "⚠ 暂无改动可提交(版本号与当前一致且工作树干净, FORCE 也无法凭空造 commit)"
+  echo "  同 tag 重建重发可手动:"
+  echo "    git tag v$TAG_VERSION"
+  echo "    git push origin :refs/tags/v$TAG_VERSION && git push origin v$TAG_VERSION"
+  echo "  (先确认 Release 仍为草稿; 或随便提交一处改动后重跑本脚本)"
   exit 1
 fi
 # commit 失败必须立即退出: 否则后续会把新版本 tag 打在旧代码上发出去

@@ -38,8 +38,6 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || isApi(url)) return;
-  // 下载走浏览器原生流式下载, 不能被 SW 转成内存响应
-  if (url.pathname.startsWith("/api/download/")) return;
 
   // 页面导航: network-first, 失败时回退缓存的 index
   if (req.mode === "navigate") {

@@ -9,7 +9,7 @@
    CC-Flash 软件介绍页 · 设计稿
    参考 https://transfer.52python.cn/official/ 的结构与交互:
    粘性顶栏 + 锚点导航 + 大标题 Hero + 功能卡片 + 三步上手
-   + 可靠性四点 + 代码卡片 + FAQ 手风琴 + 页脚
+   + 可靠性四点 + FAQ 手风琴 + 页脚（代码卡片与页脚跳转链接已移除）
    配色采用应用自身「深空蓝」设计令牌(应用内全屏 overlay 场景)
    ============================================================ */
 :root {
@@ -248,7 +248,7 @@ a { color: inherit; text-decoration: none; }
 .hv-file .fp { margin-left: auto; font-size: 10.5px; color: var(--success); font-weight: 700; flex-shrink: 0; }
 .hv-cap { padding: 0 18px 16px; font-size: 11.5px; color: var(--text3); text-align: center; }
 
-/* 功能四卡片 */
+/* 功能卡片(现为 6 张) */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 16px; margin-top: 38px; }
 .card {
     background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius);
@@ -300,28 +300,6 @@ a { color: inherit; text-decoration: none; }
 .pt h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
 .pt p { font-size: 13px; color: var(--text2); line-height: 1.8; }
 
-/* 代码卡片(参考官网部署区) */
-.codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 20px; }
-.code-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px; }
-.code-card h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 7px; display: flex; align-items: center; gap: 8px; }
-.code-card > p { font-size: 12.5px; color: var(--text2); line-height: 1.75; margin-bottom: 14px; }
-.code-box {
-    position: relative; background: #0a0d13; border: 1px solid var(--card-border);
-    border-radius: var(--radius-sm); padding: 14px 16px;
-    font-family: var(--mono); font-size: 12px; line-height: 1.8; color: #b7c3de;
-    white-space: pre-wrap; word-break: break-all;
-}
-.code-box .cm { color: var(--text3); }
-.code-copy {
-    position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px;
-    border-radius: 6px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.05);
-    color: var(--text3); font-size: 11px; font-weight: 600; transition: all var(--transition);
-}
-.code-copy:hover { color: var(--accent-text); border-color: rgba(79,138,247,0.4); }
-.code-note { margin-top: 14px; font-size: 12px; color: var(--text3); line-height: 1.7; }
-.code-note a { color: var(--accent-text); font-weight: 600; }
-.code-note a:hover { text-decoration: underline; }
-
 /* FAQ 手风琴 */
 .faq { margin-top: 34px; display: flex; flex-direction: column; gap: 10px; max-width: 780px; }
 .faq-item { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--transition); }
@@ -349,8 +327,6 @@ a { color: inherit; text-decoration: none; }
     background: linear-gradient(135deg, #2b4a8f, #4f8af7);
     display: flex; align-items: center; justify-content: center; font-size: 16px;
 }
-.ifoot-links { display: flex; gap: 22px; font-size: 13px; color: var(--text2); }
-.ifoot-links a:hover { color: var(--accent-text); }
 .ifoot-copy { font-size: 12px; color: var(--text3); width: 100%; text-align: center; padding-top: 6px; }
 
 /* Toast(原型内交互提示) */
@@ -369,7 +345,7 @@ a { color: inherit; text-decoration: none; }
     .hero h1 { font-size: 34px; }
     .inav { display: none; }
     .steps { grid-template-columns: 1fr; }
-    .points, .codes { grid-template-columns: 1fr; }
+    .points { grid-template-columns: 1fr; }
     .sec { padding: 64px 22px; }
     .sec h2 { font-size: 25px; }
     .entry-cap { display: none; }
@@ -387,7 +363,7 @@ a { color: inherit; text-decoration: none; }
 
 
 <!-- ============ Part 1 · 侧边栏入口示意 ============ -->
-<div class="doc-status" style="max-width:860px;margin:16px auto 0;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.2 · 2026-11-27</span></div><p style="margin:0 0 4px">本文为历史 / 方案快照，不作为当前交互说明。当前最新实现为 v1.2.9.2（应用版本 1.2.9）；桌面增强六项、审查修复、六皮肤对比度与安装包两轮瘦身已完成。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-26.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-26 完整改动记录 →</a></div>
+<div class="doc-status" style="max-width:860px;margin:16px auto 0;padding:8px 0 8px 14px;border-left:3px solid #4f8af7;font-size:13px;line-height:1.75"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px"><b style="font-size:14px">文档状态</b><span style="font:11px/1.4 SF Mono,Menlo,monospace;color:#4f8af7">v1.2.9.2 · 2026-11-27</span></div><p style="margin:0 0 4px">本文为历史 / 方案快照，不作为当前交互说明。当前最新实现为 v1.2.9.2（应用版本 1.2.9）；桌面增强六项、审查修复、六皮肤对比度与安装包两轮瘦身已完成。 2026-11-26 已完成第二轮全量审查修复（安全、并发、数据完整性与直发体验）。</p><ul style="margin:0 0 5px;padding-left:18px;font-size:12.5px"><li><b>2026-11-27</b> 拍板项执行：v1.2.9.2 恢复 prerelease、CFBundleVersion 三段映射、CI 测试门禁与钉 1.99.1、单来源连接上限、幂等账本落盘、空目录剪枝、测试临时目录隔离、悬浮球主题实时跟随。</li><li><b>2026-11-27</b> 二轮三遍深查修复：设备重启 10 分钟发现黑洞、悬浮球导入完整性标记、上传 size=0 绕检、诊断脱敏补删除/票据、Esc 确认框挂起、平板宽屏行操作、关闭剪贴板同步清槽、发布门禁与私钥守卫加固。</li><li><b>2026-11-26</b> 二次全量审查修复：设备身份 TOFU 绑定与空令牌拒绝、直发部分失败保留草稿/未成功目标、剪贴板开关统一闸门、上传/聊天幂等重试、WS/文件列表/断点查询单来源配额、上传低速闸、文件历史与 Windows 原子写加固、Android 本地网络权限提示、下载文件名 ASCII 兜底。</li><li><b>2026-11-26</b> 全量自测（API / 浏览器 / 手机壳 / 桌面壳）；六皮肤明暗对比度；窄窗文件卡单行；安装包两轮瘦身；发布 v1.2.9.1。</li><li><b>2026-11-25</b> 全量审查修复；桌面增强六项（文件搜索、托盘复制、悬浮球拖拽与双项右键、诊断包、日志导出）。</li></ul><a href="./整个过程历史改动记录_2026-11-27.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">查看 2026-11-27 完整改动记录 →</a></div>
 
 <div class="demo-stage">
     <span class="demo-label">◆ 设计稿 · 入口位置</span>
@@ -548,7 +524,7 @@ a { color: inherit; text-decoration: none; }
             </div>
             <div class="card">
                 <div class="cico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></div>
-                <h3>消息工作台</h3>
+                <h3>周边设备</h3>
                 <p>桌面「消息发送」左侧就是周边设备栏：本机共享 + 附近设备 + 刷新，点一台设备即选中发送目标，输入栏切换为直发，时间线追加本机回执。手机 App 收成「发送 / 设备 / 文件 / 设置」四页，底部「设备」页（雷达 + 设备清单 + 手动发送）。点设备或手动发送都会打开统一发送面板（文件 / 文件夹 / 文本 / 剪贴板），拖入即选。浏览器保持原聊天室单页，不做发现、不加标签。</p>
                 <div class="tags"><span class="tag">设备即目标</span><span class="tag">直发回执</span><span class="tag">浏览器零打扰</span></div>
             </div>
@@ -612,27 +588,6 @@ a { color: inherit; text-decoration: none; }
                 <p>桌面端支持 macOS（11.0+）与 Windows（Linux 可源码构建）；手机浏览器免安装即可用；Android App 作为独立本机节点；iOS 暂无安装包，请直接用 Safari 打开电脑端地址。</p>
             </div>
         </div>
-        <div class="codes">
-            <div class="code-card">
-                <h3>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    桌面端安装
-                </h3>
-                <p>前往 GitHub Release 下载对应平台安装包，安装即用 —— 前端已嵌入二进制，无需任何额外部署。</p>
-                <div class="code-box"><button class="code-copy" onclick="copyCode(this)">复制</button><span class="cm"># 打开最新版发布页</span>
-https://github.com/bdpqlhk/CC-Flash/releases</div>
-            </div>
-            <div class="code-card">
-                <h3>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                    从源码构建
-                </h3>
-                <p>Rust + Vue 3 + Tauri 技术栈，两条命令构建当前平台的安装包。</p>
-                <div class="code-box"><button class="code-copy" onclick="copyCode(this)">复制</button>npm install
-npm run tauri build</div>
-            </div>
-        </div>
-        <p class="code-note">升级前请保留原共享目录（默认 <code style="font-family:var(--mono);font-size:11.5px;color:var(--accent-text)">~/CC-Flash</code>）。问题反馈与建议欢迎提交 <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">GitHub Issue</a>。</p>
     </section>
 
     <!-- 常见问题 -->
@@ -690,7 +645,7 @@ npm run tauri build</div>
             </div>
             <div class="faq-item">
                 <button class="faq-q" onclick="toggleFaq(this)">手机 App 会把我的文件暴露到 Wi-Fi 吗？<span class="pm">+</span></button>
-                <div class="faq-a"><p>不会。移动 App 始终开放局域网并自动生成本机访问令牌，同网段设备需要配对码才能读写；CC设置不再提供「局域网访问」开关，移动端令牌不可关闭。Android 会用前台服务通知保持传输不被系统冻结。</p></div>
+                <div class="faq-a"><p>不会。移动 App 始终开放局域网并自动生成本机访问令牌，同网段设备需要配对码才能读写；CC设置不再提供「局域网访问」开关；移动端访问令牌可在设置页关闭（关闭前二次确认）。Android 会用前台服务通知保持传输不被系统冻结。</p></div>
             </div>
         </div>
     </section>
@@ -701,12 +656,7 @@ npm run tauri build</div>
             <div class="ifoot-brand">
                 <span class="lg">😎</span> CC-Flash
             </div>
-            <div class="ifoot-links">
-                <a href="https://github.com/bdpqlhk/CC-Flash" target="_blank" rel="noopener">GitHub</a>
-                <a href="https://github.com/bdpqlhk/CC-Flash/issues" target="_blank" rel="noopener">反馈问题</a>
-                <a href="https://github.com/bdpqlhk/CC-Flash/releases" target="_blank" rel="noopener">下载安装</a>
-            </div>
-            <div class="ifoot-copy">CC Flash（曹操是快😂）—— 局域网文件互传工具 · © 2026-现在 by hangkun.li</div>
+            <div class="ifoot-copy">CC Flash（曹操是快😂）—— 局域网文件互传工具 · Copyright © 2026-Present 李航坤. All Rights Reserved.</div>
         </div>
     </footer>
 </div>
@@ -757,16 +707,6 @@ const spy = new IntersectionObserver(entries => {
     });
 }, { root: overlay, rootMargin: '-40% 0px -55% 0px' });
 secs.forEach(s => s && spy.observe(s));
-/* ---------- 代码复制 ---------- */
-function copyCode(btn) {
-    const box = btn.parentElement;
-    const text = [...box.childNodes].filter(n => n.nodeType === 3 || (n.nodeType === 1 && !n.classList.contains('code-copy')))
-        .map(n => n.textContent).join('').trim();
-    navigator.clipboard?.writeText(text).then(() => {
-        btn.textContent = '已复制';
-        setTimeout(() => btn.textContent = '复制', 1500);
-    }).catch(() => toast('复制失败，请手动复制'));
-}
 /* ---------- Toast ---------- */
 let toastTimer;
 function toast(msg) {

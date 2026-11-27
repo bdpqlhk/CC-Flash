@@ -1,6 +1,6 @@
 # 推送 v* 标签时自动构建多平台安装包并创建/补充 GitHub Release
 # 覆盖: macOS 分架构双包(aarch64 dmg + x64 dmg) · Windows NSIS exe
-#       · Android 单包 arm64-v8a .apk(覆盖 Android 5+ 主流 64 位机型)
+#       · Android 单包 arm64-v8a .apk(覆盖 Android 7.0+ / minSdk 24 主流 64 位机型)
 #       macOS 保持轻量双包(单架构安装包约为 universal 的一半);
 #       Windows / Android 各一个包, 减少 Release 文件数量与用户选择成本;
 #       必须配置 ANDROID_KEYSTORE_* 走 release 签名, 缺 Secrets 直接失败 ——
@@ -58,13 +58,27 @@ jobs:
           # Android versionCode 必须与 tag 同步: 手工打 tag 时防止发布"新版本名 + 旧版本码"的 APK
           IFS=. read -r vM vN vP vB <<< "$tag"
           vB=${vB:-0}
+          # 段界 0-99: 绕过 release.sh 手打 v1.100.x 会让 versionCode 与 v2.0.0 碰撞(B3-15)
+          for seg in "$vM" "$vN" "$vP" "$vB"; do
+            if ! [[ "$seg" =~ ^[0-9]+$ ]] || [ "$seg" -ge 100 ]; then
+              echo "::error::版本段必须是 0-99 的整数: $tag"
+              exit 1
+            fi
+          done
           expected=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
           actual=$(node -p "require('./src-tauri/tauri.conf.json').bundle.android.versionCode")
           if [ "$expected" != "$actual" ]; then
             echo "::error::Android versionCode 不一致: 期望 $expected, tauri.conf.json 为 $actual（请先跑 scripts/release.sh）"
             exit 1
           fi
-          echo "版本校验通过: $GITHUB_REF_NAME (应用版本 $ver, versionCode $actual)"
+          # macOS CFBundleVersion 必须是三段映射 M.N.(P*100+B)(B3-5): 手打 tag 漏同步时拦截
+          want_bver="$vM.$vN.$((10#$vP * 100 + 10#$vB))"
+          actual_bver=$(node -p "require('./src-tauri/tauri.conf.json').bundle.macOS.bundleVersion")
+          if [ "$want_bver" != "$actual_bver" ]; then
+            echo "::error::macOS bundleVersion 不一致: 期望 $want_bver, tauri.conf.json 为 $actual_bver（请先跑 scripts/release.sh）"
+            exit 1
+          fi
+          echo "版本校验通过: $GITHUB_REF_NAME (应用版本 $ver, versionCode $actual, bundleVersion $actual_bver)"
           # CCFLASH_BUILD_VERSION 只影响应用内展示: 去掉 tag 的 v 前缀,
           # 前端统一自己加 v, 避免出现 "vv1.2.4"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
@@ -97,8 +111,29 @@ jobs:
           fi
 
   # ---- 桌面端: tauri-action 构建 + 向既有草稿追加资产 ----
-  desktop:
+  # 测试门禁: 39 项单测 + 前端构建, 红了就不进构建/发布(B3-13)
+  test:
     needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: 安装前端依赖
+        run: npm ci
+      - name: 前端生产构建
+        run: npm run build
+      - name: Rust 单测
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+  desktop:
+    needs: [prepare, test]
     strategy:
       fail-fast: false
       matrix:
@@ -125,7 +160,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
-          toolchain: stable
+          toolchain: "1.99.1"   # 钉版: 浮动 stable 会在发版日因上游变化全线红(B3-14)
 
       - name: 安装 macOS 目标三元组(macOS)
         # 两条 mac 腿各自只构建一个架构, 两个目标都装上保持幂等
@@ -209,6 +244,31 @@ jobs:
           [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "args=--config `"$cfg`"`n", [Text.UTF8Encoding]::new($false))
           Write-Host "已导入 Windows 签名证书 $($cert.Thumbprint)"
 
+      # 与 Android 腿同款门禁: tauri-action 按 tag 匹配 Release 时不校验 draft,
+      # 重跑 desktop job 会复用已公开 Release 并 delete/replace 其资产,
+      # 绕过"desktop+android 全绿才发布"的承诺(审查 B3-2)
+      - name: 确认 Release 尚未公开(防止重跑已发布 tag 篡改线上资产)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if state=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json isDraft -q .isDraft 2>/tmp/cc-release-desktop.err); then
+            :
+          else
+            if grep -qiE 'not found|404' /tmp/cc-release-desktop.err; then
+              state=missing
+            else
+              echo "::error::无法确认 Release 状态（网络/API/权限错误），拒绝上传"
+              cat /tmp/cc-release-desktop.err
+              exit 1
+            fi
+          fi
+          if [ "$state" = "false" ]; then
+            echo "::error::Release ${{ github.ref_name }} 已公开，拒绝追加/替换线上资产(重跑已发布 tag 会绕过全绿门禁)"
+            exit 1
+          fi
+          echo "Release 状态: $state（草稿或不存在，允许上传草稿资产）"
+
       # tauri-action: vite build → cargo build --release → 打包 → 上传到 Release
       # tagName 对应已推送的标签, Release 不存在则自动创建(草稿)。
       # 一律先传草稿, 由末尾 publish job 在 desktop+android 全绿后统一发布 ——
@@ -229,6 +289,35 @@ jobs:
           # draft 就去创建" → 422 或拆成两个 draft; 重试会重新 list 找到已建好的 draft
           retryAttempts: 3
           args: ${{ matrix.args }} ${{ steps.winsign.outputs.args }}
+
+      # 产物版本与 tag 一致才准进入签名/上传: 手打 tag 漏同步时在本机拦截(B3-10)
+      - name: 构建产物版本断言(CFBundleVersion/文件版本)
+        shell: bash
+        run: |
+          set -e
+          tag="${GITHUB_REF_NAME#v}"
+          base="$tag"
+          case "$tag" in *.*.*.*) base="${tag%.*}" ;; esac
+          IFS=. read -r vM vN vP vB <<< "$tag"
+          vB=${vB:-0}
+          want_bver="$vM.$vN.$((10#$vP * 100 + 10#$vB))"
+          case "$RUNNER_OS" in
+            macOS)
+              app=$(find src-tauri/target -name "*.app" -type d -maxdepth 7 | grep -v '\.app/Contents' | head -1)
+              [ -n "$app" ] || { echo "::error::未找到构建产物 .app"; exit 1; }
+              bv=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist")
+              sv=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist")
+              if [ "$bv" != "$want_bver" ]; then echo "::error::CFBundleVersion=$bv 期望 $want_bver"; exit 1; fi
+              if [ "$sv" != "$base" ]; then echo "::error::CFBundleShortVersionString=$sv 期望 $base"; exit 1; fi
+              echo "macOS 版本断言通过: $sv ($bv)"
+              ;;
+            Windows)
+              exe=$(find src-tauri/target -name "*-setup.exe" -type f | head -1)
+              [ -n "$exe" ] || { echo "::error::未找到 NSIS exe"; exit 1; }
+              powershell -NoProfile -Command "\$v=(Get-Item '$exe').VersionInfo; Write-Host "FileVersion=\$(\$v.FileVersion) ProductVersion=\$(\$v.ProductVersion)"; if (\$(\$v.FileVersion) -notlike '$base*') { Write-Error "FileVersion 不匹配期望 $base*"; exit 1 }"
+              echo "Windows 版本断言通过"
+              ;;
+          esac
 
       # 证书存在不等于产物真的签名/公证成功：构建后再验一次，失败就让 job 红掉，
       # 避免把 Gatekeeper/SmartScreen 打不开的包交给 publish。
@@ -286,6 +375,13 @@ jobs:
           BUILDVER: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
+          # 改名步骤同样可能被单独重跑: 已公开则拒绝 delete-asset/clobber(审查 B3-2)
+          st=$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft -q .isDraft 2>/dev/null) \
+            || { echo "::error::无法确认 Release 状态，拒绝改名"; exit 1; }
+          if [ "$st" = "false" ]; then
+            echo "::error::Release 已公开，拒绝替换线上资产(重跑已发布 tag)"
+            exit 1
+          fi
           APPVER=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           if [ "$BUILDVER" = "$APPVER" ]; then
             echo "三段 tag(v$BUILDVER), 资产名无需调整"
@@ -330,7 +426,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
-          toolchain: stable
+          toolchain: "1.99.1"   # 钉版: 浮动 stable 会在发版日因上游变化全线红(B3-14)
           targets: aarch64-linux-android
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -374,7 +470,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -e
-          # 单包 arm64-v8a: 覆盖 Android 5+ 主流 64 位机型, 不再发 4 个 ABI 分包。
+          # 单包 arm64-v8a: 覆盖 Android 7.0+(minSdk 24) 主流 64 位机型, 不再发 4 个 ABI 分包。
           # 正式 Release 一律拒绝 debug 兜底: debug 包 debuggable、每次签名不同无法覆盖升级,
           # 一旦以 --debug 混进公开 Release 就是用户装不上的"正式版"。缺 Secrets 直接失败。
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KS_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
@@ -415,6 +511,24 @@ jobs:
             find "$OUT_DIR" -name "*.apk" -type f
             exit 1
           fi
+
+      - name: 构建产物版本断言(versionCode/versionName)
+        run: |
+          set -e
+          tag="${GITHUB_REF_NAME#v}"
+          base="$tag"
+          case "$tag" in *.*.*.*) base="${tag%.*}" ;; esac
+          IFS=. read -r vM vN vP vB <<< "$tag"
+          vB=${vB:-0}
+          want_vc=$((10#$vM * 10000000 + 10#$vN * 100000 + 10#$vP * 100 + 10#$vB))
+          apk=$(ls CC-Flash-*-android-arm64-v8a.apk | head -1)
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt 2>/dev/null | sort | tail -1)
+          [ -n "$AAPT" ] || { echo "::error::未找到 aapt"; exit 1; }
+          bad=$("$AAPT" dump badging "$apk" | head -1)
+          echo "$bad"
+          echo "$bad" | grep -q "versionCode='$want_vc'" || { echo "::error::APK versionCode 与 tag 不符(期望 $want_vc)"; exit 1; }
+          echo "$bad" | grep -q "versionName='$base'" || { echo "::error::APK versionName 与应用版本不符(期望 $base)"; exit 1; }
+          echo "Android 版本断言通过"
 
       # 重跑已发布 tag 时 desktop 腿必失败, 但 android 腿仍会跑(always()) ——
       # 若不加门禁, 新 APK 会直接写进线上正式 Release, 绕过"desktop+android 全绿才发布"。
@@ -495,6 +609,13 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           set -e
+          # publish 也可能是 job 级重跑: 已公开的 Release 不再重写状态/正文/资产(审查 B3-2)
+          st=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json isDraft -q .isDraft 2>/tmp/cc-release-pub.err) \
+            || { echo "::error::无法确认 Release 状态，拒绝发布"; cat /tmp/cc-release-pub.err; exit 1; }
+          if [ "$st" = "false" ]; then
+            echo "::error::Release ${{ github.ref_name }} 已公开，拒绝重跑 publish(会改写线上状态/正文)"
+            exit 1
+          fi
           assets=$(gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets -q '.assets[].name')
           echo "$assets"
           # 精确断言完整资产集: 只要求"至少一个"时, 部分架构/ABI 构建失败也会把残缺版本公开
@@ -515,7 +636,7 @@ jobs:
           fi
           if [ -n "$missing" ]; then
             echo "::warning::缺少签名/公证 Secrets:$missing。本次发布未签名/未公证包，请在 Release 说明中注明打开方式"
-            echo "::warning::未签名 Release 将标记为 prerelease：应用内更新检查会跳过，避免把 Gatekeeper/SmartScreen 拦截包当正式更新推送"
+            echo "::warning::未签名 Release 将标记为 prerelease：应用内更新检查仍会显示该版本并标注未签名风险（与 README 口径一致），由用户决定是否下载"
           fi
           # 精确校验本次 tag 的完整资产集，不只数扩展名：避免复用草稿里的旧架构/旧提交。
           # 四段 tag(vX.Y.Z.W) 的构建号会由 desktop/android job 补进文件名:
@@ -525,17 +646,42 @@ jobs:
           for want in "CC-Flash_${tagver}_aarch64.dmg" "CC-Flash_${tagver}_x64.dmg" "CC-Flash_${tagver}_x64-setup.exe" "CC-Flash-v${tagver}-android-arm64-v8a.apk"; do
             printf '%s\n' "$assets" | grep -Fxq "$want" || { echo "::error::Release 缺少资产 $want"; exit 1; }
           done
+          # 清理 tauri-action 顺带上传的非必需资产(无版本号 .app.tar.gz 等):
+          # 用户会误当安装包下载, 且与 README 只列 dmg/exe/apk 的口径不符(B3-11)
+          allowed="CC-Flash_${tagver}_aarch64.dmg CC-Flash_${tagver}_x64.dmg CC-Flash_${tagver}_x64-setup.exe CC-Flash-v${tagver}-android-arm64-v8a.apk"
+          for a in $assets; do
+            keep=0
+            for w in $allowed; do [ "$a" = "$w" ] && keep=1; done
+            if [ "$keep" = "0" ]; then
+              echo "清理非必需资产: $a"
+              gh release delete-asset "${{ github.ref_name }}" "$a" --yes || true
+            fi
+          done
           if [ -n "$missing" ]; then
             # 把打开方式写进 Release 正文, 而不是只在日志里提醒维护者
             notes="$RUNNER_TEMP/ccflash-release-notes.md"
-            gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json body -q .body > "$notes" 2>/dev/null || true
-            {
-              printf '\n\n---\n\n'
-              printf '> 未签名/未公证构建：macOS 首次打开请右键 → 打开；Windows 若出现 SmartScreen，请选择“更多信息 → 仍要运行”。\n'
-              printf '> 此版本标记为 prerelease：应用内自动更新会跳过，可在 CC设置手动检查下载。\n'
-            } >> "$notes"
+            # 拉取正文失败必须中止: 旧实现 `|| true` 会让 notes 为空, 随后
+            # --notes-file 把原 Release 说明整个清空(审查 B3-3)
+            if ! gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json body -q .body > "$notes" 2>/tmp/cc-release-notes.err; then
+              echo "::error::拉取 Release 正文失败，拒绝继续(避免清空说明)"
+              cat /tmp/cc-release-notes.err
+              exit 1
+            fi
+            # 确定性替换: 先删除历次自动追加的说明块(--- 引导、首行含"未签名/未公证构建"
+            # 的连续引用行), 再写入现行文案 —— 关键词 grep 跳过会把旧版错误文案永久保留
+            python3 - "$notes" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+pat = re.compile(r"\n*---\n+\n*> ?未签名/未公证构建[^\n]*\n(?:> ?[^\n]*\n?)*")
+s = pat.sub("\n", s).rstrip("\n")
+s += "\n\n---\n\n"
+s += "> 未签名/未公证构建：macOS 首次打开请右键 → 打开；Windows 若出现 SmartScreen，请选择“更多信息 → 仍要运行”。\n"
+s += "> 此版本标记为 prerelease：更新检查（自动与手动）仍会显示此版本并标注未签名/预发布风险，请自行确认后再下载。\n"
+open(p, "w", encoding="utf-8").write(s)
+PYEOF
             gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --notes-file "$notes"
-            # 公开但标记 prerelease: 用户仍可手动下载，update.js 自动检查会跳过
+            # 公开但标记 prerelease: 更新检查(自动与手动)都会显示该版本并标注风险, 由用户决定是否下载
             gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --prerelease
             echo "✔ ${{ github.ref_name }} 已公开发布（prerelease：未签名/未公证，已写入打开说明）"
           else

@@ -8,7 +8,7 @@ Turn your computer into a server with one click — phones on the same Wi-Fi sca
 [![CC-Flash demo](assets/demo.gif)](assets/demo.gif)
 -->
 
-Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite** (current app version **1.2.9**, tag **v1.2.9.2**, with the 2026-11-26 full self-test, two-pass artifact slimming, six-skin contrast pass and second full review). The initial frontend bundle is **320,231 B (~312.5 KiB)** plus a 23,363 B intro chunk and a 24,066 B QR chunk loaded on demand, CSS **164,067 B (~160.2 KiB)**, `dist` **~604 KiB** total; the Rust release binary is **4,101,328 B** (strip + fat LTO + opt-level=z + panic=abort, HTTP/1.1 only). The Windows installer uses the WebView2 **bootstrapper** (smallest; the runtime is downloaded when missing, and Windows 10/11 usually ships it), Android keeps only Chinese/English resources, uses optimized launcher icons and ships a single arm64-v8a APK; the macOS arm64 dmg is **~2.56 MiB** / .app **4.13 MiB**, and the Intel dmg **~2.60 MiB** / .app **5.03 MiB** (local unsigned builds use bzip2 UDBZ compression; signed/notarized assets come from CI).
+Built with **Tauri 2 + Rust (axum) + Vue 3 + Vite** (current app version **1.2.9**, tag **v1.2.9.2**, with the 2026-11-26 full self-test, two-pass artifact slimming, six-skin contrast pass and second full review). The initial frontend bundle is **322,264 B (~314.7 KiB)** plus a 20,696 B intro chunk and a 24,066 B QR chunk loaded on demand, CSS **163,070 B (~159.2 KiB)**, `dist` **~570 KiB** total; the Rust release binary is **4,150,928 B** (strip + fat LTO + opt-level=z + panic=abort, HTTP/1.1 only). The Windows installer uses the WebView2 **bootstrapper** (smallest; the runtime is downloaded when missing, and Windows 10/11 usually ships it), Android keeps only Chinese/English resources, uses optimized launcher icons and ships a single arm64-v8a APK; the macOS arm64 dmg is **~2.56 MiB** / .app **4.13 MiB**, and the Intel dmg **~2.60 MiB** / .app **5.03 MiB** (local unsigned builds use bzip2 UDBZ compression; signed/notarized assets come from CI).
 
 ## Features
 
@@ -65,7 +65,7 @@ npm run tauri build    # release build: produces .app / .dmg / .exe
 ├── src/
 │   ├── App.vue                     # all UI + interaction logic
 │   ├── config.js                   # frontend config center (polling, thresholds, copy…)
-│   ├── update.js                   # release checker (GitHub Releases list, stable-only + semver compare)
+│   ├── update.js                   # release checker (GitHub Releases list, stable + prerelease in results with unsigned-risk dialog + semver compare)
 │   ├── style.css                   # theme tokens + all styles (6 color schemes × light/dark)
 │   ├── pet-activity.js             # floating-orb activity state
 │   ├── main.js
@@ -124,7 +124,7 @@ Docs are currently in Chinese:
 
 - [Requirements Design](docs/需求设计文档.html) · [Technical Implementation](docs/技术实现文档.html) · [User Guide](docs/保姆级使用说明.html)
 - [User Guide · PixPin-style edition](docs/保姆级使用说明-PixPin版.html) (also [UU edition](docs/保姆级使用说明-UU版.html) / [SkillPay edition](docs/保姆级使用说明-SkillPay版.html))
-- [History Log 2026-11-26 full self-test & two-pass artifact slimming](docs/整个过程历史改动记录_2026-11-26.html) · [History Log 2026-11-25 full review & release/keep-alive hardening](docs/整个过程历史改动记录_2026-11-25.html) · [History Log 2026-11-24 release pipeline & Android version fixes](docs/整个过程历史改动记录_2026-11-24.html) · [History Log 2026-11-23](docs/整个过程历史改动记录_2026-11-23.html) · [2026-11-22 full review](docs/整个过程历史改动记录_2026-11-22.html) · [2026-11-20 ~ 11-21](docs/整个过程历史改动记录_2026-11-20至2026-11-21.html) · [2026-11-19](docs/整个过程历史改动记录_2026-11-19.html) · [11-17 ~ 11-18](docs/整个过程历史改动记录_2026-11-17至2026-11-18.html) · [11-13 ~ 11-16](docs/整个过程历史改动记录_2026-11-13至2026-11-16.html) · [11-03 ~ 11-12](docs/整个过程历史改动记录_2026-11-03至2026-11-12.html) · [10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) · [10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) · [Marketing Plan](docs/推广营销方案.html) · [Roadmap](docs/后期规划.html)
+- [History Log 2026-11-27 three-pass full deep review](docs/整个过程历史改动记录_2026-11-27.html) · [History Log 2026-11-26 full self-test & two-pass artifact slimming](docs/整个过程历史改动记录_2026-11-26.html) · [History Log 2026-11-25 full review & release/keep-alive hardening](docs/整个过程历史改动记录_2026-11-25.html) · [History Log 2026-11-24 release pipeline & Android version fixes](docs/整个过程历史改动记录_2026-11-24.html) · [History Log 2026-11-23](docs/整个过程历史改动记录_2026-11-23.html) · [2026-11-22 full review](docs/整个过程历史改动记录_2026-11-22.html) · [2026-11-20 ~ 11-21](docs/整个过程历史改动记录_2026-11-20至2026-11-21.html) · [2026-11-19](docs/整个过程历史改动记录_2026-11-19.html) · [11-17 ~ 11-18](docs/整个过程历史改动记录_2026-11-17至2026-11-18.html) · [11-13 ~ 11-16](docs/整个过程历史改动记录_2026-11-13至2026-11-16.html) · [11-03 ~ 11-12](docs/整个过程历史改动记录_2026-11-03至2026-11-12.html) · [10-28 ~ 11-02](docs/整个过程历史改动记录_2026-10-28至2026-11-02.html) · [10-23 ~ 10-27](docs/整个过程历史改动记录_2026-10-23至2026-10-27.html) · [Marketing Plan](docs/推广营销方案.html) · [Roadmap](docs/后期规划.html) · [Competitive Research & Expansion Plan 2026-11-27](docs/竞品调研与扩展规划_2026-11-27.html)
 
 <!-- 🖼 Screenshots (阶段一素材): save under assets/ and place here, e.g.
 - assets/screenshot-desktop.png   — desktop window (files view)

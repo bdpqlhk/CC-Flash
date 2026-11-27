@@ -23,10 +23,10 @@ import noSignalImg from "./assets/no-signal.webp";
 import {
   API, APP_VERSION_FALLBACK, AVATAR_POOL, BLOB_REVOKE_MS, COPIED_RESET_MS, CONTROL_RETRY_MS,
   CONTROL_RETRY_TIMES, DEFAULT_NICK, DEFAULT_PORT, FOOTER_TEXT, ICON_MAP, IMG_EXTS, LS, MSG_MAX,
-  GITHUB_REPO, NARROW_MAX_PX, NICK_MAX, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
+  NARROW_MAX_PX, NICK_MAX, OFFLINE_FAILS, PAGE_SIZE, POLL_CHAT_MS,
   PEER_ONLINE_GRACE_SECS, POLL_FILES_MS, POLL_LOGS_MS, POLL_STATUS_MS, REFRESH_SPIN_MS, RELEASES_PAGE,
   THEME_MIGRATE, TIP_COPY_URL, TIP_QR, TIP_SHARE, TOAST_MS, UPDATE_CHECK_DELAY_MS,
-  UPDATE_CHECK_INTERVAL_MS, UPLOAD_DONE_KEEP_MS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
+  UPDATE_CHECK_INTERVAL_MS, WS_HB_TIMEOUT_MS, WS_WATCHDOG_MS,
 } from "./config";
 import { fetchLatestRelease, isNewer } from "./update";
 import { createPetActivityTracker } from "./pet-activity";
@@ -639,7 +639,7 @@ function recordTransfer(p, kind, name) {
     targetId: p.id || p.ip || "",
     targetName: p.nickname || p.ip || "设备",
     kind,
-    name: String(name || "").slice(0, 80),
+    name: clampChars(String(name || ""), 80),
     at: Date.now() / 1000,
   }, ...transferHistory.value].slice(0, 120);
   saveTransferHistory();
@@ -702,9 +702,10 @@ function filePanelVisible() {
   // 宽屏下永远走窄屏分支, 表现为「抽屉收起后再也打不开」
   return filePanelIsSheet() ? fileSheetOpen.value : !drawerCollapsed.value;
 }
-/* 手机上打开文件页/面板前先收键盘: 否则软键盘会把底部内容顶掉一半 */
+/* 手机上打开文件页/面板前先收键盘: 否则软键盘会把底部内容顶掉一半。
+   平板宽屏(>980)的移动壳同样是触屏+软键盘, 必须一并覆盖(审查 X2-14) */
 function blurMobileKeyboard() {
-  if (isNarrow.value && document.activeElement && typeof document.activeElement.blur === "function") {
+  if (filePanelIsSheet() && document.activeElement && typeof document.activeElement.blur === "function") {
     document.activeElement.blur();
   }
 }
@@ -893,6 +894,23 @@ function setThemeMode(m) {
     try { localStorage.setItem(LS.mode, m); } catch (e) {}
     saveTextPref("ui-mode", m);   // 同步给浏览器/移动壳
 }
+// 悬浮球窗跟随主窗运行时切换: storage 事件只在同源的"其他"窗口触发, 主窗 setTheme/
+// setThemeMode/saveNick 写 localStorage 时这里即时应用, 不再停在启动时的旧皮肤(X2-7)
+window.addEventListener("storage", (e) => {
+  if (!isQrPetWindow || !e.key) return;
+  try {
+    if (e.key === LS.theme && e.newValue) {
+      const t = THEME_MIGRATE[e.newValue] || e.newValue;
+      theme.value = t;
+      applyTheme(t);
+    } else if (e.key === LS.mode && e.newValue) {
+      themeMode.value = e.newValue;
+      applyThemeMode();
+    } else if (e.key === LS.nick && e.newValue) {
+      nickInput.value = e.newValue;
+    }
+  } catch (_) {}
+});
 /* 浏览器/移动壳跟随桌面端配色: 服务端 /api/info 下发 pref */
 function applyServerUiTheme(d) {
     // 设计预览(?mobilePreview=1&theme=…)以 URL 为准, 不让模拟/真实服务的配色覆盖
@@ -1105,6 +1123,11 @@ async function startServer() {
       portInput.value = String(d.port);   // 立即回显实际生效端口(含被占用顺延的情况)
       portDirty.value = false;
       showToast("服务已启动");
+      // 立即拉一次状态: 否则在 2.5s 轮询刷新 lanIp 前, 复制/二维码/分享
+      // 会拿到占位地址 http://--:port(审查 F2-4)
+      refreshStatus();
+      loadFiles();
+      loadChat();
     }   // 二维码由 watch [shareUrl,running] 自动生成
     else showToast(d.error || "启动失败", "error");
   } catch (e) {
@@ -1164,7 +1187,7 @@ function markFileViewed(name) {
 function isFileViewed(name) { return !!name && viewedFiles.value.has(name); }
 function isExecutableFile(name) {
   const ext = String(name || "").split(".").pop().toLowerCase();
-  return ["exe","com","bat","cmd","msi","scr","cpl","msc","ps1","vbs","vbe","js","jse","wsf","wsh","hta","lnk","url","reg","command","app","workflow","scpt","osascript","terminal","sh","bash","zsh","fish","py","pyw","pl","rb","jar","pkg","mpkg","dmg","appx","msix","deb","rpm","desktop","appimage","run","bin"].includes(ext);
+  return ["exe","com","bat","cmd","msi","scr","cpl","msc","ps1","vbs","vbe","js","jse","wsf","wsh","hta","lnk","url","reg","command","app","workflow","scpt","osascript","terminal","sh","bash","zsh","fish","py","pyw","pl","rb","jar","pkg","mpkg","dmg","appx","msix","deb","rpm","desktop","appimage","run","bin","html","htm","shtml","svg","xml","webloc","mhtml","mht"].includes(ext);
 }
 function openFile(name) {
   if (!isRealDesktop) return;   // Android/iOS 无系统程序打开能力, 走下载路径
@@ -2036,8 +2059,16 @@ let loadingFiles = false;
 let filesThrottleTimer = null;
 let lastFilesLoadAt = 0;
 let reloadQueued = false;   // 在途时又收到刷新请求(如删除后) → 本轮结束后补拉一次, 不丢弃
+let reloadQueuedManual = false;
 async function loadFiles(manual = false) {
-  if (loadingFiles) { reloadQueued = true; return; }
+  // 桌面服务已停止: 不再打已关闭的端口(审查 X2-17)
+  if (isRealDesktop && !running.value) return;
+  if (loadingFiles) {
+    reloadQueued = true;
+    // 在途时点"刷新": 立即给转圈反馈, 补拉按 manual 处理(F3-6)
+    if (manual) { reloadQueuedManual = true; refreshing.value = true; }
+    return;
+  }
   // 非手动刷新做 800ms 合并节流: 批量上传完成时每个文件都调 loadFiles + 服务端各广播
   // 一次 files:changed, 500 个文件即数百次串行全量拉取(每个在线设备都拉)
   if (!manual && Date.now() - lastFilesLoadAt < 800) {
@@ -2061,11 +2092,9 @@ async function loadFiles(manual = false) {
     const r = await apiFetch(apiBase.value + API.files + "?nick=" + encodeURIComponent(deviceNick()), { signal: ctl.signal });
     if (!r.ok) throw new Error(`文件列表加载失败 (${r.status})`);
     const d = await r.json();
-    if (epoch !== sessionEpoch) {
-      loadingFiles = false;
-      if (reloadQueued) { reloadQueued = false; loadFiles(false); }
-      return;
-    }
+    // 会话已切换: 迟到响应丢弃。收尾(清 timer/复位 refreshing/排队补拉)统一交给 finally,
+    // 此处提前 return 曾跳过它们, 导致手动刷新转圈永久卡住。
+    if (epoch !== sessionEpoch) return;
     // 内容没变就不替换 files: 每 5s 轮询都换新数组会让抽屉(乃至整页模板)重渲染,
     // 打断输入框光标的绘制 —— 静默期应零重绘
     const nextFiles = d.files || [];
@@ -2137,15 +2166,20 @@ async function loadFiles(manual = false) {
     if (manual) showToast("文件列表加载失败，请检查电脑端服务", "error");
     // WS 在线时列表轮询被停掉，事件触发的失败必须自己补拉。
     setTimeout(() => { if (ws && ws.readyState === WebSocket.OPEN) loadFiles(false); }, 2000);
+  } finally {
+    clearTimeout(timer);
+    loadingFiles = false;
+    // 强制动画至少转一圈: 本地请求毫秒级完成, 否则"看起来没刷新"
+    if (manual) {
+      const wait = Math.max(0, REFRESH_SPIN_MS - (Date.now() - spinStart));
+      setTimeout(() => { refreshing.value = false; }, wait);
+    }
+    if (reloadQueued) {
+      reloadQueued = false;
+      loadFiles(reloadQueuedManual);
+      reloadQueuedManual = false;
+    }
   }
-  clearTimeout(timer);
-  loadingFiles = false;
-  // 强制动画至少转一圈: 本地请求毫秒级完成, 否则"看起来没刷新"
-  if (manual) {
-    const wait = Math.max(0, REFRESH_SPIN_MS - (Date.now() - spinStart));
-    setTimeout(() => { refreshing.value = false; }, wait);
-  }
-  if (reloadQueued) { reloadQueued = false; loadFiles(false); }
 }
 
 /* ---------- 分享: 全平台统一复制链接(带温馨提示话术) ---------- */
@@ -2227,7 +2261,6 @@ function clearShareTicketCache() {
   nextTick(() => { for (const n of thumbNames.value) loadThumb(n); });
 }
 function pinProtected() { return !!(accessPin.value || pinCode.value || pinEnabled.value); }
-function plainFileUrl(name) { return `${apiBase.value}${API.download(name)}?inline=1`; }
 async function ensureMediaToken() {
   if (!pinProtected()) return "";
   if (mediaToken.value && Date.now() < mediaTokenExpiresAt) return mediaToken.value;
@@ -2302,6 +2335,7 @@ function onDocShareHover(e) {
 /* 当前页票据批量预取: 触屏没有 hover, 冷路径 await 会丢点击激活; 面板/列表加载时
    预先开好前 8 张票, 分享点击才能同步复制 */
 function prefetchPageTickets() {
+  if (isQrPetWindow) return;   // 悬浮球窗不展示文件列表, 不做票据预取(F3-10)
   if (!(accessPin.value || pinCode.value || pinEnabled.value)) return;
   for (const f of pageFiles.value.slice(0, 8)) prefetchShareTicket(f.name);
 }
@@ -3046,7 +3080,11 @@ function startUpload(file, id, name, stat) {
           }
           it.status = "error";
           updateWakeLock();
-          showToast(busy ? "上传并发过多，请稍后重试" : "上传失败: " + name, "error");
+          // 展示服务端真实原因(磁盘满/路径过长/文件名非法), 与直发路径一致(审查 X2-10)
+          let serverMsg = "";
+          try { const j = JSON.parse(xhr.responseText || "{}"); serverMsg = j.error || j.message || ""; } catch (_) {}
+          showToast(busy ? "上传并发过多，请稍后重试"
+            : "上传失败: " + name + (serverMsg ? " — " + serverMsg : ""), "error");
         }
         trimUploads();
         finish();
@@ -3064,6 +3102,7 @@ function startUpload(file, id, name, stat) {
       row.status = "uploading";
       row.xhr = xhr;          // 取消✕ 的中止句柄
       updateWakeLock();       // 上传开始 → 申请屏幕常亮/保活
+      lastSelfUploadAt = Date.now();   // 服务端先广播后回响应: 开始即记, 抑制自己的绿点(F3-9)
       xhr.send(file);
     } catch (e) {
       console.error("上传异常:", e);
@@ -3077,7 +3116,40 @@ function startUpload(file, id, name, stat) {
 /* 取消上传: 中止在途 XHR —— 服务端连接断开走"上传中断,已清理半截文件"路径,
    无需额外请求; 行立即移除 */
 function cancelUpload(u) {
+  const hadXhr = !!u.xhr;
   if (u.xhr) { try { u.xhr.abort(); } catch (e) {} }
+  // abort 时服务端可能已写完落盘(200 响应在途): 立即查幂等账本, 已完成就转 done
+  // 而不是移除 —— 否则 UI 显示"已取消"但文件已在共享目录, 用户重发同名又触发改名。
+  // 无 xhr(排队中)或查不到结果时维持原行为: 移除卡片。
+  const uid = u.uploadId;
+  if (hadXhr && uid) {
+    apiFetch(apiBase.value + API.uploadStatus(uid), null, 4000)
+      .then((r) => (r && r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.done) {
+          u.status = "done"; u.pct = 100; u.doneAt = Date.now();
+          // 回写服务端最终落盘名(同名改名时 d.name 为 x(1).ext): 不回写会让
+          // 卡片的打开/分享/删除指向目录里原有的同名旧文件(审查 X2-1, 有误删风险)
+          u.final = d.name || u.name;
+          u.file = null; u.xhr = null;
+          lastSelfUploadAt = Date.now();
+          const finalBase = String(u.final).split("/").pop();
+          const origBase = String(u.name).split("/").pop();
+          showToast(finalBase !== origBase
+            ? `该文件在取消前已传输完成，已改存为「${finalBase}」`
+            : "该文件在取消前已传输完成，已保留在列表中");
+          // 服务端广播可能已把 final 名加进远端卡: 去掉本机重复卡
+          remoteFiles.value = remoteFiles.value.filter((c) => c.name !== u.final);
+          loadFiles();
+          trimUploads();
+        } else {
+          removeUpload(u.id);
+        }
+        updateWakeLock();
+      })
+      .catch(() => { removeUpload(u.id); updateWakeLock(); });
+    return;
+  }
   removeUpload(u.id);
   updateWakeLock();
 }
@@ -3095,6 +3167,7 @@ const thumbNames = computed(() => {
   return [...names];
 });
 watch(thumbNames, (names) => {
+  if (isQrPetWindow) return;   // 悬浮球 96px 小窗不展示缩略图(F3-10)
   // 裁掉已不在当前列表里的旧 URL, 避免长期运行后 map 无界增长
   const keep = new Set(names);
   let pruned = null;
@@ -3154,6 +3227,8 @@ async function retryUpload(u) {
           u.xhr = null;
           lastSelfUploadAt = Date.now();
           showToast(`文件已上传成功：${String(u.final).split("/").pop()}`);
+          // 去掉广播可能已加进时间线的 final 同名远端卡(本机已有上传卡)
+          remoteFiles.value = remoteFiles.value.filter((c) => c.name !== u.final);
           loadFiles();
           trimUploads();
           return;
@@ -3292,6 +3367,11 @@ const timelineItems = computed(() => {
   }
   const groups = new Map();
   for (const u of uploads.value) {
+    // 与消息/文件事件同一水位: 清空之前就结束的本机上传卡不再展示,
+    // 否则"清空消息"后完成/失败卡仍留在时间线(审查 F2-6)。
+    // 在途(waiting/uploading)不受清空影响, 让用户看到进行中的传输。
+    const finished = u.status === "done" || u.status === "error";
+    if (finished && (u.t0 || 0) <= clearedTs.value) continue;
     if ((u.batchSize || 1) > 3) {
       let g = groups.get(u.batch);
       if (!g) {
@@ -3551,7 +3631,11 @@ function peerBase(p) {
   // IPv6 link-local 的 zone(%en0)在 URL 里必须写成 %25en0; 否则浏览器不会带出接口
   const urlHost = host.includes(":") ? host.replace(/%/g, "%25") : host;
   const h = urlHost.includes(":") ? `[${urlHost}]` : urlHost;
-  return `http://${h}:${p.port || port.value}`;
+  // 端口只认宣告值, 绝不回落本机端口: 回落会把"发给对端"的请求打到自己,
+  // 造成发送成功的假象。服务端宣告入口已挡 0/超界端口(server.rs 1024..=65535),
+  // 这里仅兜底残缺对象 → 产出非法 URL, 由调用方按网络错误处理。
+  const pv = Number(p.port);
+  return `http://${h}:${pv > 0 && pv <= 65535 ? pv : 0}`;
 }
 /* LocalSend 式发送面板: 文件 / 文本 / 剪贴板 三种来源 */
 // 浏览器/手机浏览器跨设备投递时, 对方可能开了访问令牌: 按 endpoint 记住对方配对码,
@@ -3622,7 +3706,7 @@ function currentPlatform() {
 function peerPinOf(p) { return (peerPins.value[peerKey(p)] || "").trim(); }
 function receiptPreview(text) {
   const s = String(text || "");
-  return s.length > 32 ? s.slice(0, 32) + "…" : s;
+  return clampChars(s, 32) + (Array.from(String(s ?? "")).length > 32 ? "…" : "");
 }
 async function directSendText(p, text, opts = {}) {
   if (!p || !text) return false;
@@ -3782,11 +3866,12 @@ async function directSendFiles(p, files, opts = {}) {
           // 否则 directSending 会锁死 10 分钟并阻塞后续直发。
           let lastTick = Date.now();
           let settled = false;
-          const done = (err) => {
+          // resolve 携带服务端回执的 final 相对路径(同名改名时非空), 与本机上传一致
+          const done = (err, finalRel) => {
             if (settled) return;
             settled = true;
             clearInterval(stall);
-            err ? reject(err) : resolve();
+            err ? reject(err) : resolve(finalRel || "");
           };
           const stall = setInterval(() => {
             if (Date.now() - lastTick <= 125000) return;
@@ -3795,7 +3880,16 @@ async function directSendFiles(p, files, opts = {}) {
           }, 5000);
           xhr.upload.onprogress = () => { lastTick = Date.now(); };
           xhr.onload = () => {
-            if (xhr.status === 200) { done(null); return; }
+            if (xhr.status === 200) {
+              // 同名自动改名: 对端目录已有同名时服务端返回 {final}, 不解析会丢回执
+              let fin = "";
+              try {
+                const j = JSON.parse(xhr.responseText || "{}");
+                fin = typeof j.final === "string" ? j.final : "";
+              } catch (_) {}
+              done(null, fin);
+              return;
+            }
             // 把服务端的 400/413/500/507 文案取出来: 只按状态码白名单判断会把
             // "磁盘空间不足/路径过长"这类真实原因吞掉, 用户只看到"发送失败"。
             let msg = "";
@@ -3818,6 +3912,13 @@ async function directSendFiles(p, files, opts = {}) {
             else opts.signal.addEventListener("abort", abort, { once: true });
           }
           xhr.send(f);
+        }).then((finalRel) => {
+          // 与本机上传同款提示: 改名后发送方必须知道实际落盘名, 否则记录与对端不一致
+          const base = rel.split("/").pop();
+          const finalBase = String(finalRel || "").split("/").pop();
+          if (finalBase && finalBase !== base) {
+            showToast(`对方目录已有同名文件，已存为 「${finalBase}」`);
+          }
         });
         ok++;
         sent.add(f);
@@ -4155,9 +4256,10 @@ function peerStatusText(p) {
   if (!p) return "";
   if (p.busy) return "忙碌中";
   if (p.online === true) return "在线 · 可发送";
-  const ago = Math.max(0, Date.now() / 1000 - (Number(p.last_seen) || 0));
-  if (ago < 60) return `${Math.max(1, Math.floor(ago))} 秒前活跃`;
-  return `${Math.floor(ago / 60)} 分钟前活跃`;
+  // 验收规范: 时间显示具体"月日时分", 不用"xx 分钟前"等相对时间
+  const ts = Number(p.last_seen) || 0;
+  if (!ts) return "离线";
+  return `最后活跃 ${fmtTime(ts)}`;
 }
 const selfRoleLabel = computed(() =>
   mobileShell ? "手机本机节点" : (isDesktop ? "电脑" : "浏览器页面"));
@@ -4270,7 +4372,12 @@ function setClipSyncEnabled(v) {
     tauriInvoke("save_text_pref_cmd", { key: "clip-sync", value: v ? "1" : "0" }).catch(() => {});
   }
   if (v) { if (running.value) initClipboardSync(); }
-  else { stopClipboardSync(); }
+  else {
+    stopClipboardSync();
+    // 关闭即清共享槽(审查 X2-3): 否则最后同步的敏感文本仍持久在
+    // shared-clipboard.json, LAN 任意设备 GET /api/clipboard 还能读回
+    clearSharedClipSlot();
+  }
 }
 function toggleClipSync() {
   setClipSyncEnabled(!clipSyncEnabled.value);
@@ -4279,6 +4386,16 @@ function toggleClipSync() {
     : "已关闭系统剪贴板自动同步");
 }
 const sharedClip = ref({ text: "", updatedAt: 0, from: "" });
+/* 关闭同步时清掉服务端共享槽(见 setClipSyncEnabled); 服务不可达时静默失败,
+   下次开启前用户仍可从设置页再次关闭触发 */
+function clearSharedClipSlot() {
+  if (serviceDown() || !apiBase.value) return;
+  apiFetch(apiBase.value + API.clipboard, { method: "DELETE" })
+    .then((r) => {
+      if (r && r.ok) sharedClip.value = { text: "", updatedAt: 0, from: "" };
+    })
+    .catch(() => {});
+}
 const sharedClipLoading = ref(false);
 const sharedClipSaving = ref(false);
 let sharedClipLoadSeq = 0;
@@ -4451,11 +4568,9 @@ async function sendHello() {
     await apiFetch(apiBase.value + "/api/hello", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nickname: curNick.value,
-        platform: currentPlatform(),
-        busy: uploads.value.some(u => u.status === "uploading" || u.status === "waiting")
-      })
+      // 后端 HelloIn 只收 nickname(其余字段 serde 静默丢弃); busy 由 UDP 宣告的
+      // active_uploads 上报, platform 由宣告包带 —— 不再发无人消费的字段。
+      body: JSON.stringify({ nickname: curNick.value })
     });
   } catch (e) {}
 }
@@ -4488,6 +4603,9 @@ const chatCovered = computed(() => {
     || nickOpen.value
     || lanAskOpen.value
     || copyFallbackShow.value
+    || confirmState.value
+    || showUpdate.value
+    || showAutostartTip.value
     || introShow.value;
 });
 function markChatSeen() {
@@ -4516,7 +4634,7 @@ function cleanDeviceModel(raw) {
   let m = String(raw || "").replace(/\s+Build\/.*$/i, "").replace(/\s+wv$/i, "").trim();
   if (!m || /^(K|wv|Mobile|Tablet|Android|Linux)$/i.test(m)) return "";
   // 服务端昵称上限 20 字; 给 "-1234" 后缀留 5 字, 否则对端只看到被截断的型号
-  return m.slice(0, 15);
+  return clampChars(m, 15);
 }
 function uaAndroidModel() {
   const ua = navigator.userAgent;
@@ -4697,12 +4815,17 @@ function clearChatDisplay() {
   chatMsgs.value = [];
   directReceipts.value = [];
   remoteFiles.value = [];
+  // 列表已空: 分页偏移与"新消息"胶囊一并归零, 否则空列表仍显示"加载更早"
+  timelineStart.value = 0;
+  jumpCount.value = 0;
   showToast("已清空数据（不影响其他设备与服务端记录）");
 }
 let loadingChat = false;
 let reloadChatQueued = false;
 let chatRecoveredOffline = false;   // 断网恢复后首拉: 历史消息不应全部计为未读
 async function loadChat() {
+  // 桌面服务已停止: 不再打已关闭的端口(审查 X2-17)
+  if (isRealDesktop && !running.value) return;
   // 在途互斥 + 补拉(与 loadFiles 对齐): 刷屏时每个 chat:new 都触发全量拉取,
   // 后发先至的旧响应会覆盖新数据 → 消息回闪
   if (loadingChat) { reloadChatQueued = true; return; }
@@ -4731,7 +4854,7 @@ async function loadChat() {
     // 旧实现每次都重建 list → 整条时间线重渲染, 输入时光标被反复打断。
     // 签名必须覆盖完整 id 列表: 只比"条数+末条 id"时, 服务端删除末条后
     // 新消息复用同一 id, "删除+新增"在一次拉取内完成会被误判为没变化。
-    const prevLastId = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].id : 0;
+    let prevLastId = chatMsgs.value.length ? chatMsgs.value[chatMsgs.value.length - 1].id : 0;
     const visible = msgs.filter((m) => m.timestamp > clearedTs.value);
     const sig = visible.map((m) => m.id).join(",") + "|" + clearedTs.value;
     if (sig !== loadChat._sig) {
@@ -4747,6 +4870,13 @@ async function loadChat() {
     }
     chatCount.value = msgs.length;
     const firstLoad = !loadChat._init;
+    // 服务端聊天 id 回退(历史文件丢失/崩溃丢未落盘尾部): 已读水位还是旧高值时,
+    // 新消息 id 全部小于 seenChatId, 未读角标会永久失效 —— 检测到回退即清零,
+    // 并把 fresh 计数基线一并归零, 交由下方 firstLoad/atBottom 分支重算
+    if (!firstLoad && msgs.length && msgs[msgs.length - 1].id < seenChatId.value) {
+      seenChatId.value = 0;
+      prevLastId = 0;
+    }
     if (isQrPetWindow && petActivity.observeMessages(msgs)) markPetNotify();
     // 首次拉取把已有历史视为已读: 后台自启/刚打开页面时不应顶着 99+ 未读
     if (firstLoad) {
@@ -4805,7 +4935,7 @@ function startQuote(m) {
   quoting.value = {
     id: m.id,
     nickname: m.nickname || "",
-    message: String(m.message || "").slice(0, 200),
+    message: clampChars(String(m.message || ""), 200),
   };
   nextTick(() => { const el = document.querySelector(".tx-input"); if (el) el.focus(); });
 }
@@ -4938,16 +5068,20 @@ async function sendChat() {
     try {
       const targets = sendTargets.value.slice();
       let ok = 0;
+      const failed = [];
       for (const p of targets) {
         // 目标在请求在途时被取消选择: 不再向旧目标继续发；草稿保留，
         // 让用户明确决定下一步，而不是静默发给已取消的设备。
         if (!sendTargets.value.some((t) => t.id === p.id)) break;
-        if (!(await directSendText(p, text, { quote, clientId }))) break;
-        ok++;
+        // 单台失败不再中断后续目标(审查 X2-2): 离线/限流的残留目标会把
+        // 后面所有健康设备饿死; 认证类错误也只影响该目标自己的配对码。
+        if (await directSendText(p, text, { quote, clientId })) ok++;
+        else failed.push(p);
       }
-      if (ok === targets.length) {
-        chatInput.value = "";
-        quoting.value = null;
+      if (ok === targets.length && !failed.length) {
+        // 发送是异步的: 期间用户新输入的内容不能被清掉(审查 F2-1)
+        if (chatInput.value.trim() === text) chatInput.value = "";
+        if (quoting.value === quote) quoting.value = null;
         chatDraftId = "";
         chatDraftText = "";
         atBottom.value = true;
@@ -4955,11 +5089,11 @@ async function sendChat() {
         nextTick(scrollChats);
         setTimeout(scrollChats, 150);
       } else {
-        // 部分成功时只保留未成功的设备为选中目标: 用户再点发送不会重复发给
-        // 已成功的设备；输入框内容也保留，不再“只发出去一半却清空草稿”。
+        // 部分成功: 选中目标收窄为“确实失败的那些”, 与文件路径一致 ——
+        // 用户再点发送不会重复发给已成功的设备(与介绍页 FAQ 口径一致)。
         const sameSelection = sendTargets.value.length === targets.length
           && sendTargets.value.every((t, i) => t.id === targets[i].id);
-        if (sameSelection) sendTargets.value = targets.slice(ok);
+        if (sameSelection && failed.length) sendTargets.value = failed;
         showToast(ok
           ? `已发送到 ${ok}/${targets.length} 台设备；草稿已保留，未成功设备仍选中`
           : "发送失败，草稿已保留", "error");
@@ -5117,7 +5251,9 @@ function connectWs() {
     clearShareTicketCache();
     loadChat();     // 连接即全量同步一次, 补上断线窗口期
     loadFiles();
-    loadSharedClip();
+    // 与 sync:needed 分支对齐: 断线期间对端改过剪贴板时, 重连拉到新值要立即写本机,
+    // 不能只更新 sharedClip 等下一次 clipboard:changed 或 4.5s 兜底
+    loadSharedClip().then(() => applyRemoteClipboard());
     sendDiscoveryProbe();   // 重连后补一次主动探测, 覆盖断线期间新上线的设备
   };
   ws.onmessage = (e) => {
@@ -5132,7 +5268,8 @@ function connectWs() {
       loadChat();
     } else if (ev.type === "devices:presence") {
       // 服务端在每条有效 UDP 宣告后直接推送完整列表；不再等 HTTP 轮询。
-      if (isDesktop && Array.isArray(ev.devices)) peers.value = ev.devices;
+      // 悬浮球窗不展示设备列表, 不做无用写入(避免 pet 窗整页跟随 peers 变化重渲染)
+      if (isDesktop && !isQrPetWindow && Array.isArray(ev.devices)) peers.value = ev.devices;
     } else if (ev.type === "devices:changed") {
       if (isDesktop) refreshPeers();
     } else if (ev.type === "clipboard:changed") {
@@ -5244,7 +5381,7 @@ function onMountedCleanup(fn) { mountedCleanups.push(fn); }
 function startPolling() {
   stopPolling();
   statusTimer = setInterval(refreshStatus, cfg.value.poll.status);   // 失联判定 ≈ OFFLINE_FAILS × 间隔
-  if (isRealDesktop) logTimer = setInterval(refreshLogs, cfg.value.poll.logs);
+  if (isRealDesktop && !isQrPetWindow) logTimer = setInterval(refreshLogs, cfg.value.poll.logs);
   applyWsMode();
 }
 function stopPolling() {
@@ -5496,11 +5633,26 @@ onMounted(() => {
   const escLayers = (e) => {
     if (e.key !== "Escape") return;
     if (contextMenu.value) { closeContextMenu(); return; }
+    // 模态弹框按 z 序优先: 统一确认(=取消) / 更新 / 自启说明 / 设备配对 / 历史
+    // 必须走 resolveConfirm(false): 直接置 null 会让 await appConfirm 永久挂起
+    // (切共享目录时服务停在停止态不再恢复, 审查 F2-2)
+    if (confirmState.value) { resolveConfirm(false); return; }
+    if (showUpdate.value) { showUpdate.value = false; return; }
+    if (showAutostartTip.value) { showAutostartTip.value = false; return; }
+    if (pinDialogDevice.value) { pinDialogDevice.value = null; return; }
+    if (historyOpen.value) { historyOpen.value = false; return; }
+    if (fileMenuName.value) { fileMenuName.value = ""; return; }
+    // 移动壳/窄窗的三层: ＋面板、设备整页面板、文件多选态(审查 F3-19)
+    if (plusOpen.value) { plusOpen.value = false; return; }
+    if (deviceInlineOpen.value) { deviceInlineOpen.value = false; return; }
+    if (mobileFileSelect.value) { mobileFileSelect.value = false; return; }
+    if (lanAskOpen.value) { lanAskOpen.value = false; return; }
+    if (copyFallbackShow.value) { copyFallbackShow.value = false; return; }
     if (diagnosticsOpen.value) { closeDiagnostics(); return; }
     if (manualSendOpen.value) { closeManualSend(); return; }
     if (previewName.value) { closePreview(); return; }
     if (moreOpen.value) { moreOpen.value = false; return; }
-    if (isNarrow.value ? fileSheetOpen.value : !drawerCollapsed.value) {
+    if (filePanelIsSheet() ? fileSheetOpen.value : !drawerCollapsed.value) {
       if (isNarrow.value) fileSheetOpen.value = false; else drawerCollapsed.value = true;
       return;
     }
@@ -5740,15 +5892,18 @@ watch(logQuery, () => {
     if (b) b.scrollTop = b.scrollHeight;   // 过滤后定位到最新匹配
   });
 });
+let logsSeq = 0;
 async function refreshLogs() {
   // 只在服务中心页在台前时拉取: 日志面板仅此页展示, 其余视图每 2s 空拉+全量重排是纯浪费
   if (view.value !== "service") return;
+  const seq = ++logsSeq;   // 慢盘下响应可超 2s: 旧响应不得覆盖新日志(审查 F3-21)
   try {
     // 贴底跟随: 更新前沿在底部附近才自动滚到最新; 用户上翻看历史时不打扰
     const box = logsBox.value;
     const stick = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 48;
     const r = await apiFetch(apiBase.value + API.logs);
     const d = await r.json();
+    if (seq !== logsSeq) return;
     logs.value = d.logs || [];
     if (stick) nextTick(() => { const b = logsBox.value; if (b) b.scrollTop = b.scrollHeight; });
   } catch (e) {}
@@ -5887,7 +6042,11 @@ function goDownload() {
 // 产品决策: 纯手动开启 —— 首次运行不注册登录项, 用户在 CC设置 打开开关才写 LaunchAgent/注册表。
 // (旧版首启静默注册会绑定当时执行的二进制路径: dev/DMG/移动应用位置后自启项即失效且无法自纠)
 const autostartOn = ref(false);
-const showAutostartTip = ref(false);   // 手动开启成功后的说明弹框(TCode 风格)
+const showAutostartTip = ref(false);
+// 弹层关闭瞬间补一次已读: 否则期间收到的消息会一直挂到下一条新消息/切页(审查 F3-14)
+watch(chatCovered, (cov, was) => {
+  if (was && !cov && atBottom.value) nextTick(() => markChatSeen());
+});   // 手动开启成功后的说明弹框(TCode 风格)
 async function refreshAutostart() {
   if (!isRealDesktop) return;
   try {
@@ -5917,6 +6076,7 @@ async function toggleAutostart() {
 /* ---------- 运行状态/IP 定期刷新: DHCP 换 IP 后地址栏/二维码/统计保持最新 ---------- */
 let lastLanIp = "";
 let statusFail = 0;
+let lastForbiddenMsg = "";   // 403(公网未开令牌)去重: 同一文案只 toast 一次, 成功后复位
 let statusRefreshing = false;   // 2.5s 定时器不等待上一次: 慢网下会叠 5 个在途并乱序覆盖
 let mobileReprobing = false;
 const offline = ref(false);   // 浏览器端与服务失联(服务停止/地址变更)
@@ -5930,9 +6090,27 @@ async function refreshStatus() {
   try {
     // 移动壳本机节点走 Tauri 命令: HTTP /api/info 出于安全不下发 PIN 码值,
     // 走 HTTP 会导致刚生成的令牌在下一轮轮询被清空、无法复制。
-    const d = (isRealDesktop || (mobileShell && isLocalAddr(serverAddr.value)))
-      ? await tauriInvoke("control_status_cmd")
-      : await (await apiFetch(apiBase.value + API.info, { signal: ctl.signal })).json();
+    let d;
+    if (isRealDesktop || (mobileShell && isLocalAddr(serverAddr.value))) {
+      d = await tauriInvoke("control_status_cmd");
+    } else {
+      const resp = await apiFetch(apiBase.value + API.info, { signal: ctl.signal });
+      if (resp.status === 403) {
+        // 公网来源且电脑端未开访问令牌: 服务其实可达, 但拒绝下发状态。
+        // 不计失联(否则无信号遮罩盖住真实原因), 把服务端文案提示一次, 避免每轮刷屏。
+        let msg = "";
+        try { const b = await resp.json(); msg = (b && b.error) || ""; } catch (_) {}
+        statusFail = 0;
+        offline.value = false;
+        if (lastForbiddenMsg !== msg) {
+          lastForbiddenMsg = msg;
+          showToast(msg || "公网地址访问需先在电脑端开启访问令牌", "error");
+        }
+        return;
+      }
+      d = await resp.json();
+    }
+    lastForbiddenMsg = "";
     if (epoch !== sessionEpoch) return;   // 旧电脑的状态不得覆盖新连接
     // 移动端本机节点: 本机码随状态下发(Tauri 可信通道), 自动用于后续请求;
     // 令牌轮换/服务重启后下一轮轮询即可恢复, 不会弹配对框。
@@ -6333,11 +6511,13 @@ async function refreshStatus() {
               </div>
               <div v-if="moreOpen" class="tx-more" @click.stop>
                 <button v-if="mobileShell" @click="openNick(); moreOpen = false">修改昵称</button>
-                <button v-if="isNarrow" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
+                <button v-if="isNarrow || mobileTabbed" @click="clearChatDisplay(); moreOpen = false">清空消息</button>
                 <button v-if="!isRealDesktop" @click="copyUrl(); moreOpen = false">复制地址</button>
                 <button v-if="!isRealDesktop" @click="openQr(); moreOpen = false">显示二维码</button>
                 <button v-if="mobileShell || (isRealDesktop && isNarrow)" @click="openManualSend(); moreOpen = false">手动发送</button>
                 <button v-if="!isDesktop" @click="installPwa(); moreOpen = false">安装到主屏幕</button>
+                <button v-if="!isDesktop" @click="moreOpen = false; checkUpdate(true)">检查更新 / 下载最新版</button>
+                <button v-if="!isRealDesktop" @click="moreOpen = false; openIntro()">软件介绍</button>
                 <button v-if="isRealDesktop && isNarrow" @click="setView('service'); moreOpen = false">服务中心</button>
               </div>
             </header>
@@ -6616,15 +6796,15 @@ async function refreshStatus() {
                 </div>
                 <div class="tx-finfo2" :class="{ 'mobile-tap': isNarrow }"
                      :role="isNarrow ? 'button' : undefined" :tabindex="isNarrow ? 0 : undefined"
-                     @click="mobileFileSelect ? toggleSel(f.name) : (isNarrow && openFileMenu(f.name))"
-                     @keydown.enter.prevent="mobileFileSelect ? toggleSel(f.name) : (isNarrow && openFileMenu(f.name))"
-                     @keydown.space.prevent="mobileFileSelect ? toggleSel(f.name) : (isNarrow && openFileMenu(f.name))">
+                     @click="mobileFileSelect ? toggleSel(f.name) : (filePanelIsSheet() && openFileMenu(f.name))"
+                     @keydown.enter.prevent="mobileFileSelect ? toggleSel(f.name) : (filePanelIsSheet() && openFileMenu(f.name))"
+                     @keydown.space.prevent="mobileFileSelect ? toggleSel(f.name) : (filePanelIsSheet() && openFileMenu(f.name))">
                   <div class="tx-fname2" :title="f.name">{{ f.name }}</div>
                   <div class="tx-fmeta2">{{ fmtSize(f.size) }} · {{ fmtTime(f.modified) }}</div>
                   <div v-if="mobileTabbed" class="m-pbar" aria-hidden="true"><i style="width:100%"></i></div>
                 </div>
                 <div class="tx-frow-acts">
-                  <button v-if="isNarrow" title="更多" :aria-label="'更多操作：' + f.name" @click="openFileMenu(f.name)">⋯</button>
+                  <button v-if="filePanelIsSheet()" title="更多" :aria-label="'更多操作：' + f.name" @click="openFileMenu(f.name)">⋯</button>
                   <template v-else>
                     <template v-if="isRealDesktop">
                       <button title="打开" aria-label="打开" @click="openFile(f.name)">
@@ -6658,7 +6838,7 @@ async function refreshStatus() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 删除选中 ({{ selectedCount }})
               </button>
-              <span v-else-if="isNarrow && pageFiles.length" class="tx-files-tip">{{ mobileTabbed ? "点文件打开操作" : "点文件或 ⋯ 操作" }}</span>
+              <span v-else-if="filePanelIsSheet() && pageFiles.length" class="tx-files-tip">{{ mobileTabbed ? "点文件打开操作" : "点文件或 ⋯ 操作" }}</span>
               <div class="tx-pg" v-if="totalPages > 1">
                 <button :disabled="currentPage === 1" @click="goPage(currentPage - 1)">‹</button>
                 <template v-for="(it, i) in pageItems" :key="i">
@@ -7010,7 +7190,7 @@ async function refreshStatus() {
         </span>
         <span v-else-if="petUploadError" class="qr-pet-drop-badge err" aria-hidden="true">!</span>
         <div class="qr-pet-drop-bottom" :class="{ err: !!petUploadError }">
-          {{ petUploadError ? petUploadError.slice(0, 18) : petUploadDone ? "列表已刷新" : petUploading ? `${petDropCount} 个文件 · ${petUploadPct}%` : `${petDropCount} 个文件` }}
+          {{ petUploadError ? clampChars(petUploadError, 18) : petUploadDone ? "列表已刷新" : petUploading ? `${petDropCount} 个文件 · ${petUploadPct}%` : `${petDropCount} 个文件` }}
         </div>
       </div>
       <div v-if="petCopied" class="qr-pet-copied" role="status">已复制 <b>访问地址</b></div>
@@ -7038,9 +7218,8 @@ async function refreshStatus() {
 
   <!-- 软件介绍页: 懒加载组件, 首次打开才下载对应 chunk -->
   <Transition name="intro">
-    <Intro v-if="(isDesktop || PREVIEW_MOBILE) && introShow"
+    <Intro v-if="introShow && !isQrPetWindow"
            :running="running" :share-url="shareUrl" :qr-data="qrData"
-           :copy-text="copyText" :open-external="openExternal"
            @close="closeIntro" @service="onIntroService" @transfer="onIntroTransfer" />
   </Transition>
 
@@ -7365,7 +7544,8 @@ async function refreshStatus() {
   </div>
 
   <!-- 配对弹框(网页端): 电脑端开启访问令牌保护后, 401 引导到此输入一次 -->
-  <div v-if="needPin" class="dialog-overlay">
+  <!-- 点遮罩 = 与「稍后再输入」同一 snooze 路径; 码仍生效时下一次请求会再度弹回 -->
+  <div v-if="needPin" class="dialog-overlay" @click.self="snoozePin">
     <div class="dialog-box pin-box">
       <div class="dialog-ic" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 018 0v3"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor" stroke="none"/><path d="M12 16.8v1.6"/></svg>
@@ -7384,7 +7564,8 @@ async function refreshStatus() {
   <div v-if="!isRealDesktop && offline" class="nosignal-overlay">
     <img class="ns-img" :src="noSignalImg" alt="无信号测试卡" />
     <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.9 9.9a10 10 0 0 1 14.2 0"/><path d="M7.8 13a6 6 0 0 1 8.4 0"/><path d="M10.6 16a2.2 2.2 0 0 1 2.8 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg> 无信号</h3>
-    <p class="ns-line">{{ mobileShell ? "与本机服务的连接已断开" : "与服务的连接已断开 —— 服务可能已停止，或电脑地址已变更" }}</p>
+    <!-- 文案分工: 标题=状态, line=原因, sub=下一步; 浏览器端保持每行单行不折 -->
+    <p class="ns-line">{{ mobileShell ? "与本机服务的连接已断开" : "服务可能已停止，或电脑地址已变更" }}</p>
     <p class="ns-sub">{{ mobileShell ? "本地服务可能正在重启，请稍候或点下方重试" : "请在电脑上查看最新地址后重新打开本页" }}</p>
     <button v-if="mobileShell" class="btn btn-primary" style="margin-top:18px" @click="retryMobileLocal">重新启动本机服务</button>
   </div>
