@@ -605,6 +605,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 发布步骤要用仓库内的 append-unsigned-notes.py, 且 gh 解析仓库依赖 git 上下文
+      # (2026-11-27 v1.3.0 第4轮实测: 无 checkout 时脚本 404、delete-asset 报 not a git repository)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: 发布 Release(草稿 → 正式)
         if: ${{ needs.desktop.result == 'success' && needs.android.result == 'success' }}
         env:
@@ -662,7 +666,7 @@ jobs:
             for w in $allowed; do [ "$a" = "$w" ] && keep=1; done
             if [ "$keep" = "0" ]; then
               echo "清理非必需资产: $a"
-              gh release delete-asset "${{ github.ref_name }}" "$a" --yes || true
+              gh release delete-asset "${{ github.ref_name }}" "$a" --repo "${{ github.repository }}" --yes || true
             fi
           done
           if [ -n "$missing" ]; then
