@@ -294,6 +294,12 @@ if [ "${FORCE_TAG:-0}" = "1" ]; then
   git push origin ":refs/tags/v$TAG_VERSION" >/dev/null 2>&1 \
     || gh api -X DELETE "repos/$REPO/git/refs/tags/v$TAG_VERSION" >/dev/null 2>&1 \
     || { echo "✘ 删除远端旧 tag 失败，请手动处理"; exit 1; }
+  # 删后复核: 输出被吞掉时"假成功"会让后续 push 全程 already exists
+  # (2026-11-27 v1.3.0 重发实测踩坑), 这里 fail-loud
+  if git ls-remote --tags origin "refs/tags/v$TAG_VERSION" | grep -q .; then
+    echo "✘ 远端 tag v$TAG_VERSION 仍存在(删除未生效), 中止以免打出错位 tag"
+    exit 1
+  fi
 fi
 if push_retry "v$TAG_VERSION"; then
   echo "✔ 标签已推送, 应已触发构建"
