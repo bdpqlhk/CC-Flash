@@ -668,18 +668,9 @@ jobs:
               exit 1
             fi
             # 确定性替换: 先删除历次自动追加的说明块(--- 引导、首行含"未签名/未公证构建"
-            # 的连续引用行), 再写入现行文案 —— 关键词 grep 跳过会把旧版错误文案永久保留
-            python3 - "$notes" <<'PYEOF'
-import re, sys
-p = sys.argv[1]
-s = open(p, encoding="utf-8").read()
-pat = re.compile(r"\n*---\n+\n*> ?未签名/未公证构建[^\n]*\n(?:> ?[^\n]*\n?)*")
-s = pat.sub("\n", s).rstrip("\n")
-s += "\n\n---\n\n"
-s += "> 未签名/未公证构建：macOS 首次打开请右键 → 打开；Windows 若出现 SmartScreen，请选择“更多信息 → 仍要运行”。\n"
-s += "> 此版本标记为 prerelease：更新检查（自动与手动）仍会显示此版本并标注未签名/预发布风险，请自行确认后再下载。\n"
-open(p, "w", encoding="utf-8").write(s)
-PYEOF
+            # 的连续引用行), 再写入现行文案 —— 关键词 grep 跳过会把旧版错误文案永久保留。
+            # 脚本独立成文件: 内嵌 heredoc 的正文会破坏 YAML 缩进(实测 v1.3.0 首跑 parse 失败)
+            python3 scripts/append-unsigned-notes.py "$notes"
             gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --notes-file "$notes"
             # 公开但标记 prerelease: 更新检查(自动与手动)都会显示该版本并标注风险, 由用户决定是否下载
             gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --prerelease

@@ -66,7 +66,7 @@ if [ -n "$remote_tag" ]; then
   fi
   rm -f "$draft_err"
   FORCE_TAG=1
-  echo "⚠ FORCE_REPUBLISH=1: 允许重发 v$TAG_VERSION（稍后删除远端旧 tag）"
+  echo "⚠ FORCE_REPUBLISH=1: 允许重发 v${TAG_VERSION}（稍后删除远端旧 tag）"
 fi
 
 BRANCH="$(git branch --show-current)"
@@ -290,7 +290,7 @@ push_retry() {
 push_retry "$BRANCH" || { echo "✘ $BRANCH 推送失败, 网络恢复后手动执行: git push origin $BRANCH"; exit 1; }
 
 if [ "${FORCE_TAG:-0}" = "1" ]; then
-  echo "删除远端旧 tag v$TAG_VERSION，以重新触发构建..."
+  echo "删除远端旧 tag v${TAG_VERSION}，以重新触发构建..."
   git push origin ":refs/tags/v$TAG_VERSION" >/dev/null 2>&1 \
     || gh api -X DELETE "repos/$REPO/git/refs/tags/v$TAG_VERSION" >/dev/null 2>&1 \
     || { echo "✘ 删除远端旧 tag 失败，请手动处理"; exit 1; }
