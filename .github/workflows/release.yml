@@ -255,6 +255,7 @@ jobs:
       # 重跑 desktop job 会复用已公开 Release 并 delete/replace 其资产,
       # 绕过"desktop+android 全绿才发布"的承诺(审查 B3-2)
       - name: 确认 Release 尚未公开(防止重跑已发布 tag 篡改线上资产)
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -321,7 +322,7 @@ jobs:
             Windows)
               exe=$(find src-tauri/target -name "*-setup.exe" -type f | head -1)
               [ -n "$exe" ] || { echo "::error::未找到 NSIS exe"; exit 1; }
-              powershell -NoProfile -Command "\$v=(Get-Item '$exe').VersionInfo; Write-Host "FileVersion=\$(\$v.FileVersion) ProductVersion=\$(\$v.ProductVersion)"; if (\$(\$v.FileVersion) -notlike '$base*') { Write-Error "FileVersion 不匹配期望 $base*"; exit 1 }"
+              powershell -NoProfile -Command "& { \$v=(Get-Item '$exe').VersionInfo; Write-Host ('FileVersion=' + \$v.FileVersion); if (\$(\$v.FileVersion) -notlike '$base*') { Write-Host '版本不匹配'; exit 1 } }"
               echo "Windows 版本断言通过"
               ;;
           esac
